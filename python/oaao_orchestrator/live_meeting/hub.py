@@ -14,6 +14,10 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from oaao_orchestrator.live_meeting.audio_store import SegmentWriter
+from oaao_orchestrator.live_meeting.bubble_engine import (
+    cadence_interval_sec,
+    extract_bubbles,
+)
 from oaao_orchestrator.live_meeting.dashscope_asr_stream import (
     DashscopeRealtimeAsrBridge,
     create_and_start_bridge,
@@ -27,6 +31,8 @@ from oaao_orchestrator.live_meeting.session import LiveMeetingSession, live_meet
 from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_stream
 from oaao_orchestrator.streaming.events import (
     KIND_ERROR,
+    KIND_LIVE_BUBBLE,
+    KIND_LIVE_PHASE,
     KIND_LIVE_TRANSCRIPT,
     PHASE_LIVE,
     StreamEnvelope,
@@ -39,6 +45,7 @@ _writers: dict[str, SegmentWriter] = {}
 _asr_tasks: dict[str, set[asyncio.Task[Any]]] = {}
 _bridges: dict[str, DashscopeRealtimeAsrBridge] = {}
 _partial_seq: dict[str, int] = {}
+_last_bubble_emit: dict[str, float] = {}
 
 
 @dataclass
@@ -138,6 +145,13 @@ async def _emit_live_transcript(session_id: str, text: str, *, is_final: bool) -
             session,
             {"segment": seg_key, "text": text, "is_final": True, "ts": ts, "source": "dashscope_stream"},
         )
+        runtime = _runtime.get(session_id)
+        if runtime is not None and text.strip():
+            if runtime.carry_prompt:
+                runtime.carry_prompt = f"{runtime.carry_prompt}\n{text}"[-800:]
+            else:
+                runtime.carry_prompt = text[:800]
+            await _maybe_emit_bubbles(session_id)
 
     await hub.append(
         StreamEnvelope(
@@ -269,6 +283,60 @@ async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index
         segment_index,
         len(text),
     )
+    await _maybe_emit_bubbles(session_id)
+
+
+async def _maybe_emit_bubbles(session_id: str, *, force: bool = False) -> None:
+    runtime = _runtime.get(session_id)
+    if runtime is None:
+        return
+    now = time.time()
+    interval = cadence_interval_sec(runtime.session.cadence)
+    last = _last_bubble_emit.get(session_id, 0.0)
+    if not force and now - last < interval:
+        return
+    text = (runtime.carry_prompt or "").strip()
+    if len(text) < 8:
+        return
+    bubbles = extract_bubbles(text, runtime.glossary)
+    if not bubbles:
+        return
+    _last_bubble_emit[session_id] = now
+    hub = get_live_stream(session_id)
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_PHASE,
+            text="extracting",
+            payload={"live_phase": "thinking"},
+        )
+    )
+    for bubble in bubbles:
+        label = str(bubble.get("text") or "").strip()
+        if not label:
+            continue
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_LIVE_BUBBLE,
+                text=label,
+                payload=bubble,
+            )
+        )
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_PHASE,
+            text="idle",
+            payload={"live_phase": "idle"},
+        )
+    )
+    logger.info(
+        "live_meeting bubbles_emitted id=%s count=%s cadence=%s",
+        session_id,
+        len(bubbles),
+        runtime.session.cadence,
+    )
 
 
 def _on_segment_closed(session_id: str, pcm_path: Path, segment_index: int) -> None:
@@ -290,7 +358,7 @@ def _writer_for(session: LiveMeetingSession) -> SegmentWriter:
     return SegmentWriter(session.audio_dir, on_segment_closed=_closed)
 
 
-def stop_session(session_id: str, *, keep_audio: bool) -> bool:
+async def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     session = get_session(session_id)
     if session is None:
         return False
@@ -298,6 +366,7 @@ def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     if bridge is not None:
         await bridge.close()
     _partial_seq.pop(session_id, None)
+    _last_bubble_emit.pop(session_id, None)
     writer = _writers.pop(session_id, None)
     if writer is not None:
         writer.close()
@@ -357,6 +426,10 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
                     continue
                 if isinstance(payload, dict) and payload.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
+                    continue
+                if isinstance(payload, dict) and payload.get("type") == "bubble_request":
+                    await _maybe_emit_bubbles(sid, force=True)
+                    await websocket.send_text(json.dumps({"type": "bubble_ack"}))
     except WebSocketDisconnect:
         pass
     finally:

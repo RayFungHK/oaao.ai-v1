@@ -33,3 +33,7 @@
 .oaao-live-meeting-root [data-oaao-live-meeting="keep-audio-wrap"].is-visible {
     display: inline-flex;
 }
+
+.oaao-live-meeting-root .oaao-live-bubble-chip[data-oaao-live-bubble-type="question"] {
+    border-color: var(--grid-accent, #2563eb);
+}

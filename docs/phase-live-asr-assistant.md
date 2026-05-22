@@ -1,6 +1,6 @@
 # Phase Plan — Live ASR Assistant
 
-> **Status**: Phase B in progress (2026-05-21) — WS PCM uplink + segment disk; ASR/SSE transcript in Phase C  
+> **Status**: M1 complete; **M2 Phase A** (2026-05-19) — cadence-gated `live_bubble` SSE + panel chips; RAG/materials deferred  
 > **Goal**: New workspace page for **live meeting copilot** — streaming ASR subtitles first; bubbles, RAG, and materials in later phases.  
 > **Rule**: Long-lived connections (WebSocket uplink audio, SSE downlink events) terminate **only** in Python orchestrator; PHP handles sessions, ACL, and disk paths.
 
@@ -34,12 +34,17 @@
 
 **M1 acceptance**: Mic on → scrolling transcript within **10s**; Network shows **WS uplink** and **SSE downlink**; stop respects keep-audio vs TTL.
 
-### M2 — Copilot loop (preview)
+### M2 — Copilot loop (in progress)
 
-- SSE: `live_bubble`, `live_stats`, `live_materials`, `live_insight_delta`, `live_phase`
-- Purpose `live_meeting.*` for bubble / question generation
-- Manual bubble → RAG + Materials Dialog (chat `task-materials-dialog` patterns)
-- Cadence profiles in session `meta.json`
+| Shipped (Phase A) | Next |
+|-------------------|------|
+| SSE `live_bubble` + `live_phase` (thinking/idle) | `live_stats`, `live_materials`, `live_insight_delta` |
+| `bubble_engine.py` — glossary + question heuristics | Purpose `live_meeting.*` LLM bubbles |
+| Cadence gate (`debate` 8s / `1v1` 20s / `meeting` 60s) | Vault/chat RAG on bubble click |
+| WS `{ type: bubble_request }` force refresh | Materials Dialog |
+
+- Manual bubble click → RAG + Materials Dialog (chat `task-materials-dialog` patterns) — **stub status line only**
+- Cadence profiles in session `meta.json` (from `session_start` `cadence`)
 
 ### M3 — Wrap-up
 

@@ -20,6 +20,10 @@
     </header>
     <div class="flex flex-1 min-h-0 flex-col gap-2 p-4 overflow-hidden">
         <div data-oaao-live-meeting="connections" class="text-xs font-mono fg-[var(--grid-ink-muted)] min-h-[1.25rem]" aria-live="polite"></div>
+        <div data-oaao-live-meeting="bubbles-wrap" class="hidden shrink-0 flex-col gap-1" aria-live="polite">
+            <span class="text-xs font-medium fg-[var(--grid-ink-muted)]" data-i18n="live_meeting.bubbles.label">Suggestions</span>
+            <div data-oaao-live-meeting="bubbles" class="flex flex-wrap gap-2 min-h-[2rem]"></div>
+        </div>
         <div data-oaao-live-meeting="transcript"
             class="oaao-live-transcript flex-1 min-h-0 overflow-y-auto overscroll-contain rounded-xl border border-[var(--grid-line)] bg-[var(--grid-panel-bright)] p-4 text-sm leading-relaxed whitespace-pre-wrap fg-[var(--grid-ink)]"
             aria-live="polite">

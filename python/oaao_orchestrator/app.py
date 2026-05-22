@@ -1072,7 +1072,7 @@ async def live_session_stop(
     sid = (req.session_id or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="session_id required")
-    if not stop_session(sid, keep_audio=bool(req.keep_audio)):
+    if not await stop_session(sid, keep_audio=bool(req.keep_audio)):
         raise HTTPException(status_code=404, detail="unknown_session")
     return {"ok": True, "session_id": sid, "keep_audio": bool(req.keep_audio)}
 

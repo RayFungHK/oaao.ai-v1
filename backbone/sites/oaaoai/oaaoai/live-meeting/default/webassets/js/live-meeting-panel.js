@@ -74,6 +74,8 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
     const statusEl = mount.querySelector('[data-oaao-live-meeting="status"]');
     const connEl = mount.querySelector('[data-oaao-live-meeting="connections"]');
     const transcriptEl = mount.querySelector('[data-oaao-live-meeting="transcript"]');
+    const bubblesWrapEl = mount.querySelector('[data-oaao-live-meeting="bubbles-wrap"]');
+    const bubblesEl = mount.querySelector('[data-oaao-live-meeting="bubbles"]');
     const micBtn = mount.querySelector('[data-oaao-live-meeting="mic"]');
     const keepWrap = mount.querySelector('[data-oaao-live-meeting="keep-audio-wrap"]');
     const keepInput = mount.querySelector('[data-oaao-live-meeting="keep-audio"]');
@@ -133,6 +135,50 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         transcriptEl.scrollTop = transcriptEl.scrollHeight;
     };
 
+    /** @type {Set<string>} */
+    const seenBubbleIds = new Set();
+
+    const addBubbleChip = (payload) => {
+        if (!bubblesEl || !payload?.text) return;
+        const bubbleId = String(payload.payload?.bubble_id || payload.text || '').trim();
+        if (bubbleId && seenBubbleIds.has(bubbleId)) return;
+        if (bubbleId) seenBubbleIds.add(bubbleId);
+        if (bubblesWrapEl instanceof HTMLElement) {
+            bubblesWrapEl.classList.remove('hidden');
+            bubblesWrapEl.classList.add('flex');
+        }
+        const type = String(payload.payload?.bubble_type || 'keyword');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className =
+            'oaao-live-bubble-chip inline-flex max-w-full items-center rounded-full border border-[var(--grid-line)] bg-[var(--grid-panel)] px-3 py-1 text-xs fg-[var(--grid-ink)] cursor-pointer hover:bg-[var(--grid-panel-bright)]';
+        btn.dataset.oaaoLiveBubbleType = type;
+        if (bubbleId) btn.dataset.oaaoLiveBubbleId = bubbleId;
+        btn.textContent = String(payload.text);
+        btn.title =
+            type === 'question' ? t('live_meeting.bubble.question_hint') : t('live_meeting.bubble.keyword_hint');
+        btn.addEventListener(
+            'click',
+            () => {
+                setStatus('live_meeting.status.bubble_selected');
+                if (uplink?.requestBubble) {
+                    uplink.requestBubble();
+                }
+            },
+            { signal },
+        );
+        bubblesEl.append(btn);
+    };
+
+    const clearBubbles = () => {
+        seenBubbleIds.clear();
+        if (bubblesEl) bubblesEl.textContent = '';
+        if (bubblesWrapEl instanceof HTMLElement) {
+            bubblesWrapEl.classList.add('hidden');
+            bubblesWrapEl.classList.remove('flex');
+        }
+    };
+
     const appendErrorLine = (text) => {
         if (!transcriptEl) return;
         hideEmptyPlaceholder();
@@ -170,6 +216,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             transcriptEl.querySelectorAll('.oaao-live-transcript-line').forEach((n) => n.remove());
             showEmptyPlaceholder();
         }
+        clearBubbles();
         sessionId = '';
     };
 
@@ -213,6 +260,18 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                 if (!payload) return;
                 if (payload.kind === 'live_transcript') {
                     upsertTranscriptLine(payload);
+                    return;
+                }
+                if (payload.kind === 'live_bubble') {
+                    addBubbleChip(payload);
+                    return;
+                }
+                if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'thinking') {
+                    setStatus('live_meeting.status.analyzing');
+                    return;
+                }
+                if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'idle') {
+                    if (sessionId) setStatus('live_meeting.status.recording');
                     return;
                 }
                 if (payload.phase === 'system' && payload.kind === 'status') {

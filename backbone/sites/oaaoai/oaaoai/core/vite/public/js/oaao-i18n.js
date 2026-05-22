@@ -51,6 +51,11 @@ const OAAO_I18N_BASE = {
         'live_meeting.error.asr_not_configured': 'Speech recognition is not configured (Settings → ASR)',
         'live_meeting.error.session_start': 'Could not start live session',
         'live_meeting.transcript.empty': 'Transcript will appear here while you speak.',
+        'live_meeting.bubbles.label': 'Suggestions',
+        'live_meeting.bubble.keyword_hint': 'Keyword — tap to refresh suggestions',
+        'live_meeting.bubble.question_hint': 'Question — tap to refresh suggestions',
+        'live_meeting.status.analyzing': 'Analyzing transcript…',
+        'live_meeting.status.bubble_selected': 'Suggestion selected (RAG in next phase)',
 
         // Settings nav (embedded registry)
         'settings.nav.endpoints.label': 'Endpoints',
@@ -534,6 +539,11 @@ const OAAO_I18N_BASE = {
         'live_meeting.error.asr_not_configured': '未設定語音辨識（設定 → ASR）',
         'live_meeting.error.session_start': '無法啟動即時會議',
         'live_meeting.transcript.empty': '開始說話後，轉寫內容會顯示於此。',
+        'live_meeting.bubbles.label': '建議',
+        'live_meeting.bubble.keyword_hint': '關鍵字 — 點擊可重新擷取建議',
+        'live_meeting.bubble.question_hint': '問題 — 點擊可重新擷取建議',
+        'live_meeting.status.analyzing': '分析轉寫中…',
+        'live_meeting.status.bubble_selected': '已選建議（RAG 於下階段）',
 
         'settings.nav.endpoints.label': '端點',
         'settings.nav.endpoints.title': 'LLM 端點',
