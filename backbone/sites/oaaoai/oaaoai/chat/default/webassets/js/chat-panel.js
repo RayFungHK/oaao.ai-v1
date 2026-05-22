@@ -7004,8 +7004,10 @@ function formatAssistantRunMetaLine(meta) {
  *
  * @param {Record<string, unknown> | null | undefined} turnScore
  */
-function formatAssistantTurnScoreLine(turnScore) {
-    if (!turnScore || typeof turnScore !== 'object') return '';
+function formatAssistantTurnScoreLine(turnScore, { pending = false } = {}) {
+    if (!turnScore || typeof turnScore !== 'object') {
+        return pending ? 'Scoring…' : '';
+    }
     const parts = [];
     const iqs = Number(turnScore.iqs);
     const accs = Number(turnScore.accs);
@@ -7015,16 +7017,57 @@ function formatAssistantTurnScoreLine(turnScore) {
     if (Number.isFinite(accs) && accs > 0) {
         parts.push(`ACCS ${accs.toFixed(2)}`);
     }
+    if (parts.length === 0) {
+        return pending ? 'Scoring…' : '';
+    }
+    if (pending && parts.length < 2) {
+        parts.push('…');
+    }
     return parts.join(' · ');
+}
+
+/**
+ * @param {unknown} reasons
+ * @param {unknown} dims
+ * @param {string} label
+ */
+function appendTurnScoreTooltipSection(lines, label, reasons, dims) {
+    if (Array.isArray(reasons) && reasons.length > 0) {
+        const text = reasons.map((r) => String(r).trim()).filter(Boolean).join('; ');
+        if (text) lines.push(`${label}: ${text}`);
+    } else if (reasons && typeof reasons === 'object') {
+        const text = Object.entries(/** @type {Record<string, unknown>} */ (reasons))
+            .map(([k, v]) => `${k}: ${String(v).trim()}`)
+            .filter((s) => s.length > 3)
+            .join('; ');
+        if (text) lines.push(`${label}: ${text}`);
+    }
+    if (dims && typeof dims === 'object' && !Array.isArray(dims)) {
+        const text = Object.entries(/** @type {Record<string, unknown>} */ (dims))
+            .map(([k, v]) => `${k}=${v}`)
+            .join(', ');
+        if (text) lines.push(`${label} dims: ${text}`);
+    }
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} turnScore
+ */
+function formatAssistantTurnScoreTooltip(turnScore) {
+    if (!turnScore || typeof turnScore !== 'object') return '';
+    const lines = [];
+    appendTurnScoreTooltipSection(lines, 'IQS', turnScore.iqs_reasons, turnScore.iqs_dims);
+    appendTurnScoreTooltipSection(lines, 'ACCS', turnScore.accs_reasons, turnScore.accs_dims);
+    return lines.join('\n');
 }
 
 /**
  * @param {HTMLElement} outer
  * @param {Record<string, unknown> | null | undefined} turnScore
  */
-function applyAssistantTurnScoreToRow(outer, turnScore) {
+function applyAssistantTurnScoreToRow(outer, turnScore, { pending = false } = {}) {
     if (!outer) return;
-    const line = formatAssistantTurnScoreLine(turnScore);
+    const line = formatAssistantTurnScoreLine(turnScore, { pending });
     let el = outer.querySelector('[data-oaao-chat="turn-score"]');
     if (!line) {
         el?.remove();
@@ -7049,6 +7092,54 @@ function applyAssistantTurnScoreToRow(outer, turnScore) {
         }
     }
     el.textContent = line;
+    const tip = formatAssistantTurnScoreTooltip(turnScore);
+    if (tip) {
+        el.title = tip;
+    } else {
+        el.removeAttribute('title');
+    }
+    if (pending) {
+        el.dataset.oaaoTurnScorePending = '1';
+    } else {
+        delete el.dataset.oaaoTurnScorePending;
+    }
+}
+
+/**
+ * Poll canonical turn scores after stream end (workers run post-{@code system/end}).
+ *
+ * @param {number} conversationId
+ * @param {number} assistantMessageId
+ */
+async function pollAssistantTurnScoreInPlace(conversationId, assistantMessageId) {
+    const cid = Number(conversationId);
+    const mid = coercePositiveInt(assistantMessageId);
+    if (!Number.isFinite(cid) || cid < 1 || mid === null) return;
+
+    const host = document.querySelector('[data-oaao-chat="messages"]');
+    const maxAttempts = 25;
+    const intervalMs = 2000;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (activeConversationId !== cid) return;
+        if (attempt > 0) {
+            await new Promise((resolve) => {
+                window.setTimeout(resolve, intervalMs);
+            });
+        }
+        const bubble = host?.querySelector(`[data-oaao-msg-id="${mid}"]`);
+        const outer = bubble?.closest('.oaao-chat-assistant-row');
+        if (!(outer instanceof HTMLElement)) return;
+
+        const map = await loadTurnScoresForConversation(cid);
+        const row = map.get(mid);
+        const iqs = row ? Number(row.iqs) : 0;
+        const accs = row ? Number(row.accs) : 0;
+        const complete =
+            Number.isFinite(iqs) && iqs > 0 && Number.isFinite(accs) && accs > 0;
+        applyAssistantTurnScoreToRow(outer, row ?? null, { pending: !complete });
+        if (complete) return;
+    }
 }
 
 /**
@@ -9172,6 +9263,9 @@ export async function mountShellPanel(mount) {
                 }
             } else {
                 await loadMessages(conversationId, 'auto');
+            }
+            if (streamingMsgId && streamingMsgId > 0) {
+                void pollAssistantTurnScoreInPlace(conversationId, streamingMsgId);
             }
         }
     }

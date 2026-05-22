@@ -1,6 +1,6 @@
 # Phase Plan — IQS / ACCS (Post-Stream Queue)
 
-> **Status**: Phase 4 wired (2026-05-19) — `GET turn_scores` + chat thread UI line; optional SSE telemetry deferred  
+> **Status**: Phase 4.5 wired (2026-05-19) — post-stream in-place poll + tooltip; SSE telemetry still deferred  
 > **Goal**: After each assistant reply completes, enqueue **non-blocking** quality jobs (`iqs`, `accs`) that score the turn and persist to `oaao_turn_score`.  
 > **Scheme**: Python orchestrator only (scheme **B** in `docs/MIGRATION_LEGACY_OAAO.md`); PHP provides internal persist API + Purpose `uiqe.*` routing.
 
@@ -152,7 +152,9 @@ sequenceDiagram
 |------|-------|
 | Read API | `GET /chat/api/turn_scores?conversation_id=` — scores include `assistant_message_id` |
 | Chat UI | `chat-panel.js` loads scores with messages; shows `IQS · ACCS` under assistant bubbles |
-| SSE telemetry | Deferred — poll via reload / `loadMessages` after workers finish |
+| SSE telemetry | Deferred — same-run SSE closed at `system/end` |
+| Post-stream poll | `chat-panel.js` `pollAssistantTurnScoreInPlace` (~50s, 2s interval) after stream |
+| Score tooltip | `title` from `iqs_reasons` / `accs_reasons` + dims when present |
 | Settings | Confirm `pa-uiqe` allocation documented in endpoints admin |
 
 ---
