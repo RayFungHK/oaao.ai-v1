@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ class SegmentWriter:
         audio_dir: Path,
         *,
         segment_seconds: int = DEFAULT_SEGMENT_SECONDS,
+        on_segment_closed: Callable[[Path, int], None] | None = None,
     ) -> None:
         self._dir = audio_dir
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -32,13 +34,27 @@ class SegmentWriter:
         self._path: Path | None = None
         self._bytes_in_segment = 0
         self._total_bytes = 0
+        self._on_segment_closed = on_segment_closed
 
     @property
     def total_bytes(self) -> int:
         return self._total_bytes
 
+    def _emit_segment_closed(self) -> None:
+        if (
+            self._on_segment_closed is None
+            or self._path is None
+            or self._bytes_in_segment <= 0
+        ):
+            return
+        try:
+            self._on_segment_closed(self._path, self._index)
+        except Exception:  # noqa: BLE001
+            logger.exception("live_meeting on_segment_closed failed path=%s", self._path)
+
     def _open_next_segment(self) -> None:
         if self._fh is not None:
+            self._emit_segment_closed()
             self._fh.close()
             self._fh = None
         self._index += 1
@@ -69,6 +85,7 @@ class SegmentWriter:
 
     def close(self) -> None:
         if self._fh is not None:
+            self._emit_segment_closed()
             self._fh.close()
             self._fh = None
         logger.info(

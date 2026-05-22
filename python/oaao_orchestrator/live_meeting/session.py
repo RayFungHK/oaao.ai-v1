@@ -31,6 +31,7 @@ class LiveMeetingSession:
     workspace_id: int | None = None
     user_id: int | None = None
     status: str = "active"
+    asr_cfg: dict[str, Any] | None = None
 
     @property
     def session_dir(self) -> Path:
@@ -61,6 +62,13 @@ class LiveMeetingSession:
             "status": self.status,
             "created_at": int(time.time()),
         }
+        if isinstance(self.asr_cfg, dict) and self.asr_cfg:
+            payload["asr"] = {
+                "purpose_key": self.asr_cfg.get("purpose_key"),
+                "model": self.asr_cfg.get("model"),
+                "provider": self.asr_cfg.get("provider"),
+                "mode": self.asr_cfg.get("mode") or self.asr_cfg.get("asr_mode"),
+            }
         self.meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @classmethod

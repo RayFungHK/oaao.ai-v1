@@ -1,21 +1,48 @@
-"""In-memory session registry — WS audio ingest + SSE broadcast (ASR in Phase C)."""
+"""In-memory session registry — WS audio ingest, segment ASR, SSE broadcast."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import secrets
+import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from oaao_orchestrator.live_meeting.audio_store import SegmentWriter
+from oaao_orchestrator.live_meeting.qwen_asr_stream import (
+    is_streaming_asr_mode,
+    transcribe_live_pcm_segment,
+)
 from oaao_orchestrator.live_meeting.session import LiveMeetingSession, live_meeting_root, new_session_id
+from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_stream
+from oaao_orchestrator.streaming.events import (
+    KIND_ERROR,
+    KIND_LIVE_TRANSCRIPT,
+    PHASE_LIVE,
+    StreamEnvelope,
+)
 
 logger = logging.getLogger(__name__)
 
 _active: dict[str, LiveMeetingSession] = {}
 _writers: dict[str, SegmentWriter] = {}
+_asr_tasks: dict[str, set[asyncio.Task[Any]]] = {}
+
+
+@dataclass
+class _SessionRuntime:
+    session: LiveMeetingSession
+    asr_cfg: dict[str, Any] | None
+    glossary: dict[str, Any] | None
+    carry_prompt: str = ""
+
+
+_runtime: dict[str, _SessionRuntime] = {}
 
 
 def create_session(
@@ -24,6 +51,8 @@ def create_session(
     retention_mode: str = "disk_ttl",
     workspace_id: int | None = None,
     user_id: int | None = None,
+    asr_cfg: dict[str, Any] | None = None,
+    glossary: dict[str, Any] | None = None,
 ) -> LiveMeetingSession:
     root = live_meeting_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -35,10 +64,22 @@ def create_session(
         retention_mode=(retention_mode or "disk_ttl").strip() or "disk_ttl",
         workspace_id=workspace_id,
         user_id=user_id,
+        asr_cfg=asr_cfg,
     )
     session.ensure_dirs()
     session.write_meta()
     _active[session.session_id] = session
+    _runtime[session.session_id] = _SessionRuntime(
+        session=session,
+        asr_cfg=asr_cfg if isinstance(asr_cfg, dict) else None,
+        glossary=glossary if isinstance(glossary, dict) else None,
+    )
+    get_live_stream(session.session_id)
+    if is_streaming_asr_mode(asr_cfg):
+        logger.info(
+            "live_meeting streaming ASR mode requested id=%s — segment batch fallback until WS wired",
+            session.session_id,
+        )
     logger.info("live_meeting session_created id=%s workspace_id=%s", session.session_id, workspace_id)
     return session
 
@@ -55,6 +96,121 @@ def get_session(session_id: str) -> LiveMeetingSession | None:
     return loaded
 
 
+def _track_asr_task(session_id: str, task: asyncio.Task[Any]) -> None:
+    bucket = _asr_tasks.setdefault(session_id, set())
+    bucket.add(task)
+
+    def _done(t: asyncio.Task[Any]) -> None:
+        bucket.discard(t)
+
+    task.add_done_callback(_done)
+
+
+def _append_transcript_line(session: LiveMeetingSession, record: dict[str, Any]) -> None:
+    line = json.dumps(record, ensure_ascii=False)
+    with session.transcript_path.open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+
+
+async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index: int) -> None:
+    runtime = _runtime.get(session_id)
+    session = get_session(session_id)
+    if session is None or runtime is None:
+        return
+
+    hub = get_live_stream(session_id)
+    if not runtime.asr_cfg:
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_ERROR,
+                text="asr_not_configured",
+                payload={"segment": segment_index},
+            )
+        )
+        return
+
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind="status",
+            text=f"transcribing_segment_{segment_index}",
+            payload={"segment": segment_index},
+        )
+    )
+
+    text, err = await transcribe_live_pcm_segment(
+        pcm_path=pcm_path,
+        asr_cfg=runtime.asr_cfg,
+        glossary=runtime.glossary,
+    )
+    if err or not text:
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_ERROR,
+                text=err or "asr_empty_transcript",
+                payload={"segment": segment_index},
+            )
+        )
+        logger.warning(
+            "live_meeting segment_asr_failed id=%s seg=%s err=%s",
+            session_id,
+            segment_index,
+            err,
+        )
+        return
+
+    ts = int(time.time())
+    _append_transcript_line(
+        session,
+        {
+            "segment": segment_index,
+            "text": text,
+            "is_final": True,
+            "ts": ts,
+        },
+    )
+    if runtime.carry_prompt:
+        runtime.carry_prompt = f"{runtime.carry_prompt}\n{text}"[-800:]
+    else:
+        runtime.carry_prompt = text[:800]
+
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_TRANSCRIPT,
+            text=text,
+            payload={"is_final": True, "segment": segment_index, "ts": ts},
+        )
+    )
+    logger.info(
+        "live_meeting segment_transcribed id=%s seg=%s chars=%s",
+        session_id,
+        segment_index,
+        len(text),
+    )
+
+
+def _on_segment_closed(session_id: str, pcm_path: Path, segment_index: int) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.warning("live_meeting segment_closed without event loop id=%s", session_id)
+        return
+    task = loop.create_task(_process_closed_segment(session_id, pcm_path, segment_index))
+    _track_asr_task(session_id, task)
+
+
+def _writer_for(session: LiveMeetingSession) -> SegmentWriter:
+    sid = session.session_id
+
+    def _closed(path: Path, index: int) -> None:
+        _on_segment_closed(sid, path, index)
+
+    return SegmentWriter(session.audio_dir, on_segment_closed=_closed)
+
+
 def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     session = get_session(session_id)
     if session is None:
@@ -62,6 +218,11 @@ def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     writer = _writers.pop(session_id, None)
     if writer is not None:
         writer.close()
+    for task in list(_asr_tasks.pop(session_id, set())):
+        if not task.done():
+            task.cancel()
+    _runtime.pop(session_id, None)
+    drop_live_stream(session_id)
     session.mark_stopped(keep_audio=keep_audio)
     if not keep_audio:
         import shutil
@@ -86,7 +247,7 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     writer = _writers.get(sid)
     if writer is None:
-        writer = SegmentWriter(session.audio_dir)
+        writer = _writer_for(session)
         _writers[sid] = writer
 
     frames = 0
@@ -119,6 +280,16 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
         )
 
 
+async def subscribe_live_stream(session_id: str, *, since_seq: int = 0):
+    """Async iterator of SSE chunks for ``GET /v1/live/{id}/stream``."""
+    session = get_session(session_id)
+    if session is None:
+        return
+    hub = get_live_stream(session_id)
+    async for chunk in hub.subscribe(since_seq):
+        yield chunk
+
+
 def public_urls(session_id: str, *, public_base: str) -> dict[str, str]:
     base = (public_base or "").rstrip("/")
     token = secrets.token_hex(16)
@@ -136,15 +307,22 @@ def session_start_payload(
     workspace_id: int | None,
     user_id: int | None,
     public_base: str,
+    asr_cfg: dict[str, Any] | None = None,
+    glossary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     session = create_session(
         cadence=cadence,
         retention_mode=retention_mode,
         workspace_id=workspace_id,
         user_id=user_id,
+        asr_cfg=asr_cfg,
+        glossary=glossary,
     )
     urls = public_urls(session.session_id, public_base=public_base)
-    return {
+    out: dict[str, Any] = {
         "session_id": session.session_id,
         **urls,
     }
+    if asr_cfg:
+        out["asr_configured"] = True
+    return out

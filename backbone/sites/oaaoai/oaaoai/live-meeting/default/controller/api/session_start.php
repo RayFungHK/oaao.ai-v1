@@ -26,12 +26,39 @@ return function (): void {
     $wid = isset($input['workspace_id']) ? (int) $input['workspace_id'] : 0;
     $uid = (int) ($user->user_id ?? 0);
 
-    $orch = LiveMeetingOrchestrator::sessionStart([
+    $orchPayload = [
         'cadence'         => $cadence,
         'retention_mode'  => $retention,
         'workspace_id'    => $wid > 0 ? $wid : null,
         'user_id'         => $uid,
-    ]);
+    ];
+
+    $authApi = $this->api('auth');
+    $canonDb = $authApi ? $authApi->getDB() : null;
+    if ($canonDb instanceof \Razy\Database) {
+        require_once dirname(__DIR__, 4) . '/endpoints/default/library/AsrPurposeConfig.php';
+        require_once dirname(__DIR__, 4) . '/chat/default/library/ChatOrchestratorBootstrap.php';
+        $embRepo = new \oaaoai\endpoints\CanonicalEndpointsRepository($canonDb);
+        $asrBind = $embRepo->resolveAsrBinding();
+        if ($asrBind !== null) {
+            $orchPayload['asr'] = \oaaoai\endpoints\AsrPurposeConfig::jobPayloadFromBinding(
+                $asrBind,
+                static fn (string $ref): ?string => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($ref),
+            );
+        }
+        if ($wid > 0) {
+            require_once dirname(__DIR__, 4) . '/vault/default/library/VaultGlossary.php';
+            $canonPdo = $canonDb->getPDO();
+            if ($canonPdo instanceof \PDO) {
+                $glossary = \oaaoai\vault\VaultGlossary::loadWorkspaceGlossary($canonPdo, $wid);
+                if ($glossary !== []) {
+                    $orchPayload['glossary'] = $glossary;
+                }
+            }
+        }
+    }
+
+    $orch = LiveMeetingOrchestrator::sessionStart($orchPayload);
     if ($orch === null || empty($orch['session_id'])) {
         http_response_code(502);
         echo json_encode([

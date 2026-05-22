@@ -1018,6 +1018,8 @@ class LiveSessionStartRequest(BaseModel):
     workspace_id: int | None = None
     user_id: int | None = None
     retention_mode: str = "disk_ttl"
+    asr: dict[str, Any] | None = None
+    glossary: dict[str, Any] | None = None
 
 
 class LiveSessionStopRequest(BaseModel):
@@ -1048,6 +1050,8 @@ async def live_session_start(
         workspace_id=req.workspace_id,
         user_id=req.user_id,
         public_base=_orchestrator_public_base(),
+        asr_cfg=req.asr if isinstance(req.asr, dict) else None,
+        glossary=req.glossary if isinstance(req.glossary, dict) else None,
     )
     return {"ok": True, "data": data}
 
@@ -1080,17 +1084,28 @@ async def live_audio_websocket(websocket: WebSocket, session_id: str) -> None:
 async def live_session_stream(
     session_id: str,
     token: str = Query(""),
+    since_seq: int = Query(0, ge=0),
 ) -> StreamingResponse:
-    """M1 placeholder SSE — Phase C attaches ``live_transcript`` events."""
-    from oaao_orchestrator.live_meeting.hub import get_session  # noqa: PLC0415
+    """SSE tail for live meeting — ``live_transcript`` and system frames."""
+    from oaao_orchestrator.live_meeting.hub import get_session, subscribe_live_stream  # noqa: PLC0415
+    from oaao_orchestrator.live_meeting.sse_hub import get_live_stream  # noqa: PLC0415
+    from oaao_orchestrator.streaming.events import StreamEnvelope  # noqa: PLC0415
+    from oaao_orchestrator.streaming.sse import encode_sse  # noqa: PLC0415
 
     session = get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="unknown_session")
     _ = token
 
+    hub = get_live_stream(session_id)
+    if not hub.snapshot_since(since_seq):
+        await hub.append(
+            StreamEnvelope(phase="system", kind="status", text="live_meeting_ready")
+        )
+
     async def gen():
-        yield 'event: oaao.stream\ndata: {"phase":"system","kind":"status","text":"live_meeting_ready"}\n\n'
+        async for chunk in subscribe_live_stream(session_id, since_seq=since_seq):
+            yield chunk
 
     return StreamingResponse(
         gen(),

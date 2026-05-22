@@ -123,9 +123,11 @@ flowchart LR
 
 **Acceptance**: Record 30s → `audio/seg_*.pcm` files exist; WS frames logged server-side.
 
-### Phase C — Qwen3 streaming ASR + SSE
+### Phase C — Qwen3 streaming ASR + SSE (in progress)
 
 **Outcome**: Partial/final transcript events on SSE.
+
+**Shipped (segment-batch fallback)**: closed `seg_*.pcm` → ffmpeg WAV → `transcribe_audio_auto`; SSE `phase=live` `kind=live_transcript`; `transcript.jsonl` append; PHP forwards Purpose `asr.*` + workspace glossary.
 
 | Task | Path / notes |
 |------|----------------|

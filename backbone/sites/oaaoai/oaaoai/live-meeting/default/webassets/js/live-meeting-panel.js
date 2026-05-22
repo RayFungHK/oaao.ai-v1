@@ -96,11 +96,28 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         eventSource.addEventListener('oaao.stream', (ev) => {
             try {
                 const payload = JSON.parse(ev.data || '{}');
-                if (payload?.text && transcriptEl) {
+                if (!transcriptEl || !payload) return;
+                if (payload.kind === 'live_transcript' && payload.text) {
                     const line = document.createElement('p');
-                    line.className = 'm-0 mb-2 text-xs fg-[var(--grid-ink-muted)]';
-                    line.textContent = `[${payload.phase || 'event'}] ${payload.text}`;
+                    const isFinal = payload.payload?.is_final !== false;
+                    line.className = isFinal
+                        ? 'm-0 mb-2 text-sm fg-[var(--grid-ink)]'
+                        : 'm-0 mb-1 text-sm fg-[var(--grid-ink-muted)] italic';
+                    line.textContent = payload.text;
+                    line.dataset.oaaoLiveSegment = String(payload.payload?.segment ?? '');
                     transcriptEl.append(line);
+                    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+                    return;
+                }
+                if (payload.phase === 'system' && payload.kind === 'status') {
+                    setConn(payload.text || 'connected');
+                    return;
+                }
+                if (payload.kind === 'error' && payload.text) {
+                    const errLine = document.createElement('p');
+                    errLine.className = 'm-0 mb-2 text-xs fg-[var(--grid-danger,#c00)]';
+                    errLine.textContent = payload.text;
+                    transcriptEl.append(errLine);
                 }
             } catch {
                 /* ignore */
