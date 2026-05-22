@@ -43,9 +43,9 @@ jobs:
         run: pip install -r python/requirements.txt
 
       - name: Start sidecar and smoke health
+        working-directory: python
         run: |
-          cd python
-          uvicorn oaao_orchestrator.app:app --host 127.0.0.1 --port 8103 &
+          uvicorn oaao_orchestrator.health_app:app --host 127.0.0.1 --port 8103 &
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8103/health >/dev/null 2>&1; then
               break
