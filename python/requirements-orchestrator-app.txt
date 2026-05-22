@@ -1,2 +1,3 @@
 # Full orchestrator app import (app:app smoke + integration). Heavier than requirements-ci.txt.
+# Paths are relative to this file (pip resolves -r from the including file's directory).
 -r requirements.txt
