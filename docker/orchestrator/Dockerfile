@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY python/requirements.txt /app/python/requirements.txt
 COPY python/requirements-dev.txt /app/python/requirements-dev.txt
+# requirements-dev.txt includes -r requirements.txt (uvicorn, fastapi, …).
 RUN pip install --no-cache-dir -r /app/python/requirements-dev.txt
 
 COPY python/ /app/python/
@@ -33,4 +34,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8103
 
-CMD ["uvicorn", "oaao_orchestrator.app:app", "--host", "0.0.0.0", "--port", "8103"]
+# Use python -m so CMD works even if pip scripts are off PATH.
+CMD ["python", "-m", "uvicorn", "oaao_orchestrator.app:app", "--host", "0.0.0.0", "--port", "8103"]

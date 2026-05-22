@@ -19,6 +19,10 @@
 
 ## 2. 執行 Python 測試
 
+**各測試／smoke 驗證內容與預期結果** → [Test_Catalog.md](./Test_Catalog.md)。
+
+**改程式後不必等 user 點 UI**：先跑 `bash scripts/sandbox_check.sh`（大改用 `--all`）。見 Test_Catalog §2.0。
+
 在 repo 根目錄（或 `python/`）：
 
 ```bash

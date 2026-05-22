@@ -367,12 +367,16 @@ return new class extends Controller {
         $auth = $this->api('auth');
         if ($auth && method_exists($auth, 'ensureTenantSchema')) {
             \Oaaoai\Core\AuthSchemaBridge::setEnsureTenantSchema(
-                static fn (\PDO $pdo): void => $auth->ensureTenantSchema($pdo),
+                static function (\PDO $pdo) use ($auth): void {
+                    $auth->ensureTenantSchema($pdo);
+                },
             );
         }
         if ($auth && method_exists($auth, 'ensurePermissionGroupSchema')) {
             \Oaaoai\Core\AuthSchemaBridge::setEnsurePermissionGroupSchema(
-                static fn (\PDO $pdo): void => $auth->ensurePermissionGroupSchema($pdo),
+                static function (\PDO $pdo) use ($auth): void {
+                    $auth->ensurePermissionGroupSchema($pdo);
+                },
             );
         }
     }

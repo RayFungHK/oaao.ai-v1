@@ -14,6 +14,9 @@ jobs:
       - name: Cross-module require gate
         run: bash scripts/audit_cross_module_requires.sh --gate
 
+      - name: PHP syntax (oaaoai)
+        run: bash scripts/php_lint_oaaoai.sh
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,6 +31,10 @@ jobs:
       - name: Hook resilience tests
         working-directory: python
         run: python -m pytest tests/test_pipeline_hook_resilience.py -q
+
+      - name: PHP namespace/use contract
+        working-directory: python
+        run: python -m pytest tests/test_php_namespace_use_contract.py -q
 
   orchestrator-smoke:
     runs-on: ubuntu-latest

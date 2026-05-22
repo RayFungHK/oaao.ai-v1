@@ -12,7 +12,11 @@ echo ""
 echo "== Orchestrator bridge contract tests =="
 PY="${PYTHON:-python3}"
 run_pytest() {
-  (cd python && "$PY" -m pytest tests/test_orchestrator_bridge_contract.py tests/test_pipeline_hook_resilience.py -q)
+  (cd python && "$PY" -m pytest \
+    tests/test_orchestrator_bridge_contract.py \
+    tests/test_pipeline_hook_resilience.py \
+    tests/test_php_namespace_use_contract.py \
+    -q)
 }
 if "$PY" -m pytest --version >/dev/null 2>&1; then
   run_pytest
@@ -39,7 +43,11 @@ def run_test_file(filename: str) -> None:
             fn()
             print(f"ok {filename}::{name}")
 
-run_test_file("test_orchestrator_bridge_contract.py")
+for _f in (
+    "test_orchestrator_bridge_contract.py",
+    "test_php_namespace_use_contract.py",
+):
+    run_test_file(_f)
 try:
     import pytest  # noqa: F401
 except ImportError:

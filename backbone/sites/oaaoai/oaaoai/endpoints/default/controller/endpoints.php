@@ -5,11 +5,13 @@ namespace Module\oaao\endpoints;
 require_once __DIR__ . '/../library/PurposeAllocationRegister.php';
 require_once __DIR__ . '/../library/CanonicalEndpointsRepository.php';
 require_once __DIR__ . '/../library/AsrPurposeConfig.php';
+require_once __DIR__ . '/../library/UiqePurposeConfig.php';
 
 use oaaoai\endpoints\AsrPurposeConfig;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\PurposeAllocationRegister;
+use oaaoai\endpoints\UiqePurposeConfig;
 use Razy\Database;
 use Razy\Agent;
 use Razy\Controller;
@@ -230,7 +232,6 @@ return new class extends Controller {
         if (! $db) {
             return null;
         }
-        require_once __DIR__ . '/../library/UiqePurposeConfig.php';
         $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $uiqeBind = $repo->resolveUiqeBinding();
         if ($uiqeBind === null) {
