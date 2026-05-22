@@ -139,6 +139,19 @@ final class AsrPurposeConfig
             $payload['mode'] = $mode;
         }
 
+        $dsWs = trim((string) ($meta['dashscope_ws_url'] ?? $meta['ws_url'] ?? ''));
+        if ($dsWs !== '') {
+            $payload['dashscope_ws_url'] = $dsWs;
+        }
+        $dsRegion = trim((string) ($meta['dashscope_region'] ?? $meta['region'] ?? ''));
+        if ($dsRegion !== '') {
+            $payload['dashscope_region'] = $dsRegion;
+        }
+        $lang = trim((string) ($meta['language'] ?? ''));
+        if ($lang !== '') {
+            $payload['language'] = $lang;
+        }
+
         $sym = self::chunkBufferSecFromMeta($meta);
         if ($sym !== null) {
             $payload['chunk_buffer_sec'] = $sym;

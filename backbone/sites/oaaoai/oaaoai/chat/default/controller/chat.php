@@ -1,0 +1,650 @@
+<?php
+
+namespace Module\oaao\chat;
+
+require_once __DIR__ . '/../library/ChatPipelineRegister.php';
+require_once __DIR__ . '/../library/PlannerAgentRegister.php';
+
+use oaaoai\chat\ChatPipelineRegister;
+use oaaoai\chat\PlannerAgentRegister;
+use Razy\Agent;
+use Razy\Controller;
+
+/**
+ * Workspace chat surface — registers SPA ({@code api('core')->registerSpaPage}), user Preferences panels ({@code registerPreferencesSection}),
+ * and capability scopes ({@code registerFeatureScope}).
+ *
+ * **Modular extension:** Chat-owned endpoint / purpose UX (multi-profile selector, {@code chat.*} modes, …) may register via
+ * {@code api('core')->registerSettingsSection} ({@code panel_js_module} / APIs) when exposed in the admin Settings dialog; heavy LLM row editing stays in {@code oaaoai/endpoints}.
+ * Slot metadata may still be contributed with {@code purpose_allocation.register} so {@see \\oaaoai\\endpoints\\PurposeAllocationRegister} and downstream tools stay aligned (e.g. {@code planning.*} slot owned here).
+ *
+ * Chat persistence for **threads/messages** uses the auth module **split adjunct SQLite** ({@code getDBSplit()}),
+ * not PostgreSQL — mirrors razit exposing a dedicated DB handle while identity stays canonical.
+ *
+ * **Chat completion profiles** ({@code oaao_chat_endpoint} / {@code oaao_chat_endpoint_llm}) live on the **canonical**
+ * auth database ({@code getDB()}) alongside {@code oaao_endpoint}, same as the Endpoints administrator APIs.
+ *
+ * **Hard rule:** do not serve SSE or WebSocket from PHP/Razy closures — streaming terminals live on the Python orchestrator; PHP exposes JSON only (e.g. {@code stream_url} / {@code run_id} placeholders).
+ */
+return new class extends Controller {
+    /**
+     * Workspace shell panel loader returns JSON only ({@code success}, {@code message}, {@code data}).
+     * Razy {@see Controller::xhr()} always emits HTTP 200 — use explicit JSON headers here for correct status codes.
+     *
+     * @param array<string, mixed>|null $data
+     */
+    private function oaao_workspace_panel_json_exit(int $httpStatus, bool $success, string $message = '', ?array $data = null): never
+    {
+        http_response_code($httpStatus);
+        header('Content-Type: application/json; charset=UTF-8');
+        $payload = ['success' => $success];
+        if ($message !== '') {
+            $payload['message'] = $message;
+        }
+        if ($data !== null) {
+            $payload['data'] = $data;
+        }
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    /**
+     * Signed-in session only — does **not** require adjunct SQLite (workspace routing picker reads canonical DB).
+     *
+     * @return array{mixed|null, object|null} Auth emitter (API), user entity
+     */
+    protected function oaao_chat_require_authenticated_only(): array
+    {
+        header('Content-Type: application/json; charset=UTF-8');
+
+        $auth = $this->api('auth');
+        // Emitter delegates via __call — method_exists() is always false for API commands.
+        if (! $auth) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Authentication unavailable']);
+
+            return [null, null];
+        }
+
+        // Same session gate as razit-style {@code restrict(true)} — exits with JSON 401 if anonymous.
+        $auth->restrict(true);
+
+        $user = $auth->getUser();
+        $uid = (int) ($user->user_id ?? 0);
+        if ($uid < 1) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'message' => 'Invalid session']);
+
+            return [null, null];
+        }
+
+        return [$auth, $user];
+    }
+
+    /**
+     * Authenticated user + PDO on **split** SQLite for chat persistence rows.
+     *
+     * @return array{\Razy\Database|null, object|null, \PDO|null}
+     */
+    protected function oaao_chat_require_user(): array
+    {
+        [$auth, $user] = $this->oaao_chat_require_authenticated_only();
+        if (! $auth || ! $user) {
+            return [null, null, null];
+        }
+
+        $splitDb = $auth->getDBSplit();
+        if (! $splitDb || ! $splitDb->getDBAdapter() instanceof \PDO) {
+            $auth->ensureAdjunctSqliteLoaded();
+            $splitDb = $auth->getDBSplit();
+        }
+
+        if (! $splitDb || ! $splitDb->getDBAdapter() instanceof \PDO) {
+            http_response_code(503);
+            $detail = '';
+            try {
+                $detail = trim((string) $auth->getAdjunctSqliteLastError());
+            } catch (\Throwable) {
+                // emitter edge case — omit detail
+            }
+            $payload = [
+                'success' => false,
+                'message' => 'Split database unavailable — adjunct SQLite could not open. With Docker bind mounts, files live on the host but PHP uses paths inside the container; ensure ./docker/data/auth-local (or your OAAO_AUTH_SQLITE_PATH) is writable by www-data, or set OAAO_ADJUNCT_SQLITE to a writable path (see docker/env.example). On bare-metal PHP, auth falls back beside the auth module.',
+            ];
+            if ($detail !== '') {
+                $payload['adjunct_detail'] = $detail;
+            }
+            echo json_encode($payload);
+
+            return [null, null, null];
+        }
+
+        return [$splitDb, $user, $splitDb->getDBAdapter()];
+    }
+
+    /**
+     * Administrator session + canonical {@see \Razy\Database} — JSON errors already emitted when returning null.
+     */
+    protected function oaao_chat_require_admin(): ?\Razy\Database
+    {
+        header('Content-Type: application/json; charset=UTF-8');
+
+        $auth = $this->api('auth');
+        if (! $auth) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Authentication unavailable']);
+
+            return null;
+        }
+
+        $auth->restrict(true);
+
+        if (! $auth->requireAdmin()) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Administrator required']);
+
+            return null;
+        }
+
+        $db = $auth->getDB();
+        if (! $db || ! $db->getDBAdapter() instanceof \PDO) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Database unavailable']);
+
+            return null;
+        }
+
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO && $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
+            require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
+            \Oaaoai\Core\TenantContext::bootstrap($pdo);
+        }
+
+        return $db;
+    }
+
+    /**
+     * Optional workspace dimension for split-chat rows — {@code null} means personal (user-global shell).
+     *
+     * @param array<string, mixed>|null $body Parsed JSON body for POST handlers; {@code null} reads GET/query only.
+     */
+    protected function oaao_chat_resolve_workspace_id(?array $body = null): ?int
+    {
+        $raw = null;
+        if ($body !== null && \array_key_exists('workspace_id', $body)) {
+            $raw = $body['workspace_id'];
+        }
+        if ($raw === null && isset($_GET['workspace_id'])) {
+            $raw = $_GET['workspace_id'];
+        }
+        if ($raw === '' || $raw === false) {
+            return null;
+        }
+        if ($raw === null) {
+            return null;
+        }
+        if (\is_string($raw)) {
+            $raw = trim($raw);
+            if ($raw === '') {
+                return null;
+            }
+        }
+        if (! is_numeric($raw)) {
+            return null;
+        }
+
+        $n = (int) $raw;
+
+        return $n > 0 ? $n : null;
+    }
+
+    /**
+     * When {@code workspace_id} is set, require PostgreSQL canonical DB + membership row.
+     *
+     * Emits JSON error and returns {@code false} when denied.
+     */
+    protected function oaao_chat_gate_workspace_scope(int $uid, ?int $wid): bool
+    {
+        if ($wid === null) {
+            return true;
+        }
+        if ($uid < 1) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'message' => 'Invalid session']);
+
+            return false;
+        }
+
+        $auth = $this->api('auth');
+        if (! $auth) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Authentication unavailable']);
+
+            return false;
+        }
+
+        $db = $auth->getDB();
+        if (! $db instanceof \Razy\Database) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Database unavailable']);
+
+            return false;
+        }
+
+        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+
+        if (! \oaao_auth_database_is_pgsql($db)) {
+            http_response_code(503);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Team workspaces require PostgreSQL as the canonical database.',
+            ]);
+
+            return false;
+        }
+
+        $pdo = $db->getDBAdapter();
+        if (! $pdo instanceof \PDO) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Database unavailable']);
+
+            return false;
+        }
+
+        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_install_pg_core_schema.php';
+        \oaao_auth_ensure_pg_workspace_tables($pdo);
+
+        require_once __DIR__ . '/api/_workspace_membership.php';
+
+        if (! \oaao_chat_user_has_workspace_access($db, $uid, $wid)) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'message' => 'You do not have access to this workspace.',
+            ]);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 1-based assistant turn index for {@code oaao_turn_score.turn_index}.
+     */
+    protected function oaao_chat_turn_index_for_message(\Razy\Database $splitDb, int $conversationId, int $assistantMessageId): int
+    {
+        if ($conversationId < 1 || $assistantMessageId < 1) {
+            return 0;
+        }
+
+        $exists = $splitDb->prepare()
+            ->select('id')
+            ->from('message')
+            ->where('id=?,conversation_id=?,role=assistant')
+            ->lazy([
+                'id'              => $assistantMessageId,
+                'conversation_id' => $conversationId,
+            ])
+            ->query()
+            ->fetch(\PDO::FETCH_ASSOC);
+        if (! \is_array($exists)) {
+            return 0;
+        }
+
+        $row = $splitDb->prepare()
+            ->select('COUNT(*) AS turn_index')
+            ->from('message')
+            ->where('conversation_id=?,role=assistant,id<=?')
+            ->lazy([
+                'conversation_id' => $conversationId,
+                'id'              => $assistantMessageId,
+            ])
+            ->query()
+            ->fetch(\PDO::FETCH_ASSOC);
+        if (! \is_array($row)) {
+            return 0;
+        }
+
+        return max(1, (int) ($row['turn_index'] ?? 0));
+    }
+
+    /**
+     * Built-in planner agents — feature modules may override via {@code planner_agent.register}.
+     */
+    protected function oaao_chat_seed_planner_agents(): void
+    {
+        PlannerAgentRegister::add(
+            'vault_rag',
+            'Knowledge base',
+            'Retrieve grounded passages from vault sources',
+            [
+                'sort'            => 10,
+                'module_code'     => 'oaaoai/chat',
+                'i18n_label_key'  => 'settings.planner.agent.vault_rag',
+                'i18n_desc_key'   => 'workspace.task.agent_desc.vault_rag',
+                'planner_hint'    => 'Use when the user needs document or knowledge-base retrieval (not for pure general knowledge without sources). '
+                    . 'On continue/regenerate/retry, prior vault grounding may already be in conversation_material_grounding — still include vault_rag when vault_scope=yes to refresh, not to ignore stored excerpts.',
+            ],
+        );
+        PlannerAgentRegister::add(
+            'sandbox_code',
+            'Sandbox code',
+            'Write and run code in an isolated environment',
+            [
+                'sort'            => 20,
+                'module_code'     => 'oaaoai/chat',
+                'i18n_label_key'  => 'settings.planner.agent.sandbox_code',
+                'i18n_desc_key'   => 'workspace.task.agent_desc.sandbox_code',
+                'planner_hint'    => 'Use for calculations, data transforms, file generation, or validating code before downstream steps. '
+                    . 'Place before slide_designer when numeric/tabular prep is needed.',
+                'ask_enabled'     => true,
+                'ask_hint'        => 'Set requires_ask=true when code execution is optional or the user only asked for an explanation. '
+                    . 'In desk/slide mode, suggest forking to a new chat if they need heavy sandbox work alongside a deck.',
+                'ask_default_message' => 'I can run sandbox code for calculations or file transforms. Proceed?',
+            ],
+        );
+        PlannerAgentRegister::add(
+            'slides',
+            'Slides (legacy)',
+            'Generate presentation decks (legacy stub)',
+            [
+                'sort'            => 30,
+                'module_code'     => 'oaaoai/chat',
+                'i18n_label_key'  => 'settings.planner.agent.slides',
+                'i18n_desc_key'   => 'workspace.task.agent_desc.slides',
+                'planner_hint'    => 'Legacy slide stub — prefer slide_designer for new decks.',
+                'deprecated'      => true,
+            ],
+        );
+        PlannerAgentRegister::add(
+            'image_gen',
+            'Image generation',
+            'Generate images from prompts',
+            [
+                'sort'            => 40,
+                'module_code'     => 'oaaoai/chat',
+                'i18n_label_key'  => 'settings.planner.agent.image_gen',
+                'i18n_desc_key'   => 'workspace.task.agent_desc.image_gen',
+                'planner_hint'    => 'Use when the user explicitly wants generated images or illustrations.',
+                'ask_enabled'     => true,
+                'ask_hint'        => 'Set requires_ask=true unless the user clearly requested image generation. '
+                    . 'Fork to a new chat when desk mode needs a non-slide visual workflow.',
+                'ask_default_message' => 'I can generate images from your prompt. Proceed?',
+            ],
+        );
+        PlannerAgentRegister::add(
+            'web_search',
+            'Web search',
+            'Search the public web for live information',
+            [
+                'sort'            => 50,
+                'module_code'     => 'oaaoai/chat',
+                'i18n_label_key'  => 'settings.planner.agent.web_search',
+                'i18n_desc_key'   => 'workspace.task.agent_desc.web_search',
+                'planner_hint'    => 'Use for time-sensitive or public-web facts not covered by vault sources. '
+                    . 'Prefer after vault_rag when both document and live web context matter.',
+                'ask_enabled'     => true,
+                'ask_hint'        => 'Set requires_ask=true when web search is supplementary. '
+                    . 'In desk/slide conversations, fork to a new chat for long web-research side quests.',
+                'ask_default_message' => 'I can search the public web for live information. Proceed?',
+            ],
+        );
+        PlannerAgentRegister::add(
+            'mcp_tool',
+            'MCP integrations',
+            'Call connected MCP tools',
+            [
+                'sort'            => 60,
+                'module_code'     => 'oaaoai/chat',
+                'i18n_label_key'  => 'settings.planner.agent.mcp_tool',
+                'i18n_desc_key'   => 'workspace.task.agent_desc.mcp_tool',
+                'planner_hint'    => 'Use when a connected integration or MCP tool is the right execution path.',
+                'ask_enabled'     => true,
+                'ask_hint'        => 'Set requires_ask=true when an integration call is not explicitly requested. '
+                    . 'Fork when desk mode would mix unrelated MCP work with an in-progress slide deck.',
+                'ask_default_message' => 'I can call a connected integration for this step. Proceed?',
+            ],
+        );
+    }
+
+    /**
+     * Frozen Chat pipeline registry rows ({@see ChatPipelineRegister}) — embedded in SPA shell JSON.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getChatPipelineRegistry(): array
+    {
+        return ChatPipelineRegister::allSorted();
+    }
+
+    /**
+     * Frozen planner agent registry ({@see PlannerAgentRegister}) — embedded in SPA shell JSON.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getPlannerAgentRegistry(): array
+    {
+        return PlannerAgentRegister::allSorted();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function __onAPICall(\Razy\ModuleInfo $module, string $method, string $fqdn = ''): bool
+    {
+        $code = $module->getCode();
+        if (! str_starts_with($code, 'oaaoai/')) {
+            return false;
+        }
+
+        return $method === 'getChatPipelineRegistry' || $method === 'getPlannerAgentRegistry';
+    }
+
+    public function __onInit(Agent $agent): bool
+    {
+        // Shell registries via Core Emitter — avoids growing {@code Core::__onInit listen()} maps when adding modules.
+        $coreApi = $this->api('core');
+
+        // Root-relative paths — subdirectory installs resolve via {@code data-oaao-mount-prefix} + {@see shell-registry-url.js}.
+        if ($coreApi) {
+            $coreApi->registerSpaPage(
+                'workspace/chat',
+                'Chat',
+                'Ask anything — conversations stay in your workspace',
+                'message-circle-more',
+                [
+                    'shell_panel_url' => '/chat/workspace-panel',
+                    'shell_js_module' => '/webassets/chat/default/js/chat-panel.js',
+                ],
+            );
+
+            $coreApi->registerSpaPage(
+                'workspace/agents',
+                'Agents',
+                'Orchestrator capabilities in this workspace',
+                'bot',
+                [
+                    'shell_panel_url' => '/chat/workspace-agents-panel',
+                    'shell_js_module' => '/webassets/chat/default/js/agents-panel.js',
+                ],
+            );
+
+            $coreApi->registerFeatureScope(
+                'conversation',
+                'Conversations',
+                'Chat threads can bind to a workspace (isolated env) or personal shell context; tenant-wide policy may apply.',
+                ['tenant', 'workspace', 'personal'],
+                20,
+            );
+
+            $coreApi->registerPreferencesSection(
+                'pref-chat',
+                'Chat',
+                'Chat preferences',
+                'Composer and thread defaults — workspace or personal.',
+                'message-circle-more',
+                [
+                    'sort'       => 35,
+                    'levels'     => ['workspace', 'personal'],
+                    'panel_html' => '<div class="oaao-sdlg-section-title mb-sm">Composer</div>'
+                        . '<p class="oaao-sdlg-section-desc mb-md">Bindings follow the active workspace when set; otherwise personal defaults apply.</p>'
+                        . '<p class="text-sm fg-[var(--grid-ink-muted)] max-w-[28rem] leading-relaxed">'
+                        . 'Orchestrator-backed toggles land here when modules expose them.</p>',
+                ],
+            );
+        }
+
+        $this->oaao_chat_seed_planner_agents();
+
+        $this->trigger('chat_pipeline.register')->resolve([
+            'entry_id' => 'cp.chat.milestone_vertical',
+            'kind'     => 'step_rail',
+            'label'    => 'Milestone timeline',
+            'extras'   => [
+                'sort'        => 10,
+                'module_code' => 'oaaoai/chat',
+                'description' => 'Vertical milestone rail — orchestrator payload key oaao_pipeline.milestone.',
+            ],
+        ]);
+
+        $this->trigger('chat_pipeline.register')->resolve([
+            'entry_id' => 'cp.chat.markdown_stream',
+            'kind'     => 'message_block',
+            'label'    => 'Markdown stream bubble',
+            'extras'   => [
+                'sort'        => 20,
+                'module_code' => 'oaaoai/chat',
+                'block_type'  => 'markdown_stream',
+            ],
+        ]);
+
+        $this->trigger('chat_pipeline.register')->resolve([
+            'entry_id' => 'cp.chat.task_files_cta',
+            'kind'     => 'message_block',
+            'label'    => 'Task files affordance',
+            'extras'   => [
+                'sort'        => 90,
+                'module_code' => 'oaaoai/chat',
+                'block_type'  => 'task_files_cta',
+            ],
+        ]);
+
+        $this->trigger('chat_pipeline.register')->resolve([
+            'entry_id' => 'cp.chat.task_materials',
+            'kind'     => 'message_block',
+            'label'    => 'Task materials dialog',
+            'extras'   => [
+                'sort'        => 91,
+                'module_code' => 'oaaoai/chat',
+                'block_type'  => 'task_materials',
+                'esm_url'     => '/webassets/chat/default/js/task-materials-dialog.js',
+            ],
+        ]);
+
+        $this->trigger('micro_skill_provider.register')->resolve([
+            'provider_id' => 'chat.conversation',
+            'kind'        => 'conversation',
+            'label'       => 'Conversation micro skills',
+            'extras'      => [
+                'sort'        => 20,
+                'module_code' => 'oaaoai/chat',
+                'description' => 'User-saved skills from chat analysis (preview markdown, then publish).',
+            ],
+        ]);
+
+        $this->trigger('purpose_allocation.register')->resolve([
+            'slot_id' => 'pa-planning',
+            'label'   => 'Planning',
+            'title'   => 'Planning',
+            'sub'     => 'Planner and step routing for chat-side orchestration (<code class="font-mono text-xs">planning.*</code>).',
+            'icon'    => 'map',
+            'extras'  => [
+                'sort'               => 50,
+                'purpose_key_prefix' => 'planning',
+                'module_code'        => 'oaaoai/chat',
+                'label_key'          => 'settings.slot.planning.label',
+                'sub_key'            => 'settings.slot.planning.sub',
+            ],
+        ]);
+
+        $agent->addAPICommand([
+            'getChatPipelineRegistry'  => 'getChatPipelineRegistry',
+            'getPlannerAgentRegistry'  => 'getPlannerAgentRegistry',
+        ]);
+
+        // Controller-root closures need a `{className}.` filename prefix; subfolder paths (`panel/…`) skip that and avoid name clashes.
+        $agent->addRoute('GET /chat/workspace-panel', 'panel/workspace_panel');
+        $agent->addRoute('GET /chat/workspace-agents-panel', 'panel/workspace_agents_panel');
+
+        // {@code 'api' => [ … ]} → {@code /chat/api/…}; handler filenames live under {@code controller/api/} without repeating {@code api/}.
+        $agent->addLazyRoute([
+            'api' => [
+                'GET conversations'           => 'conversations',
+                'GET messages'               => 'messages',
+                'GET resolve_share'          => 'resolve_share',
+                'POST send'                  => 'send',
+                'POST cancel_run'            => 'cancel_run',
+                'POST agent_ask'             => 'agent_ask',
+                'POST attachment_upload'     => 'attachment_upload',
+                'POST asr_transcribe'        => 'asr_transcribe',
+                'GET workspace_glossary'     => 'workspace_glossary',
+                'POST workspace_glossary'    => 'workspace_glossary',
+                'POST assistant_patch'       => 'assistant_patch',
+                'POST assistant_internal_sync' => 'assistant_internal_sync',
+                'POST turn_score_upsert'       => 'turn_score_upsert',
+                'POST conversation_archive'  => 'conversation_archive',
+                'POST conversation_delete'   => 'conversation_delete',
+                'POST conversation_fork'     => 'conversation_fork',
+                'POST conversation_mode'     => 'conversation_mode',
+                'POST conversation_share'    => 'conversation_share',
+                'POST message_feedback'      => 'message_feedback',
+                'GET task_artifacts'        => 'task_artifacts',
+                'GET message_materials'    => 'message_materials',
+                'GET materials_zip'        => 'materials_zip',
+                'GET conversation_materials' => 'conversation_materials',
+                'GET skills_list'            => 'skills_list',
+                'POST skills_save'           => 'skills_save',
+                'POST skills_discover'       => 'skills_discover',
+                'GET routing_purposes'       => 'routing_purposes',
+                'GET routing_profiles'       => 'routing_profiles',
+                'GET workspaces'             => 'workspaces',
+                'POST workspace_create'      => 'workspace_create',
+                'POST workspace_update'      => 'workspace_update',
+                'POST workspace_delete'      => 'workspace_delete',
+                'GET workspace_team'         => 'workspace_team',
+                'POST workspace_member_invite' => 'workspace_member_invite',
+                'POST workspace_member_remove' => 'workspace_member_remove',
+                'POST workspace_invitation_revoke' => 'workspace_invitation_revoke',
+                'POST workspace_invite_accept' => 'workspace_invite_accept',
+                'GET chat_endpoints_list'    => 'chat_endpoints_list',
+                'POST chat_endpoints_save'   => 'chat_endpoints_save',
+                'POST chat_endpoints_delete' => 'chat_endpoints_delete',
+            ],
+        ]);
+
+        return true;
+    }
+
+    public function __onReady(): void
+    {
+        $coreApi = $this->api('core');
+        if ($coreApi) {
+            $plannerJs = '/webassets/chat/default/js/oaao-chat-planner-settings-panel.js';
+            $coreApi->registerSettingsSection(
+                'settings-chat-planner',
+                'Task planner',
+                'Run task planner',
+                'LLM checklist vs fixed pipeline — stored on your planning purpose (<code class="font-mono text-xs">planning.*</code>).',
+                'list-checks',
+                [
+                    'sort'            => 28,
+                    'panel_js_module' => $plannerJs,
+                    'label_key'       => 'settings.nav.planner.label',
+                    'title_key'       => 'settings.nav.planner.title',
+                    'sub_key'         => 'settings.nav.planner.sub',
+                ],
+            );
+        }
+    }
+};

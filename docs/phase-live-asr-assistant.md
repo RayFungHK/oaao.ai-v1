@@ -123,26 +123,22 @@ flowchart LR
 
 **Acceptance**: Record 30s → `audio/seg_*.pcm` files exist; WS frames logged server-side.
 
-### Phase C — Qwen3 streaming ASR + SSE (in progress)
+### Phase C — Segment-batch ASR + SSE (done)
 
-**Outcome**: Partial/final transcript events on SSE.
+Closed `seg_*.pcm` → ffmpeg WAV → `transcribe_audio_auto`; SSE `live_transcript`; `transcript.jsonl` on finals.
 
-**Shipped (segment-batch fallback)**: closed `seg_*.pcm` → ffmpeg WAV → `transcribe_audio_auto`; SSE `phase=live` `kind=live_transcript`; `transcript.jsonl` append; PHP forwards Purpose `asr.*` + workspace glossary.
+### Phase C+ — DashScope real-time WebSocket (done)
 
-| Task | Path / notes |
-|------|----------------|
-| Routes | `app.py`: `POST /v1/live/session_start`, `GET /v1/live/{id}/stream`, WS audio |
-| ASR client | `live_meeting/qwen_asr_stream.py` — read Purpose `asr.*` `meta_json.mode=streaming` |
-| Envelope kind | `streaming/events.py` — `live_transcript` (or dedicated phase constant) |
-| Broadcast | `hub.py` — fan-out to SSE subscribers |
-| PHP start | Forward resolved ASR endpoint snapshot to orchestrator |
+**Guide**: [Alibaba Cloud real-time speech recognition](https://www.alibabacloud.com/help/en/model-studio/real-time-speech-recognition-user-guide)
 
-**Acceptance**: M1 acceptance sentence; `transcript.jsonl` append on final segments.
+| Model | WebSocket base | Implementation |
+|-------|----------------|----------------|
+| Fun-ASR / Paraformer | `…/api-ws/v1/inference/` | `dashscope_asr_stream.py` — run-task + binary PCM |
+| Qwen3-ASR Realtime | `…/api-ws/v1/realtime?model=…` | session.update + `input_audio_buffer.append` (base64) |
 
-**Blocker before PR-C** (product/ops):
+**`asr.*` `meta_json`**: `mode: "streaming"`, optional `dashscope_ws_url`, `dashscope_region` (`intl` \| `cn`), `language`. Key: Purpose `api_key_ref` env or `DASHSCOPE_API_KEY`.
 
-- Qwen3-ASR streaming **WebSocket URL, auth, binary frame format** from your deployed endpoint doc
-- `asr.*` row configured in Purpose allocation (Settings → ASR)
+**Acceptance**: Partial (italic) + final transcript lines while recording; segment-batch skipped when DashScope bridge is active.
 
 ### Phase D — UI polish (done)
 

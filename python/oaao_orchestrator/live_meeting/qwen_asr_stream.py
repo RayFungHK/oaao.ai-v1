@@ -28,6 +28,19 @@ def is_streaming_asr_mode(asr_cfg: dict[str, Any] | None) -> bool:
     return mode in ("streaming", "stream", "realtime")
 
 
+def use_dashscope_realtime_stream(asr_cfg: dict[str, Any] | None) -> bool:
+    """True when Alibaba DashScope duplex WS should handle live transcription."""
+    if not is_streaming_asr_mode(asr_cfg) or not isinstance(asr_cfg, dict):
+        return False
+    provider = str(asr_cfg.get("provider") or "").strip().lower()
+    if provider in ("dashscope", "dashscope_funasr", "dashscope_qwen", "qwen", "funasr_realtime"):
+        return True
+    if str(asr_cfg.get("dashscope_ws_url") or asr_cfg.get("ws_url") or "").strip():
+        return True
+    model = str(asr_cfg.get("model") or "").strip().lower()
+    return "realtime" in model or model.startswith("fun-asr") or model.startswith("qwen3-asr")
+
+
 async def pcm_segment_to_wav(pcm_path: Path) -> str | None:
     """Convert mono s16le 16 kHz PCM to a temporary WAV for ASR providers."""
     if not pcm_path.is_file() or pcm_path.stat().st_size < BYTES_PER_SAMPLE * 10:

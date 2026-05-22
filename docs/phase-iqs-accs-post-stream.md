@@ -1,6 +1,6 @@
 # Phase Plan — IQS / ACCS (Post-Stream Queue)
 
-> **Status**: Phase 2 wired (2026-05-19) — UIQE resolve + worker prompts + LLM scoring; Phase 3 persist pending  
+> **Status**: Phase 3 wired (2026-05-19) — `turn_score_upsert` + plugin persist; Phase 4 read API optional  
 > **Goal**: After each assistant reply completes, enqueue **non-blocking** quality jobs (`iqs`, `accs`) that score the turn and persist to `oaao_turn_score`.  
 > **Scheme**: Python orchestrator only (scheme **B** in `docs/MIGRATION_LEGACY_OAAO.md`); PHP provides internal persist API + Purpose `uiqe.*` routing.
 
@@ -31,7 +31,7 @@
 | DB schema | `oaao_turn_score` in auth installers (SQLite + PG) | Done |
 | Chat run end | `python/oaao_orchestrator/run_executor.py` → `system/end` | Done |
 | **Wiring** | `app.py` lifespan + `run_executor.py` after `system/end` | **Done** (Phase 1) |
-| PHP upsert API | `turn_score_upsert` (internal) | **Missing** |
+| PHP upsert API | `turn_score_upsert` (internal) | **Done** |
 
 **Design alignment**: `backbone/sites/oaaoai/oaaoai/docs/backlog/chat-task-pipeline.md` §4.3 — Legacy `iqs` SSE ≈ v1 `post_stream` QueuePool.
 
@@ -127,9 +127,11 @@ sequenceDiagram
 1. Worker HTTP call hits configured UIQE `base_url` / model.
 2. Failed resolve skips job with warning (no run failure).
 
-### Phase 3 — Persist scores (PHP + plugins)
+### Phase 3 — Persist scores (PHP + plugins) (done)
 
 **Outcome**: Rows in `oaao_turn_score` per assistant message.
+
+**Shipped**: `POST /chat/api/turn_score_upsert` (internal token); `post_stream_persist.py`; IQS/ACCS plugins upsert after LLM parse; `turn_index` from assistant message order in conversation.
 
 | Task | Owner | Files |
 |------|-------|-------|

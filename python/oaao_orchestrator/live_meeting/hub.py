@@ -14,9 +14,14 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from oaao_orchestrator.live_meeting.audio_store import SegmentWriter
+from oaao_orchestrator.live_meeting.dashscope_asr_stream import (
+    DashscopeRealtimeAsrBridge,
+    create_and_start_bridge,
+    dashscope_api_key,
+)
 from oaao_orchestrator.live_meeting.qwen_asr_stream import (
-    is_streaming_asr_mode,
     transcribe_live_pcm_segment,
+    use_dashscope_realtime_stream,
 )
 from oaao_orchestrator.live_meeting.session import LiveMeetingSession, live_meeting_root, new_session_id
 from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_stream
@@ -32,6 +37,8 @@ logger = logging.getLogger(__name__)
 _active: dict[str, LiveMeetingSession] = {}
 _writers: dict[str, SegmentWriter] = {}
 _asr_tasks: dict[str, set[asyncio.Task[Any]]] = {}
+_bridges: dict[str, DashscopeRealtimeAsrBridge] = {}
+_partial_seq: dict[str, int] = {}
 
 
 @dataclass
@@ -75,10 +82,11 @@ def create_session(
         glossary=glossary if isinstance(glossary, dict) else None,
     )
     get_live_stream(session.session_id)
-    if is_streaming_asr_mode(asr_cfg):
+    if use_dashscope_realtime_stream(asr_cfg):
         logger.info(
-            "live_meeting streaming ASR mode requested id=%s — segment batch fallback until WS wired",
+            "live_meeting dashscope streaming ASR id=%s model=%s",
             session.session_id,
+            (asr_cfg or {}).get("model"),
         )
     logger.info("live_meeting session_created id=%s workspace_id=%s", session.session_id, workspace_id)
     return session
@@ -112,7 +120,77 @@ def _append_transcript_line(session: LiveMeetingSession, record: dict[str, Any])
         fh.write(line + "\n")
 
 
+async def _emit_live_transcript(session_id: str, text: str, *, is_final: bool) -> None:
+    session = get_session(session_id)
+    if session is None:
+        return
+    hub = get_live_stream(session_id)
+    seg = _partial_seq.get(session_id, 0)
+    if is_final:
+        _partial_seq[session_id] = seg + 1
+        seg_key = seg + 1
+    else:
+        seg_key = -(seg + 1)
+
+    ts = int(time.time())
+    if is_final:
+        _append_transcript_line(
+            session,
+            {"segment": seg_key, "text": text, "is_final": True, "ts": ts, "source": "dashscope_stream"},
+        )
+
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_TRANSCRIPT,
+            text=text,
+            payload={"is_final": is_final, "segment": seg_key, "ts": ts, "source": "dashscope_stream"},
+        )
+    )
+
+
+async def _ensure_dashscope_bridge(session_id: str) -> None:
+    if session_id in _bridges:
+        return
+    runtime = _runtime.get(session_id)
+    if runtime is None or not use_dashscope_realtime_stream(runtime.asr_cfg):
+        return
+    if not dashscope_api_key(runtime.asr_cfg or {}):
+        hub = get_live_stream(session_id)
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_ERROR,
+                text="dashscope_api_key_missing",
+            )
+        )
+        return
+
+    async def _on_emit(t: str, is_final: bool) -> None:
+        await _emit_live_transcript(session_id, t, is_final=is_final)
+
+    try:
+        bridge = await create_and_start_bridge(
+            session_id=session_id,
+            asr_cfg=runtime.asr_cfg or {},
+            on_emit=_on_emit,
+        )
+        _bridges[session_id] = bridge
+    except Exception as e:  # noqa: BLE001
+        logger.exception("live_meeting dashscope_bridge_failed id=%s", session_id)
+        hub = get_live_stream(session_id)
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_ERROR,
+                text=f"dashscope_stream_failed:{str(e)[:120]}",
+            )
+        )
+
+
 async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index: int) -> None:
+    if session_id in _bridges:
+        return
     runtime = _runtime.get(session_id)
     session = get_session(session_id)
     if session is None or runtime is None:
@@ -215,6 +293,10 @@ def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     session = get_session(session_id)
     if session is None:
         return False
+    bridge = _bridges.pop(session_id, None)
+    if bridge is not None:
+        await bridge.close()
+    _partial_seq.pop(session_id, None)
     writer = _writers.pop(session_id, None)
     if writer is not None:
         writer.close()
@@ -245,6 +327,7 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
         return
 
     await websocket.accept()
+    await _ensure_dashscope_bridge(sid)
     writer = _writers.get(sid)
     if writer is None:
         writer = _writer_for(session)
@@ -258,7 +341,11 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
                 break
             raw = message.get("bytes")
             if raw:
-                writer.write_pcm(bytes(raw))
+                pcm = bytes(raw)
+                writer.write_pcm(pcm)
+                bridge = _bridges.get(sid)
+                if bridge is not None:
+                    await bridge.push_pcm(pcm)
                 frames += 1
                 continue
             text = message.get("text")
