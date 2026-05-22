@@ -140,6 +140,8 @@ Closed `seg_*.pcm` → ffmpeg WAV → `transcribe_audio_auto`; SSE `live_transcr
 
 **Acceptance**: Partial (italic) + final transcript lines while recording; segment-batch skipped when DashScope bridge is active.
 
+**Hotwords (Fun-ASR / Paraformer)**: Workspace glossary terms (from `session_start`) are sent as DashScope `parameters.hotwords` JSON — see [Custom hotwords](https://www.alibabacloud.com/help/en/model-studio/real-time-speech-recognition-user-guide). Qwen3-ASR Realtime does not use this path yet.
+
 ### Phase D — UI polish (done)
 
 | Task | Notes |

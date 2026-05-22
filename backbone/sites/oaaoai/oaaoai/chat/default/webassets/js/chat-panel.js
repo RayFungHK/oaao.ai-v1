@@ -7000,6 +7000,82 @@ function formatAssistantRunMetaLine(meta) {
 }
 
 /**
+ * Post-stream quality line (IQS / ACCS) when {@link loadTurnScoresForConversation} attached {@code turn_score}.
+ *
+ * @param {Record<string, unknown> | null | undefined} turnScore
+ */
+function formatAssistantTurnScoreLine(turnScore) {
+    if (!turnScore || typeof turnScore !== 'object') return '';
+    const parts = [];
+    const iqs = Number(turnScore.iqs);
+    const accs = Number(turnScore.accs);
+    if (Number.isFinite(iqs) && iqs > 0) {
+        parts.push(`IQS ${iqs.toFixed(2)}`);
+    }
+    if (Number.isFinite(accs) && accs > 0) {
+        parts.push(`ACCS ${accs.toFixed(2)}`);
+    }
+    return parts.join(' · ');
+}
+
+/**
+ * @param {HTMLElement} outer
+ * @param {Record<string, unknown> | null | undefined} turnScore
+ */
+function applyAssistantTurnScoreToRow(outer, turnScore) {
+    if (!outer) return;
+    const line = formatAssistantTurnScoreLine(turnScore);
+    let el = outer.querySelector('[data-oaao-chat="turn-score"]');
+    if (!line) {
+        el?.remove();
+        return;
+    }
+    if (!el) {
+        el = document.createElement('div');
+        el.dataset.oaaoChat = 'turn-score';
+        el.className =
+            'text-[0.7rem] leading-snug fg-[var(--grid-caption)] font-mono tabular-nums mt-0.5 mb-0 px-0 py-0 w-full break-words';
+        el.setAttribute('aria-label', 'Turn quality scores');
+        const summary = outer.querySelector('[data-oaao-chat="assistant-summary"]');
+        if (summary) {
+            summary.insertAdjacentElement('afterend', el);
+        } else {
+            const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
+            if (toolbar) {
+                outer.insertBefore(el, toolbar);
+            } else {
+                outer.append(el);
+            }
+        }
+    }
+    el.textContent = line;
+}
+
+/**
+ * @param {number} conversationId
+ * @returns {Promise<Map<number, Record<string, unknown>>>}
+ */
+async function loadTurnScoresForConversation(conversationId) {
+    const map = new Map();
+    const cid = Number(conversationId);
+    if (!Number.isFinite(cid) || cid < 1) return map;
+    const { res, data } = await chatFetchJson(
+        chatApiUrl('turn_scores', { conversation_id: String(cid), ...workspaceChatQueryParams() }),
+    );
+    if (!res.ok || !data?.success || !Array.isArray(data.scores)) {
+        return map;
+    }
+    for (const raw of data.scores) {
+        if (!raw || typeof raw !== 'object') continue;
+        const mid = coercePositiveInt(raw.assistant_message_id);
+        if (mid !== null) {
+            map.set(mid, /** @type {Record<string, unknown>} */ (raw));
+        }
+    }
+    return map;
+}
+
+/**
  * @param {Record<string, unknown> | null | undefined} meta
  */
 function metaChatProfileLabel(meta) {
@@ -9617,6 +9693,13 @@ export async function mountShellPanel(mount) {
             if (metaRaw && typeof metaRaw === 'object') {
                 applyAssistantRunSummaryToRow(outer, /** @type {Record<string, unknown>} */ (metaRaw));
             }
+            const turnScore =
+                m.turn_score && typeof m.turn_score === 'object'
+                    ? /** @type {Record<string, unknown>} */ (m.turn_score)
+                    : null;
+            if (turnScore) {
+                applyAssistantTurnScoreToRow(outer, turnScore);
+            }
             if (mid !== null && cid && assistantMetaRunIncomplete(metaObj)) {
                 applyAssistantRunRetryBanner(outer, {
                     conversationId: cid,
@@ -9646,16 +9729,28 @@ export async function mountShellPanel(mount) {
 
             return;
         }
-        const { res, data } = await chatFetchJson(
-            chatApiUrl('messages', { conversation_id: String(conversationId), ...workspaceChatQueryParams() }),
-        );
+        const [msgPack, scoreMap] = await Promise.all([
+            chatFetchJson(
+                chatApiUrl('messages', { conversation_id: String(conversationId), ...workspaceChatQueryParams() }),
+            ),
+            loadTurnScoresForConversation(conversationId),
+        ]);
+        const { res, data } = msgPack;
         if (!res.ok || !data.success) {
             cachedMessageRows = [];
             renderMessages([], scrollMode);
 
             return;
         }
-        const rows = data.messages || [];
+        const rows = (data.messages || []).map((m) => {
+            if (!m || typeof m !== 'object') return m;
+            const mid = coercePositiveInt(m.id);
+            const role = String(m.role ?? '').toLowerCase();
+            if (mid !== null && role === 'assistant' && scoreMap.has(mid)) {
+                return { ...m, turn_score: scoreMap.get(mid) };
+            }
+            return m;
+        });
         cachedMessageRows = rows;
         renderMessages(rows, scrollMode);
         bindOaaoTaskListStripToConversation(mount, conversationId, rows);

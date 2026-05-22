@@ -18,6 +18,7 @@ import uuid
 from typing import Any, Awaitable, Callable
 
 from oaao_orchestrator.live_meeting.audio_store import SAMPLE_RATE
+from oaao_orchestrator.live_meeting.glossary_hotwords import hotwords_json_for_dashscope
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class DashscopeRealtimeAsrBridge:
         session_id: str,
         asr_cfg: dict[str, Any],
         on_emit: EmitCallback,
+        glossary: dict[str, Any] | None = None,
     ) -> None:
         self.session_id = session_id
         self.asr_cfg = asr_cfg
@@ -107,6 +109,7 @@ class DashscopeRealtimeAsrBridge:
         self._started = False
         self._closed = False
         self._task_started = False
+        self._glossary = glossary if isinstance(glossary, dict) else None
 
     async def start(self) -> None:
         if not self._api_key:
@@ -241,6 +244,13 @@ class DashscopeRealtimeAsrBridge:
     async def _send_run_task(self) -> None:
         assert self._ws is not None
         fmt = str(self.asr_cfg.get("format") or "pcm").strip() or "pcm"
+        parameters: dict[str, Any] = {
+            "sample_rate": SAMPLE_RATE,
+            "format": fmt,
+        }
+        hotwords = hotwords_json_for_dashscope(self._glossary)
+        if hotwords:
+            parameters["hotwords"] = hotwords
         body = {
             "header": {
                 "action": "run-task",
@@ -252,10 +262,7 @@ class DashscopeRealtimeAsrBridge:
                 "task": "asr",
                 "function": "recognition",
                 "model": self._model,
-                "parameters": {
-                    "sample_rate": SAMPLE_RATE,
-                    "format": fmt,
-                },
+                "parameters": parameters,
                 "input": {},
             },
         }
@@ -305,7 +312,13 @@ async def create_and_start_bridge(
     session_id: str,
     asr_cfg: dict[str, Any],
     on_emit: EmitCallback,
+    glossary: dict[str, Any] | None = None,
 ) -> DashscopeRealtimeAsrBridge:
-    bridge = DashscopeRealtimeAsrBridge(session_id=session_id, asr_cfg=asr_cfg, on_emit=on_emit)
+    bridge = DashscopeRealtimeAsrBridge(
+        session_id=session_id,
+        asr_cfg=asr_cfg,
+        on_emit=on_emit,
+        glossary=glossary,
+    )
     await bridge.start()
     return bridge

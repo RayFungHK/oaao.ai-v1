@@ -582,6 +582,7 @@ return new class extends Controller {
             'api' => [
                 'GET conversations'           => 'conversations',
                 'GET messages'               => 'messages',
+                'GET turn_scores'            => 'turn_scores',
                 'GET resolve_share'          => 'resolve_share',
                 'POST send'                  => 'send',
                 'POST cancel_run'            => 'cancel_run',

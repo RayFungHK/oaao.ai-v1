@@ -174,6 +174,7 @@ async def _ensure_dashscope_bridge(session_id: str) -> None:
             session_id=session_id,
             asr_cfg=runtime.asr_cfg or {},
             on_emit=_on_emit,
+            glossary=runtime.glossary,
         )
         _bridges[session_id] = bridge
     except Exception as e:  # noqa: BLE001
