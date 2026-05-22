@@ -132,14 +132,59 @@ return new class extends Controller {
         return FeatureScopeRegister::allSorted();
     }
 
+    public function bootstrapTenantContext(\PDO $pdo): int
+    {
+        require_once __DIR__ . '/../library/TenantContext.php';
+
+        \Oaaoai\Core\TenantContext::bootstrap($pdo);
+
+        return \Oaaoai\Core\TenantContext::id();
+    }
+
+    public function tenantContextId(): int
+    {
+        require_once __DIR__ . '/../library/TenantContext.php';
+
+        return \Oaaoai\Core\TenantContext::id();
+    }
+
+    public function rejectCustomerProductApi(\PDO $pdo): void
+    {
+        require_once __DIR__ . '/../library/PlatformProductGuard.php';
+        \Oaaoai\Core\PlatformProductGuard::rejectCustomerProductApi($pdo);
+    }
+
+    /**
+     * @param array<string, mixed> $meta
+     */
+    public function recordUsageChatCompletion(\PDO $pdo, int $tenantId, array $meta): void
+    {
+        require_once __DIR__ . '/../library/UsageEventRepository.php';
+        \Oaaoai\Core\UsageEventRepository::recordChatCompletion($pdo, $tenantId, $meta);
+    }
+
+    /**
+     * @param array<string, mixed> $asrData
+     */
+    public function recordUsageChatAsr(\PDO $pdo, int $tenantId, array $asrData): void
+    {
+        require_once __DIR__ . '/../library/UsageEventRepository.php';
+        \Oaaoai\Core\UsageEventRepository::recordChatAsr($pdo, $tenantId, $asrData);
+    }
+
     public function __onInit(Agent $agent): bool
     {
         /* Required for {@see Emitter}: {@code $this->api('core')->registerSpaPage(...)} resolves API commands, not raw Controller methods. */
         $agent->addAPICommand([
-            'registerSpaPage'           => 'registerSpaPage',
-            'registerSettingsSection'   => 'registerSettingsSection',
-            'registerPreferencesSection' => 'registerPreferencesSection',
-            'registerFeatureScope'      => 'registerFeatureScope',
+            'registerSpaPage'                => 'registerSpaPage',
+            'registerSettingsSection'        => 'registerSettingsSection',
+            'registerPreferencesSection'     => 'registerPreferencesSection',
+            'registerFeatureScope'           => 'registerFeatureScope',
+            'bootstrapTenantContext'         => 'bootstrapTenantContext',
+            'tenantContextId'                => 'tenantContextId',
+            'rejectCustomerProductApi'       => 'rejectCustomerProductApi',
+            'recordUsageChatCompletion'      => 'recordUsageChatCompletion',
+            'recordUsageChatAsr'             => 'recordUsageChatAsr',
         ]);
 
         /**
@@ -320,7 +365,17 @@ return new class extends Controller {
 
         return \in_array(
             $method,
-            ['registerSpaPage', 'registerSettingsSection', 'registerPreferencesSection', 'registerFeatureScope'],
+            [
+                'registerSpaPage',
+                'registerSettingsSection',
+                'registerPreferencesSection',
+                'registerFeatureScope',
+                'bootstrapTenantContext',
+                'tenantContextId',
+                'rejectCustomerProductApi',
+                'recordUsageChatCompletion',
+                'recordUsageChatAsr',
+            ],
             true,
         );
     }

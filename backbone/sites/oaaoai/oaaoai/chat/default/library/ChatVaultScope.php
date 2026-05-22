@@ -15,15 +15,19 @@ final class ChatVaultScope
     /**
      * @return list<int>
      */
-    public static function vaultIdsForUserWorkspace(Database $db, int $uid, ?int $wid): array
+    public static function vaultIdsForUserWorkspace(Database $db, int $uid, ?int $wid, ?object $authApi = null): array
     {
         if ($uid < 1) {
             return [];
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+        self::ensurePgCoreTables($db, $authApi);
 
-        if (! \oaao_auth_database_is_pgsql($db)) {
+        if ($authApi && method_exists($authApi, 'databaseIsPgsql')) {
+            if (! $authApi->databaseIsPgsql($db)) {
+                return [];
+            }
+        } elseif (! self::databaseIsPgsqlFallback($db)) {
             return [];
         }
 
@@ -592,5 +596,23 @@ SQL;
         }
 
         return $out;
+    }
+
+    private static function ensurePgCoreTables(Database $db, ?object $authApi): void
+    {
+        if ($authApi && method_exists($authApi, 'ensurePgCoreTables')) {
+            $authApi->ensurePgCoreTables($db);
+
+            return;
+        }
+        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+        oaao_auth_ensure_pg_core_tables($db);
+    }
+
+    private static function databaseIsPgsqlFallback(Database $db): bool
+    {
+        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+
+        return oaao_auth_database_is_pgsql($db);
     }
 }

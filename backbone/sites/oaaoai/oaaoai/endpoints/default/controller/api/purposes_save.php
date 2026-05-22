@@ -96,7 +96,7 @@ return function (): void {
         return;
     }
 
-    $repo = new CanonicalEndpointsRepository($db);
+    $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
 
     if ($defaultEndpointId !== null && ! $repo->endpointRowExists($defaultEndpointId)) {
         http_response_code(400);

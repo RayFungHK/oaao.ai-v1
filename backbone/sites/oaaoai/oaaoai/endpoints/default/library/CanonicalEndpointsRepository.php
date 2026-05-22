@@ -14,8 +14,10 @@ use Razy\Database;
  */
 final class CanonicalEndpointsRepository
 {
-    public function __construct(private readonly Database $db)
-    {
+    public function __construct(
+        private readonly Database $db,
+        private readonly ?object $coreApi = null,
+    ) {
     }
 
     private function isPgsql(): bool
@@ -31,9 +33,12 @@ final class CanonicalEndpointsRepository
             return 0;
         }
 
-        require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
         $pdo = $this->db->getDBAdapter();
+        if ($pdo instanceof \PDO && $this->coreApi && method_exists($this->coreApi, 'bootstrapTenantContext')) {
+            return $this->coreApi->bootstrapTenantContext($pdo);
+        }
         if ($pdo instanceof \PDO) {
+            require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
             TenantContext::bootstrap($pdo);
         }
 

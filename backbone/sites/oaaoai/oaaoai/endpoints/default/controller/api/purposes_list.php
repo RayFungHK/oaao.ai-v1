@@ -28,7 +28,7 @@ return function (): void {
     oaao_auth_ensure_pg_core_tables($db);
 
     try {
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $repo->ensurePlanningPurposeRow();
         $rows = $repo->listPurposesWithDefaultEndpointName();
         echo json_encode(

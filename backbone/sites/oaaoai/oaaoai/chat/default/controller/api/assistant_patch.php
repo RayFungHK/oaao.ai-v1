@@ -61,9 +61,7 @@ return function (): void {
     $syncWarnings = [];
 
     try {
-        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_install_sqlite_local_schema.php';
-        oaao_auth_upgrade_sqlite_local_adjunct($pdo);
-        oaao_auth_upgrade_sqlite_message_meta_json($pdo);
+        $authApi->upgradeSqliteLocalAdjunct($pdo);
 
         $conv = $splitDb->prepare()
             ->select('id')
@@ -154,14 +152,12 @@ return function (): void {
             try {
                 if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
                     $tenantId = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
-                    if ($tenantId < 1) {
-                        require_once dirname(__DIR__, 4) . '/core/default/library/TenantContext.php';
-                        \Oaaoai\Core\TenantContext::bootstrap($pdo);
-                        $tenantId = \Oaaoai\Core\TenantContext::id();
+                    $coreApi = $this->api('core');
+                    if ($tenantId < 1 && $coreApi) {
+                        $tenantId = $coreApi->bootstrapTenantContext($pdo);
                     }
-                    if ($tenantId > 0) {
-                        require_once dirname(__DIR__, 4) . '/core/default/library/UsageEventRepository.php';
-                        \Oaaoai\Core\UsageEventRepository::recordChatCompletion($pdo, $tenantId, $input['meta']);
+                    if ($tenantId > 0 && $coreApi) {
+                        $coreApi->recordUsageChatCompletion($pdo, $tenantId, $input['meta']);
                     }
                 }
             } catch (\Throwable $e) {

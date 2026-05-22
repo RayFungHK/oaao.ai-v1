@@ -89,9 +89,7 @@ return function (): void {
     $syncWarnings = [];
 
     try {
-        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_install_sqlite_local_schema.php';
-        oaao_auth_upgrade_sqlite_local_adjunct($pdo);
-        oaao_auth_upgrade_sqlite_message_meta_json($pdo);
+        $auth->upgradeSqliteLocalAdjunct($pdo);
 
         $conv = $splitDb->prepare()
             ->select('id')

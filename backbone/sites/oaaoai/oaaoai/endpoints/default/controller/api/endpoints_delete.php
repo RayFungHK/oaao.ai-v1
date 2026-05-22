@@ -25,7 +25,7 @@ return function (): void {
     }
 
     try {
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $affected = $repo->deleteEndpointById($id);
         if ($affected < 1) {
             http_response_code(404);

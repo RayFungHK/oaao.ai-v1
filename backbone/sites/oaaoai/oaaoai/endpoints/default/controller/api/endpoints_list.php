@@ -12,7 +12,7 @@ return function (): void {
     }
 
     try {
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $rows = $repo->listEndpoints();
         echo json_encode(['success' => true, 'endpoints' => $rows ?: []], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     } catch (\Throwable) {

@@ -243,7 +243,8 @@ return function (): void {
             }
             $vaultSourceIds = array_values(array_unique($vaultSourceIds, SORT_NUMERIC));
         } else {
-            $candidates = ChatVaultScope::vaultIdsForUserWorkspace($canonDb, $uid, $wid);
+            $authApi = $this->api('auth');
+            $candidates = ChatVaultScope::vaultIdsForUserWorkspace($canonDb, $uid, $wid, $authApi);
             $vaultSourceIds = ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($canonDb, $candidates);
             if (\count($vaultSourceIds) > 24) {
                 $vaultSourceIds = \array_slice($vaultSourceIds, 0, 24);
@@ -606,9 +607,10 @@ return function (): void {
                     if ($userTenantId > 0) {
                         $payload['tenant_id'] = $userTenantId;
                     } else {
-                        require_once dirname(__DIR__, 4) . '/core/default/library/TenantContext.php';
-                        \Oaaoai\Core\TenantContext::bootstrap($canonPdo);
-                        $ctxTid = \Oaaoai\Core\TenantContext::id();
+                        $coreApi = $this->api('core');
+                        $ctxTid = $coreApi
+                            ? $coreApi->bootstrapTenantContext($canonPdo)
+                            : 0;
                         if ($ctxTid > 0) {
                             $payload['tenant_id'] = $ctxTid;
                         }

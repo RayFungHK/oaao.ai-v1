@@ -6,11 +6,11 @@
 return function (): void {
     header('Cache-Control: no-store, no-cache, must-revalidate');
 
-    require_once dirname(__DIR__, 4) . '/core/default/library/PlatformProductGuard.php';
     $auth = $this->api('auth');
+    $core = $this->api('core');
     $pdo = $auth?->getDB()?->getDBAdapter();
-    if ($pdo instanceof \PDO) {
-        \Oaaoai\Core\PlatformProductGuard::rejectCustomerProductApi($pdo);
+    if ($pdo instanceof \PDO && $core) {
+        $core->rejectCustomerProductApi($pdo);
     }
 
     if (! $auth) {

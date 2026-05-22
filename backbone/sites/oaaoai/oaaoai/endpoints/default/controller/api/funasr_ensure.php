@@ -31,7 +31,7 @@ return function (): void {
         $funasrEnv = AsrPurposeConfig::sanitizeFunasrContainerEnv($input['funasr_env']);
     }
     if ($funasrEnv === []) {
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $asrBind = $repo->resolveAsrBinding();
         $meta = \is_array($asrBind['purpose_meta'] ?? null) ? $asrBind['purpose_meta'] : [];
         $funasrEnv = AsrPurposeConfig::funasrContainerEnvFromMeta($meta);

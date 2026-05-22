@@ -61,8 +61,10 @@ return new class extends Controller {
 
         $pdo = $db->getDBAdapter();
         if ($pdo instanceof \PDO && $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
-            require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
-            \Oaaoai\Core\TenantContext::bootstrap($pdo);
+            $core = $this->api('core');
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+            }
         }
 
         return $db;
@@ -135,7 +137,7 @@ return new class extends Controller {
         if (! $db) {
             return null;
         }
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $asrBind = $repo->resolveAsrBinding();
         if ($asrBind === null) {
             return null;
@@ -157,7 +159,7 @@ return new class extends Controller {
         if (! $db) {
             return null;
         }
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $embBind = $repo->resolveVaultIngestEmbeddingBinding();
         if ($embBind === null) {
             return null;
@@ -184,7 +186,7 @@ return new class extends Controller {
         if (! $db) {
             return [];
         }
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
 
         return $repo->resolveRagRetrievalConfig();
     }
@@ -200,7 +202,7 @@ return new class extends Controller {
 
             return ChatAllowedAgentsPurposeConfig::defaultAllowed();
         }
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
 
         return $repo->resolveAllowedAgents();
     }
@@ -211,7 +213,7 @@ return new class extends Controller {
         if (! $db) {
             return 'auto';
         }
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
 
         return $repo->resolveRunPlannerMode();
     }
@@ -229,7 +231,7 @@ return new class extends Controller {
             return null;
         }
         require_once __DIR__ . '/../library/UiqePurposeConfig.php';
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $uiqeBind = $repo->resolveUiqeBinding();
         if ($uiqeBind === null) {
             return null;
@@ -253,7 +255,7 @@ return new class extends Controller {
         if (! $db) {
             return null;
         }
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $polishBind = $repo->resolvePolishBinding();
         if ($polishBind === null) {
             return null;

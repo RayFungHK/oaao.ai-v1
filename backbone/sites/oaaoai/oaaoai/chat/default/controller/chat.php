@@ -161,8 +161,10 @@ return new class extends Controller {
 
         $pdo = $db->getDBAdapter();
         if ($pdo instanceof \PDO && $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
-            require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
-            \Oaaoai\Core\TenantContext::bootstrap($pdo);
+            $core = $this->api('core');
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+            }
         }
 
         return $db;
@@ -236,9 +238,9 @@ return new class extends Controller {
             return false;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+        $auth->ensurePgCoreTables($db);
 
-        if (! \oaao_auth_database_is_pgsql($db)) {
+        if (! $auth->databaseIsPgsql($db)) {
             http_response_code(503);
             echo json_encode([
                 'success' => false,
@@ -256,8 +258,7 @@ return new class extends Controller {
             return false;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_install_pg_core_schema.php';
-        \oaao_auth_ensure_pg_workspace_tables($pdo);
+        $auth->ensurePgWorkspaceTables($pdo);
 
         require_once __DIR__ . '/api/_workspace_membership.php';
 
@@ -520,7 +521,8 @@ return new class extends Controller {
         if (! $db instanceof Database) {
             return [];
         }
-        $ids = ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId);
+        $auth = $this->api('auth');
+        $ids = ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId, $auth);
 
         return ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($db, $ids);
     }
@@ -553,7 +555,8 @@ return new class extends Controller {
             return [];
         }
 
-        $allowed = array_fill_keys(ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId), true);
+        $auth = $this->api('auth');
+        $allowed = array_fill_keys(ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId, $auth), true);
         /** @var list<int> $filtered */
         $filtered = [];
         foreach ($clean as $vid) {

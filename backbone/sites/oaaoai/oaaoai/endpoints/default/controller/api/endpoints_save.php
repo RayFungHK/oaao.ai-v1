@@ -86,7 +86,7 @@ return function (): void {
     $now = gmdate('Y-m-d H:i:s');
 
     try {
-        $repo = new CanonicalEndpointsRepository($db);
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         if ($id > 0) {
             if (! $repo->endpointRowExists($id)) {
                 http_response_code(404);

@@ -18,12 +18,38 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pytest
-        run: pip install pytest
+      - name: Install Python deps
+        run: pip install -r python/requirements.txt -r python/requirements-dev.txt
 
       - name: Bridge contract + hook resilience tests
         working-directory: python
         run: python -m pytest tests/test_orchestrator_bridge_contract.py tests/test_pipeline_hook_resilience.py -q
+
+  orchestrator-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install orchestrator
+        run: pip install -r python/requirements.txt
+
+      - name: Start sidecar and smoke health
+        run: |
+          cd python
+          uvicorn oaao_orchestrator.app:app --host 127.0.0.1 --port 8103 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8103/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8103/health
+          cd ..
+          OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 bash scripts/oaao_orchestrator_smoke.sh
 
   audit-full-report:
     runs-on: ubuntu-latest

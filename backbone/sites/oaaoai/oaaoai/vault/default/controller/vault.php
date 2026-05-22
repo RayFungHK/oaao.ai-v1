@@ -9,7 +9,6 @@ require_once __DIR__ . '/../library/VaultQdrantCollectionResolver.php';
 require_once __DIR__ . '/../library/VaultQdrantPoints.php';
 require_once __DIR__ . '/../library/VaultTranscriptSummaryLanguages.php';
 require_once __DIR__ . '/api/_vault_hook_jobs.php';
-require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
 require_once dirname(__DIR__, 3) . '/core/default/library/TenantHostResolver.php';
 
 use Oaaoai\Core\TenantContext;
@@ -145,8 +144,7 @@ return new class extends Controller {
             return false;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-
+        
         if (! \oaao_auth_database_is_pgsql($db)) {
             http_response_code(503);
             echo json_encode([
@@ -246,8 +244,7 @@ return new class extends Controller {
             return null;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-
+        
         if (! \oaao_auth_database_is_pgsql($db)) {
             http_response_code(503);
             echo json_encode([
@@ -299,8 +296,7 @@ return new class extends Controller {
             return null;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-
+        
         if (! \oaao_auth_database_is_pgsql($db)) {
             http_response_code(503);
             echo json_encode([
@@ -319,8 +315,7 @@ return new class extends Controller {
             return null;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_install_pg_core_schema.php';
-        \oaao_auth_ensure_pg_workspace_tables($pdo);
+        $this->api('auth')?->ensurePgWorkspaceTables($pdo);
         \oaao_auth_ensure_pg_vault_workspace_and_jobs($pdo);
         \oaao_auth_ensure_pg_vault_speaker_profiles($pdo);
 

@@ -170,13 +170,16 @@ return function (): void {
         if ($canonPdo instanceof \PDO && $canonPdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
             $tenantId = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
             if ($tenantId < 1) {
-                require_once dirname(__DIR__, 4) . '/core/default/library/TenantContext.php';
-                \Oaaoai\Core\TenantContext::bootstrap($canonPdo);
-                $tenantId = \Oaaoai\Core\TenantContext::id();
+                $coreApi = $this->api('core');
+                if ($coreApi) {
+                    $tenantId = $coreApi->bootstrapTenantContext($canonPdo);
+                }
             }
             if ($tenantId > 0) {
-                require_once dirname(__DIR__, 4) . '/core/default/library/UsageEventRepository.php';
-                \Oaaoai\Core\UsageEventRepository::recordChatAsr($canonPdo, $tenantId, $dec);
+                $coreApi = $this->api('core');
+                if ($coreApi) {
+                    $coreApi->recordUsageChatAsr($canonPdo, $tenantId, $dec);
+                }
             }
         }
     }
