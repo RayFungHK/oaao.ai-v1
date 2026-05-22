@@ -7,7 +7,7 @@ import json
 import logging
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +60,28 @@ class _SessionRuntime:
     embedding: dict[str, Any] | None = None
     vault_rag_config: dict[str, Any] | None = None
     carry_prompt: str = ""
+    bubble_evidence_totals: dict[str, int] = field(default_factory=dict)
 
 
 _runtime: dict[str, _SessionRuntime] = {}
+
+
+def _live_stats_payload(
+    *,
+    bubble_id: str,
+    evidence_total: int,
+    passage_count: int,
+    runtime: _SessionRuntime,
+) -> dict[str, Any]:
+    prev = int(runtime.bubble_evidence_totals.get(bubble_id) or 0)
+    delta = max(0, evidence_total - prev)
+    runtime.bubble_evidence_totals[bubble_id] = evidence_total
+    return {
+        "bubble_id": bubble_id,
+        "evidence_total": evidence_total,
+        "passage_count": passage_count,
+        "delta": delta,
+    }
 
 
 def create_session(
@@ -414,16 +433,18 @@ async def _run_bubble_lookup(session_id: str, query: str, bubble_id: str) -> Non
 
     materials = result.get("materials") if isinstance(result.get("materials"), list) else []
     passage_count = int(result.get("passage_count") or 0)
+    stats_payload = _live_stats_payload(
+        bubble_id=bubble_id,
+        evidence_total=len(materials),
+        passage_count=passage_count,
+        runtime=runtime,
+    )
     await hub.append(
         StreamEnvelope(
             phase=PHASE_LIVE,
             kind=KIND_LIVE_STATS,
             text=label,
-            payload={
-                "bubble_id": bubble_id,
-                "evidence_total": len(materials),
-                "passage_count": passage_count,
-            },
+            payload=stats_payload,
         )
     )
     await hub.append(

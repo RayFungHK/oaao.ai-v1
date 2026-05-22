@@ -73,6 +73,8 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
 
     const statusEl = mount.querySelector('[data-oaao-live-meeting="status"]');
     const connEl = mount.querySelector('[data-oaao-live-meeting="connections"]');
+    const statsWrapEl = mount.querySelector('[data-oaao-live-meeting="stats-wrap"]');
+    const statsEl = mount.querySelector('[data-oaao-live-meeting="stats"]');
     const transcriptEl = mount.querySelector('[data-oaao-live-meeting="transcript"]');
     const bubblesWrapEl = mount.querySelector('[data-oaao-live-meeting="bubbles-wrap"]');
     const bubblesEl = mount.querySelector('[data-oaao-live-meeting="bubbles"]');
@@ -184,6 +186,32 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         }
     };
 
+    const clearStats = () => {
+        if (statsEl) statsEl.textContent = '';
+        if (statsWrapEl instanceof HTMLElement) {
+            statsWrapEl.classList.add('hidden');
+            statsWrapEl.classList.remove('flex');
+        }
+    };
+
+    const renderStats = (payload) => {
+        if (!statsEl) return;
+        const total = Number(payload.payload?.evidence_total ?? 0);
+        const passages = Number(payload.payload?.passage_count ?? 0);
+        const delta = Number(payload.payload?.delta ?? 0);
+        const lineKey = delta > 0 ? 'live_meeting.stats.line_delta' : 'live_meeting.stats.line';
+        const vars = {
+            sources: String(total),
+            passages: String(passages),
+            delta: String(delta),
+        };
+        statsEl.textContent = t(lineKey, '', vars);
+        if (statsWrapEl instanceof HTMLElement) {
+            statsWrapEl.classList.remove('hidden');
+            statsWrapEl.classList.add('flex');
+        }
+    };
+
     const renderMaterials = (payload) => {
         if (!materialsEl) return;
         const rows = Array.isArray(payload?.payload?.materials) ? payload.payload.materials : [];
@@ -262,6 +290,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             showEmptyPlaceholder();
         }
         clearBubbles();
+        clearStats();
         clearMaterials();
         sessionId = '';
     };
@@ -321,15 +350,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                     return;
                 }
                 if (payload.kind === 'live_stats') {
-                    const total = Number(payload.payload?.evidence_total ?? 0);
-                    const passages = Number(payload.payload?.passage_count ?? 0);
-                    setConn(
-                        t('live_meeting.stats.line', '', {
-                            sources: String(total),
-                            passages: String(passages),
-                        }),
-                        { raw: true },
-                    );
+                    renderStats(payload);
                     return;
                 }
                 if (payload.kind === 'live_materials') {

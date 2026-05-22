@@ -62,7 +62,9 @@ const OAAO_I18N_BASE = {
         'live_meeting.materials.empty': 'No matching sources in the vault.',
         'live_meeting.materials.no_excerpt': '(no excerpt)',
         'live_meeting.error.vault_rag_not_configured': 'Knowledge base is not configured for this workspace.',
+        'live_meeting.stats.label': 'Retrieval',
         'live_meeting.stats.line': '{{sources}} sources · {{passages}} passages',
+        'live_meeting.stats.line_delta': '{{sources}} sources · {{passages}} passages · +{{delta}} new',
 
         // Settings nav (embedded registry)
         'settings.nav.endpoints.label': 'Endpoints',
@@ -550,7 +552,9 @@ const OAAO_I18N_BASE = {
         'live_meeting.materials.empty': '知識庫中沒有相符來源。',
         'live_meeting.materials.no_excerpt': '（無摘要）',
         'live_meeting.error.vault_rag_not_configured': '此工作區尚未設定知識庫檢索。',
+        'live_meeting.stats.label': '檢索',
         'live_meeting.stats.line': '{{sources}} 個來源 · {{passages}} 段摘錄',
+        'live_meeting.stats.line_delta': '{{sources}} 個來源 · {{passages}} 段摘錄 · 新增 {{delta}}',
 
         'settings.nav.endpoints.label': '端點',
         'settings.nav.endpoints.title': 'LLM 端點',
