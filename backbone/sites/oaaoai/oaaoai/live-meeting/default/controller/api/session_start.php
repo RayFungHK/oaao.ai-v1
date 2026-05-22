@@ -55,8 +55,15 @@ return function (): void {
     }
 
     $publicBase = LiveMeetingOrchestrator::publicStreamBase();
-    if ($publicBase !== '' && ! empty($orch['stream_url']) && str_starts_with((string) $orch['stream_url'], '/')) {
-        $orch['stream_url'] = $publicBase . (string) $orch['stream_url'];
+    if ($publicBase !== '') {
+        if (! empty($orch['stream_url']) && str_starts_with((string) $orch['stream_url'], '/')) {
+            $orch['stream_url'] = $publicBase . (string) $orch['stream_url'];
+        }
+        if (! empty($orch['ws_audio_url']) && str_starts_with((string) $orch['ws_audio_url'], '/')) {
+            $ws = (string) $orch['ws_audio_url'];
+            $orch['ws_audio_url'] = $publicBase . $ws;
+            $orch['ws_audio_url_ws'] = preg_replace('#^http#', 'ws', $publicBase) . $ws;
+        }
     }
 
     $this->oaao_live_json_exit(200, true, '', $orch);

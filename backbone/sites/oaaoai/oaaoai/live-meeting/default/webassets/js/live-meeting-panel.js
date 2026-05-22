@@ -1,6 +1,8 @@
 /**
- * Live meeting workspace panel — M1 shell (session_start + SSE placeholder).
+ * Live meeting workspace panel — session_start, WS PCM uplink, SSE placeholder (Phase C transcript).
  */
+import { startLiveMeetingPcmUplink } from './live-meeting-audio.js';
+
 const OAAO_LIVE_MEETING_CSS = '/webassets/live-meeting/default/css/live-meeting.css';
 
 function liveMeetingApiUrl(path) {
@@ -42,6 +44,8 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
 
     let sessionId = '';
     let eventSource = null;
+    /** @type {{ stop?: () => void } | null} */
+    let uplink = null;
 
     const setStatus = (text) => {
         if (statusEl) statusEl.textContent = text;
@@ -55,8 +59,13 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             eventSource.close();
             eventSource = null;
         }
+        if (uplink?.stop) {
+            uplink.stop();
+            uplink = null;
+        }
         if (micBtn instanceof HTMLButtonElement) {
             delete micBtn.dataset.oaaoLiveRecording;
+            micBtn.textContent = 'Start microphone';
         }
         setStatus('Idle');
         setConn('');
@@ -121,9 +130,25 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                 if (!data) return;
                 sessionId = String(data.session_id || '');
                 setStatus('Recording');
-                setConn(`WS: ${data.ws_audio_url || '—'} · SSE: pending (Phase B/C)`);
+                const wsUrl =
+                    data.ws_audio_url_ws ||
+                    (data.ws_audio_url
+                        ? String(data.ws_audio_url).replace(/^http/i, 'ws')
+                        : '');
                 micBtn.dataset.oaaoLiveRecording = '1';
                 micBtn.textContent = 'Stop';
+                try {
+                    uplink = await startLiveMeetingPcmUplink(wsUrl, {
+                        signal,
+                        onState: (s) => setConn(`WS: ${s}`),
+                    });
+                } catch (err) {
+                    setStatus('Error');
+                    setConn(err?.message || 'Microphone / WS failed');
+                    delete micBtn.dataset.oaaoLiveRecording;
+                    micBtn.textContent = 'Start microphone';
+                    return;
+                }
                 if (data.stream_url) {
                     const u = new URL(data.stream_url, window.location.href);
                     if (data.stream_token) {

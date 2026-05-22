@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -1067,6 +1067,13 @@ async def live_session_stop(
     if not stop_session(sid, keep_audio=bool(req.keep_audio)):
         raise HTTPException(status_code=404, detail="unknown_session")
     return {"ok": True, "session_id": sid, "keep_audio": bool(req.keep_audio)}
+
+
+@app.websocket("/v1/live/{session_id}/audio")
+async def live_audio_websocket(websocket: WebSocket, session_id: str) -> None:
+    from oaao_orchestrator.live_meeting.hub import handle_audio_websocket  # noqa: PLC0415
+
+    await handle_audio_websocket(websocket, session_id)
 
 
 @app.get("/v1/live/{session_id}/stream")

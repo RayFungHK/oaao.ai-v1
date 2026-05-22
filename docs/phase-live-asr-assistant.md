@@ -1,6 +1,6 @@
 # Phase Plan — Live ASR Assistant
 
-> **Status**: Phase A started (2026-05-21) — PHP module + orchestrator session stubs; WS/ASR in Phase B–C  
+> **Status**: Phase B in progress (2026-05-21) — WS PCM uplink + segment disk; ASR/SSE transcript in Phase C  
 > **Goal**: New workspace page for **live meeting copilot** — streaming ASR subtitles first; bubbles, RAG, and materials in later phases.  
 > **Rule**: Long-lived connections (WebSocket uplink audio, SSE downlink events) terminate **only** in Python orchestrator; PHP handles sessions, ACL, and disk paths.
 
