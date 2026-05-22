@@ -18,7 +18,7 @@ return function (): void {
     }
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
 
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 

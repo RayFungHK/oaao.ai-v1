@@ -47,7 +47,7 @@ return new class extends Controller {
             $core->bootstrapTenantContext($pdo);
         }
 
-        if (! TenantContext::isPlatform()) {
+        if (! $core || ! $core->tenantIsPlatform()) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'Platform console is only available on the platform host']);
 

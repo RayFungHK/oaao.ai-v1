@@ -27,7 +27,7 @@ return function (): void {
     }
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
     $writeScope = SlideTemplateScope::normalizeScope(
         isset($_POST['scope']) ? (string) $_POST['scope'] : null,
     );

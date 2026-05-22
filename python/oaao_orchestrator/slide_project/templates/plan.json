@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "first_layout": "title_hero",
+  "second_layout": "two_column",
+  "last_layout": "summary",
+  "middle_rotation": [
+    "two_column",
+    "three_cards",
+    "title_content",
+    "faq_split",
+    "metric_row",
+    "quote_focus",
+    "section_divider"
+  ],
+  "max_per_layout": {
+    "three_cards": 1,
+    "two_column": 1
+  },
+  "title_hints": [
+    { "layout": "faq_split", "keywords": ["faq", "問答", "q&a", "常見問題", "錯誤排除"] },
+    { "layout": "two_column", "keywords": ["案例", "實戰", "case study", "example"] },
+    { "layout": "three_cards", "keywords": ["架構", "模組", "層", "architecture", "platform", "stack"] },
+    { "layout": "summary", "keywords": ["總結", "摘要", "summary", "next step", "下一步"] },
+    { "layout": "title_hero", "keywords": ["介紹", "歡迎", "opening", "cover"] },
+    { "layout": "quote_focus", "keywords": ["技巧", "最佳", "實踐", "tips", "best practice"] },
+    { "layout": "metric_row", "keywords": ["數據", "指標", "kpi", "成效", "metric"] },
+    { "layout": "section_divider", "keywords": ["章", "part", "section", "單元"] }
+  ]
+}

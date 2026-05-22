@@ -1,0 +1,25 @@
+{
+  "deck_theme": "executive_problem",
+  "tone": "Professional teaching deck — clear hierarchy, confident spacing",
+  "design_principles": [
+    "Fill the entire 1280×720 canvas; never leave an empty lower third",
+    "Consistent accent top bar on all non-hero slides",
+    "Generous padding but content anchored in a full-height grid",
+    "One palette for the whole deck — no per-slide theme switches",
+    "Vary layout composition per slide; never repeat the same layout twice in a row"
+  ],
+  "typography": {
+    "font_stack": "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans TC\", sans-serif",
+    "title_weight": "700",
+    "body_size_rem": "1.08"
+  },
+  "colors": {
+    "bg": "#0f172a",
+    "fg": "#e2e8f0",
+    "muted": "#94a3b8",
+    "accent": "#38bdf8",
+    "card": "rgba(255,255,255,0.08)",
+    "bar": "#38bdf8"
+  },
+  "slide_prompt": "Use the locked deck palette but VARY composition per slide (FAQ split, metrics, quote, cards, two-column — never repeat the same layout on consecutive slides). Fill 1280×720; teaching tone, zh-Hant when user writes Chinese. No placeholder lines like 'Key point for slide'."
+}

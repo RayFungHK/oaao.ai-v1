@@ -148,6 +148,13 @@ return new class extends Controller {
         return \Oaaoai\Core\TenantContext::id();
     }
 
+    public function tenantIsPlatform(): bool
+    {
+        require_once __DIR__ . '/../library/TenantContext.php';
+
+        return \Oaaoai\Core\TenantContext::isPlatform();
+    }
+
     public function rejectCustomerProductApi(\PDO $pdo): void
     {
         require_once __DIR__ . '/../library/PlatformProductGuard.php';
@@ -182,6 +189,7 @@ return new class extends Controller {
             'registerFeatureScope'           => 'registerFeatureScope',
             'bootstrapTenantContext'         => 'bootstrapTenantContext',
             'tenantContextId'                => 'tenantContextId',
+            'tenantIsPlatform'               => 'tenantIsPlatform',
             'rejectCustomerProductApi'       => 'rejectCustomerProductApi',
             'recordUsageChatCompletion'      => 'recordUsageChatCompletion',
             'recordUsageChatAsr'             => 'recordUsageChatAsr',
@@ -388,6 +396,7 @@ return new class extends Controller {
                 'registerFeatureScope',
                 'bootstrapTenantContext',
                 'tenantContextId',
+                'tenantIsPlatform',
                 'rejectCustomerProductApi',
                 'recordUsageChatCompletion',
                 'recordUsageChatAsr',

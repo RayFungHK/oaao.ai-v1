@@ -224,7 +224,7 @@ return new class extends Controller {
         require_once dirname(__DIR__) . '/library/SlideTemplateStorage.php';
         require_once dirname(__DIR__) . '/library/SlideTemplateScope.php';
         $auth = $this->api('auth');
-        $scope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth);
+        $scope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
         $row = \oaaoai\slide_designer\SlideTemplateStorage::resolveTemplateRecord($templateId, $scope);
         if ($row === null || (string) ($row['status'] ?? '') !== 'published') {
             return null;
@@ -270,7 +270,7 @@ return new class extends Controller {
         require_once dirname(__DIR__) . '/library/SlideTemplateStorage.php';
         require_once dirname(__DIR__) . '/library/SlideTemplateScope.php';
         $auth = $this->api('auth');
-        $scope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth);
+        $scope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
         $tpl = \oaaoai\slide_designer\SlideTemplateStorage::resolveTemplateRecord($templateId, $scope);
         if (! \is_array($tpl) || (string) ($tpl['status'] ?? '') !== 'published') {
             return null;
@@ -312,7 +312,7 @@ return new class extends Controller {
         require_once dirname(__DIR__) . '/library/SlideTemplateScope.php';
         require_once dirname(__DIR__) . '/library/SlideOrchestrator.php';
         $auth = $this->api('auth');
-        $ctx = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth);
+        $ctx = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
         $payload = \oaaoai\slide_designer\SlideOrchestrator::listTemplates($chat, $ctx, true, null);
         $rows = \is_array($payload) ? ($payload['custom_templates'] ?? []) : [];
         if (! \is_array($rows)) {

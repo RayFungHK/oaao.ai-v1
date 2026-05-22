@@ -1,0 +1,2 @@
+# Full orchestrator app import (app:app smoke + integration). Heavier than requirements-ci.txt.
+-r requirements.txt

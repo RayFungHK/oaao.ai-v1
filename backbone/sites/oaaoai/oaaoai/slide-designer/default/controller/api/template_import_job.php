@@ -24,7 +24,7 @@ return function (): void {
     }
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
 
     $jobId = trim((string) ($_GET['job_id'] ?? ''));
     if ($jobId === '') {

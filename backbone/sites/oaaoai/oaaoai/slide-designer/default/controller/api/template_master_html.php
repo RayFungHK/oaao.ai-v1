@@ -19,7 +19,7 @@ return function (): void {
     }
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
 
     $templateId = isset($_GET['template_id']) && is_string($_GET['template_id'])
         ? trim($_GET['template_id'])

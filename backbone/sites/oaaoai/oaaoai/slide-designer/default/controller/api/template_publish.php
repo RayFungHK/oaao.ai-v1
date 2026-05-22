@@ -45,7 +45,7 @@ return function (): void {
     $autoFix = ! isset($body['auto_fix']) || $body['auto_fix'] !== false;
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
     $endpointPayload = SlideTemplateLlm::resolveAnalyzePayload($auth ? $auth->getDB() : null);
     if ($endpointPayload === null) {
         http_response_code(503);

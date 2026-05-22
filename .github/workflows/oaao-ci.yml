@@ -25,6 +25,10 @@ jobs:
         working-directory: python
         run: python -m pytest tests/test_orchestrator_bridge_contract.py -q
 
+      - name: Hook resilience tests
+        working-directory: python
+        run: python -m pytest tests/test_pipeline_hook_resilience.py -q
+
   orchestrator-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -34,14 +38,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install smoke deps
-        run: pip install -r python/requirements-ci.txt
+      - name: Install orchestrator app deps
+        run: pip install -r python/requirements-orchestrator-app.txt
 
-      - name: Start sidecar and smoke health
+      - name: Start app sidecar and smoke (health + chat run)
         working-directory: python
+        env:
+          OAAO_SMOKE_START_CHAT_RUN: "1"
         run: |
-          python -m uvicorn oaao_orchestrator.health_app:app --host 127.0.0.1 --port 8103 &
-          for i in $(seq 1 30); do
+          python -m uvicorn oaao_orchestrator.app:app --host 127.0.0.1 --port 8103 &
+          SIDECAR_PID=$!
+          trap 'kill ${SIDECAR_PID} 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8103/health >/dev/null 2>&1; then
               break
             fi

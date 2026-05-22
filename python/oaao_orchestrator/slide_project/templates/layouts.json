@@ -1,0 +1,228 @@
+{
+  "version": 2,
+  "layouts": {
+    "title_hero": {
+      "component": "title_hero",
+      "label": "Cover hero",
+      "shell": ["hero"],
+      "content_recipe": "Deck subtitle line, lead sentence, 3–4 opening bullets.",
+      "html_prompt": "Centered hero filling full frame: deck name, large title, subtitle, bullets.",
+      "title_keywords": [],
+      "slots": [
+        {
+          "id": "subtitle",
+          "kind": "paragraph",
+          "label": "Subtitle",
+          "recipe": "One deck subtitle line (not the main slide title)."
+        },
+        {
+          "id": "lead",
+          "kind": "paragraph",
+          "label": "Lead",
+          "recipe": "One opening lead sentence for the cover."
+        },
+        {
+          "id": "bullets",
+          "kind": "bullets",
+          "label": "Opening bullets",
+          "recipe": "3–4 opening bullets previewing the deck."
+        }
+      ]
+    },
+    "title_content": {
+      "component": "title_content",
+      "label": "Title + body",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "Lead paragraph (2 sentences) + 4–5 bullets.",
+      "html_prompt": "Top bar + title; body fill area with lead + bullets using vertical space.",
+      "title_keywords": [],
+      "slots": [
+        {
+          "id": "lead",
+          "kind": "paragraph",
+          "label": "Lead",
+          "recipe": "2 sentences introducing this slide's topic."
+        },
+        {
+          "id": "bullets",
+          "kind": "bullets",
+          "label": "Body bullets",
+          "recipe": "4–5 substantive teaching bullets."
+        }
+      ]
+    },
+    "two_column": {
+      "component": "two_column",
+      "label": "Two column",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "5–6 bullets for the left column + one short paragraph (1–2 sentences) for the right callout insight.",
+      "html_prompt": "Full-height two columns: bullets left (vertically centered), tall callout right.",
+      "title_keywords": ["案例", "實戰"],
+      "slots": [
+        {
+          "id": "left_bullets",
+          "kind": "bullets",
+          "label": "Left column",
+          "recipe": "5–6 bullets for the main left column."
+        },
+        {
+          "id": "right_callout",
+          "kind": "paragraph",
+          "label": "Right callout",
+          "recipe": "1–2 sentence insight for the right callout (no bullets)."
+        }
+      ]
+    },
+    "three_cards": {
+      "component": "three_cards",
+      "label": "Three cards",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "Use exactly ### 區塊一 / ### 區塊二 / ### 區塊三 — each with 2–3 substantive bullets (real teaching points, not meta labels).",
+      "html_prompt": "Three equal-height cards in a row filling the body area below the title.",
+      "title_keywords": ["架構", "模組"],
+      "slots": [
+        {
+          "id": "card_1",
+          "kind": "section",
+          "label": "Card 1",
+          "recipe": "### 區塊一 heading + 2–3 real teaching bullets."
+        },
+        {
+          "id": "card_2",
+          "kind": "section",
+          "label": "Card 2",
+          "recipe": "### 區塊二 heading + 2–3 real teaching bullets."
+        },
+        {
+          "id": "card_3",
+          "kind": "section",
+          "label": "Card 3",
+          "recipe": "### 區塊三 heading + 2–3 real teaching bullets."
+        }
+      ]
+    },
+    "summary": {
+      "component": "summary",
+      "label": "Summary",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "5–6 takeaway bullets with action verbs.",
+      "html_prompt": "Summary box stretches to fill lower body with 4–6 bullets.",
+      "title_keywords": ["總結", "下一步"],
+      "slots": [
+        {
+          "id": "bullets",
+          "kind": "bullets",
+          "label": "Takeaways",
+          "recipe": "5–6 closing takeaway bullets with action verbs."
+        }
+      ]
+    },
+    "section_divider": {
+      "component": "section_divider",
+      "label": "Section break",
+      "shell": ["section_divider"],
+      "content_recipe": "One subtitle line + optional single bullet.",
+      "html_prompt": "Full-bleed section break — big title, minimal bullets.",
+      "title_keywords": ["章", "單元"],
+      "slots": [
+        {
+          "id": "subtitle",
+          "kind": "paragraph",
+          "label": "Subtitle",
+          "recipe": "One section subtitle line under the section title."
+        }
+      ]
+    },
+    "faq_split": {
+      "component": "faq_split",
+      "label": "FAQ split",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "4 question bullets (short) then 3–4 answer lines starting with '答：' or second-level bullets.",
+      "html_prompt": "FAQ: question bullets left, answer blocks right — distinct from two_column.",
+      "title_keywords": ["faq", "常見問題"],
+      "slots": [
+        {
+          "id": "questions",
+          "kind": "bullets",
+          "label": "Questions",
+          "recipe": "4 short FAQ question bullets (left column)."
+        },
+        {
+          "id": "answers",
+          "kind": "bullets",
+          "label": "Answers",
+          "recipe": "3–4 answer bullets; each line MUST start with '答：'."
+        }
+      ]
+    },
+    "metric_row": {
+      "component": "metric_row",
+      "label": "Metrics row",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "3 lines like '指標一：具體數字或結果' / '指標二：…' / '指標三：…' (value + explanation).",
+      "html_prompt": "Three large metric values with labels (use 指標：說明 or short value + label lines).",
+      "title_keywords": ["指標", "kpi"],
+      "slots": [
+        {
+          "id": "metrics",
+          "kind": "metrics",
+          "label": "Metrics",
+          "recipe": "Exactly 3 KPI bullets: '- 指標名：具體說明'."
+        }
+      ]
+    },
+    "quote_focus": {
+      "component": "quote_focus",
+      "label": "Quote focus",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "One strong pull-quote sentence (plain line), then 4–5 supporting bullets.",
+      "html_prompt": "Large pull-quote left, supporting bullets right.",
+      "title_keywords": ["技巧", "最佳實踐"],
+      "slots": [
+        {
+          "id": "quote",
+          "kind": "paragraph",
+          "label": "Quote",
+          "recipe": "One strong pull-quote sentence (plain text, no bullets)."
+        },
+        {
+          "id": "support_bullets",
+          "kind": "bullets",
+          "label": "Supporting bullets",
+          "recipe": "4–5 supporting bullets beside the quote."
+        }
+      ]
+    },
+    "pptx_master": {
+      "component": "pptx_master",
+      "label": "PPTX positioned master",
+      "shell": ["pptx_master"],
+      "content_recipe": "Fill each data-slot region; slots come from PPTX geometry.",
+      "html_prompt": "Preserve absolute slot positions from imported PPTX master.",
+      "title_keywords": []
+    },
+    "bullets": {
+      "component": "title_content",
+      "label": "Bullets (alias)",
+      "shell": ["topbar", "header", "body"],
+      "content_recipe": "Lead paragraph + 4–5 bullets.",
+      "html_prompt": "Title + bullet body filling vertical space.",
+      "aliases": ["title_content"],
+      "title_keywords": [],
+      "slots": [
+        {
+          "id": "lead",
+          "kind": "paragraph",
+          "label": "Lead",
+          "recipe": "2 sentences introducing this slide's topic."
+        },
+        {
+          "id": "bullets",
+          "kind": "bullets",
+          "label": "Body bullets",
+          "recipe": "4–5 substantive teaching bullets."
+        }
+      ]
+    }
+  }
+}

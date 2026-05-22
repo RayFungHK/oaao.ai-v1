@@ -27,7 +27,7 @@ return function (): void {
     }
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
     $canonDb = $auth ? $auth->getDB() : null;
     $llmConfigured = SlideTemplateLlm::isAnalyzeConfigured($canonDb);
     $scopeCaps = SlideTemplateScope::scopeCapabilities($scopeCtx);

@@ -438,11 +438,15 @@ flowchart LR
 | user / group / platform 改走 module API | ✅ |
 | `scripts/audit_cross_module_requires.sh`（full） | ✅ 0 P0 |
 
-### Phase 4 — 待辦
+### Phase 5 — Orchestrator + smoke（2026-05-19）
 
-1. `OAAO_SMOKE_START_CHAT_RUN=1` 真實 `/v1/runs/chat` smoke（需完整 orchestrator 進 git + 環境）
-2. 恢復 `test_pipeline_hook_resilience` 為嚴格 CI（同上）
-3. `slide-designer/SlideTemplateScope` 可選改 `api('core')->bootstrapTenantContext`（gate 已允許 core）
+| 項目 | 狀態 |
+|------|------|
+| `python/oaao_orchestrator/` 納入 git | ✅ |
+| CI `app:app` smoke + `OAAO_SMOKE_START_CHAT_RUN=1` | ✅ |
+| `test_pipeline_hook_resilience` 嚴格 CI | ✅ |
+| `SlideTemplateScope` → `api('core')` | ✅ |
+| `requirements-orchestrator-app.txt` | ✅ 完整 app 依賴（CI smoke job） |
 
 ---
 

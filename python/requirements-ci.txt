@@ -1,5 +1,8 @@
-# Minimal deps for GitHub Actions (bridge contract + health smoke).
+# CI: bridge contract tests, hook resilience, health_app smoke.
+eval-type-backport>=0.2,<1
 fastapi>=0.109,<1
 uvicorn[standard]>=0.27,<1
+httpx>=0.26,<1
+pydantic>=2.5,<3
 pytest>=8.0
 pytest-asyncio>=0.23

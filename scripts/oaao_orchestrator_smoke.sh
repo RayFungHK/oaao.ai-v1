@@ -20,7 +20,7 @@ if [[ "${OAAO_SMOKE_START_CHAT_RUN:-0}" != "1" ]]; then
 fi
 
 echo "== POST /v1/runs/chat (minimal) =="
-BODY='{"messages":[{"role":"user","content":"smoke ping"}],"allowed_agents":["vault_rag"],"run_planner_mode":"fixed"}'
+BODY='{"messages":[{"role":"user","content":"smoke ping"}],"allowed_agents":["vault_rag"],"run_planner_mode":"fixed","endpoint":{"base_url":"http://127.0.0.1:9","model":"ci-smoke","api_key_env":null}}'
 RESP=$(curl -fsS -X POST \
   -H "Content-Type: application/json" \
   -H "X-OAAO-Internal-Token: ${SECRET}" \
@@ -28,7 +28,13 @@ RESP=$(curl -fsS -X POST \
   "${BASE}/v1/runs/chat")
 echo "${RESP}" | head -c 600
 echo ""
-RUN_ID=$(echo "${RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('run_id',''))" 2>/dev/null || true)
-if [[ -n "${RUN_ID}" ]]; then
-  echo "run_id=${RUN_ID}"
+RUN_ID=$(echo "${RESP}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('run_id','')); assert d.get('run_id'), 'missing run_id'" 2>/dev/null || true)
+if [[ -z "${RUN_ID}" ]]; then
+  echo "FAIL: /v1/runs/chat did not return run_id" >&2
+  exit 1
+fi
+echo "run_id=${RUN_ID}"
+STREAM_TOKEN=$(echo "${RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('stream_token',''))" 2>/dev/null || true)
+if [[ -n "${STREAM_TOKEN}" ]]; then
+  echo "stream_token_ok"
 fi

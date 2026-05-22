@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace oaaoai\slide_designer;
 
-require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
-
-use Oaaoai\Core\TenantContext;
-
 /**
  * Slide template scope — global (platform), tenant, personal (user).
  */
@@ -31,21 +27,22 @@ final class SlideTemplateScope
      *     is_tenant_admin: bool
      * }
      */
-    public static function contextFromAuth(object $user, ?\PDO $canonPdo = null): array
+    public static function contextFromAuth(object $user, ?\PDO $canonPdo = null, ?object $coreApi = null): array
     {
         $uid = (int) ($user->user_id ?? 0);
         $userTid = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
 
-        if ($canonPdo instanceof \PDO) {
-            TenantContext::bootstrap($canonPdo);
+        $ctxTid = 0;
+        if ($canonPdo instanceof \PDO && $coreApi && method_exists($coreApi, 'bootstrapTenantContext')) {
+            $ctxTid = $coreApi->bootstrapTenantContext($canonPdo);
         }
 
-        $ctxTid = TenantContext::id();
         $tenantId = $ctxTid > 0 ? $ctxTid : ($userTid > 0 ? $userTid : null);
 
         $role = isset($user->role) ? strtolower(trim((string) $user->role)) : '';
         $isPlatformOp = false;
-        if ($role === 'platform_admin' && TenantContext::isPlatform()) {
+        $isPlatform = $coreApi && method_exists($coreApi, 'tenantIsPlatform') && $coreApi->tenantIsPlatform();
+        if ($role === 'platform_admin' && $isPlatform) {
             $isPlatformOp = $userTid > 0 && $ctxTid > 0 && $userTid === $ctxTid;
         }
 
@@ -158,10 +155,11 @@ final class SlideTemplateScope
     /**
      * @param object $user Auth user row
      * @param object|null $authModule {@code $this->api('auth')}
+     * @param object|null $coreApi {@code $this->api('core')}
      *
      * @return array{scope: string, tenant_id: int|null, user_id: int, is_platform_operator: bool}
      */
-    public static function contextFromAuthModule(object $user, ?object $authModule): array
+    public static function contextFromAuthModule(object $user, ?object $authModule, ?object $coreApi = null): array
     {
         $canonPdo = null;
         if ($authModule !== null && method_exists($authModule, 'getDB')) {
@@ -174,6 +172,6 @@ final class SlideTemplateScope
             }
         }
 
-        return self::contextFromAuth($user, $canonPdo);
+        return self::contextFromAuth($user, $canonPdo, $coreApi);
     }
 }

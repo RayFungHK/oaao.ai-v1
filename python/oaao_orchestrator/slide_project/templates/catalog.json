@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Slide designer template catalog — extend layouts/themes via JSON, not Python branches.",
+  "files": {
+    "themes": "themes.json",
+    "layouts": "layouts.json",
+    "plan": "plan.json",
+    "styles": "styles.css.tpl",
+    "deck_style_default": "deck_style.default.json"
+  },
+  "canvas": { "width": 1280, "height": 720 }
+}

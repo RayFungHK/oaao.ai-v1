@@ -80,7 +80,7 @@ return function (): void {
     $html = \oaaoai\slide_designer\SlideCanvas::normalizeHtml($html);
 
     $auth = $this->api('auth');
-    $scopeCtx = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
     $html = \oaaoai\slide_designer\SlideTemplateStorage::sanitizeSlideHtmlFontFaces($html, $scopeCtx);
 
     $templateId = trim((string) ($manifest['template_id'] ?? ''));

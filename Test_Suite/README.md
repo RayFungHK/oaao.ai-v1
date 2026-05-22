@@ -14,14 +14,17 @@
 ## 執行
 
 ```bash
-# 與 CI 相同（bridge gate + 契約測試）
+# 與 CI 相同（bridge gate + 契約 + hook 測試）
 bash scripts/ci_check.sh
 
-# 或僅 Python（建議先 pip install -r python/requirements-dev.txt）
-cd python && python -m pytest tests/test_orchestrator_bridge_contract.py tests/test_pipeline_hook_resilience.py -q
+# 完整 orchestrator app smoke（需較重依賴，見 requirements-orchestrator-app.txt）
+pip install -r python/requirements-orchestrator-app.txt
+cd python && python -m uvicorn oaao_orchestrator.app:app --host 127.0.0.1 --port 8103 &
+OAAO_SMOKE_START_CHAT_RUN=1 OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 bash ../scripts/oaao_orchestrator_smoke.sh
 
-# 嚴格模組隔離 gate（chat / live-meeting / slide-designer）
-bash scripts/audit_cross_module_requires.sh --gate
+# 嚴格模組隔離
+bash scripts/audit_cross_module_requires.sh --gate   # bridge 模組
+bash scripts/audit_cross_module_requires.sh          # 全樹 0 P0
 ```
 
 ## 尚未實作（見 Audit_Report §8）

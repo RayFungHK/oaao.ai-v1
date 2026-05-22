@@ -42,7 +42,7 @@ return function (): void {
     }
 
     $auth = $this->api('auth');
-    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
 
     $result = SlideOrchestrator::unpublishTemplate($chatApi, $templateId, $scopeCtx);
     if ($result === null) {
