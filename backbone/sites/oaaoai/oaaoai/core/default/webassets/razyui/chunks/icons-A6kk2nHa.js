@@ -1,0 +1,2 @@
+import s from"../component/Icons.js";const t=s.svg("chevron-left",{size:14,strokeWidth:1.5}),e=s.svg("chevron-right",{size:14,strokeWidth:1.5}),r=s.svg("xmark",{size:16,strokeWidth:2}),o=s.svg("xmark",{size:16,strokeWidth:1.8}),i=s.svg("xmark",{size:14,strokeWidth:1.8}),a=s.svg("xmark",{size:12,strokeWidth:2}),h="http://www.w3.org/2000/svg";export{i as I,h as S,t as a,e as b,o as c,r as d,a as e};
+//# sourceMappingURL=icons-A6kk2nHa.js.map

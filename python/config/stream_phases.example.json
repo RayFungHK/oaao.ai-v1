@@ -1,0 +1,11 @@
+{
+  "phase_labels": {
+    "agent": "Agent",
+    "mcp": "MCP",
+    "sandbox": "Sandbox",
+    "rag": "RAG",
+    "web_search": "Web search",
+    "llm": "Model",
+    "system": "System"
+  }
+}

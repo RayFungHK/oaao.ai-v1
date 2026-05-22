@@ -1,0 +1,30 @@
+# IDE / editor
+.cursor/
+.idea/
+*.swp
+*~
+
+# Local env (copy from docker/env.example)
+.env
+
+# Python orchestrator
+python/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node (install via core/vite: npm ci)
+**/node_modules/
+
+# Docker bind-mount runtime data (see docker/env.example)
+docker/data/
+
+# Razy runtime cache (regenerated)
+backbone/data/
+
+# Sibling reference tree — not part of oaao.ai-v1 (see ../development-razy0.4)
+development-razy0.4/
+
+# OS
+.DS_Store
+Thumbs.db

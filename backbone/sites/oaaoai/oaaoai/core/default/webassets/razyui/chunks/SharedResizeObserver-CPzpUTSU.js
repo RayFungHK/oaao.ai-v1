@@ -1,0 +1,2 @@
+const e=new Map;let n=null;function t(){return n||(n=new ResizeObserver(n=>{for(const t of n){const n=e.get(t.target);n&&n(t)}})),n}function o(n,o){e.set(n,o),t().observe(n)}function r(n){e.delete(n),t().unobserve(n)}const s={observe:o,unobserve:r,createScope:function(){const e=new Set;return{observe(n,t){e.add(n),o(n,t)},unobserve(n){e.delete(n),r(n)},disconnect(){for(const n of e)r(n);e.clear()},get size(){return e.size}}},getActiveCount:function(){return e.size}};export{s};
+//# sourceMappingURL=SharedResizeObserver-CPzpUTSU.js.map

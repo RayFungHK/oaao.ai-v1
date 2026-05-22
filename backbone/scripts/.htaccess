@@ -1,0 +1,4 @@
+# Prevent HTTP access to maintenance scripts (DocumentRoot is this repo root).
+<IfModule authz_core_module>
+    Require all denied
+</IfModule>

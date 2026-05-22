@@ -1,0 +1,932 @@
+/**
+ * oaao.ai v1 — design tokens, document baseline, login backdrop.
+ * Workspace shell also uses JIT in {@code workspace.tpl}; below block is **authoritative fallback**
+ * when arbitrary / responsive utilities are not emitted by JIT (aside height, header flex alignment).
+ *
+ * Remaining: drawer open hooks, narrow rail 44px taps, reduced-motion.
+ */
+html {
+    height: 100%;
+    min-height: 100dvh;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --grid-paper: #f8f8f7;
+    --grid-panel-bright: #ffffff;
+    --grid-nav: #fafaf9;
+    --grid-line: rgba(0, 0, 0, 0.06);
+    --grid-line-strong: rgba(0, 0, 0, 0.1);
+    --grid-ink: #1a1a19;
+    --grid-ink-muted: #5f5e5b;
+    --grid-caption: #9b9a97;
+    --grid-accent: #0081f2;
+    --grid-accent-hover: #006fd6;
+
+    --oaao-surface-border: rgba(0, 0, 0, 0.1);
+    --oaao-surface-radius: 14px;
+    --oaao-surface-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    --oaao-surface-focus: 0 0 0 2px rgba(0, 129, 242, 0.25);
+    --oaao-surface-error: 0 0 0 2px rgba(220, 38, 38, 0.18);
+}
+
+#login-view {
+    background-image: radial-gradient(circle, rgba(0 0 0 / 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: center;
+}
+
+/**
+ * Shell roots use Tailwind {@code flex} utilities on the same node as {@code hidden}. Generic {@code .flex} often loads
+ * after the UA {@code [hidden]} rule and wins, so the workspace chrome can stack on top of login / install — fix with
+ * explicit {@code display:none} ({@see workspace.tpl}, {@see main.js} toggles {@code Element.hidden}).
+ */
+.oaao-app #workspace-view[hidden],
+.oaao-app #platform-view[hidden],
+.oaao-app #login-view[hidden],
+.oaao-app #install-view[hidden] {
+    display: none !important;
+}
+
+/**
+ * Anonymous users: never paint the workspace shell (same {@code flex} vs {@code [hidden]} cascade issue). Authenticated
+ * requests set {@code body.oaao-session-active} from PHP ({@see core.main.php}) or after Ajax login ({@see main.js}).
+ */
+.oaao-app:not(.oaao-session-active) #workspace-view.workspace-view-shell,
+.oaao-app:not(.oaao-session-active) #platform-view.platform-view-shell {
+    display: none !important;
+}
+
+/**
+ * Login `<rui-input>` sets the host to `display: contents` so flex/gap on the form see the real
+ * control tree. Custom properties on a `display:contents` box do not reliably cascade to the
+ * light-DOM descendants in all engines — without `--inp-*` on a real node, JIT classes such as
+ * `fg-[var(--inp-text)]` resolve invalid and the field looks unstyled.
+ *
+ * Bridge the same token map as {@code .input} in {@code razyui.css} onto the inner stack root.
+ */
+#login-view .input-container {
+    --inp-font-size: 0.85rem;
+    --inp-font-stack: inherit;
+    --inp-bg: var(--rui-bg);
+    --inp-bg-readonly: var(--rui-bg-inset);
+    --inp-text: var(--rui-text);
+    --inp-placeholder: var(--rui-text-muted);
+    --inp-border: var(--rui-border);
+    --inp-radius: 10px;
+    --inp-h: 2.25rem;
+    --inp-px: 0.75rem;
+    --inp-gap: 0.5rem;
+    --inp-label-gap: 0.5rem;
+    --inp-label-size: 0.85rem;
+    --inp-label-text: var(--rui-text);
+    --inp-desc-gap: 0.25rem;
+    --inp-desc-size: 0.85rem;
+    --inp-desc-text: var(--rui-text-muted);
+    --inp-hint-gap: 0.5rem;
+    --inp-hint-size: 0.75rem;
+    --inp-hint-text: var(--rui-text-muted);
+    --inp-focus-border: var(--rui-accent);
+    --inp-focus-ring: color-mix(in srgb, var(--rui-accent), transparent 75%);
+    --inp-error-border: #dc2626;
+    --inp-error-ring: rgba(220, 38, 38, 0.25);
+    --inp-error-text: #dc2626;
+    --inp-sm-font-size: 0.75rem;
+    --inp-sm-h: 1.75rem;
+    --inp-sm-px: 0.5rem;
+    --inp-sm-label-size: 0.7rem;
+    --inp-lg-font-size: var(--rui-font-size-base, 1rem);
+    --inp-lg-h: 2.75rem;
+    --inp-lg-px: 1rem;
+    --inp-lg-label-size: var(--rui-font-size-base, 1rem);
+}
+
+/* ── Workspace shell height chain + aside stretch (JIT fallback) ───────────────── */
+
+.oaao-app #workspace-view:not([hidden]).workspace-view-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 100dvh;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+}
+
+.oaao-app #workspace-view:not([hidden]) > .workspace-shell-inner {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* ── Platform admin shell height chain + panel scroll (JIT fallback) ─────────────── */
+
+.oaao-app #platform-view:not([hidden]).platform-view-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 100dvh;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+}
+
+.oaao-app #platform-view:not([hidden]) #platform-shell-root {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.oaao-app #platform-view:not([hidden]) .platform-shell-nav {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.oaao-app #platform-view:not([hidden]) .platform-shell-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.oaao-app #platform-view:not([hidden]) .platform-shell-header {
+    flex-shrink: 0;
+}
+
+.oaao-app #platform-view:not([hidden]) .platform-shell-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.oaao-app #workspace-view:not([hidden]) #workspace-shell-aside.oaao-shell-aside {
+    display: flex;
+    align-self: stretch;
+    box-sizing: border-box;
+    overflow: hidden;
+    background-color: var(--grid-panel-bright);
+}
+
+@media (min-width: 768px) {
+    .oaao-app #workspace-view:not([hidden]) #workspace-shell-aside.oaao-shell-aside {
+        position: relative;
+        left: auto;
+        top: auto;
+        bottom: auto;
+        height: 100%;
+        min-height: 100%;
+        max-height: none;
+        transform: none;
+        box-shadow: none;
+        border-right-width: 1px;
+        border-right-style: solid;
+        border-right-color: var(--grid-line);
+    }
+}
+
+@media (max-width: 767px) {
+    .oaao-app #workspace-view:not([hidden]) #workspace-shell-aside.oaao-shell-aside {
+        position: fixed;
+        z-index: 50;
+        left: env(safe-area-inset-left, 0px);
+        top: env(safe-area-inset-top, 0px);
+        bottom: env(safe-area-inset-bottom, 0px);
+        height: auto;
+        min-height: 100dvh;
+        max-height: none;
+        border-right-width: 0;
+    }
+
+    /* Closed drawer: off-screen (JIT class may not compile). */
+    .oaao-app #workspace-view:not(.oaao-shell-drawer-open):not([hidden]) #workspace-shell-aside.oaao-shell-aside {
+        transform: translateX(-104%);
+    }
+}
+
+.oaao-app #workspace-view:not([hidden]) #workspace-shell-aside.oaao-shell-aside > #workspace-sidebar-column {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Workspace shell layouts — Split (Chat/Vault: rail + sidebar + main) vs Gallery (Agents/Templates: rail + main). */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-sidebar-column {
+    display: none !important;
+    width: 0 !important;
+    max-width: 0 !important;
+    min-width: 0 !important;
+    flex: 0 0 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+}
+
+/* Override JIT {@code w-max} / {@code md:w-auto} on aside — gallery is rail-only at every breakpoint. */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-shell-aside.oaao-shell-aside {
+    flex: 0 0 var(--oaao-rail-width, 52px) !important;
+    width: var(--oaao-rail-width, 52px) !important;
+    max-width: var(--oaao-rail-width, 52px) !important;
+    min-width: var(--oaao-rail-width, 52px) !important;
+}
+
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-main {
+    flex: 1 1 0% !important;
+    min-width: 0;
+    width: auto !important;
+    max-width: none !important;
+}
+
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-module-mount:not(.hidden) {
+    display: flex !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+}
+
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-header-tenant-label {
+    display: inline-block;
+}
+
+.oaao-app #workspace-view.oaao-workspace-layout--split #workspace-header-tenant-label {
+    display: none;
+}
+
+/* Gallery pages (Agents, Templates) — centered reading column (48rem = 768px). */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery .oaao-gallery-page-column {
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery > .workspace-shell-inner {
+        flex-direction: row;
+    }
+
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-shell-aside.oaao-shell-aside {
+        position: relative;
+        transform: none !important;
+    }
+}
+
+@media (max-width: 767px) {
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery.oaao-shell-drawer-open #workspace-shell-aside.oaao-shell-aside {
+        flex: 0 0 var(--oaao-rail-width, 52px) !important;
+        width: var(--oaao-rail-width, 52px) !important;
+        max-width: var(--oaao-rail-width, 52px) !important;
+    }
+}
+
+.oaao-app #workspace-view:not([hidden]) #workspace-shell-aside.oaao-shell-aside > #workspace-icon-rail {
+    align-self: stretch;
+}
+
+/* Sidebar tenant strip + main toolbar share vertical rhythm ({@see workspace.tpl workspace-shell-chrome-row}). */
+.oaao-app #workspace-view:not([hidden]) #workspace-shell-head.workspace-shell-chrome-row,
+.oaao-app #workspace-main > header.workspace-main-header.workspace-shell-chrome-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    box-sizing: border-box;
+    width: 100%;
+    flex-shrink: 0;
+    min-height: 3.25rem;
+    padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--grid-line);
+    background-color: var(--grid-panel-bright);
+    overflow: visible;
+}
+
+.oaao-app #workspace-main > header.workspace-main-header.workspace-shell-chrome-row {
+    padding-left: calc(1.25rem + env(safe-area-inset-left, 0px));
+    padding-right: calc(1.25rem + env(safe-area-inset-right, 0px));
+}
+
+.oaao-app #workspace-view:not([hidden]) #workspace-shell-head.workspace-shell-chrome-row {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+}
+
+/* Purpose routing dropdown — left-aligned so long labels / panel use width from the trigger edge (mobile). */
+.oaao-app .oaao-purpose-selector-root {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+.oaao-app .oaao-purpose-selector-anchor {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    padding-top: 4px;
+    box-sizing: border-box;
+    z-index: 85;
+}
+
+/* Must not set display:flex unconditionally — it overrides Tailwind `.hidden` ({@code display:none}). */
+.oaao-app .oaao-purpose-selector-anchor.hidden {
+    display: none !important;
+}
+
+.oaao-app .oaao-purpose-selector-anchor:not(.hidden) {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.oaao-app .oaao-purpose-selector-panel {
+    min-width: 11rem;
+    max-width: min(20rem, calc(100vw - 2rem));
+    border-radius: 8px;
+    border: 1px solid var(--grid-line);
+    background-color: var(--grid-panel-bright);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    padding-top: 2px;
+    padding-bottom: 2px;
+    overflow: hidden;
+}
+
+@media (min-width: 768px) {
+    .oaao-app .oaao-purpose-selector-root {
+        flex: 0 1 auto;
+        align-items: flex-start;
+        max-width: min(22rem, 42vw);
+    }
+}
+
+/* Settings → Purpose allocation: dim incomplete / disabled pipeline cards (JIT arbitrary opacity may not hydrate). */
+.oaao-app .oaao-pa-pipeline-card[data-oaao-pu-disabled='1'] {
+    opacity: 0.72;
+    filter: saturate(0.7);
+}
+
+.oaao-app .oaao-pa-pipeline-card[data-oaao-pa-incomplete='1'] {
+    opacity: 0.65;
+    filter: saturate(0.72);
+}
+
+/* Disclosure: RazyUI puts ▸ in {@code summary::before} (left, {@see razyui.css}). In {@code .oaao-app} suppress {@code ::before} and draw {@code ::after} on the trailing edge with independent vertical centering. Summaries that already include {@code i.rz-icon} keep only that icon ({@see core …/webassets/js/endpoints-settings/endpoints-settings-view.js}). */
+.oaao-app details > summary {
+    list-style: none;
+}
+
+.oaao-app details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.oaao-app details > summary::before {
+    content: none !important;
+    display: none !important;
+    margin: 0 !important;
+}
+
+.oaao-app details > summary:not(:has(i.rz-icon))::after {
+    content: '\25B8';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding-inline-start: 0.5rem;
+    font-size: 0.75em;
+    line-height: 1;
+    transition: transform 0.15s ease;
+    pointer-events: none;
+}
+
+.oaao-app details[open] > summary:not(:has(i.rz-icon))::after {
+    transform: rotate(90deg);
+}
+
+/* Composer lives in chat panel — lock resize even before chat shell CSS loads ({@see oaao-chat-shell.css}). */
+.oaao-app textarea[data-oaao-chat='input'] {
+    resize: none !important;
+}
+
+.oaao-app textarea[data-oaao-chat='input']:hover,
+.oaao-app textarea[data-oaao-chat='input']:focus,
+.oaao-app textarea[data-oaao-chat='input']:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* ── Drawer: workspace.js toggles .oaao-shell-drawer-open ── */
+
+#workspace-view.oaao-shell-drawer-open .oaao-shell-aside {
+    transform: translateX(0);
+    box-shadow: 6px 0 28px rgba(0, 0, 0, 0.12);
+}
+
+#workspace-view.oaao-shell-drawer-open .workspace-shell-drawer-backdrop {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+@media (min-width: 768px) {
+    #workspace-view.oaao-shell-drawer-open .oaao-shell-aside {
+        transform: none;
+        box-shadow: none;
+    }
+
+    #workspace-view.oaao-shell-drawer-open .workspace-shell-drawer-backdrop {
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+}
+
+body.oaao-app.oaao-shell-drawer-open {
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+@media (min-width: 768px) {
+    body.oaao-app.oaao-shell-drawer-open {
+        overflow: unset;
+        overscroll-behavior: unset;
+    }
+}
+
+@media (max-width: 767px) {
+    #workspace-icon-rail button,
+    #workspace-icon-rail a {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+/* Vault shell — sidebar vault picker selection ({@see vault-panel.js}). */
+button.oaao-vault-menu-active {
+    background-color: color-mix(in srgb, var(--grid-line) 55%, transparent);
+    color: var(--grid-ink);
+    font-weight: 600;
+}
+
+/*
+ * ResourceList root is `.resource-list-container`, but upstream `razyui.css` defines `--rl-*` only on `.resource-list`.
+ * Missing vars invalidate padding / backgrounds → collapsed columns and broken explorer layout.
+ */
+.resource-list-container {
+    --rl-radius: 6px;
+    --rl-row-radius: 4px;
+    --rl-bg: var(--rui-bg);
+    --rl-border: var(--rui-border);
+    --rl-text: var(--rui-text);
+    --rl-text-muted: var(--rui-text-muted);
+    --rl-accent: var(--rui-accent);
+    --rl-hover-header: var(--rui-bg-hover);
+    --rl-hover-row-bg: var(--rui-bg-hover);
+    --rl-selected-row-bg: color-mix(
+        in srgb,
+        var(--rl-accent, var(--color-accent, #6366f1)) 12%,
+        var(--rl-bg, var(--color-bg, #fff))
+    );
+    --rl-font-size: 0.875rem;
+    --rl-header-font-size: 0.75rem;
+    --rl-header-font-weight: 600;
+    --rl-cell-px: 0.75rem;
+    --rl-cell-py: 1rem;
+    --rl-header-py: 0.75rem;
+}
+
+[data-module='oaao-vault'] .oaao-vault-rl-dragover {
+    outline: 2px dashed color-mix(in srgb, var(--grid-accent) 70%, var(--grid-line));
+    outline-offset: -4px;
+    border-radius: 10px;
+}
+
+/* Internal vault node drag — breadcrumb “move up” drop target ({@see vault-panel.js}). */
+[data-module='oaao-vault'] .oaao-vault-bc button.oaao-vault-bc-drag-target {
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--grid-accent) 55%, var(--grid-line));
+    background: color-mix(in srgb, var(--grid-accent) 14%, transparent) !important;
+}
+
+/* Internal vault node drag — single ring on {@code tr}; fill {@code td}s without per-cell inset borders ({@see vault-panel.js}). */
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-node-drag-target {
+    outline: 2px solid color-mix(in srgb, var(--grid-accent) 55%, var(--grid-line));
+    outline-offset: -2px;
+}
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-node-drag-target td {
+    background: color-mix(in srgb, var(--grid-accent) 10%, transparent);
+}
+
+/*
+ * Explorer primary column ({@see workspace_vault_panel.tpl}).
+ */
+[data-module='oaao-vault'] .oaao-vault-explorer-column {
+    isolation: isolate;
+}
+
+/* Tree / gallery / ResourceList fills the column ({@see vault-panel.js}). */
+[data-module='oaao-vault'] .oaao-vault-tree-scroll {
+    box-sizing: border-box;
+    position: relative;
+    z-index: 0;
+    padding-bottom: 0.65rem;
+    scroll-padding-bottom: 0.35rem;
+}
+
+/*
+ * Headless RazyUI Uploader mount — visible upload is toolbar + list drop-target only
+ * ({@see wireVaultRazyUploader}).
+ */
+[data-module='oaao-vault'] [data-oaao-vault-uploader-host].oaao-vault-uploader-host-hidden {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    pointer-events: none;
+}
+
+[data-module='oaao-vault'] [data-oaao-vault-uploader-host] .uploader-list:empty {
+    margin-top: 0;
+}
+
+[data-module='oaao-vault'] .uploader-input {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    opacity: 0 !important;
+}
+
+.oaao-vault-badge {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    max-width: none;
+    padding: 0.1rem 0.35rem;
+    border-radius: 6px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    border: 1px solid var(--grid-line);
+    background: var(--grid-panel-bright);
+    color: var(--grid-ink-muted);
+}
+
+/* Status chip row + action button groups in ResourceList / vault cards — keep tags on one line. */
+.oaao-vault-status-chips,
+.oaao-vault-btn-row {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.25rem;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.oaao-vault-btn-row {
+    gap: 0.375rem;
+}
+
+[data-module='oaao-vault'] .resource-list-table td .oaao-vault-status-chips {
+    vertical-align: middle;
+}
+
+.oaao-vault-badge--ok {
+    border-color: color-mix(in srgb, #22c55e 35%, var(--grid-line));
+    background: color-mix(in srgb, #22c55e 12%, var(--grid-panel-bright));
+    color: #15803d;
+}
+
+.oaao-vault-badge--err {
+    border-color: color-mix(in srgb, #ef4444 35%, var(--grid-line));
+    background: color-mix(in srgb, #ef4444 12%, var(--grid-panel-bright));
+    color: #b91c1c;
+}
+
+.oaao-vault-badge--embedding {
+    border-color: color-mix(in srgb, #0ea5e9 42%, var(--grid-line));
+    background: color-mix(in srgb, #0ea5e9 11%, var(--grid-panel-bright));
+    color: #0369a1;
+}
+
+.oaao-vault-badge--queued {
+    border-color: color-mix(in srgb, var(--grid-accent) 40%, var(--grid-line));
+    background: color-mix(in srgb, var(--grid-accent) 10%, var(--grid-panel-bright));
+    color: var(--grid-accent);
+}
+
+[data-module='oaao-vault'] .oaao-vault-card.oaao-vault-card--selected {
+    border-color: color-mix(in srgb, var(--grid-accent) 55%, var(--grid-line));
+    background: color-mix(in srgb, var(--grid-accent) 8%, var(--grid-panel-bright));
+    /* Avoid a second “outline” ring — single accent border + subtle inset reads cleaner than outer box-shadow. */
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--grid-accent) 28%, transparent);
+}
+
+.oaao-vault-bc {
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.oaao-vault-bc-row {
+    justify-content: flex-start;
+}
+
+.oaao-vault-bc-row > button {
+    flex: 0 0 auto;
+}
+
+.oaao-vault-bc-row > span {
+    flex: 0 0 auto;
+}
+
+/*
+ * ResourceList ships `.resource-list-row .is-selected td` but `is-selected` is on the `tr`, so theme selection never paints.
+ * Vault explorer: explicit selected row background ({@see RazyUI ResourceList/index.js #syncRowSelectionClasses}).
+ */
+[data-module='oaao-vault'] tr.resource-list-row.is-selected td {
+    background-color: color-mix(in srgb, var(--grid-line) 62%, var(--grid-panel-bright));
+}
+
+[data-module='oaao-vault'] tr.resource-list-row.is-selected:hover td {
+    background-color: color-mix(in srgb, var(--grid-line) 74%, var(--grid-panel-bright));
+}
+
+[data-module='oaao-vault'] tr.resource-list-row.is-selected td:first-child {
+    box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--grid-accent) 70%, transparent);
+}
+
+/* Detail focus (single-click preview) — distinct from checkbox multi-select ({@see vaultSetResourceListFocusRowKey}). */
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus td {
+    background-color: color-mix(in srgb, var(--grid-accent) 10%, var(--grid-panel-bright));
+}
+
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus:hover td {
+    background-color: color-mix(in srgb, var(--grid-accent) 14%, var(--grid-panel-bright));
+}
+
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--grid-accent);
+}
+
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus.is-selected td {
+    background-color: color-mix(in srgb, var(--grid-accent) 16%, var(--grid-line) 42%, var(--grid-panel-bright));
+}
+
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus.is-selected td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--grid-accent);
+}
+
+[data-module='oaao-vault'] .resource-list-row-select,
+[data-module='oaao-vault'] .resource-list-select-all {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--grid-accent);
+}
+
+[data-module='oaao-vault'] td.resource-list-td-select,
+[data-module='oaao-vault'] th.resource-list-th-select {
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+    vertical-align: middle;
+}
+
+/* Workspace icon rail — inset pins; active = full circle (not square on rail edge). */
+.workspace-icon-rail .oaao-rail-pin-stack {
+    padding-left: 0.375rem;
+    padding-right: 0.375rem;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.workspace-icon-rail button.oaao-rail-pin-btn {
+    width: 2.25rem;
+    height: 2.25rem;
+    max-width: 2.25rem;
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+    padding: 0;
+    border-radius: 9999px;
+}
+
+.workspace-icon-rail button.oaao-rail-pin-btn:hover {
+    border-radius: 9999px;
+}
+
+.workspace-icon-rail button.oaao-rail-btn-active {
+    border-radius: 9999px;
+    background-color: color-mix(in srgb, var(--grid-line) 55%, transparent);
+    color: var(--grid-ink);
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .oaao-shell-aside,
+    .workspace-shell-drawer-backdrop {
+        transition: none !important;
+    }
+
+    .oaao-app .oaao-user-menu-panel {
+        transition: none !important;
+    }
+}
+
+/* ── Shared markdown bubble (chat + vault transcript summary; {@see MarkdownHelpers preset oaao-chat}). ── */
+/* Structural typography — chat/vault do not JIT-hydrate parseSafe HTML (avoids freeze on clamp/arbitrary tokens). */
+.oaao-app .oaao-md-bubble p {
+    margin: 0 0 0.5rem;
+    line-height: 1.6;
+}
+
+.oaao-app .oaao-md-bubble ul,
+.oaao-app .oaao-md-bubble ol {
+    margin: 0 0 0.5rem 1.15rem;
+    padding-left: 0.35rem;
+}
+
+.oaao-app .oaao-md-bubble ul {
+    list-style: disc;
+}
+
+.oaao-app .oaao-md-bubble ol {
+    list-style: decimal;
+}
+
+.oaao-app .oaao-md-bubble li {
+    margin-bottom: 0.25rem;
+}
+
+.oaao-app .oaao-md-bubble ul ul,
+.oaao-app .oaao-md-bubble ol ul,
+.oaao-app .oaao-md-bubble ul ol {
+    margin-top: 0.2rem;
+    margin-bottom: 0.2rem;
+    list-style: circle;
+}
+
+.oaao-app .oaao-md-bubble h1,
+.oaao-app .oaao-md-bubble h2,
+.oaao-app .oaao-md-bubble h3,
+.oaao-app .oaao-md-bubble h4,
+.oaao-app .oaao-md-bubble h5,
+.oaao-app .oaao-md-bubble h6,
+.oaao-app .oaao-md-bubble .oaao-md-heading {
+    margin: 0.75rem 0 0.5rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.oaao-app .oaao-md-bubble > :first-child {
+    margin-top: 0;
+}
+
+.oaao-app .oaao-md-bubble pre {
+    margin: 0 0 0.5rem;
+    padding: 0.5rem 0.75rem;
+    overflow-x: auto;
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    background-color: color-mix(in srgb, var(--grid-line) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--grid-line) 65%, transparent);
+}
+
+.oaao-app .oaao-md-bubble code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+        monospace;
+    font-size: 0.85em;
+}
+
+.oaao-app .oaao-md-bubble :not(pre) > code {
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background-color: color-mix(in srgb, var(--grid-line) 30%, transparent);
+}
+
+.oaao-app .oaao-md-bubble blockquote {
+    margin: 0 0 0.5rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid color-mix(in srgb, var(--grid-line) 80%, transparent);
+    color: var(--grid-ink-muted);
+}
+
+.oaao-app .oaao-md-bubble a {
+    color: var(--grid-ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--grid-line) 85%, transparent);
+}
+
+.oaao-app .oaao-md-bubble > :last-child {
+    margin-bottom: 0 !important;
+}
+
+.oaao-app .oaao-md-hr {
+    margin: 0.65rem 0;
+    border: none;
+    border-top: 1px solid color-mix(in srgb, var(--grid-line) 75%, transparent);
+}
+
+.oaao-app .oaao-md-table-wrap {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    margin-bottom: 0.65rem;
+    box-sizing: border-box;
+}
+
+.oaao-app .oaao-md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+}
+
+.oaao-app .oaao-md-table th,
+.oaao-app .oaao-md-table td {
+    border: 1px solid color-mix(in srgb, var(--grid-line) 88%, transparent);
+    padding: 0.35rem 0.45rem;
+    vertical-align: top;
+}
+
+.oaao-app .oaao-md-table th {
+    font-weight: 600;
+    background-color: color-mix(in srgb, var(--grid-line) 22%, transparent);
+}
+
+/* ── Workspace shell: menus (plain CSS — RazyUI JIT often omits Tailwind hover variants). Chat UI: {@see chat/default/webassets/css/oaao-chat-shell.css}. ───────────────── */
+
+.oaao-app .oaao-user-menu {
+    position: relative;
+}
+
+.oaao-app .oaao-user-menu-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: auto;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+        opacity 150ms ease-out,
+        visibility 150ms ease-out;
+}
+
+.oaao-app .oaao-user-menu:hover .oaao-user-menu-panel,
+.oaao-app .oaao-user-menu:focus-within .oaao-user-menu-panel {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+}

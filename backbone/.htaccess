@@ -1,0 +1,132 @@
+RewriteEngine on
+
+# Detect base directory for subdirectory installs
+RewriteCond $0#%{REQUEST_URI} ^([^#]*)#(.*)\1$
+RewriteRule ^.*$ - [E=BASE:%2]
+
+# Pass through real files, symlinks, and directories. Virtual URLs (e.g. /webassets/…) are not files until rewritten below.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -l [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Rewrite the shared module location
+RewriteRule ^\w+/shared/(.*)$ shared/$1 [L]
+
+# ── Domain Detection ──
+RewriteCond %{HTTP_HOST} ^localhost(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
+RewriteCond %{HTTP_HOST} ^.+\.localhost(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:*.localhost]
+RewriteCond %{HTTP_HOST} ^.+\.invalid(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:*.invalid]
+RewriteCond %{HTTP_HOST} ^admin\.localhost(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:admin.localhost]
+RewriteCond %{HTTP_HOST} ^127\.0\.0\.1(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
+RewriteCond %{HTTP_HOST} ^host\.docker\.internal(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
+RewriteCond %{HTTP_HOST} ^web(:\d+)?$ [NC]
+RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
+
+# ── Distributor Rewrite Rules ──
+# [localhost] oaaoai (/)
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/chat/(.+?)/(.+)$ sites/oaaoai/oaaoai/chat/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/vault/(.+?)/(.+)$ sites/oaaoai/oaaoai/vault/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^data/(.+)$ %{ENV:BASE}data/localhost-oaaoai/$1 [L]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-l
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
+# [*.localhost] oaaoai (/)
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/chat/(.+?)/(.+)$ sites/oaaoai/oaaoai/chat/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/vault/(.+?)/(.+)$ sites/oaaoai/oaaoai/vault/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^data/(.+)$ %{ENV:BASE}data/*.localhost-oaaoai/$1 [L]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-l
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
+# [*.invalid] oaaoai (/)
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/chat/(.+?)/(.+)$ sites/oaaoai/oaaoai/chat/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/vault/(.+?)/(.+)$ sites/oaaoai/oaaoai/vault/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^data/(.+)$ %{ENV:BASE}data/*.invalid-oaaoai/$1 [L]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-l
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
+# [admin.localhost] oaaoai (/)
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/chat/(.+?)/(.+)$ sites/oaaoai/oaaoai/chat/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/vault/(.+?)/(.+)$ sites/oaaoai/oaaoai/vault/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^data/(.+)$ %{ENV:BASE}data/admin.localhost-oaaoai/$1 [L]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-l
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]

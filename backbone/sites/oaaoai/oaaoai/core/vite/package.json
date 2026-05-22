@@ -1,0 +1,19 @@
+{
+  "name": "oaaoai-core-vite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "prebuild": "npm run build:all --prefix ../../../../../../../RazyUI-v2",
+    "build": "node scripts/sync-webassets.mjs",
+    "build:legacy-bundle": "vite build",
+    "dev": "vite",
+    "smoke:webassets": "node scripts/shell-webassets-smoke.mjs"
+  },
+  "dependencies": {
+    "razyui": "file:../../../../../../../RazyUI-v2"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

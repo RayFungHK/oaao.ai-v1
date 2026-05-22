@@ -1,0 +1,88 @@
+{
+  "task_id": "fixture-task-offline-replay",
+  "pipeline_schema": "oaao_pipeline@v1",
+  "milestone": {
+    "steps": [
+      {
+        "title": "Review the existing proposal",
+        "description": "Offline fixture — no orchestrator.",
+        "task_label": "Extract messaging",
+        "state": "completed",
+        "rail": {
+          "badge": "Knowledge retrieved (8)",
+          "detail_lines": ["Fixture passage A", "Fixture passage B"]
+        }
+      },
+      {
+        "title": "Write outline",
+        "description": "Fixture step 2.",
+        "task_label": "Outline draft",
+        "state": "completed",
+        "rail": {
+          "badge": "Planner routing",
+          "detail_lines": ["planning.fixture · stub"]
+        }
+      },
+      {
+        "title": "Generate slides",
+        "description": "Fixture step 3.",
+        "task_label": "export_ppt_file",
+        "state": "active",
+        "rail": {
+          "badge": "Sandbox · export_ppt_file",
+          "detail_lines": ["artifact · stub deck"]
+        }
+      }
+    ]
+  },
+  "activity": {
+    "lines": ["fixture · offline replay", "rag · simulated"]
+  },
+  "blocks": [
+    {
+      "type": "slide_preview_strip",
+      "zone": "after",
+      "props": {
+        "project_id": "fixture-proj-1",
+        "project_title": "OAAO AI 平台管理層簡報",
+        "slide_count": 12,
+        "slides": [
+          {
+            "index": 1,
+            "total": 12,
+            "title": "OAAO AI 平台管理層簡報",
+            "preview_kind": "executive_problem",
+            "preview_url": "/slide-designer/api/slide_html?project_id=fixture-proj-1&page=1"
+          }
+        ],
+        "deck_artifact": {
+          "filename": "OAAO_AI_平台管理層簡報.pptx",
+          "size_bytes": 787_456
+        },
+        "material_thumb": {
+          "title": "export_ppt_fix",
+          "snippet": "ubuntu@sandbox:~$"
+        }
+      }
+    },
+    {
+      "type": "artifact_card",
+      "title": "Briefing deck",
+      "props": {
+        "filename": "OAAO_fixture_deck.pptx",
+        "subtitle": "Presentation",
+        "size_bytes": 512000,
+        "badge": "PPTX"
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "fixture-art-1",
+      "name": "OAAO_fixture_deck.pptx",
+      "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "size_bytes": 512000,
+      "tool_id": "export_ppt_file"
+    }
+  ]
+}
