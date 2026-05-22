@@ -1,0 +1,17 @@
+[
+  {
+    "pool_id": "post_stream_metrics",
+    "worker_number": 4,
+    "poll_interval_seconds": 0.2,
+    "purpose_id": "default_chat",
+    "mode_id": "default",
+    "prompt_bundle_ref": "materials/prompts/workers/post_stream_metrics.md",
+    "endpoint": {
+      "endpoint_ref": "internal-metrics-router",
+      "base_url": null,
+      "model": null,
+      "api_key_env": null
+    },
+    "plugins_after_stream": ["iqs", "accs"]
+  }
+]

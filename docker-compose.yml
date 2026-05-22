@@ -1,0 +1,214 @@
+# oaao.ai-v1 — run PostgreSQL + PHP/Apache locally without global installs.
+#
+# Prerequisites:
+#   1. Copy Razy.phar into backbone/ next to backbone/config.inc.php (not committed—ship separately).
+#   2. From repo root:
+#        cp docker/env.example .env       # edit if needed
+#        docker compose --profile vectors up --build -d   # vault embed / RAG needs qdrant
+#        # chat-only (no vault vectors): docker compose up --build -d
+#
+# Open: http://localhost:${OAAO_WEB_PORT:-8080}/  (DocumentRoot is backbone/, not /backbone on the URL path.)
+# Platform admin console (tenant control plane — no AI/chat): http://admin.localhost:${OAAO_WEB_PORT:-8080}/
+# Override hostname: OAAO_PLATFORM_ADMIN_HOST=ops.example.com (also map in /etc/hosts or DNS)
+#   127.0.0.1 admin.localhost
+#
+# Intra-stack URLs: orchestrator → PHP uses `http://web/…`, DB → `postgres`, Qdrant → `http://qdrant:6333` (--profile vectors).
+# From inside a container `localhost` is that container alone; target another compose service by its **Compose service name** and the port it listens on **inside Docker**.
+# If the model runs on the host machine instead, use `host.docker.internal:<host-port>` from the orchestrator container.
+#
+# By default `web` bind-mounts `./backbone` so sites/webassets edits apply without rebuilding the image.
+# Pure image-only deploy: comment out `./backbone:/var/www/html` under `web.volumes`, then `docker compose build web --no-cache && docker compose up -d web`.
+#
+# Postgres: localhost:${OAAO_PG_HOST_PORT:-5432}  user/pass/db → see .env defaults
+#
+# First-run install in Docker: PostgreSQL connection comes from OAAO_PG_URL; the URL field stays behind Advanced.
+#
+# `./backbone/config/oaaoai` is bind-mounted so `auth.php` (`installed`, DB credentials) survives `docker compose build`.
+# Without it, each rebuild resets the image copy of auth.php to `installed => false` while Postgres data may still exist.
+#
+# Postgres / adjunct SQLite / vault files / (with `--profile vectors`) Qdrant + Arango data dirs are **host bind mounts** — point at NAS or other paths in `.env`.
+#   OAAO_PG_DATA_PATH, OAAO_AUTH_SQLITE_PATH, OAAO_VAULT_STORAGE_HOST_PATH, OAAO_QDRANT_DATA_PATH, OAAO_ARANGO_DATA_PATH (see docker/env.example).
+# Migrating from old Docker named volumes (`oaaoai_v1_pg`, `oaaoai_v1_auth_local`, or vectors `oaaoai_v1_qdrant` / `oaaoai_v1_arango`): copy contents into the chosen host dirs (or docker cp) before relying on binds.
+#
+# Backup: durable state lives on host paths referenced here (repos may use NAS mount points instead of `./docker/data/…`).
+# Image/container removal does not delete bind-mounted host dirs — point them at locations you snapshot
+# (`aws s3 sync`, `rclone`, NAS, etc.). Also back up `./backbone/config/oaaoai` (installed + DB + sqlite_local paths).
+# For PostgreSQL, periodic `pg_dump` (logical) in addition to copying OAAO_PG_DATA_PATH is recommended.
+
+name: oaaoai-v1
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${OAAO_PG_DB:-oaao}
+      POSTGRES_USER: ${OAAO_PG_USER:-oaao}
+      POSTGRES_PASSWORD: ${OAAO_PG_PASSWORD:-oaao_dev}
+      LANG: C.UTF-8
+    volumes:
+      - ${OAAO_PG_DATA_PATH:-./docker/data/postgres}:/var/lib/postgresql/data
+    ports:
+      - '${OAAO_PG_HOST_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${OAAO_PG_USER:-oaao} -d ${OAAO_PG_DB:-oaao}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Vault job poll is orchestrator → PHP (`http://web/vault/api`). Do not wait for orchestrator health —
+      # that delayed `web` ~25s and caused startup DNS noise in orchestrator logs. Chat SSE tolerates a brief cold sidecar.
+      orchestrator:
+        condition: service_started
+    ports:
+      - '${OAAO_WEB_PORT:-8080}:80'
+    environment:
+      # Install wizard + PHP auth (must use Docker service hostname `postgres`, not localhost)
+      OAAO_PG_URL: ${OAAO_PG_URL:-postgresql://oaao:oaao_dev@postgres:5432/oaao}
+      OAAO_SIDECAR_PORT: ${OAAO_SIDECAR_PORT:-8103}
+      OAAO_DOCKER: '1'
+      OAAO_ORCHESTRATOR_INTERNAL_URL: ${OAAO_ORCHESTRATOR_INTERNAL_URL:-http://orchestrator:8103}
+      OAAO_ORCHESTRATOR_PUBLIC_BASE: ${OAAO_ORCHESTRATOR_PUBLIC_BASE:-http://localhost:${OAAO_SIDECAR_PORT:-8103}}
+      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
+      OAAO_VAULT_STORAGE: ${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      OAAO_QDRANT_URL: ${OAAO_QDRANT_URL:-http://qdrant:6333}
+      OAAO_ARANGO_URL: ${OAAO_ARANGO_URL:-http://arangodb:8529}
+      OAAO_ARANGO_DATABASE: ${OAAO_ARANGO_DATABASE:-oaao_vault}
+      OAAO_ARANGO_USER: ${OAAO_ARANGO_USER:-root}
+      OAAO_ARANGO_PASSWORD: ${OAAO_ARANGO_PASSWORD:-${ARANGO_ROOT_PASSWORD:-oaao_dev_arango}}
+      # Optional: adjunct SQLite file inside the container (writable layer). Use when auth/data bind mount is root-owned on the host.
+      OAAO_ADJUNCT_SQLITE: ${OAAO_ADJUNCT_SQLITE:-}
+      OAAO_SLIDE_PROJECT_ROOT: ${OAAO_SLIDE_PROJECT_ROOT:-/var/www/html/sites/oaaoai/oaaoai/auth/data/slide-projects}
+      OAAO_SLIDE_TEMPLATE_CUSTOM_ROOT: ${OAAO_SLIDE_TEMPLATE_CUSTOM_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/slide-templates/custom}
+      OAAO_AUTH_SQLITE_PATH: ${OAAO_AUTH_SQLITE_CONTAINER:-/var/www/html/sites/oaaoai/oaaoai/auth/data/oaao_local.sqlite}
+      OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_DIR: ${OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_DIR:-/var/www/html/config/transcript-summary-templates}
+      OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+    volumes:
+      # First: full host tree (`sites/`, `.htaccess`, Razy.phar). Later lines overlay config, adjunct DB, vault.
+      # Image-only mode: comment this line out and rely on Dockerfile COPY after `docker compose build web`.
+      - ./backbone:/var/www/html
+      # Auth runtime config — explicit bind keeps install state obvious; same paths also exist under `./backbone`.
+      - ./backbone/config/oaaoai:/var/www/html/config/oaaoai
+      # Adjunct SQLite (token usage, local history, training) — host path configurable via `.env`.
+      - ${OAAO_AUTH_SQLITE_PATH:-./docker/data/auth-local}:/var/www/html/sites/oaaoai/oaaoai/auth/data
+      # Slide designer on-disk projects — shared with orchestrator (SD-3).
+      - ${OAAO_SLIDE_PROJECT_PATH:-./docker/data/slide-projects}:/var/www/html/sites/oaaoai/oaaoai/auth/data/slide-projects
+      # Slide template PPTX + render PNG + scoped JSON (Razy distributor data/).
+      - ${OAAO_SLIDE_TEMPLATE_PATH:-./docker/data/slide-templates}:/var/www/html/sites/oaaoai/oaaoai/data/slide-templates
+      # Vault binaries — shared with orchestrator when ingest reads payloads by absolute filesystem path.
+      - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      # Transcript summary prompt templates (HiNote-style) — edit .md on host, reload dialog.
+      - ${OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_PATH:-./docker/transcript-summary-templates}:/var/www/html/config/transcript-summary-templates:ro
+      - ${OAAO_LIVE_MEETING_HOST_PATH:-./docker/data/live-meeting}:${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/orchestrator/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '${OAAO_SIDECAR_PORT:-8103}:8103'
+    environment:
+      OAAO_DOCKER: '1'
+      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
+      OAAO_VAULT_JOB_POLL_BASE_URL: ${OAAO_VAULT_JOB_POLL_BASE_URL:-http://web/vault/api}
+      OAAO_VAULT_JOB_POLL_INTERVAL_SEC: ${OAAO_VAULT_JOB_POLL_INTERVAL_SEC:-4}
+      OAAO_VAULT_JOB_STUB_MODE: ${OAAO_VAULT_JOB_STUB_MODE:-fail}
+      OAAO_FUNASR_BASE_URL: ${OAAO_FUNASR_BASE_URL:-http://funasr:8765}
+      OAAO_FUNASR_COMPOSE_ENABLED: ${OAAO_FUNASR_COMPOSE_ENABLED:-1}
+      OAAO_COMPOSE_PROJECT_DIR: /compose
+      OAAO_COMPOSE_PROJECT_NAME: ${OAAO_COMPOSE_PROJECT_NAME:-oaaoai-v1}
+      OAAO_DOCKER_SOCKET: /var/run/docker.sock
+      OAAO_QDRANT_URL: ${OAAO_QDRANT_URL:-http://qdrant:6333}
+      OAAO_QDRANT_DEFAULT_COLLECTION: ${OAAO_QDRANT_DEFAULT_COLLECTION:-}
+      OAAO_ARANGO_URL: ${OAAO_ARANGO_URL:-http://arangodb:8529}
+      OAAO_ARANGO_DATABASE: ${OAAO_ARANGO_DATABASE:-oaao_vault}
+      OAAO_ARANGO_USER: ${OAAO_ARANGO_USER:-root}
+      OAAO_ARANGO_PASSWORD: ${OAAO_ARANGO_PASSWORD:-${ARANGO_ROOT_PASSWORD:-oaao_dev_arango}}
+      # Vault embed + chat RAG: embedding URL/model come from PostgreSQL Purpose→Endpoint (PHP). Optional protocol hint for Ollama-native JSON:
+      OAAO_EMBEDDING_NATIVE_OLLAMA: ${OAAO_EMBEDDING_NATIVE_OLLAMA:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Chat completion output cap when profile/endpoint config_json omits max_tokens (e.g. 8192).
+      OAAO_CHAT_MAX_TOKENS: ${OAAO_CHAT_MAX_TOKENS:-8192}
+      OAAO_SSE_KEEPALIVE_SEC: ${OAAO_SSE_KEEPALIVE_SEC:-15}
+      OAAO_SLIDE_PROJECT_ROOT: ${OAAO_SLIDE_PROJECT_ROOT:-/var/www/html/sites/oaaoai/oaaoai/auth/data/slide-projects}
+      OAAO_SLIDE_TEMPLATE_CUSTOM_ROOT: ${OAAO_SLIDE_TEMPLATE_CUSTOM_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/slide-templates/custom}
+      OAAO_FONT_CACHE_DIR: ${OAAO_FONT_CACHE_DIR:-/var/oaao/font-cache}
+      OAAO_AUTH_SQLITE_PATH: ${OAAO_AUTH_SQLITE_CONTAINER:-/var/www/html/sites/oaaoai/oaaoai/auth/data/oaao_local.sqlite}
+      OAAO_PG_URL: postgresql://${OAAO_PG_USER:-oaao}:${OAAO_PG_PASSWORD:-oaao_dev}@postgres:5432/${OAAO_PG_DB:-oaao}
+      OAAO_VAULT_JOB_CLAIM_MODE: ${OAAO_VAULT_JOB_CLAIM_MODE:-auto}
+      OAAO_CHAT_PERSIST_MODE: ${OAAO_CHAT_PERSIST_MODE:-auto}
+      OAAO_QUEUE_POOLS_JSON: ${OAAO_QUEUE_POOLS_JSON:-/app/python/config/queue_pools.docker.json}
+      OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8103/openapi.json", timeout=3).read(1)',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+    volumes:
+      - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      - ${OAAO_SLIDE_PROJECT_PATH:-./docker/data/slide-projects}:/var/www/html/sites/oaaoai/oaaoai/auth/data/slide-projects
+      - ${OAAO_SLIDE_TEMPLATE_PATH:-./docker/data/slide-templates}:/var/www/html/sites/oaaoai/oaaoai/data/slide-templates
+      - ${OAAO_FONT_CACHE_PATH:-./docker/data/font-cache}:/var/oaao/font-cache
+      # Adjunct SQLite + legacy slide-templates under auth/data (orchestrator still reads if present).
+      - ${OAAO_AUTH_SQLITE_PATH:-./docker/data/auth-local}:/var/www/html/sites/oaaoai/oaaoai/auth/data
+      # Built-in FunASR: orchestrator can `docker compose --profile funasr up` when Settings enables Speaker mode.
+      - ${OAAO_COMPOSE_PROJECT_DIR:-.}:/compose:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${OAAO_LIVE_MEETING_HOST_PATH:-./docker/data/live-meeting}:${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+
+  # Optional: vector DB + graph DB for RAG / GraphRAG (`docker compose --profile vectors up`).
+  # ── Persist on the host: both use bind-mount paths (`OAAO_*_DATA_PATH`), same pattern as Postgres + vault blobs.
+  qdrant:
+    image: qdrant/qdrant:v1.12.5
+    profiles: ['vectors']
+    restart: unless-stopped
+    ports:
+      - '${QDRANT_HOST_PORT:-6333}:6333'
+    volumes:
+      - ${OAAO_QDRANT_DATA_PATH:-./docker/data/qdrant}:/qdrant/storage
+
+  arangodb:
+    image: arangodb:3.12.4
+    profiles: ['vectors']
+    restart: unless-stopped
+    environment:
+      ARANGO_ROOT_PASSWORD: ${ARANGO_ROOT_PASSWORD:-oaao_dev_arango}
+    ports:
+      - '${ARANGO_HOST_PORT:-8529}:8529'
+    volumes:
+      - ${OAAO_ARANGO_DATA_PATH:-./docker/data/arango}:/var/lib/arangodb3
+
+  # Optional: minimal FunASR HTTP adapter for Vault Speaker Mode ASR (stub diarization by default).
+  # Settings → ASR → Speaker mode triggers orchestrator ensure (compose build/up when OAAO_FUNASR_COMPOSE_ENABLED=1).
+  # Manual start: docker compose --profile funasr up -d funasr
+  funasr:
+    build:
+      context: .
+      dockerfile: docker/funasr_adapter/Dockerfile
+    profiles: ['funasr']
+    restart: unless-stopped
+    ports:
+      - '${OAAO_FUNASR_HOST_PORT:-8765}:8765'
+    environment:
+      FUNASR_ADAPTER_MODE: ${FUNASR_ADAPTER_MODE:-stub}
+      FUNASR_ASR_MODEL: ${FUNASR_ASR_MODEL:-paraformer-zh}
+      FUNASR_SPK_MODEL: ${FUNASR_SPK_MODEL:-}
+    volumes:
+      - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}

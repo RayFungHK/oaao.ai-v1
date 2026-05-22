@@ -1,0 +1,7 @@
+.oaao-live-meeting-root [data-oaao-live-meeting="transcript"] .is-partial {
+    opacity: 0.72;
+}
+
+.oaao-live-meeting-root [data-oaao-live-meeting="mic"][data-oaao-live-recording="1"] {
+    background: #dc2626;
+}

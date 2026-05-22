@@ -1,0 +1,160 @@
+/**
+ * Live meeting workspace panel — M1 shell (session_start + SSE placeholder).
+ */
+const OAAO_LIVE_MEETING_CSS = '/webassets/live-meeting/default/css/live-meeting.css';
+
+function liveMeetingApiUrl(path) {
+    const prefix = document.documentElement?.dataset?.oaaoMountPrefix || '';
+    const base = `${prefix}/live-meeting/api`.replace(/\/{2,}/g, '/');
+    const p = String(path || '').replace(/^\//, '');
+    return p ? `${base}/${p}` : base;
+}
+
+async function liveMeetingFetchJson(path, options = {}) {
+    const res = await fetch(liveMeetingApiUrl(path), {
+        credentials: 'include',
+        headers: { Accept: 'application/json', ...(options.headers || {}) },
+        ...options,
+    });
+    let data = null;
+    try {
+        data = await res.json();
+    } catch {
+        data = null;
+    }
+    return { res, data };
+}
+
+function workspaceIdFromDom() {
+    const raw = document.documentElement?.dataset?.oaaoWorkspaceId
+        || document.querySelector('[data-oaao-workspace-id]')?.getAttribute('data-oaao-workspace-id');
+    const n = Number(raw || 0);
+    return n > 0 ? n : null;
+}
+
+export function mountLiveMeetingPanel(mount, { signal } = {}) {
+    if (!(mount instanceof HTMLElement)) return;
+
+    const statusEl = mount.querySelector('[data-oaao-live-meeting="status"]');
+    const connEl = mount.querySelector('[data-oaao-live-meeting="connections"]');
+    const transcriptEl = mount.querySelector('[data-oaao-live-meeting="transcript"]');
+    const micBtn = mount.querySelector('[data-oaao-live-meeting="mic"]');
+
+    let sessionId = '';
+    let eventSource = null;
+
+    const setStatus = (text) => {
+        if (statusEl) statusEl.textContent = text;
+    };
+    const setConn = (text) => {
+        if (connEl) connEl.textContent = text;
+    };
+
+    const stopAll = () => {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+        if (micBtn instanceof HTMLButtonElement) {
+            delete micBtn.dataset.oaaoLiveRecording;
+        }
+        setStatus('Idle');
+        setConn('');
+    };
+
+    const startSession = async () => {
+        const { res, data } = await liveMeetingFetchJson('session_start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cadence: '1v1',
+                workspace_id: workspaceIdFromDom(),
+                retention_mode: 'disk_ttl',
+            }),
+            signal,
+        });
+        if (!res.ok || !data?.success || !data?.data?.session_id) {
+            setStatus('Error');
+            setConn(data?.message || `HTTP ${res.status}`);
+            return null;
+        }
+        return data.data;
+    };
+
+    const openSse = (streamUrl) => {
+        if (!streamUrl) return;
+        eventSource = new EventSource(streamUrl, { withCredentials: false });
+        eventSource.addEventListener('oaao.stream', (ev) => {
+            try {
+                const payload = JSON.parse(ev.data || '{}');
+                if (payload?.text && transcriptEl) {
+                    const line = document.createElement('p');
+                    line.className = 'm-0 mb-2 text-xs fg-[var(--grid-ink-muted)]';
+                    line.textContent = `[${payload.phase || 'event'}] ${payload.text}`;
+                    transcriptEl.append(line);
+                }
+            } catch {
+                /* ignore */
+            }
+        });
+        eventSource.onerror = () => setConn((c) => `${c} · SSE reconnecting…`.trim());
+    };
+
+    if (micBtn instanceof HTMLButtonElement) {
+        micBtn.addEventListener(
+            'click',
+            async () => {
+                if (micBtn.dataset.oaaoLiveRecording === '1') {
+                    if (sessionId) {
+                        await liveMeetingFetchJson('session_stop', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ session_id: sessionId, keep_audio: false }),
+                            signal,
+                        });
+                    }
+                    stopAll();
+                    return;
+                }
+                setStatus('Starting…');
+                const data = await startSession();
+                if (!data) return;
+                sessionId = String(data.session_id || '');
+                setStatus('Recording');
+                setConn(`WS: ${data.ws_audio_url || '—'} · SSE: pending (Phase B/C)`);
+                micBtn.dataset.oaaoLiveRecording = '1';
+                micBtn.textContent = 'Stop';
+                if (data.stream_url) {
+                    const u = new URL(data.stream_url, window.location.href);
+                    if (data.stream_token) {
+                        u.searchParams.set('token', data.stream_token);
+                    }
+                    openSse(u.href);
+                    setConn((t) => `${t} · SSE connected`.trim());
+                }
+            },
+            { signal },
+        );
+    }
+
+    signal?.addEventListener('abort', () => {
+        if (sessionId) {
+            void liveMeetingFetchJson('session_stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId, keep_audio: false }),
+            });
+        }
+        stopAll();
+    });
+}
+
+export default function init(mount, opts) {
+    if (!document.querySelector(`link[href="${OAAO_LIVE_MEETING_CSS}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = OAAO_LIVE_MEETING_CSS;
+        document.head.append(link);
+    }
+    mountLiveMeetingPanel(mount, opts);
+}

@@ -1131,6 +1131,10 @@ async def execute_chat_run(
                 payload=metrics_payload,
             )
         )
+        if not run.cancelled:
+            from oaao_orchestrator.post_stream_pool import enqueue_post_stream_jobs_for_chat  # noqa: PLC0415
+
+            await enqueue_post_stream_jobs_for_chat(req=req, metrics_payload=metrics_payload)
         await _report_usage_to_php(
             tenant_id=req.tenant_id,
             event_kind="chat.completion",

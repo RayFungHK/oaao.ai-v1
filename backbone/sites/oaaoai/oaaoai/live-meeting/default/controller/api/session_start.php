@@ -1,0 +1,63 @@
+<?php
+
+declare(strict_types=1);
+
+use oaaoai\livemeeting\LiveMeetingOrchestrator;
+use oaaoai\livemeeting\LiveMeetingStorage;
+
+/**
+ * POST /live-meeting/api/session_start
+ */
+return function (): void {
+    [$auth, $user] = $this->oaao_live_require_authenticated_only();
+    if (! $auth || ! $user) {
+        return;
+    }
+
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $cadence = trim((string) ($input['cadence'] ?? '1v1'));
+    if ($cadence === '') {
+        $cadence = '1v1';
+    }
+    $retention = trim((string) ($input['retention_mode'] ?? 'disk_ttl'));
+    if ($retention === '') {
+        $retention = 'disk_ttl';
+    }
+    $wid = isset($input['workspace_id']) ? (int) $input['workspace_id'] : 0;
+    $uid = (int) ($user->user_id ?? 0);
+
+    $orch = LiveMeetingOrchestrator::sessionStart([
+        'cadence'         => $cadence,
+        'retention_mode'  => $retention,
+        'workspace_id'    => $wid > 0 ? $wid : null,
+        'user_id'         => $uid,
+    ]);
+    if ($orch === null || empty($orch['session_id'])) {
+        http_response_code(502);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Orchestrator could not start live meeting session',
+        ], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
+    try {
+        LiveMeetingStorage::ensureSessionTree((string) $orch['session_id']);
+    } catch (\Throwable $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Could not prepare session storage',
+        ], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
+    $publicBase = LiveMeetingOrchestrator::publicStreamBase();
+    if ($publicBase !== '' && ! empty($orch['stream_url']) && str_starts_with((string) $orch['stream_url'], '/')) {
+        $orch['stream_url'] = $publicBase . (string) $orch['stream_url'];
+    }
+
+    $this->oaao_live_json_exit(200, true, '', $orch);
+};

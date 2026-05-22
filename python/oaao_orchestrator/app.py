@@ -41,8 +41,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    from oaao_orchestrator.post_stream_pool import start_post_stream_pools, stop_post_stream_pools  # noqa: PLC0415
+
     poll_task = asyncio.create_task(vault_job_poll_loop())
+    await start_post_stream_pools()
     yield
+    await stop_post_stream_pools()
     poll_task.cancel()
     try:
         await poll_task
@@ -1007,6 +1011,89 @@ async def funasr_status_route(
     if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
         raise HTTPException(status_code=403, detail="bad_internal_token")
     return await funasr_status()
+
+
+class LiveSessionStartRequest(BaseModel):
+    cadence: str = "1v1"
+    workspace_id: int | None = None
+    user_id: int | None = None
+    retention_mode: str = "disk_ttl"
+
+
+class LiveSessionStopRequest(BaseModel):
+    session_id: str
+    keep_audio: bool = False
+
+
+def _orchestrator_public_base() -> str:
+    raw = os.environ.get("OAAO_ORCHESTRATOR_PUBLIC_BASE", "").strip()
+    if raw:
+        return raw.rstrip("/")
+    port = os.environ.get("OAAO_SIDECAR_PORT", "8103").strip() or "8103"
+    return f"http://127.0.0.1:{port}"
+
+
+@app.post("/v1/live/session_start")
+async def live_session_start(
+    req: LiveSessionStartRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.live_meeting.hub import session_start_payload  # noqa: PLC0415
+
+    data = session_start_payload(
+        cadence=req.cadence,
+        retention_mode=req.retention_mode,
+        workspace_id=req.workspace_id,
+        user_id=req.user_id,
+        public_base=_orchestrator_public_base(),
+    )
+    return {"ok": True, "data": data}
+
+
+@app.post("/v1/live/session_stop")
+async def live_session_stop(
+    req: LiveSessionStopRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.live_meeting.hub import stop_session  # noqa: PLC0415
+
+    sid = (req.session_id or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="session_id required")
+    if not stop_session(sid, keep_audio=bool(req.keep_audio)):
+        raise HTTPException(status_code=404, detail="unknown_session")
+    return {"ok": True, "session_id": sid, "keep_audio": bool(req.keep_audio)}
+
+
+@app.get("/v1/live/{session_id}/stream")
+async def live_session_stream(
+    session_id: str,
+    token: str = Query(""),
+) -> StreamingResponse:
+    """M1 placeholder SSE — Phase C attaches ``live_transcript`` events."""
+    from oaao_orchestrator.live_meeting.hub import get_session  # noqa: PLC0415
+
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="unknown_session")
+    _ = token
+
+    async def gen():
+        yield 'event: oaao.stream\ndata: {"phase":"system","kind":"status","text":"live_meeting_ready"}\n\n'
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/v1/stream")
