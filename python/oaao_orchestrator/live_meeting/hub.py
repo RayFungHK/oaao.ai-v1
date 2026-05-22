@@ -35,6 +35,7 @@ from oaao_orchestrator.streaming.events import (
     KIND_LIVE_BUBBLE,
     KIND_LIVE_MATERIALS,
     KIND_LIVE_PHASE,
+    KIND_LIVE_STATS,
     KIND_LIVE_TRANSCRIPT,
     PHASE_LIVE,
     StreamEnvelope,
@@ -412,6 +413,19 @@ async def _run_bubble_lookup(session_id: str, query: str, bubble_id: str) -> Non
         return
 
     materials = result.get("materials") if isinstance(result.get("materials"), list) else []
+    passage_count = int(result.get("passage_count") or 0)
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_STATS,
+            text=label,
+            payload={
+                "bubble_id": bubble_id,
+                "evidence_total": len(materials),
+                "passage_count": passage_count,
+            },
+        )
+    )
     await hub.append(
         StreamEnvelope(
             phase=PHASE_LIVE,

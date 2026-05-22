@@ -23,6 +23,7 @@ const OAAO_I18N_BASE = {
         'workspace.rail_chat_title': 'Chat',
         'workspace.rail_vault_title': 'Vault',
         'workspace.rail_agents_title': 'Agents',
+        'workspace.rail_live_meeting_title': 'Live meeting',
         'workspace.vault_menu_heading': 'Vault',
         'workspace.agents.page_title': 'Agents',
         'workspace.agents.page_intro':
@@ -61,6 +62,7 @@ const OAAO_I18N_BASE = {
         'live_meeting.materials.empty': 'No matching sources in the vault.',
         'live_meeting.materials.no_excerpt': '(no excerpt)',
         'live_meeting.error.vault_rag_not_configured': 'Knowledge base is not configured for this workspace.',
+        'live_meeting.stats.line': '{{sources}} sources · {{passages}} passages',
 
         // Settings nav (embedded registry)
         'settings.nav.endpoints.label': 'Endpoints',
@@ -509,6 +511,7 @@ const OAAO_I18N_BASE = {
         'workspace.rail_chat_title': '聊天',
         'workspace.rail_vault_title': 'Vault',
         'workspace.rail_agents_title': 'Agent',
+        'workspace.rail_live_meeting_title': '即時會議',
         'workspace.vault_menu_heading': '文件庫',
         'workspace.agents.page_title': 'Agent',
         'workspace.agents.page_intro':
@@ -547,6 +550,7 @@ const OAAO_I18N_BASE = {
         'live_meeting.materials.empty': '知識庫中沒有相符來源。',
         'live_meeting.materials.no_excerpt': '（無摘要）',
         'live_meeting.error.vault_rag_not_configured': '此工作區尚未設定知識庫檢索。',
+        'live_meeting.stats.line': '{{sources}} 個來源 · {{passages}} 段摘錄',
 
         'settings.nav.endpoints.label': '端點',
         'settings.nav.endpoints.title': 'LLM 端點',

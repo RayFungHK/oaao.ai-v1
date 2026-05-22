@@ -320,6 +320,18 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                     setStatus('live_meeting.status.rag_lookup');
                     return;
                 }
+                if (payload.kind === 'live_stats') {
+                    const total = Number(payload.payload?.evidence_total ?? 0);
+                    const passages = Number(payload.payload?.passage_count ?? 0);
+                    setConn(
+                        t('live_meeting.stats.line', '', {
+                            sources: String(total),
+                            passages: String(passages),
+                        }),
+                        { raw: true },
+                    );
+                    return;
+                }
                 if (payload.kind === 'live_materials') {
                     renderMaterials(payload);
                     setStatus('live_meeting.status.materials_ready');

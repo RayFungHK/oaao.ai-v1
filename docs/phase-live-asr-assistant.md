@@ -41,7 +41,7 @@
 | SSE `live_bubble` + `live_phase` (thinking/idle) | `live_materials` on bubble tap | `live_stats`, `live_insight_delta` |
 | `bubble_engine.py` — glossary + question heuristics | `bubble_rag.py` + workspace vault profiles at `session_start` | Purpose `live_meeting.*` LLM bubbles |
 | Cadence gate (`debate` 8s / `1v1` 20s / `meeting` 60s) | WS `{ type: bubble_lookup }` → vault RAG | Full Materials Dialog (chat parity) |
-| WS `{ type: bubble_request }` force refresh | Panel sources list under transcript | LLM answer stream on bubble |
+| WS `{ type: bubble_request }` force refresh | Panel sources + `live_stats` line | `live_insight_delta` LLM answer stream |
 - Cadence profiles in session `meta.json` (from `session_start` `cadence`)
 
 ### M3 — Wrap-up

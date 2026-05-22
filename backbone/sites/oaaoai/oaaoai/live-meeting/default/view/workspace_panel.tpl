@@ -12,7 +12,7 @@
                     <span data-i18n="live_meeting.keep_audio">Keep recorded audio on server</span>
                 </label>
                 <button type="button" data-oaao-live-meeting="mic"
-                    class="inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium bg-[#2d2d2d] text-white border-none cursor-pointer">
+                    class="oaao-live-meeting-mic-btn inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium border-none cursor-pointer">
                     <span data-i18n="live_meeting.start_mic">Start microphone</span>
                 </button>
             </div>

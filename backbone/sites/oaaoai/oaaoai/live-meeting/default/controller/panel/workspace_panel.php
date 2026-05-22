@@ -6,7 +6,7 @@
 return function (): void {
     header('Cache-Control: no-store, no-cache, must-revalidate');
 
-    require_once dirname(__DIR__, 5) . '/core/default/library/PlatformProductGuard.php';
+    require_once dirname(__DIR__, 4) . '/core/default/library/PlatformProductGuard.php';
     $auth = $this->api('auth');
     $pdo = $auth?->getDB()?->getDBAdapter();
     if ($pdo instanceof \PDO) {
