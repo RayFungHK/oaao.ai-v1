@@ -1,7 +1,7 @@
 <?php
 
 /**
- * GET /chat/api/messages?conversation_id= — messages for a conversation owned by the user.
+ * GET /chat/api/messages?conversation_id=&workspace_id= — messages for a conversation owned by the user in that scope.
  */
 return function (): void {
     [$splitDb, $user, $pdo] = $this->oaao_chat_require_user();
@@ -11,6 +11,12 @@ return function (): void {
 
     $uid = (int) ($user->user_id ?? 0);
     $cid = (int) ($_GET['conversation_id'] ?? 0);
+    $wid = $this->oaao_chat_resolve_workspace_id(null);
+
+    if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
+        return;
+    }
+
     if ($uid < 1 || $cid < 1) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'conversation_id required']);
@@ -22,8 +28,8 @@ return function (): void {
         $own = $splitDb->prepare()
             ->select('id')
             ->from('conversation')
-            ->where('id=?,user_id=?')
-            ->assign(['id' => $cid, 'user_id' => $uid])
+            ->where('id=?,user_id=?,workspace_id=?')
+            ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
             ->limit(1)
             ->query()
             ->fetch();

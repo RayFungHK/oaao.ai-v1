@@ -1,0 +1,1671 @@
+"""Vault rail — Qdrant vector search + optional Arango snippets; augments chat messages before LLM."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import urlparse
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class VaultRagCitation:
+    vault_id: int
+    document_id: int
+    file_name: str = ""
+    vault_name: str = ""
+    path: str = ""
+    segment_types: list[str] = field(default_factory=list)
+    chunk_index: int | None = None
+    segment_index: int | None = None
+    begin_ms: int | None = None
+    end_ms: int | None = None
+    speaker_id: int | None = None
+    speaker_label: str = ""
+    excerpt: str = ""
+
+
+@dataclass
+class VaultRagOutcome:
+    passage_count: int
+    profile_hits: int
+    detail_lines: list[str] = field(default_factory=list)
+    activity_lines: list[str] = field(default_factory=list)
+    citation_refs: list[VaultRagCitation] = field(default_factory=list)
+    slide_grounding_brief: str = ""
+
+
+def _env(name: str, default: str = "") -> str:
+    v = os.environ.get(name)
+    return v.strip() if isinstance(v, str) and v.strip() else default
+
+
+def _resolve_secret(env_name: str | None) -> str | None:
+    if not env_name:
+        return None
+    v = os.environ.get(env_name)
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return None
+
+
+def _last_user_query(messages: list[dict[str, Any]]) -> str:
+    for m in reversed(messages):
+        if not isinstance(m, dict):
+            continue
+        if str(m.get("role") or "").lower() != "user":
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and c.strip():
+            return c.strip()
+    return ""
+
+
+def _inject_system(messages: list[dict[str, Any]], content: str) -> None:
+    if messages and str(messages[0].get("role") or "").lower() == "system":
+        prev = messages[0].get("content")
+        messages[0]["content"] = f"{content}\n\n{prev}" if isinstance(prev, str) and prev.strip() else content
+    else:
+        messages.insert(0, {"role": "system", "content": content})
+
+
+def _hostport_looks_http_default(hostport: str) -> bool:
+    """Bare URL hostport without scheme: assume http on loopback / LAN-style hosts, https otherwise (matches orchestrator ingress)."""
+    h = hostport.strip().lower()
+    if "@" in h:
+        h = h.split("@")[-1]
+    host = h.split(":", 1)[0].strip("[]")
+    if host in ("localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"):
+        return True
+    if host.endswith(".local"):
+        return True
+    return bool(re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", host))
+
+
+def ensure_url_scheme(base_url: str) -> str:
+    """Prefix ``http(s)://`` when admins paste bare ``host/name`` (httpx requirement)."""
+    bu = base_url.strip()
+    if not bu:
+        return bu
+    low = bu.lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        return bu
+    hostport = bu.split("/", 1)[0]
+    prefix = "http://" if _hostport_looks_http_default(hostport) else "https://"
+    return f"{prefix}{bu}"
+
+
+def openai_compat_embeddings_url_from_base(endpoint_base_url: str) -> str:
+    """
+    Resolve OpenAI-compat ``…/embeddings`` from canonical ``oaao_endpoint.base_url`` (parity with chat ``…/chat/completions`` rules).
+    """
+    bu = ensure_url_scheme(endpoint_base_url).rstrip("/")
+    if bu.lower().endswith("/v1"):
+        return f"{bu}/embeddings"
+    return f"{bu}/v1/embeddings"
+
+
+def _embedding_native_ollama_request(url: str) -> bool:
+    """Native Ollama uses POST /api/embeddings + {\"prompt\": ...}; OpenAI-compat is /v1/embeddings + {\"input\": ...}."""
+    if _env("OAAO_EMBEDDING_NATIVE_OLLAMA", "") in ("1", "true", "yes"):
+        return True
+    path = urlparse(url).path.rstrip("/")
+    return path.endswith("/api/embeddings") and "/v1" not in path
+
+
+def _extract_embedding_vector(data: Any) -> list[Any] | None:
+    """OpenAI-style {\"data\":[{\"embedding\":[...]}]} or native Ollama {\"embedding\":[...]}."""
+    if not isinstance(data, dict):
+        return None
+    emb = data.get("embedding")
+    if isinstance(emb, list) and emb:
+        return emb
+    inner = data.get("data")
+    if isinstance(inner, list) and inner:
+        first = inner[0]
+        if isinstance(first, dict):
+            e2 = first.get("embedding")
+            if isinstance(e2, list) and e2:
+                return e2
+    return None
+
+
+def _embedding_batch_vectors_from_json(data: Any, *, expected: int) -> list[list[float]] | None:
+    """Parse OpenAI-compat batch ``{\"data\":[{\"index\",\"embedding\"},…]}`` (``index`` optional, server order fallback)."""
+    if not isinstance(data, dict):
+        return None
+    inner = data.get("data")
+    if not isinstance(inner, list) or len(inner) != expected:
+        return None
+    typed: list[tuple[int, list[float]]] = []
+    for i, item in enumerate(inner):
+        if not isinstance(item, dict):
+            return None
+        emb = item.get("embedding")
+        if not isinstance(emb, list) or not emb:
+            return None
+        try:
+            vec = [float(x) for x in emb]
+        except (TypeError, ValueError):
+            return None
+        ix = item.get("index")
+        typed.append((ix if isinstance(ix, int) else i, vec))
+    typed.sort(key=lambda x: x[0])
+    return [t[1] for t in typed]
+
+
+async def openai_compat_embed_batch(
+    client: httpx.AsyncClient,
+    texts: list[str],
+    api_key: str | None,
+    *,
+    url: str,
+    model: str,
+    request_timeout: httpx.Timeout | None = None,
+) -> tuple[list[list[float]] | None, str | None]:
+    """
+    Embed many strings in minimal round-trips — OpenAI-compat ``input`` array when not native-Ollama; else parallel ``/api/embed``.
+    Used by vault ingest where sequential per-chunk calls dominated latency.
+    """
+    n = len(texts)
+    if n == 0:
+        return [], None
+
+    clipped: list[str] = []
+    for raw in texts:
+        c = (raw or "")[:12000]
+        if not c.strip():
+            return None, "embedding_empty_input"
+        clipped.append(c)
+
+    model_use = (model or "").strip()
+    url_use = (url or "").strip()
+    if not model_use:
+        return None, "embedding_model_unconfigured"
+    if not url_use:
+        return None, "embedding_url_unconfigured"
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    native = _embedding_native_ollama_request(url_use)
+    timeout = request_timeout or httpx.Timeout(240.0, connect=25.0)
+
+    if native:
+        concurrency = max(1, min(48, int(_env("OAAO_VAULT_EMBED_CONCURRENCY", "12") or "12")))
+        sem = asyncio.Semaphore(concurrency)
+
+        async def embed_one(p: str) -> list[float]:
+            async with sem:
+                body: dict[str, Any] = {"model": model_use, "prompt": p}
+                r = await client.post(url_use, headers=headers, json=body, timeout=timeout)
+                if r.status_code >= 400:
+                    preview = (r.text or "").replace("\n", " ").strip()[:380]
+                    raise RuntimeError(f"embedding_http_{r.status_code}:{preview}")
+                payload = r.json()
+                raw_e = _extract_embedding_vector(payload)
+                if not isinstance(raw_e, list) or not raw_e:
+                    raise RuntimeError("embedding_empty_response")
+                try:
+                    return [float(x) for x in raw_e]
+                except (TypeError, ValueError) as e:
+                    raise RuntimeError("embedding_non_numeric_vector") from e
+
+        results = await asyncio.gather(*[embed_one(p) for p in clipped], return_exceptions=True)
+        out_vectors: list[list[float]] = []
+        for ri, res in enumerate(results):
+            if isinstance(res, BaseException):
+                detail = str(res).replace("\n", " ").strip()[:420]
+                return None, f"embedding_failed_parallel:{ri}:{detail}"
+            out_vectors.append(res)
+        return out_vectors, None
+
+    body_arr: dict[str, Any] = {"model": model_use, "input": clipped}
+
+    try:
+        r = await client.post(url_use, headers=headers, json=body_arr, timeout=timeout)
+    except httpx.TimeoutException as e:
+        logger.warning("embedding batch timeout — %s", e)
+        return None, f"embedding_timeout:{e}"
+    except httpx.RequestError as e:
+        logger.warning("embedding batch request error — %s", e)
+        return None, f"embedding_request_error:{e}"
+
+    if r.status_code >= 400:
+        preview = (r.text or "").replace("\n", " ").strip()[:420]
+        logger.warning("embedding batch HTTP %s — %s", r.status_code, preview)
+        return None, f"embedding_http_{r.status_code}:{preview}"
+
+    try:
+        payload = r.json()
+    except Exception:
+        return None, "embedding_invalid_json_response"
+
+    vectors = _embedding_batch_vectors_from_json(payload, expected=n)
+    if vectors is None:
+        return None, "embedding_batch_parse_failed"
+    return vectors, None
+
+
+async def _openai_embed(
+    text: str,
+    api_key: str | None,
+    *,
+    url: str | None = None,
+    model: str | None = None,
+) -> tuple[list[float] | None, str | None]:
+    """
+    POST to an OpenAI-compatible embedding endpoint (or native Ollama when URL path is ``/api/embeddings``).
+
+    Returns ``(vector, None)`` on success; on failure ``(None, short_reason)`` for surfacing to vault_job_finish / logs.
+    """
+    model_use = (model or "").strip()
+    url_use = (url or "").strip()
+    if not model_use:
+        return None, "embedding_model_unconfigured"
+    if not url_use:
+        return None, "embedding_url_unconfigured"
+    clip = (text or "")[:12000]
+    if not clip.strip():
+        return None, "embedding_empty_input"
+
+    async with httpx.AsyncClient() as client:
+        vecs, err = await openai_compat_embed_batch(
+            client,
+            [clip],
+            api_key,
+            url=url_use,
+            model=model_use,
+            request_timeout=httpx.Timeout(45.0, connect=12.0),
+        )
+    if err or not vecs or len(vecs) != 1:
+        return None, err or "embedding_empty_response"
+    return vecs[0], None
+
+
+def _qdrant_must_filter(
+    vault_id: int,
+    document_ids: list[int] | None = None,
+    segment_scope: str | None = None,
+) -> dict[str, Any]:
+    must: list[dict[str, Any]] = [{"key": "vault_id", "match": {"value": int(vault_id)}}]
+    if document_ids:
+        clean = sorted({int(x) for x in document_ids if int(x) > 0})
+        if len(clean) == 1:
+            must.append({"key": "document_id", "match": {"value": clean[0]}})
+        elif len(clean) > 1:
+            must.append({"key": "document_id", "match": {"any": clean}})
+    scope = (segment_scope or "").strip()
+    if scope:
+        must.append({"key": "segment_scope", "match": {"value": scope[:64]}})
+    return {"must": must}
+
+
+def _scroll_points_to_hits(points: list[Any], *, score: float) -> list[dict[str, Any]]:
+    hits: list[dict[str, Any]] = []
+    for raw in points:
+        if not isinstance(raw, dict):
+            continue
+        pl = raw.get("payload")
+        if not isinstance(pl, dict):
+            pl = {}
+        hits.append({"score": score, "payload": pl, "id": raw.get("id")})
+    return hits
+
+
+async def _qdrant_scroll(
+    *,
+    base_url: str,
+    collection: str,
+    vault_id: int,
+    api_key: str | None,
+    limit: int,
+    document_ids: list[int] | None = None,
+    segment_scope: str | None = None,
+) -> list[dict[str, Any]]:
+    """Filter-only point scroll — used when embedding is unavailable but scoped document ids are known."""
+    bu = base_url.rstrip("/")
+    url = f"{bu}/collections/{collection}/points/scroll"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["api-key"] = api_key
+    flt = _qdrant_must_filter(vault_id, document_ids, segment_scope)
+    body: dict[str, Any] = {"limit": max(1, min(64, limit)), "with_payload": True, "filter": flt}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(40.0, connect=10.0)) as client:
+        r = await client.post(url, headers=headers, json=body)
+        if r.status_code >= 400:
+            logger.warning("qdrant scroll %s HTTP %s — %s", collection, r.status_code, r.text[:400])
+            return []
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            return []
+    res = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(res, dict):
+        return []
+    pts = res.get("points")
+    if not isinstance(pts, list):
+        return []
+    return _scroll_points_to_hits(pts, score=0.92 if (segment_scope or "").strip() else 0.55)
+
+
+def _scoped_docs_by_vault(
+    vault_source_refs: list[dict[str, Any]] | None,
+    vault_scope_documents: dict[int, list[int]] | None,
+) -> dict[int, list[int]]:
+    out: dict[int, list[int]] = {}
+    if isinstance(vault_scope_documents, dict):
+        for raw_vid, raw_ids in vault_scope_documents.items():
+            try:
+                vid = int(raw_vid)
+            except (TypeError, ValueError):
+                continue
+            if vid < 1 or not isinstance(raw_ids, list):
+                continue
+            clean = sorted({int(x) for x in raw_ids if isinstance(x, (int, float)) and int(x) > 0})
+            if clean:
+                out[vid] = clean
+    if out:
+        return out
+    for raw in vault_source_refs or []:
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("kind") or "").strip().lower() != "document":
+            continue
+        try:
+            vid = int(raw.get("vault_id") or 0)
+            did = int(raw.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if vid < 1 or did < 1:
+            continue
+        out.setdefault(vid, []).append(did)
+    for vid in list(out.keys()):
+        out[vid] = sorted(set(out[vid]))
+    return out
+
+
+async def _record_passages_via_scope_scroll(
+    profiles: list[dict[str, Any]],
+    scope_by_vault: dict[int, list[int]],
+    *,
+    per_vault_limit: int,
+    min_score: float,
+    seen: set[str],
+    default_qdrant: str,
+) -> list[_PassagePick]:
+    """Load transcript summaries (then other segments) for PHP-scoped audio/docs without embedding."""
+    all_picks: list[_PassagePick] = []
+    for profile in profiles:
+        vid = int(profile.get("vault_id") or 0)
+        if vid < 1:
+            continue
+        doc_ids = scope_by_vault.get(vid)
+        if not doc_ids:
+            continue
+        qurl = (profile.get("qdrant_url") or "").strip() or default_qdrant
+        qcol = (profile.get("qdrant_collection") or "").strip()
+        if not qcol:
+            continue
+        qkey_env = profile.get("qdrant_api_key_env")
+        qkey = _resolve_secret(qkey_env) if qkey_env else None
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for scope, score in (("transcript_summary", 0.92), (None, 0.55)):
+            hits = await _qdrant_scroll(
+                base_url=qurl,
+                collection=qcol,
+                vault_id=vid,
+                api_key=qkey,
+                limit=max(8, per_vault_limit * 4),
+                document_ids=doc_ids,
+                segment_scope=scope,
+            )
+            for h in hits:
+                eff = float(h.get("score") or score)
+                ranked.append((eff, h))
+        vault_picks, _ = _select_passages_for_vault(
+            ranked,
+            vault_id=vid,
+            per_vault_limit=per_vault_limit,
+            min_score=max(0.08, min_score * 0.5),
+            seen=seen,
+            query_wants_record=True,
+        )
+        all_picks.extend(vault_picks)
+    return all_picks
+
+
+async def _qdrant_search(
+    *,
+    base_url: str,
+    collection: str,
+    vector: list[float],
+    vault_id: int,
+    api_key: str | None,
+    limit: int,
+    document_ids: list[int] | None = None,
+    segment_scope: str | None = None,
+) -> list[dict[str, Any]]:
+    bu = base_url.rstrip("/")
+    url = f"{bu}/collections/{collection}/points/search"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["api-key"] = api_key
+    flt = _qdrant_must_filter(vault_id, document_ids, segment_scope)
+    body: dict[str, Any] = {"vector": vector, "limit": limit, "with_payload": True, "filter": flt}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(40.0, connect=10.0)) as client:
+        r = await client.post(url, headers=headers, json=body)
+        if r.status_code == 400 and _env("OAAO_QDRANT_RETRY_WITHOUT_FILTER", "") in ("1", "true", "yes"):
+            body = {"vector": vector, "limit": limit, "with_payload": True}
+            r = await client.post(url, headers=headers, json=body)
+        if r.status_code >= 400:
+            logger.warning("qdrant search %s HTTP %s — %s", collection, r.status_code, r.text[:400])
+            return []
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            return []
+    res = data.get("result") if isinstance(data, dict) else None
+    return res if isinstance(res, list) else []
+
+
+def _hit_score(hit: dict[str, Any]) -> float | None:
+    raw = hit.get("score")
+    if isinstance(raw, (int, float)):
+        return float(raw)
+
+    return None
+
+
+def _min_rag_score(cfg: dict[str, Any] | None = None) -> float:
+    if isinstance(cfg, dict):
+        raw = cfg.get("min_score")
+        if raw is not None and raw != "":
+            try:
+                return max(0.0, min(1.0, float(raw)))
+            except (TypeError, ValueError):
+                pass
+    raw = _env("OAAO_VAULT_RAG_MIN_SCORE", "0.38")
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except (TypeError, ValueError):
+        return 0.38
+
+
+def _rag_runtime_config(vault_rag: dict[str, Any] | None) -> dict[str, float | int]:
+    """Settings → RAG (PHP {@code vault_rag} payload) with env fallbacks."""
+    src = vault_rag if isinstance(vault_rag, dict) else {}
+
+    def _int(key: str, env_name: str, default: int, lo: int, hi: int) -> int:
+        raw = src.get(key)
+        if raw is None or raw == "":
+            raw = _env(env_name, str(default))
+        try:
+            n = int(round(float(raw)))
+        except (TypeError, ValueError):
+            n = default
+        return max(lo, min(hi, n))
+
+    def _float(key: str, env_name: str, default: float, lo: float, hi: float) -> float:
+        raw = src.get(key)
+        if raw is None or raw == "":
+            raw = _env(env_name, str(default))
+        try:
+            f = float(raw)
+        except (TypeError, ValueError):
+            f = default
+        return max(lo, min(hi, round(f, 4)))
+
+    return {
+        "qdrant_limit": _int("qdrant_limit", "OAAO_VAULT_RAG_QDRANT_LIMIT", 6, 2, 24),
+        "min_score": _float("min_score", "OAAO_VAULT_RAG_MIN_SCORE", 0.38, 0.0, 1.0),
+        "graph_limit": _int("graph_limit", "OAAO_VAULT_RAG_GRAPH_LIMIT", 12, 4, 16),
+        "transcript_summary_boost": _float("transcript_summary_boost", "", 0.10, 0.0, 0.3),
+        "asr_transcript_boost": _float("asr_transcript_boost", "", 0.03, 0.0, 0.2),
+    }
+
+
+def _segment_type_from_payload(pl: dict[str, Any]) -> str | None:
+    scope = str(pl.get("segment_scope") or "").strip().lower()
+    if scope == "transcript_summary":
+        return "transcript_summary"
+    if scope == "plain":
+        fa = pl.get("from_asr")
+        if fa is True or fa == 1 or str(fa).lower() in ("1", "true", "yes"):
+            return "asr_transcript"
+    return None
+
+
+def _score_boost_for_payload(pl: dict[str, Any], cfg: dict[str, float | int]) -> float:
+    st = _segment_type_from_payload(pl)
+    if st == "transcript_summary":
+        return float(cfg.get("transcript_summary_boost") or 0.0)
+    if st == "asr_transcript":
+        return float(cfg.get("asr_transcript_boost") or 0.0)
+    return 0.0
+
+
+def _effective_hit_score(hit: dict[str, Any], cfg: dict[str, float | int]) -> float | None:
+    raw = _hit_score(hit)
+    if raw is None:
+        return None
+    pl = hit.get("payload")
+    if not isinstance(pl, dict):
+        return raw
+    return raw + _score_boost_for_payload(pl, cfg)
+
+
+def _passage_type_label(segment_type: str | None) -> str:
+    if segment_type == "transcript_summary":
+        return "Transcript summary"
+    if segment_type == "asr_transcript":
+        return "ASR transcript"
+    return ""
+
+
+def _passage_fingerprint(vid: int, did: int | None, txt: str, *, begin_ms: int | None = None) -> str:
+    if begin_ms is not None and begin_ms >= 0:
+        return f"{vid}:{did}:{begin_ms}:{txt[:80]}"
+    return f"{vid}:{did}:{txt[:80]}"
+
+
+def _format_passage_block(vid: int, did: int | None, seg_type: str | None, txt: str) -> str:
+    type_label = _passage_type_label(seg_type)
+    label = f"[vault {vid}" + (f", doc {did}" if did is not None else "")
+    if type_label:
+        label += f" · {type_label}"
+    label += "]"
+    return f"{label}\n{txt}"
+
+
+@dataclass
+class _PassagePick:
+    passage: str
+    vault_id: int
+    document_id: int
+    file_name: str
+    segment_type: str | None
+    chunk_index: int | None = None
+    segment_index: int | None = None
+    begin_ms: int | None = None
+    end_ms: int | None = None
+    speaker_id: int | None = None
+    speaker_label: str = ""
+    excerpt: str = ""
+
+
+def build_slide_grounding_brief(
+    picks: list[_PassagePick],
+    *,
+    graph_lines: list[str] | None = None,
+    max_passages: int = 24,
+    max_chars: int = 14_000,
+) -> str:
+    """
+    Group vault hits by source file for slide outline / per-page coding (step C after RAG).
+    """
+    if not picks and not graph_lines:
+        return ""
+    by_doc: dict[tuple[int, int], list[_PassagePick]] = {}
+    order: list[tuple[int, int]] = []
+    for pick in picks:
+        key = (pick.vault_id, pick.document_id)
+        if key not in by_doc:
+            by_doc[key] = []
+            order.append(key)
+        if len(by_doc[key]) < max(3, max_passages // max(1, len(order))):
+            by_doc[key].append(pick)
+    sections: list[str] = []
+    for vid, did in order:
+        group = by_doc.get((vid, did)) or []
+        if not group:
+            continue
+        head = (group[0].file_name or "").strip() or f"document_{did}"
+        lines = [f"## {head} (vault {vid}, doc {did})", ""]
+        for i, pick in enumerate(group, start=1):
+            body = pick.passage.split("\n", 1)[-1].strip()
+            body = re.sub(r"\n{3,}", "\n\n", body)
+            label = _passage_type_label(pick.segment_type)
+            cap = f"### Excerpt {i}" + (f" · {label}" if label else "")
+            lines.append(cap)
+            lines.append(body)
+            lines.append("")
+        sections.append("\n".join(lines).strip())
+    if graph_lines:
+        gl = "\n".join(
+            "- " + re.sub(r"\s+", " ", str(g)).strip()
+            for g in graph_lines[:12]
+            if str(g).strip()
+        )
+        if gl:
+            sections.append("## Graph context\n\n" + gl)
+    brief = "\n\n".join(sections).strip()
+    return brief[:max_chars] if brief else ""
+
+
+def _format_passage_detail_line(pick: _PassagePick) -> str:
+    """One-line summary for pipeline UI — not full passage bodies."""
+    type_label = _passage_type_label(pick.segment_type)
+    body = pick.passage.split("\n", 1)[-1]
+    body = re.sub(r"\s+", " ", body).strip()
+    parts = [f"doc {pick.document_id}"]
+    if type_label:
+        parts.append(type_label)
+    name = (pick.file_name or "").strip()
+    if name:
+        parts.append(name)
+    if pick.speaker_label:
+        parts.append(pick.speaker_label)
+    if pick.begin_ms is not None and pick.begin_ms >= 0:
+        total_sec = pick.begin_ms // 1000
+        h = total_sec // 3600
+        m = (total_sec % 3600) // 60
+        s = total_sec % 60
+        stamp = f"{h}:{m:02d}:{s:02d}" if h > 0 else f"{m}:{s:02d}"
+        parts.append(stamp)
+    prefix = " · ".join(parts)
+    if not body:
+        return prefix[:96]
+    line = f"{prefix} — {body}"
+    return line[:96] + ("…" if len(line) > 96 else "")
+
+
+def _select_passages_for_vault(
+    ranked: list[tuple[float, dict[str, Any]]],
+    *,
+    vault_id: int,
+    per_vault_limit: int,
+    min_score: float,
+    seen: set[str],
+    query_wants_record: bool = False,
+) -> tuple[list[_PassagePick], int]:
+    """
+    Prefer transcript_summary for audio docs; cap raw ASR plain when a summary exists for the same document.
+
+    Long recordings often embed unrelated small-talk ASR chunks that outrank the curated summary on some queries.
+    """
+    below_score = 0
+    summary_floor = max(0.0, min_score * (0.65 if query_wants_record else 0.85))
+    max_summary_slots = max(1, min(3 if query_wants_record else 2, per_vault_limit))
+
+    best_summary_by_doc: dict[int, tuple[float, dict[str, Any]]] = {}
+    for eff, hit in ranked:
+        pl = hit.get("payload")
+        if not isinstance(pl, dict):
+            continue
+        if _segment_type_from_payload(pl) != "transcript_summary":
+            continue
+        if eff < summary_floor:
+            continue
+        txt, did, _ = _passage_from_hit(hit)
+        if not txt or not isinstance(did, int) or did < 1:
+            continue
+        prev = best_summary_by_doc.get(did)
+        if prev is None or eff > prev[0]:
+            best_summary_by_doc[did] = (eff, hit)
+
+    picks: list[_PassagePick] = []
+    docs_with_summary: set[int] = set()
+    for did, (_eff, hit) in sorted(best_summary_by_doc.items(), key=lambda row: row[1][0], reverse=True)[
+        :max_summary_slots
+    ]:
+        pick = _passage_pick_from_hit(hit, vault_id=vault_id)
+        if pick is None or pick.document_id < 1:
+            continue
+        fp = _passage_fingerprint(vault_id, pick.document_id, pick.passage, begin_ms=pick.begin_ms)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        docs_with_summary.add(pick.document_id)
+        pick.segment_type = "transcript_summary"
+        picks.append(pick)
+
+    plain_asr_per_doc: dict[int, int] = {}
+    for eff, hit in ranked:
+        if len(picks) >= per_vault_limit:
+            break
+        if eff < min_score:
+            below_score += 1
+            continue
+        pick = _passage_pick_from_hit(hit, vault_id=vault_id)
+        if pick is None or pick.document_id < 1:
+            continue
+        seg_type = pick.segment_type
+        if seg_type == "transcript_summary":
+            continue
+        doc_id = pick.document_id
+        fp = _passage_fingerprint(vault_id, doc_id, pick.passage, begin_ms=pick.begin_ms)
+        if fp in seen:
+            continue
+        if doc_id in docs_with_summary and seg_type == "asr_transcript":
+            if query_wants_record:
+                continue
+            if plain_asr_per_doc.get(doc_id, 0) >= 1:
+                continue
+            plain_asr_per_doc[doc_id] = plain_asr_per_doc.get(doc_id, 0) + 1
+        seen.add(fp)
+        picks.append(pick)
+
+    return picks, below_score
+
+
+def _query_wants_meeting_record(query: str) -> bool:
+    q = query.strip().lower()
+    if not q:
+        return False
+    markers = (
+        "记录",
+        "記錄",
+        "之前",
+        "有没有",
+        "有沒有",
+        "用法",
+        "钱包",
+        "錢包",
+        "會議",
+        "会议",
+        "摘要",
+        "meeting",
+        "minutes",
+        "transcript summary",
+    )
+    return any(m in q for m in markers)
+
+
+def _query_wants_transcript_evidence(query: str) -> bool:
+    """Meeting / audio / wallet follow-ups — cite transcript summary, not stray PDF chunks."""
+    if _query_wants_meeting_record(query):
+        return True
+    q = query.strip()
+    if not q:
+        return False
+    markers = (
+        "說過",
+        "说过",
+        "什麼時候",
+        "什么时候",
+        "何時",
+        "何时",
+        "理監事",
+        "理事长",
+        "董事",
+        "監事",
+        "监事",
+        "安裝",
+        "安装",
+        "轉寫",
+        "转写",
+        "教學",
+        "教学",
+        "示範",
+        "示范",
+        "窩輪",
+        "窝轮",
+    )
+    return any(m in q for m in markers)
+
+
+_QUERY_TERM_STOP = frozenset(
+    {
+        "什么",
+        "什麼",
+        "是",
+        "吗",
+        "嗎",
+        "的",
+        "了",
+        "请",
+        "請",
+        "问",
+        "問",
+        "what",
+        "is",
+        "the",
+        "a",
+        "an",
+        "how",
+        "does",
+        "do",
+        "why",
+        "define",
+        "explain",
+    },
+)
+
+
+def _query_is_general_knowledge(query: str) -> bool:
+    """Definition / concept questions — answer from LLM knowledge unless vault text clearly matches."""
+    if _query_wants_meeting_record(query):
+        return False
+    q = query.strip().lower()
+    if not q:
+        return False
+    starters = (
+        "什么是",
+        "什麼是",
+        "何谓",
+        "何謂",
+        "what is",
+        "what's",
+        "whats ",
+        "define ",
+        "explain ",
+        "解釋",
+        "解释",
+        "請解釋",
+        "请解释",
+        "介绍一下",
+        "介紹一下",
+        "請介紹",
+        "请介绍",
+    )
+    if any(s in q for s in starters):
+        return True
+    latin_terms = (
+        "fourier",
+        "transform",
+        "algorithm",
+        "theorem",
+        "calculus",
+        "matrix",
+        "python",
+        "javascript",
+        "api",
+    )
+    return any(t in q for t in latin_terms)
+
+
+def _query_terms(query: str) -> list[str]:
+    q = query.strip().lower()
+    for prefix in (
+        "什么是",
+        "什麼是",
+        "何谓",
+        "何謂",
+        "请解释",
+        "請解釋",
+        "介绍一下",
+        "介紹一下",
+        "请介绍",
+        "請介紹",
+    ):
+        q = q.replace(prefix, "")
+    terms: list[str] = []
+    for chunk in re.findall(r"[\w\u4e00-\u9fff]+", q):
+        if len(chunk) < 2 or chunk in _QUERY_TERM_STOP:
+            continue
+        terms.append(chunk)
+        if re.fullmatch(r"[\u4e00-\u9fff]+", chunk) and len(chunk) >= 4:
+            for i in range(len(chunk) - 1):
+                bigram = chunk[i : i + 2]
+                if bigram not in _QUERY_TERM_STOP:
+                    terms.append(bigram)
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in terms:
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+
+
+def _passage_relevant_to_query(query: str, passage: str, *, strict: bool = False) -> bool:
+    terms = _query_terms(query)
+    if not terms:
+        return not strict
+    body = passage.lower()
+    hits = sum(1 for t in terms if t in body)
+    if strict:
+        return hits >= max(2, len(terms))
+    return hits >= max(1, (len(terms) + 1) // 2)
+
+
+def _pick_rank_for_citation(pick: _PassagePick) -> tuple[int, int, int]:
+    ts = 1 if pick.segment_type == "transcript_summary" else 0
+    asr = 1 if pick.segment_type == "asr_transcript" else 0
+    return (ts, asr, len(pick.excerpt or ""))
+
+
+def _best_pick_per_document(picks: list[_PassagePick]) -> list[_PassagePick]:
+    best: dict[int, _PassagePick] = {}
+    for pick in picks:
+        if pick.document_id < 1:
+            continue
+        prev = best.get(pick.document_id)
+        if prev is None or _pick_rank_for_citation(pick) > _pick_rank_for_citation(prev):
+            best[pick.document_id] = pick
+    return list(best.values())
+
+
+def _narrow_grounding_picks(query: str, picks: list[_PassagePick]) -> list[_PassagePick]:
+    """When the user asks about meeting/audio content, do not flood context with off-topic PDF chunks."""
+    summaries = [p for p in picks if p.segment_type == "transcript_summary"]
+    if not summaries or not _query_wants_transcript_evidence(query):
+        return picks
+    others = [
+        p
+        for p in picks
+        if p.segment_type != "transcript_summary" and _passage_relevant_to_query(query, p.passage, strict=True)
+    ]
+    return summaries + others[:1]
+
+
+def _picks_for_citations(
+    query: str,
+    picks: list[_PassagePick],
+    *,
+    wants_gk: bool = False,
+) -> list[_PassagePick]:
+    """References list — sources the user can verify (not every retrieved chunk)."""
+    candidates = [p for p in picks if _passage_relevant_to_query(query, p.passage)]
+    if not candidates and picks and not wants_gk:
+        # Grounding may use borderline passages; still show where the answer came from.
+        candidates = list(picks)
+    if not candidates:
+        return []
+    if _query_wants_transcript_evidence(query):
+        summaries = [p for p in candidates if p.segment_type == "transcript_summary"]
+        asr = [p for p in candidates if p.segment_type == "asr_transcript"]
+        if summaries:
+            merged = _best_pick_per_document(summaries)
+            summary_docs = {p.document_id for p in merged}
+            for pick in _best_pick_per_document(asr):
+                if pick.document_id not in summary_docs:
+                    merged.append(pick)
+            return merged
+    return _best_pick_per_document(candidates)
+
+
+def _inject_general_knowledge_only(messages: list[dict[str, Any]], *, explicit_scope: bool) -> None:
+    if explicit_scope:
+        _inject_system(
+            messages,
+            "The user scoped vault sources, but nothing retrieved answers this question. "
+            "Use **one short sentence** noting the selected sources did not cover this topic, then answer "
+            "**fully from general knowledge**. Do **not** bullet-list unrelated source topics. "
+            "Do **not** claim you cannot access the user's private vault, knowledge base, or uploaded documents.",
+        )
+        return
+    _inject_system(
+        messages,
+        "Answer this question **fully from your general training knowledge**. "
+        "Vault retrieval found **no on-topic passages** — do **not** mention uploaded files, meeting records, "
+        "or that documents lack the answer. Do **not** list unrelated vault topics. "
+        "Do **not** claim you cannot access the user's private vault, knowledge base, or uploaded documents. "
+        "Give a direct, complete explanation as you would without any document context.",
+    )
+
+
+def _merge_ranked_hits(
+    *groups: list[tuple[float, dict[str, Any]]],
+) -> list[tuple[float, dict[str, Any]]]:
+    """Merge search result lists, keeping the best score per chunk fingerprint."""
+    best: dict[str, tuple[float, dict[str, Any]]] = {}
+    for group in groups:
+        for eff, hit in group:
+            if not isinstance(hit, dict):
+                continue
+            txt, did, _ = _passage_from_hit(hit)
+            if not txt:
+                continue
+            fp = f"{did}:{txt[:96]}"
+            prev = best.get(fp)
+            if prev is None or eff > prev[0]:
+                best[fp] = (eff, hit)
+    return sorted(best.values(), key=lambda pair: pair[0], reverse=True)
+
+
+_GROUNDING_RECORD = (
+    "The user may be asking about content stored in this workspace knowledge base. "
+    "The excerpts below were retrieved for this question. "
+    "Answer primarily from these excerpts, citing source labels and dates when present. "
+    "Do not refuse access to the workspace knowledge base or claim you cannot see indexed sources. "
+    "When excerpts directly address the question, do not replace them with unrelated generic material."
+)
+
+_GROUNDING_DEFAULT = (
+    "Retrieved excerpts may supplement your answer only when they directly answer the question. "
+    "Answer the user completely first. "
+    "If excerpts are off-topic, ignore them silently — do not apologize about documents or list unrelated topics. "
+    "For general-knowledge questions where excerpts do not define the topic, "
+    "answer from training knowledge without mentioning retrieval."
+)
+
+_GROUNDING_TRANSCRIPT_SUMMARY = (
+    "Excerpts tagged **Transcript summary** are curated summaries; prefer them over "
+    "**ASR transcript** lines from the same source when both appear."
+)
+
+_GROUNDING_RECORD_ZERO_HITS = (
+    "Vault search ran but no on-topic passages were retrieved for this question. "
+    "State that indexed sources did not surface a matching passage. "
+    "Do not invent content unrelated to the question. "
+    "Do not claim you cannot access the workspace knowledge base."
+)
+
+
+def _vault_rag_grounding_preamble(
+    *,
+    has_transcript_summary: bool,
+    wants_record: bool = False,
+) -> str:
+    parts = [_GROUNDING_RECORD if wants_record else _GROUNDING_DEFAULT]
+    if has_transcript_summary:
+        parts.append(_GROUNDING_TRANSCRIPT_SUMMARY)
+    return "\n\n".join(parts)
+
+
+def _embedding_query_for_record_lookup(query: str) -> str:
+    """Boost vector search with terms extracted from the user message (no domain-specific anchors)."""
+    q = query.strip()
+    if not q or not _query_wants_meeting_record(q):
+        return q
+    terms = _query_terms(q)
+    if not terms:
+        return q
+    boost = " ".join(terms[:12])
+    return f"{q}\n\n{boost}"
+
+
+def _file_name_from_payload(pl: dict[str, Any]) -> str:
+    for key in ("file_name", "filename", "original_name", "name"):
+        v = pl.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:255]
+    seg = pl.get("segment_label")
+    if isinstance(seg, str) and seg.strip() and not seg.strip().lower().startswith(("pdf page", "slide ")):
+        return seg.strip()[:255]
+    return ""
+
+
+def _int_payload(pl: dict[str, Any], key: str) -> int | None:
+    raw = pl.get(key)
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.strip().isdigit():
+        return int(raw.strip())
+    return None
+
+
+def _passage_from_hit(hit: dict[str, Any]) -> tuple[str | None, int | None, str]:
+    pl = hit.get("payload")
+    if not isinstance(pl, dict):
+        return None, None, ""
+    doc_id: int | None = None
+    raw_doc = pl.get("document_id")
+    if isinstance(raw_doc, int):
+        doc_id = raw_doc
+    elif isinstance(raw_doc, str) and raw_doc.isdigit():
+        doc_id = int(raw_doc)
+    file_name = _file_name_from_payload(pl)
+    for key in ("text", "chunk", "content", "body"):
+        t = pl.get(key)
+        if isinstance(t, str) and t.strip():
+            return t.strip(), doc_id, file_name
+    return None, doc_id, file_name
+
+
+def _span_from_hit_payload(pl: dict[str, Any]) -> dict[str, Any]:
+    speaker_label = str(pl.get("speaker_label") or "").strip()[:128]
+    if not speaker_label:
+        sid = _int_payload(pl, "speaker_id")
+        if sid is not None:
+            speaker_label = f"Speaker {sid + 1}"
+    return {
+        "chunk_index": _int_payload(pl, "chunk_index"),
+        "segment_index": _int_payload(pl, "segment_index"),
+        "begin_ms": _int_payload(pl, "begin_ms"),
+        "end_ms": _int_payload(pl, "end_ms"),
+        "speaker_id": _int_payload(pl, "speaker_id"),
+        "speaker_label": speaker_label,
+    }
+
+
+def _passage_pick_from_hit(hit: dict[str, Any], *, vault_id: int) -> _PassagePick | None:
+    txt, did, fname = _passage_from_hit(hit)
+    if not txt:
+        return None
+    pl = hit.get("payload")
+    seg_type = _segment_type_from_payload(pl) if isinstance(pl, dict) else None
+    span = _span_from_hit_payload(pl) if isinstance(pl, dict) else {}
+    doc_id = int(did) if isinstance(did, int) and did > 0 else 0
+    excerpt = re.sub(r"\s+", " ", txt.split("\n", 1)[-1]).strip()[:240]
+    return _PassagePick(
+        passage=_format_passage_block(vault_id, did, seg_type, txt),
+        vault_id=vault_id,
+        document_id=doc_id,
+        file_name=fname,
+        segment_type=seg_type,
+        chunk_index=span.get("chunk_index"),
+        segment_index=span.get("segment_index"),
+        begin_ms=span.get("begin_ms"),
+        end_ms=span.get("end_ms"),
+        speaker_id=span.get("speaker_id"),
+        speaker_label=str(span.get("speaker_label") or ""),
+        excerpt=excerpt,
+    )
+
+
+def _source_ref_name_map(vault_source_refs: list[dict[str, Any]] | None) -> dict[tuple[int, int], str]:
+    out: dict[tuple[int, int], str] = {}
+    for raw in vault_source_refs or []:
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("kind") or "").strip().lower() != "document":
+            continue
+        try:
+            vid = int(raw.get("vault_id") or 0)
+            did = int(raw.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if vid < 1 or did < 1:
+            continue
+        name = str(raw.get("name") or "").strip()
+        if name:
+            out[(vid, did)] = name[:255]
+    return out
+
+
+def _catalog_entry_map(catalog: dict[str, Any] | None) -> dict[tuple[int, int], dict[str, str]]:
+    out: dict[tuple[int, int], dict[str, str]] = {}
+    if not isinstance(catalog, dict):
+        return out
+    for raw_key, raw_val in catalog.items():
+        if not isinstance(raw_val, dict):
+            continue
+        parts = str(raw_key).split(":", 1)
+        if len(parts) != 2:
+            continue
+        try:
+            vid = int(parts[0])
+            did = int(parts[1])
+        except (TypeError, ValueError):
+            continue
+        if vid < 1 or did < 1:
+            continue
+        out[(vid, did)] = {
+            "file_name": str(raw_val.get("file_name") or "").strip()[:255],
+            "vault_name": str(raw_val.get("vault_name") or "").strip()[:255],
+            "path": str(raw_val.get("path") or "").strip()[:512],
+        }
+    return out
+
+
+def _append_citation(
+    refs: list[VaultRagCitation],
+    *,
+    pick: _PassagePick,
+    ref_names: dict[tuple[int, int], str],
+    catalog_entries: dict[tuple[int, int], dict[str, str]],
+) -> None:
+    if pick.document_id < 1:
+        return
+    key = (pick.vault_id, pick.document_id)
+    cat = catalog_entries.get(key) or {}
+    resolved = (pick.file_name or ref_names.get(key) or cat.get("file_name") or "").strip()
+    vault_name = str(cat.get("vault_name") or "").strip()
+    path = str(cat.get("path") or "").strip()
+    chunk_index = pick.chunk_index
+    begin_ms = pick.begin_ms
+    for prev in refs:
+        if (
+            prev.vault_id == pick.vault_id
+            and prev.document_id == pick.document_id
+            and prev.chunk_index == chunk_index
+            and prev.begin_ms == begin_ms
+        ):
+            if resolved and (not prev.file_name or len(resolved) > len(prev.file_name)):
+                prev.file_name = resolved
+            if pick.excerpt and (not prev.excerpt or len(pick.excerpt) > len(prev.excerpt)):
+                prev.excerpt = pick.excerpt
+            st = pick.segment_type
+            if st and st not in prev.segment_types:
+                prev.segment_types.append(st)
+            return
+    seg_types = [pick.segment_type] if pick.segment_type else []
+    refs.append(
+        VaultRagCitation(
+            vault_id=pick.vault_id,
+            document_id=pick.document_id,
+            file_name=resolved,
+            vault_name=vault_name,
+            path=path,
+            segment_types=seg_types,
+            chunk_index=chunk_index,
+            segment_index=pick.segment_index,
+            begin_ms=begin_ms,
+            end_ms=pick.end_ms,
+            speaker_id=pick.speaker_id,
+            speaker_label=pick.speaker_label,
+            excerpt=pick.excerpt,
+        ),
+    )
+
+
+async def _arango_bonus_lines(
+    profile: dict[str, Any],
+    query: str,
+    doc_ids: list[int],
+    *,
+    graph_limit: int = 12,
+) -> list[str]:
+    """Graph context lines for chat — entity/relation search in Arango (built-in AQL or OAAO_ARANGO_RAG_AQL)."""
+    if not query.strip():
+        return []
+    async with httpx.AsyncClient() as client:
+        from oaao_orchestrator.vault_arango import query_graph_context_lines
+
+        return await query_graph_context_lines(
+            client,
+            profile,
+            query=query,
+            document_ids=doc_ids,
+            limit=max(4, min(16, int(graph_limit))),
+        )
+
+
+async def augment_chat_messages_for_vault_rag(
+    messages: list[dict[str, Any]],
+    vault_retrieval_profiles: list[dict[str, Any]] | None,
+    *,
+    embedding: dict[str, Any] | None = None,
+    vault_source_refs: list[dict[str, Any]] | None = None,
+    vault_scope_documents: dict[int, list[int]] | None = None,
+    vault_auto_rag: bool = False,
+    vault_document_catalog: dict[str, Any] | None = None,
+    vault_rag: dict[str, Any] | None = None,
+) -> VaultRagOutcome:
+    """
+    Mutates ``messages`` in place: prepends grounding system instructions.
+
+    Vault excerpts **supplement** the reply when on-topic; otherwise the model answers from general knowledge.
+    """
+
+    out = VaultRagOutcome(passage_count=0, profile_hits=0)
+    profiles = [p for p in (vault_retrieval_profiles or []) if isinstance(p, dict)]
+    if not profiles:
+        from oaao_orchestrator.slide_project.teaching_intent import (  # noqa: PLC0415
+            text_signals_personal_record_lookup,
+            text_signals_vault_grounding,
+        )
+
+        query = _last_user_query(messages)
+        handbook_turn = bool(query and text_signals_vault_grounding(query))
+        record_turn = bool(query and text_signals_personal_record_lookup(query))
+        if vault_auto_rag or handbook_turn or record_turn:
+            _inject_system(
+                messages,
+                "Knowledge-base search was requested for this turn, but no embedded documents "
+                "are available in the current workspace scope (or retrieval profiles could not be loaded). "
+                "Answer from general knowledge when needed. Do **not** claim you cannot access the user's "
+                "private vault or knowledge base — the search step ran with an empty scope.",
+            )
+            out.activity_lines = ["vault_rag · no_profiles · scope_empty"]
+        return out
+
+    # Manual composer picks — not workspace-wide Auto Source expansion.
+    manual_scope = bool(vault_source_refs) or bool(vault_scope_documents)
+    explicit_scope = manual_scope and not vault_auto_rag
+
+    query = _last_user_query(messages)
+    if not query:
+        return out
+
+    wants_record = _query_wants_meeting_record(query)
+    wants_gk = _query_is_general_knowledge(query)
+
+    emb_cfg = embedding if isinstance(embedding, dict) else {}
+    bu = str(emb_cfg.get("base_url") or "").strip()
+    mo = str(emb_cfg.get("model") or "").strip()
+    url_direct = str(emb_cfg.get("url") or "").strip()
+    if not mo:
+        _inject_system(
+            messages,
+            "Vault retrieval is disabled: the embedding Purpose has no **model** on its default endpoint.",
+        )
+        out.activity_lines = ["vault_rag · embedding_model_missing — general knowledge fallback"]
+        return out
+    if not url_direct and not bu:
+        _inject_system(
+            messages,
+            "Vault retrieval is disabled: PostgreSQL Purpose allocation has no enabled embedding endpoint "
+            "(assign default endpoint under embedding.primary / embedding.* in administrator settings).",
+        )
+        out.activity_lines = ["vault_rag · embedding_purpose_missing — general knowledge fallback"]
+        return out
+
+    ek: str | None = None
+    ake = emb_cfg.get("api_key_env")
+    if isinstance(ake, str) and ake.strip():
+        ek = _resolve_secret(ake.strip())
+
+    embed_url = ensure_url_scheme(url_direct) if url_direct else openai_compat_embeddings_url_from_base(bu)
+    embed_query = _embedding_query_for_record_lookup(query) if wants_record else query
+
+    scope_by_vault = _scoped_docs_by_vault(vault_source_refs, vault_scope_documents)
+    passages: list[str] = []
+    all_picks: list[_PassagePick] = []
+    seen: set[str] = set()
+    doc_ids_hit: set[int] = set()
+    citation_refs: list[VaultRagCitation] = []
+    ref_names = _source_ref_name_map(vault_source_refs)
+    catalog_entries = _catalog_entry_map(vault_document_catalog)
+    default_qdrant = _env("OAAO_QDRANT_URL", "http://qdrant:6333").rstrip("/")
+    rag_cfg = _rag_runtime_config(vault_rag)
+    per_vault_limit = int(rag_cfg["qdrant_limit"])
+    min_score = float(rag_cfg["min_score"])
+    if wants_record:
+        min_score = max(0.12, min_score * 0.45)
+    graph_limit = int(rag_cfg["graph_limit"])
+    fetch_limit = max(per_vault_limit, min(24, per_vault_limit * 3))
+    below_score = 0
+    gk_had_off_topic = False
+    used_scope_scroll = False
+
+    vector, emb_err = await _openai_embed(embed_query, ek, url=embed_url, model=mo)
+    if not vector and wants_record and scope_by_vault:
+        all_picks = await _record_passages_via_scope_scroll(
+            profiles,
+            scope_by_vault,
+            per_vault_limit=per_vault_limit,
+            min_score=min_score,
+            seen=seen,
+            default_qdrant=default_qdrant,
+        )
+        if all_picks:
+            used_scope_scroll = True
+            out.profile_hits = len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1
+
+    if not vector and not used_scope_scroll:
+        if wants_record:
+            _inject_system(messages, _GROUNDING_RECORD_ZERO_HITS)
+        else:
+            _inject_system(
+                messages,
+                "Vault retrieval could not compute an embedding for this question. "
+                "Answer helpfully from general knowledge without blaming missing documents or retrieval failures.",
+            )
+        hint = emb_err or "unknown"
+        out.activity_lines = [f"vault_rag · embedding_failed ({hint}) — general knowledge fallback"]
+        return out
+
+    if vector:
+        for profile in profiles:
+            vid = int(profile.get("vault_id") or 0)
+            if vid < 1:
+                continue
+            qurl = (profile.get("qdrant_url") or "").strip() or default_qdrant
+            qcol = (profile.get("qdrant_collection") or "").strip()
+            if not qcol:
+                continue
+            qkey_env = profile.get("qdrant_api_key_env")
+            qkey = _resolve_secret(qkey_env) if qkey_env else None
+            scope_docs = None
+            if vault_scope_documents and vid in vault_scope_documents:
+                scope_docs = vault_scope_documents.get(vid)
+            raw_hits = await _qdrant_search(
+                base_url=qurl,
+                collection=qcol,
+                vector=vector,
+                vault_id=vid,
+                api_key=qkey,
+                limit=max(2, min(24, fetch_limit)),
+                document_ids=scope_docs,
+            )
+            summary_hits = await _qdrant_search(
+                base_url=qurl,
+                collection=qcol,
+                vector=vector,
+                vault_id=vid,
+                api_key=qkey,
+                limit=max(2, min(8, per_vault_limit + 2)),
+                document_ids=scope_docs,
+                segment_scope="transcript_summary",
+            )
+            if raw_hits or summary_hits:
+                out.profile_hits += 1
+            general_ranked: list[tuple[float, dict[str, Any]]] = []
+            for h in raw_hits:
+                if not isinstance(h, dict):
+                    continue
+                eff = _effective_hit_score(h, rag_cfg)
+                if eff is None:
+                    continue
+                general_ranked.append((eff, h))
+            summary_ranked: list[tuple[float, dict[str, Any]]] = []
+            for h in summary_hits:
+                if not isinstance(h, dict):
+                    continue
+                eff = _effective_hit_score(h, rag_cfg)
+                if eff is None:
+                    continue
+                summary_ranked.append((eff + 0.08, h))
+            ranked = _merge_ranked_hits(summary_ranked, general_ranked)
+            vault_picks, vault_below = _select_passages_for_vault(
+                ranked,
+                vault_id=vid,
+                per_vault_limit=per_vault_limit,
+                min_score=min_score,
+                seen=seen,
+                query_wants_record=wants_record,
+            )
+            below_score += vault_below
+            for pick in vault_picks:
+                all_picks.append(pick)
+
+    if not all_picks and wants_record and scope_by_vault:
+        scroll_picks = await _record_passages_via_scope_scroll(
+            profiles,
+            scope_by_vault,
+            per_vault_limit=per_vault_limit,
+            min_score=min_score,
+            seen=seen,
+            default_qdrant=default_qdrant,
+        )
+        if scroll_picks:
+            all_picks = scroll_picks
+            used_scope_scroll = True
+            out.profile_hits = max(out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1)
+
+    if all_picks:
+        relevant = [p for p in all_picks if _passage_relevant_to_query(query, p.passage)]
+        if relevant:
+            all_picks = relevant
+        elif wants_record:
+            summaries = [p for p in all_picks if p.segment_type == "transcript_summary"]
+            if summaries:
+                all_picks = summaries
+            elif all_picks:
+                all_picks = sorted(all_picks, key=lambda p: len(p.passage), reverse=True)[:4]
+        elif wants_gk:
+            gk_had_off_topic = True
+            all_picks = []
+
+    all_picks = _narrow_grounding_picks(query, all_picks)
+
+    has_transcript_summary = any(p.segment_type == "transcript_summary" for p in all_picks)
+    citation_picks = _picks_for_citations(query, all_picks, wants_gk=wants_gk)
+
+    for pick in all_picks:
+        passages.append(pick.passage)
+        if pick.document_id > 0:
+            doc_ids_hit.add(pick.document_id)
+
+    for pick in citation_picks:
+        _append_citation(
+            citation_refs,
+            pick=pick,
+            ref_names=ref_names,
+            catalog_entries=catalog_entries,
+        )
+    if not citation_refs and passages and not wants_gk:
+        for pick in _best_pick_per_document(all_picks)[:10]:
+            _append_citation(
+                citation_refs,
+                pick=pick,
+                ref_names=ref_names,
+                catalog_entries=catalog_entries,
+            )
+
+    graph_lines: list[str] = []
+    for profile in profiles:
+        if int(profile.get("graph_mode") or 0) < 1:
+            continue
+        extra = await _arango_bonus_lines(profile, query, sorted(doc_ids_hit), graph_limit=graph_limit)
+        graph_lines.extend(extra)
+
+    # Graph-only hit path: vector search missed but graph entities match the question.
+    if not passages and not graph_lines:
+        for profile in profiles:
+            if int(profile.get("graph_mode") or 0) < 1:
+                continue
+            extra = await _arango_bonus_lines(profile, query, [], graph_limit=graph_limit)
+            graph_lines.extend(extra)
+
+    if wants_gk and not passages:
+        graph_lines = []
+
+    block = "\n\n---\n\n".join(passages[:32])
+    if graph_lines:
+        block += "\n\n--- Graph context ---\n" + "\n".join(f"• {g}" for g in graph_lines[:16])
+
+    if passages or graph_lines:
+        out.passage_count = len(passages) + len(graph_lines)
+        out.slide_grounding_brief = build_slide_grounding_brief(
+            all_picks,
+            graph_lines=graph_lines,
+        )
+        _inject_system(
+            messages,
+            _vault_rag_grounding_preamble(
+                has_transcript_summary=has_transcript_summary,
+                wants_record=wants_record,
+            )
+            + "\n\n--- Vault excerpts (use for your answer) ---\n\n"
+            + block,
+        )
+        out.detail_lines = [_format_passage_detail_line(p) for p in (citation_picks or all_picks)[:8]]
+        if graph_lines and len(out.detail_lines) < 8:
+            for g in graph_lines[: max(0, 8 - len(out.detail_lines))]:
+                flat = re.sub(r"\s+", " ", str(g)).strip()
+                out.detail_lines.append(
+                    ("Graph · " + flat)[:96] + ("…" if len(flat) > 88 else ""),
+                )
+        out.citation_refs = sorted(
+            citation_refs,
+            key=lambda c: (
+                c.vault_id,
+                c.file_name.lower() or f"doc-{c.document_id}",
+                c.document_id,
+                c.begin_ms if c.begin_ms is not None else -1,
+                c.chunk_index if c.chunk_index is not None else -1,
+            ),
+        )
+        suffix = f" min_score={min_score}" if below_score else ""
+        mode = " scope_scroll_fallback" if used_scope_scroll else ""
+        out.activity_lines = [
+            f"vault_rag · passages={len(passages)} graph_lines={len(graph_lines)} profiles={out.profile_hits}{mode}{suffix}",
+        ]
+        return out
+
+    if wants_record:
+        _inject_system(messages, _GROUNDING_RECORD_ZERO_HITS)
+    else:
+        _inject_general_knowledge_only(messages, explicit_scope=explicit_scope)
+    if gk_had_off_topic:
+        out.activity_lines = [
+            "vault_rag · gk_off_topic — vault hits unrelated, general knowledge answer",
+        ]
+        return out
+
+    if explicit_scope:
+        out.activity_lines = [
+            "vault_rag · zero_hits · manual_scope — brief note, then general knowledge answer",
+        ]
+        return out
+
+    if below_score:
+        out.activity_lines = [
+            f"vault_rag · zero_hits (filtered {below_score} below min_score={min_score}) — general knowledge",
+        ]
+    else:
+        out.activity_lines = ["vault_rag · zero_hits — general knowledge answer"]
+    return out
+
+
+def build_pipeline_snapshot_for_rag(outcome: VaultRagOutcome, base: dict[str, Any]) -> dict[str, Any]:
+    """Merge retrieval outcome into pipeline UI — vault step only (no stub artifacts)."""
+
+    snap = dict(base)
+    lines = list((snap.get("activity") or {}).get("lines") or [])
+    for ln in outcome.activity_lines:
+        lines.insert(0, ln)
+    snap["activity"] = {"lines": lines[:24]}
+
+    if outcome.passage_count > 0:
+        rail_badge = f"{outcome.passage_count} passages"
+    else:
+        rail_badge = "No matches"
+    rail_detail = outcome.detail_lines[:8] if outcome.detail_lines else []
+
+    snap["milestone"] = {
+        "steps": [
+            {
+                "title": "Vault retrieval",
+                "description": "Vector + graph over scoped sources",
+                "state": "completed",
+                "rail": {
+                    "badge": rail_badge,
+                    "detail_lines": rail_detail,
+                },
+            },
+        ],
+    }
+    blocks: list[dict[str, Any]] = []
+    for raw in snap.get("blocks") or []:
+        if isinstance(raw, dict) and raw.get("type") != "rag_citations":
+            blocks.append(raw)
+    if outcome.citation_refs:
+        blocks.append(
+            {
+                "type": "rag_citations",
+                "zone": "after",
+                "title": "References",
+                "props": {
+                    "references": [
+                        {
+                            "vault_id": c.vault_id,
+                            "document_id": c.document_id,
+                            "file_name": c.file_name,
+                            "vault_name": c.vault_name,
+                            "path": c.path,
+                            "segment_types": list(c.segment_types),
+                            "chunk_index": c.chunk_index,
+                            "segment_index": c.segment_index,
+                            "begin_ms": c.begin_ms,
+                            "end_ms": c.end_ms,
+                            "speaker_id": c.speaker_id,
+                            "speaker_label": c.speaker_label,
+                            "excerpt": c.excerpt,
+                        }
+                        for c in outcome.citation_refs
+                    ],
+                },
+            },
+        )
+    snap["blocks"] = blocks
+    snap["artifacts"] = []
+    snap["vault_rag"] = {
+        "passage_count": outcome.passage_count,
+        "profile_hits": outcome.profile_hits,
+    }
+    return snap

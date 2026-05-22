@@ -24,6 +24,11 @@ return function (): void {
     }
 
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $wid = $this->oaao_chat_resolve_workspace_id($input);
+    if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
+        return;
+    }
+
     $cid = (int) ($input['conversation_id'] ?? 0);
     $mid = (int) ($input['assistant_message_id'] ?? 0);
     $content = (string) ($input['content'] ?? '');
@@ -53,12 +58,18 @@ return function (): void {
         return;
     }
 
+    $syncWarnings = [];
+
     try {
+        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_install_sqlite_local_schema.php';
+        oaao_auth_upgrade_sqlite_local_adjunct($pdo);
+        oaao_auth_upgrade_sqlite_message_meta_json($pdo);
+
         $conv = $splitDb->prepare()
             ->select('id')
             ->from('conversation')
-            ->where('id=?,user_id=?')
-            ->assign(['id' => $cid, 'user_id' => $uid])
+            ->where('id=?,user_id=?,workspace_id=?')
+            ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
             ->limit(1)
             ->query()
             ->fetch();
@@ -108,8 +119,73 @@ return function (): void {
             ])
             ->query();
 
-        echo json_encode(['success' => true]);
+        if (\is_array($input['meta'] ?? null)) {
+            $metaForMaterials = $input['meta'];
+            try {
+                $proj = $metaForMaterials['slide_project'] ?? null;
+                if (\is_array($proj)) {
+                    require_once dirname(__DIR__, 4) . '/slide-designer/default/library/SlideProjectRegistry.php';
+                    $materials = \oaaoai\slide_designer\SlideProjectRegistry::materialsFromManifest($proj);
+                    if ($materials !== []) {
+                        $existing = $metaForMaterials['materials'] ?? [];
+                        $metaForMaterials['materials'] = array_merge(
+                            \is_array($existing) ? $existing : [],
+                            $materials,
+                        );
+                    }
+                    \oaaoai\slide_designer\SlideProjectRegistry::syncFromAssistantMeta(
+                        $pdo,
+                        $cid,
+                        $mid,
+                        $uid,
+                        $wid,
+                        $metaForMaterials,
+                    );
+                }
+            } catch (\Throwable $e) {
+                $syncWarnings[] = 'slide_project_sync';
+                error_log('assistant_patch slide_project_sync: ' . $e->getMessage());
+            }
+
+            try {
+                require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
+                \oaaoai\chat\ChatConversationMaterial::syncFromMessageMeta(
+                    $pdo,
+                    $cid,
+                    $mid,
+                    $metaForMaterials,
+                );
+            } catch (\Throwable $e) {
+                $syncWarnings[] = 'materials_sync';
+                error_log('assistant_patch materials_sync: ' . $e->getMessage());
+            }
+
+            try {
+                if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
+                    $tenantId = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
+                    if ($tenantId < 1) {
+                        require_once dirname(__DIR__, 4) . '/core/default/library/TenantContext.php';
+                        \Oaaoai\Core\TenantContext::bootstrap($pdo);
+                        $tenantId = \Oaaoai\Core\TenantContext::id();
+                    }
+                    if ($tenantId > 0) {
+                        require_once dirname(__DIR__, 4) . '/core/default/library/UsageEventRepository.php';
+                        \Oaaoai\Core\UsageEventRepository::recordChatCompletion($pdo, $tenantId, $input['meta']);
+                    }
+                }
+            } catch (\Throwable $e) {
+                $syncWarnings[] = 'usage_record';
+                error_log('assistant_patch usage_record: ' . $e->getMessage());
+            }
+        }
+
+        $out = ['success' => true];
+        if ($syncWarnings !== []) {
+            $out['sync_warnings'] = $syncWarnings;
+        }
+        echo json_encode($out);
     } catch (\Throwable $e) {
+        error_log('assistant_patch failed: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Patch failed']);
     }

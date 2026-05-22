@@ -2,19 +2,27 @@
 FastAPI sidecar — PHP posts resolved endpoint + chat profile; browser reads SSE (token-gated).
 
 Hook chain (baseline): ``before_llm`` empty list — extend like legacy Sidecar pipeline stages.
+
+Every chat run emits a stable ``payload.oaao_pipeline`` UI snapshot before upstream LLM deltas
+(stub rails today; real RAG / web_search stages extend the same object later). The same snapshot is
+attached to ``system/end`` metrics for PHP ``assistant_patch.meta`` persistence.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import re
 import secrets
+import tempfile
 import time
 import uuid
-from typing import Any
+from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import Any, Literal
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -22,12 +30,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from oaao_orchestrator.streaming.events import PHASE_LLM, PHASE_SYSTEM, StreamEnvelope
+from oaao_orchestrator.agent_ask import ASK_DECISION_SKIP
+from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
+from oaao_orchestrator.funasr_ops import ensure_funasr, funasr_status
 from oaao_orchestrator.streaming.session import StreamSessionRegistry
+from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="oaao orchestrator sidecar", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    poll_task = asyncio.create_task(vault_job_poll_loop())
+    yield
+    poll_task.cancel()
+    try:
+        await poll_task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="oaao orchestrator sidecar", version="0.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,9 +76,21 @@ class ChatProfilePayload(BaseModel):
     type: str = "single"
 
 
+class VaultSourceRef(BaseModel):
+    """Structured chat retrieval scope forwarded from SPA ({@code vault_source_refs})."""
+
+    kind: Literal["vault", "folder", "document"]
+    id: int = Field(ge=1)
+    vault_id: int = Field(ge=1)
+    name: str = ""
+
+
 class ChatRunRequest(BaseModel):
     """
     Ingress from PHP — mirrors ``RunContext`` + resolved rows (no plaintext API keys).
+
+    **Bootstrap contract:** all MDM for this run must arrive in this payload; the sidecar must not
+    call PHP for vault profiles, endpoints, or scope during execution (see ``php_boundary``).
     """
 
     conversation_id: str | None = None
@@ -64,9 +99,177 @@ class ChatRunRequest(BaseModel):
     mode_id: str = "default"
     messages: list[dict[str, Any]] = Field(default_factory=list)
     temperature: float = 0.7
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=128_000,
+        description="Chat completion max_tokens — from profile/endpoint config_json or OAAO_CHAT_MAX_TOKENS.",
+    )
     endpoint: EndpointPayload
     chat_profile: ChatProfilePayload = Field(default_factory=ChatProfilePayload)
     assistant_message_id: str | None = None
+    vault_source_ids: list[int] = Field(default_factory=list)
+    vault_source_refs: list[VaultSourceRef] = Field(default_factory=list)
+    vault_auto_rag: bool = False
+    workspace_id: int | None = None
+    vault_retrieval_profiles: list[dict[str, Any]] = Field(default_factory=list)
+    vault_scope_documents: dict[str, list[int]] = Field(
+        default_factory=dict,
+        description="Per-vault document id allow-list from chat composer refs (string vault_id keys).",
+    )
+    vault_document_catalog: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        description='Citation labels keyed "{vault_id}:{document_id}" — file_name, vault_name, path.',
+    )
+    vault_rag: dict[str, Any] | None = Field(
+        default=None,
+        description="Retrieval tuning from Settings → RAG (qdrant_limit, min_score, boosts, …).",
+    )
+    tenant_id: int | None = None
+    embedding: dict[str, Any] | None = None
+    chat_attachments: list[dict[str, Any]] = Field(default_factory=list)
+    asr: dict[str, Any] | None = None
+    polish: dict[str, Any] | None = None
+    glossary: dict[str, Any] | None = None
+    allowed_agents: list[str] = Field(
+        default_factory=list,
+        description="Agent kinds permitted this run (sandbox_code, slides, …) — drives planner abilities.",
+    )
+    agent_catalog: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Planner hints per agent_kind from PHP PlannerAgentRegister (name, description, planner_hint).",
+    )
+    run_planner_mode: str | None = Field(
+        default=None,
+        description="llm | stub — from Settings → Task planner (planning.* meta); env fallback when omitted.",
+    )
+    slide_designer: dict[str, Any] | None = Field(
+        default=None,
+        description="Slide project storage root, resume/continuation — from PHP send.",
+    )
+    conversation_materials: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Recent slide projects + file materials for planner context (SD-5).",
+    )
+    conversation_material_grounding: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Prior-turn material bodies (vault RAG brief, deck_outline.md, …) for regenerate/retry.",
+    )
+    reuse_grounding_message_id: int | None = Field(
+        default=None,
+        description="Assistant message id — load materials indexed from that turn (retry/regenerate).",
+    )
+    skills_catalog: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Micro skills catalog — bound_template, conversation, … from PHP MicroSkillCatalog.",
+    )
+    run_principal: str | None = Field(
+        default=None,
+        description="HMAC-signed run identity from PHP send — validates user/conversation/message for the whole run.",
+    )
+
+
+class SkillsDiscoverRequest(BaseModel):
+    user_message: str = ""
+    conversation_excerpt: str = ""
+    skills_catalog: list[dict[str, Any]] = Field(default_factory=list)
+    endpoint: EndpointPayload
+
+
+class AsrTranscribeRequest(BaseModel):
+    workspace_id: int | None = None
+    audio_base64: str = ""
+    mime_type: str = "audio/webm"
+    polish_enabled: bool = True
+    glossary: dict[str, Any] | None = None
+    asr: dict[str, Any] | None = None
+    polish: dict[str, Any] | None = None
+
+
+class FunasrEnsureRequest(BaseModel):
+    pull: bool = True
+    funasr_env: dict[str, str] | None = None
+
+
+class SlidePageRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    slide_index: int = Field(ge=1, le=40)
+    conversation_id: str | None = None
+    user_id: str | None = None
+    endpoint: EndpointPayload
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    slide_designer: dict[str, Any] | None = None
+    regen_markdown: bool = True
+
+
+class SlideSlotsQuery(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    slide_index: int = Field(ge=1, le=40)
+    slide_designer: dict[str, Any] | None = None
+
+
+class SlideRegenerateSlotRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    slide_index: int = Field(ge=1, le=40)
+    slot_id: str = Field(min_length=1, max_length=64)
+    conversation_id: str | None = None
+    user_id: str | None = None
+    endpoint: EndpointPayload
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    slide_designer: dict[str, Any] | None = None
+
+
+class SlideVerifyRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=64)
+    slide_index: int = Field(ge=1, le=40)
+    conversation_id: str | None = None
+    user_id: str | None = None
+    endpoint: EndpointPayload | None = None
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    slide_designer: dict[str, Any] | None = None
+    auto_fix: bool = True
+
+
+class TemplateScopePayload(BaseModel):
+    user_id: int = Field(ge=0)
+    tenant_id: int | None = None
+    is_platform_operator: bool = False
+
+
+class TemplateAnalyzeRequest(BaseModel):
+    pptx_path: str = Field(min_length=1, description="Absolute path to uploaded PPTX on shared volume")
+    endpoint: EndpointPayload | None = None
+    label: str | None = Field(default=None, max_length=80)
+    notes: str | None = Field(default=None, max_length=2000)
+    persist: bool = True
+    generate_preview: bool = True
+    write_scope: str = Field(default="personal", pattern="^(global|tenant|personal)$")
+    template_scope: TemplateScopePayload | None = None
+    slide_designer: dict[str, Any] | None = None
+    background: bool = Field(
+        default=True,
+        description="When true, return job_id immediately and run analyze in the background.",
+    )
+
+
+class TemplateWorkflowRequest(BaseModel):
+    template_id: str = Field(min_length=1, max_length=64)
+    endpoint: EndpointPayload | None = None
+    slide_index: int | None = Field(default=None, ge=1, le=20)
+    auto_fix: bool = True
+    template_scope: TemplateScopePayload | None = None
+
+
+class TemplateListRequest(BaseModel):
+    published_only: bool = False
+    scope_filter: str | None = Field(default=None, pattern="^(global|tenant|personal)$")
+    template_scope: TemplateScopePayload | None = None
+
+
+def _template_scope_ctx(body: TemplateScopePayload | None) -> "TemplateScopeContext":
+    from oaao_orchestrator.slide_project.template_scope import TemplateScopeContext  # noqa: PLC0415
+
+    return TemplateScopeContext.from_payload(body.model_dump() if body is not None else None)
 
 
 registry = StreamSessionRegistry()
@@ -77,8 +280,45 @@ def _shared_secret() -> str:
     return os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret")
 
 
-def _resolve_api_key(ep: EndpointPayload) -> str | None:
-    """Bearer token from sidecar env. When nothing usable is set, return None and omit Authorization (typical for local OpenAI-compatible servers)."""
+def _php_vault_api_base() -> str:
+    return os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL", "http://web/vault/api").strip().rstrip("/")
+
+
+async def _report_usage_to_php(*, tenant_id: int | None, event_kind: str, meta: dict[str, Any]) -> None:
+    from oaao_orchestrator.php_boundary import assert_php_http_allowed  # noqa: PLC0415
+
+    if tenant_id is None or tenant_id < 1:
+        return
+    url = f"{_php_vault_api_base()}/usage_record"
+    assert_php_http_allowed(url, context="usage_record")
+    body: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "event_kind": event_kind,
+        "meta": meta,
+    }
+    if event_kind == "chat.completion":
+        ct = meta.get("completion_tokens") or meta.get("tokens_out")
+        if ct is not None:
+            body["quantity"] = float(ct)
+            body["unit"] = "tokens"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+            await client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-OAAO-Internal-Token": _shared_secret(),
+                },
+                json=body,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("usage_record callback failed: %s", exc)
+
+def _resolve_api_key(ep: EndpointPayload | None) -> str | None:
+    """Bearer token from sidecar env."""
+    if ep is None:
+        fb = os.environ.get("OPENAI_API_KEY")
+        return fb.strip() if isinstance(fb, str) and fb.strip() else None
     name = (ep.api_key_env or "").strip() or "OPENAI_API_KEY"
     v = os.environ.get(name)
     if isinstance(v, str):
@@ -147,158 +387,9 @@ def _hook_before_llm(req: ChatRunRequest) -> None:
 
 
 async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
-    run = registry.get(run_id)
-    if run is None:
-        return
+    from oaao_orchestrator.run_executor import execute_chat_run  # noqa: PLC0415
 
-    t_start = time.perf_counter()
-    t_first_token: float | None = None
-    out_chars = 0
-    completion_tokens: int | None = None
-    prompt_tokens: int | None = None
-
-    try:
-        _hook_before_llm(req)
-
-        api_key = _resolve_api_key(req.endpoint)
-        url = _chat_completions_url(req.endpoint.base_url)
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        body: dict[str, Any] = {
-            "model": req.endpoint.model,
-            "messages": req.messages,
-            "temperature": max(0.0, min(2.0, float(req.temperature))),
-            "stream": True,
-        }
-        if os.environ.get("OAAO_CHAT_STREAM_INCLUDE_USAGE", "1").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
-        ):
-            body["stream_options"] = {"include_usage": True}
-
-        await run.append(
-            StreamEnvelope(
-                phase=PHASE_SYSTEM,
-                kind="status",
-                text="llm_request_start",
-                payload={"purpose_id": req.purpose_id, "chat_profile_id": req.chat_profile.id},
-            )
-        )
-
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
-            async with client.stream("POST", url, headers=headers, json=body) as resp:
-                if resp.status_code < 200 or resp.status_code >= 300:
-                    txt = await resp.aread()
-                    raw = txt.decode("utf-8", errors="replace")[:800]
-                    await run.append(
-                        StreamEnvelope(
-                            phase=PHASE_SYSTEM,
-                            kind="error",
-                            text=f"upstream_http_{resp.status_code}",
-                            payload={"body": _sanitize_client_text(raw, max_len=600)},
-                        )
-                    )
-                    return
-
-                async for line in resp.aiter_lines():
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data_s = line[5:].strip()
-                    if data_s == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_s)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(chunk, dict):
-                        usage = chunk.get("usage")
-                        if isinstance(usage, dict):
-                            ct = usage.get("completion_tokens")
-                            pt = usage.get("prompt_tokens")
-                            if isinstance(ct, int):
-                                completion_tokens = ct
-                            if isinstance(pt, int):
-                                prompt_tokens = pt
-                    choices = chunk.get("choices") if isinstance(chunk, dict) else None
-                    if not isinstance(choices, list) or not choices:
-                        continue
-                    delta = choices[0].get("delta") if isinstance(choices[0], dict) else None
-                    if not isinstance(delta, dict):
-                        continue
-                    piece = delta.get("content")
-                    # OpenAI-compatible servers sometimes emit multimodal ``content`` as a list of parts.
-                    if isinstance(piece, list):
-                        buf: list[str] = []
-                        for seg in piece:
-                            if isinstance(seg, dict) and seg.get("type") == "text" and isinstance(seg.get("text"), str):
-                                buf.append(seg["text"])
-                            elif isinstance(seg, str):
-                                buf.append(seg)
-                        piece = "".join(buf) if buf else None
-                    if isinstance(piece, str) and piece != "":
-                        if t_first_token is None:
-                            t_first_token = time.perf_counter()
-                        out_chars += len(piece)
-                        await run.append(
-                            StreamEnvelope(phase=PHASE_LLM, kind="delta", text=piece, payload={})
-                        )
-    except Exception as e:  # noqa: BLE001
-        req_url = _chat_completions_url(req.endpoint.base_url)
-        logger.exception(
-            "llm_stream_failed run_id=%s ref=%s url=%s",
-            run_id,
-            req.endpoint.endpoint_ref,
-            req_url,
-        )
-        await run.append(
-            StreamEnvelope(
-                phase=PHASE_SYSTEM,
-                kind="error",
-                text="llm_stream_failed",
-                payload={
-                    "detail": _sanitize_client_text(str(e)),
-                    "exc_type": type(e).__name__,
-                    "hint": "If orchestrator runs in Docker and LLM is on your Mac/PC, base_url must reach the host (e.g. http://host.docker.internal:<port>), not http://127.0.0.1.",
-                },
-            )
-        )
-    finally:
-        t_end = time.perf_counter()
-        duration_ms = int((t_end - t_start) * 1000)
-        gen_secs = (t_end - t_first_token) if t_first_token is not None else max(t_end - t_start, 1e-9)
-        tokens_out: int | None = completion_tokens
-        tokens_estimated = False
-        if tokens_out is None and out_chars > 0:
-            tokens_out = max(1, int(out_chars / 4))
-            tokens_estimated = True
-        tps: float | None = None
-        if tokens_out is not None and gen_secs > 1e-6:
-            tps = round(float(tokens_out) / float(gen_secs), 2)
-
-        metrics_payload: dict[str, Any] = {
-            "duration_ms": duration_ms,
-            "generation_ms": int(gen_secs * 1000),
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "tokens_out": tokens_out,
-            "tokens_estimated": tokens_estimated,
-            "tokens_per_sec": tps,
-            "endpoint_ref": req.endpoint.endpoint_ref,
-            "model": req.endpoint.model,
-            "chat_profile": req.chat_profile.name,
-        }
-        await run.append(
-            StreamEnvelope(
-                phase=PHASE_SYSTEM,
-                kind="end",
-                text="run_closed",
-                payload=metrics_payload,
-            )
-        )
-        run.mark_done()
+    await execute_chat_run(run_id=run_id, req=req, registry=registry)
 
 
 @app.post("/v1/runs/chat")
@@ -317,6 +408,605 @@ async def start_chat_run(
     asyncio.create_task(_run_llm_stream(run_id=run_id, req=req))
 
     return {"run_id": run_id, "stream_token": token}
+
+
+class AgentAskRequest(BaseModel):
+    task_id: str = Field(min_length=1, max_length=128)
+    decision: str = Field(description="proceed | skip | proceed_fork")
+
+
+@app.post("/v1/runs/{run_id}/agent_ask")
+async def resolve_agent_ask(
+    run_id: str,
+    body: AgentAskRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    run = registry.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="unknown_run")
+
+    decision = (body.decision or "").strip().lower()
+    if decision not in ("proceed", "skip", "proceed_fork"):
+        raise HTTPException(status_code=400, detail="decision must be proceed, skip, or proceed_fork")
+
+    resolved = ASK_DECISION_SKIP if decision == "proceed_fork" else decision
+    if not run.resolve_agent_ask(body.task_id.strip(), resolved):
+        raise HTTPException(
+            status_code=404,
+            detail="no_pending_ask",
+        )
+
+    return {"ok": True, "decision": decision}
+
+
+@app.post("/v1/skills/discover")
+async def skills_discover(
+    body: SkillsDiscoverRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    """LLM: match user turn to catalog skills or suggest a new conversation skill (markdown preview)."""
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.micro_skills import catalog_from_request, discover_skills_llm  # noqa: PLC0415
+
+    class _CatReq:
+        skills_catalog = body.skills_catalog
+
+    catalog = catalog_from_request(_CatReq())
+    api_key = _resolve_api_key(body.endpoint)
+    base = (body.endpoint.base_url or "").rstrip("/")
+    result = await discover_skills_llm(
+        url=f"{base}/chat/completions" if base else "",
+        api_key=api_key,
+        model=body.endpoint.model,
+        user_message=body.user_message,
+        catalog=catalog,
+        conversation_excerpt=body.conversation_excerpt,
+    )
+    return {"ok": True, **result}
+
+    return {"ok": True, "run_id": run_id, "task_id": body.task_id, "decision": decision}
+
+
+@app.post("/v1/slides/slide_slots")
+async def slide_slots(
+    body: SlideSlotsQuery,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.regenerate import get_slide_slots  # noqa: PLC0415
+
+    sd = body.slide_designer if isinstance(body.slide_designer, dict) else {}
+    storage_root = sd.get("storage_root") if isinstance(sd.get("storage_root"), str) else None
+    try:
+        return get_slide_slots(
+            project_id=body.project_id.strip(),
+            slide_index=body.slide_index,
+            storage_root=storage_root,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_slots_failed project_id=%s page=%s", body.project_id, body.slide_index)
+        raise HTTPException(status_code=500, detail="slide_slots_failed") from exc
+
+
+@app.post("/v1/slides/regenerate_slot")
+async def slide_regenerate_slot(
+    body: SlideRegenerateSlotRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.regenerate import regenerate_slide_slot  # noqa: PLC0415
+
+    sd = body.slide_designer if isinstance(body.slide_designer, dict) else {}
+    storage_root = sd.get("storage_root") if isinstance(sd.get("storage_root"), str) else None
+    try:
+        return await regenerate_slide_slot(
+            project_id=body.project_id.strip(),
+            slide_index=body.slide_index,
+            slot_id=body.slot_id.strip(),
+            conversation_id=body.conversation_id,
+            user_id=body.user_id,
+            endpoint=body.endpoint.model_dump(),
+            messages=list(body.messages or []),
+            storage_root=storage_root,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "slide_regenerate_slot_failed project_id=%s page=%s slot=%s",
+            body.project_id,
+            body.slide_index,
+            body.slot_id,
+        )
+        raise HTTPException(status_code=500, detail="slide_regenerate_slot_failed") from exc
+
+
+@app.post("/v1/slides/regenerate_page")
+async def slide_regenerate_page(
+    body: SlidePageRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.regenerate import regenerate_slide_page  # noqa: PLC0415
+
+    sd = body.slide_designer if isinstance(body.slide_designer, dict) else {}
+    storage_root = sd.get("storage_root") if isinstance(sd.get("storage_root"), str) else None
+    try:
+        return await regenerate_slide_page(
+            project_id=body.project_id.strip(),
+            slide_index=body.slide_index,
+            conversation_id=body.conversation_id,
+            user_id=body.user_id,
+            endpoint=body.endpoint.model_dump(),
+            messages=list(body.messages or []),
+            storage_root=storage_root,
+            regen_markdown=bool(body.regen_markdown),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_regenerate_failed project_id=%s page=%s", body.project_id, body.slide_index)
+        raise HTTPException(status_code=500, detail="slide_regenerate_failed") from exc
+
+
+@app.post("/v1/slides/verify_page")
+async def slide_verify_page(
+    body: SlideVerifyRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.regenerate import (  # noqa: PLC0415
+        verify_and_fix_slide_page,
+        verify_slide_page_html,
+    )
+
+    sd = body.slide_designer if isinstance(body.slide_designer, dict) else {}
+    storage_root = sd.get("storage_root") if isinstance(sd.get("storage_root"), str) else None
+    if body.auto_fix and body.endpoint is not None:
+        try:
+            return await verify_and_fix_slide_page(
+                project_id=body.project_id.strip(),
+                slide_index=body.slide_index,
+                conversation_id=body.conversation_id,
+                user_id=body.user_id,
+                endpoint=body.endpoint.model_dump(),
+                messages=list(body.messages or []),
+                storage_root=storage_root,
+                auto_fix=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "slide_verify_fix_failed project_id=%s page=%s",
+                body.project_id,
+                body.slide_index,
+            )
+            raise HTTPException(status_code=500, detail="slide_verify_fix_failed") from exc
+    return await verify_slide_page_html(
+        project_id=body.project_id.strip(),
+        slide_index=body.slide_index,
+        storage_root=storage_root,
+    )
+
+
+@app.post("/v1/slides/templates/list")
+async def slide_templates_list(
+    body: TemplateListRequest | None = None,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.custom_templates import list_custom_templates  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_registry import (  # noqa: PLC0415
+        catalog_version,
+        layout_ids,
+        themes_data,
+    )
+    from oaao_orchestrator.slide_project.template_scope import normalize_scope  # noqa: PLC0415
+
+    themes = themes_data().get("themes")
+    builtin_themes = sorted(themes.keys()) if isinstance(themes, dict) else []
+    published_only = bool(body.published_only) if body is not None else False
+    ctx = _template_scope_ctx(body.template_scope if body is not None else None)
+    scope_filter = None
+    if body is not None and body.scope_filter:
+        scope_filter = normalize_scope(body.scope_filter)
+
+    from oaao_orchestrator.slide_project.pptx_render import pptx_render_available  # noqa: PLC0415
+
+    return {
+        "catalog_version": catalog_version(),
+        "builtin_themes": builtin_themes,
+        "builtin_layouts": sorted(layout_ids()),
+        "pptx_render_available": pptx_render_available(),
+        "custom_templates": list_custom_templates(
+            ctx,
+            published_only=published_only,
+            scope_filter=scope_filter,
+        ),
+        "scope_capabilities": {
+            "can_write_global": False,
+            "can_write_tenant": bool(
+                ctx.is_tenant_admin and ctx.tenant_id is not None and ctx.tenant_id > 0
+            ),
+            "can_write_personal": ctx.user_id > 0,
+        },
+    }
+
+
+async def _execute_template_analyze(body: TemplateAnalyzeRequest) -> dict[str, Any]:
+    from oaao_orchestrator.slide_project.template_analyzer import analyze_pptx_template  # noqa: PLC0415
+
+    from oaao_orchestrator.slide_project.template_scope import can_write_scope, normalize_scope  # noqa: PLC0415
+
+    path = Path(body.pptx_path.strip())
+    ep = body.endpoint
+    ctx = _template_scope_ctx(body.template_scope)
+    write_scope = normalize_scope(body.write_scope)
+    if not can_write_scope(ctx, write_scope):
+        raise PermissionError(f"cannot_write_scope:{write_scope}")
+
+    result = await analyze_pptx_template(
+        pptx_path=path,
+        url=ep.base_url.strip() if ep and ep.base_url else None,
+        api_key=_resolve_api_key(ep),
+        model=ep.model.strip() if ep and ep.model else None,
+        label=body.label,
+        user_notes=body.notes,
+        persist=bool(body.persist),
+        ctx=ctx,
+        write_scope=write_scope,
+    )
+    preview_payload: dict[str, Any] | None = None
+    if body.generate_preview and isinstance(result.get("template_id"), str):
+        tid = str(result["template_id"])
+        preview_mode = str(result.get("preview_mode") or "").strip()
+        if preview_mode != "pptx_render":
+            from oaao_orchestrator.slide_project.pptx_render import pptx_render_available  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.template_pptx_preview import (  # noqa: PLC0415
+                try_regenerate_pptx_render_preview,
+            )
+
+            if pptx_render_available():
+                from oaao_orchestrator.slide_project.async_bridge import run_soffice_job  # noqa: PLC0415
+
+                try:
+                    render_retry = await run_soffice_job(
+                        try_regenerate_pptx_render_preview,
+                        tid,
+                        ctx,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("template_pptx_render_retry_failed template_id=%s", tid)
+                    render_retry = None
+                if render_retry:
+                    preview_mode = "pptx_render"
+                    result["preview_mode"] = "pptx_render"
+                    result["thumbnail_source"] = "pptx_render"
+                    result["preview_pages"] = render_retry.get("pages") or []
+                    result["status"] = "preview"
+
+        if preview_mode == "pptx_render":
+            preview_payload = {
+                "ok": True,
+                "preview_mode": "pptx_render",
+                "pages": result.get("preview_pages") or [],
+            }
+        else:
+            from oaao_orchestrator.slide_project.pptx_render import pptx_render_available  # noqa: PLC0415
+
+            tools_ok = pptx_render_available()
+            preview_payload = {
+                "ok": False,
+                "preview_mode": "render_unavailable",
+                "pages": [],
+                "render_unavailable": not tools_ok,
+                "message": (
+                    "PPTX slide render is not available in the orchestrator "
+                    "(rebuild the orchestrator image with LibreOffice and poppler-utils, then re-import)."
+                    if not tools_ok
+                    else "PPTX slide render failed; check orchestrator logs. Re-import after fixing."
+                ),
+            }
+    return {"ok": True, "template": result, "preview": preview_payload}
+
+
+@app.post("/v1/slides/template_analyze")
+async def slide_template_analyze(
+    body: TemplateAnalyzeRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    """Analyze uploaded PPTX → custom template JSON (theme + deck_style)."""
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    if body.background:
+        from oaao_orchestrator.slide_project.template_import_jobs import start_template_import_job  # noqa: PLC0415
+
+        job_id = await start_template_import_job(lambda: _execute_template_analyze(body))
+        return {"ok": True, "job_id": job_id, "status": "running"}
+
+    try:
+        return await _execute_template_analyze(body)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_template_analyze_failed path=%s", body.pptx_path)
+        raise HTTPException(status_code=500, detail="slide_template_analyze_failed") from exc
+
+
+@app.get("/v1/slides/template_import_job/{job_id}")
+async def slide_template_import_job(
+    job_id: str,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.template_import_jobs import get_template_import_job  # noqa: PLC0415
+
+    job = await get_template_import_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="template_import_job_not_found")
+    if job.status == "running":
+        return {"ok": True, "job_id": job.job_id, "status": "running"}
+    if job.status == "failed":
+        return {
+            "ok": False,
+            "job_id": job.job_id,
+            "status": "failed",
+            "detail": job.error or "slide_template_analyze_failed",
+        }
+    return {"ok": True, "job_id": job.job_id, "status": "done", **(job.result or {})}
+
+
+@app.post("/v1/slides/template_preview")
+async def slide_template_preview(
+    body: TemplateWorkflowRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.template_preview import generate_template_preview  # noqa: PLC0415
+
+    ep = body.endpoint
+    ctx = _template_scope_ctx(body.template_scope)
+    try:
+        return await generate_template_preview(
+            template_id=body.template_id.strip(),
+            ctx=ctx,
+            url=ep.base_url.strip() if ep and ep.base_url else None,
+            api_key=_resolve_api_key(ep),
+            model=ep.model.strip() if ep and ep.model else None,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_template_preview_failed id=%s", body.template_id)
+        raise HTTPException(status_code=500, detail="slide_template_preview_failed") from exc
+
+
+@app.post("/v1/slides/template_fix")
+async def slide_template_fix(
+    body: TemplateWorkflowRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.template_preview import (  # noqa: PLC0415
+        fix_all_template_previews,
+        fix_template_preview_slide,
+    )
+
+    ep = body.endpoint
+    url = ep.base_url.strip() if ep and ep.base_url else None
+    key = _resolve_api_key(ep)
+    model = ep.model.strip() if ep and ep.model else None
+    ctx = _template_scope_ctx(body.template_scope)
+    try:
+        if body.slide_index is not None:
+            return await fix_template_preview_slide(
+                template_id=body.template_id.strip(),
+                slide_index=int(body.slide_index),
+                ctx=ctx,
+                url=url,
+                api_key=key,
+                model=model,
+            )
+        return await fix_all_template_previews(
+            template_id=body.template_id.strip(),
+            ctx=ctx,
+            url=url,
+            api_key=key,
+            model=model,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_template_fix_failed id=%s", body.template_id)
+        raise HTTPException(status_code=500, detail="slide_template_fix_failed") from exc
+
+
+@app.post("/v1/slides/template_publish")
+async def slide_template_publish(
+    body: TemplateWorkflowRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.template_preview import publish_template  # noqa: PLC0415
+
+    ep = body.endpoint
+    ctx = _template_scope_ctx(body.template_scope)
+    try:
+        return await publish_template(
+            template_id=body.template_id.strip(),
+            ctx=ctx,
+            url=ep.base_url.strip() if ep and ep.base_url else None,
+            api_key=_resolve_api_key(ep),
+            model=ep.model.strip() if ep and ep.model else None,
+            auto_fix=bool(body.auto_fix),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_template_publish_failed id=%s", body.template_id)
+        raise HTTPException(status_code=500, detail="slide_template_publish_failed") from exc
+
+
+@app.post("/v1/slides/template_unpublish")
+async def slide_template_unpublish(
+    body: TemplateWorkflowRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.template_preview import unpublish_template  # noqa: PLC0415
+
+    ctx = _template_scope_ctx(body.template_scope)
+    try:
+        return await unpublish_template(
+            template_id=body.template_id.strip(),
+            ctx=ctx,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_template_unpublish_failed id=%s", body.template_id)
+        raise HTTPException(status_code=500, detail="slide_template_unpublish_failed") from exc
+
+
+@app.post("/v1/slides/template_delete")
+async def slide_template_delete(
+    body: TemplateWorkflowRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    from oaao_orchestrator.slide_project.template_preview import delete_template  # noqa: PLC0415
+
+    ctx = _template_scope_ctx(body.template_scope)
+    try:
+        return await delete_template(
+            template_id=body.template_id.strip(),
+            ctx=ctx,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("slide_template_delete_failed id=%s", body.template_id)
+        raise HTTPException(status_code=500, detail="slide_template_delete_failed") from exc
+
+
+@app.post("/v1/runs/{run_id}/cancel")
+async def cancel_chat_run(
+    run_id: str,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    run = registry.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="unknown_run")
+
+    run.request_cancel()
+    return {"ok": True, "run_id": run_id, "cancelled": True}
+
+
+@app.post("/v1/asr/transcribe")
+async def transcribe_audio(
+    req: AsrTranscribeRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+
+    raw_b64 = (req.audio_base64 or "").strip()
+    if raw_b64.startswith("data:") and "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    if not raw_b64:
+        raise HTTPException(status_code=400, detail="audio_base64 required")
+
+    try:
+        audio_bytes = base64.b64decode(raw_b64, validate=False)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="invalid_base64") from exc
+
+    suffix = ".webm" if "webm" in req.mime_type.lower() else ".wav"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="oaao_chat_asr_")
+    os.close(fd)
+    try:
+        Path(tmp_path).write_bytes(audio_bytes)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as client:
+            text, meta = await run_asr_pipeline_on_file(
+                client,
+                audio_path=tmp_path,
+                asr_cfg=req.asr if isinstance(req.asr, dict) else None,
+                polish_cfg=req.polish if isinstance(req.polish, dict) else None,
+                glossary=req.glossary if isinstance(req.glossary, dict) else None,
+                polish_enabled=bool(req.polish_enabled),
+            )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    if not text:
+        raise HTTPException(status_code=502, detail=str(meta.get("error") or "transcription_failed"))
+
+    return {
+        "text": text,
+        "raw_text": meta.get("raw_text", ""),
+        "polished": bool(meta.get("polished")),
+    }
+
+
+@app.post("/v1/funasr/ensure")
+async def funasr_ensure(
+    req: FunasrEnsureRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    return await ensure_funasr(pull=bool(req.pull), funasr_env=req.funasr_env)
+
+
+@app.get("/v1/funasr/status")
+async def funasr_status_route(
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    return await funasr_status()
 
 
 @app.get("/v1/stream")
