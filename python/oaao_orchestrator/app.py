@@ -400,6 +400,11 @@ async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
     await execute_chat_run(run_id=run_id, req=req, registry=registry)
 
 
+@app.get("/health")
+async def health() -> dict[str, bool | str]:
+    return {"ok": True, "service": "oaao_orchestrator"}
+
+
 @app.post("/v1/runs/chat")
 async def start_chat_run(
     req: ChatRunRequest,

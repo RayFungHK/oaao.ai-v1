@@ -602,17 +602,13 @@ SQL;
     {
         if ($authApi && method_exists($authApi, 'ensurePgCoreTables')) {
             $authApi->ensurePgCoreTables($db);
-
-            return;
         }
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_core_tables($db);
     }
 
     private static function databaseIsPgsqlFallback(Database $db): bool
     {
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+        $pdo = $db->getDBAdapter();
 
-        return oaao_auth_database_is_pgsql($db);
+        return $pdo instanceof \PDO && $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql';
     }
 }
