@@ -429,11 +429,20 @@ flowchart LR
 | 修正 audit `grep -n` 誤判 core | ✅ |
 | `endpoints` `resolveAllowedAgents` 改本地 library | ✅ 不再 require chat |
 
-### Phase 3 — 待辦
+### Phase 4 — Full audit 歸零（2026-05-19）
 
-1. HTTP CLI smoke：`scripts/oaao_orchestrator_smoke.sh`（`OAAO_SMOKE_START_CHAT_RUN=1`）
-2. Full audit 約 39 項 P1（vault/user → auth schema、core `TenantContext`）→ 逐步 `api('core')` / `api('auth')`
-3. `endpoints/default/controller/event/*` 的 Register require 維持允許；非 event 路徑仍應避免 peer require
+| 項目 | 狀態 |
+|------|------|
+| `AuthSchemaBridge` + `core::__onReady` 註冊 auth DDL | ✅ |
+| `api('auth')` `ensureTenantSchema` / `ensurePermissionGroupSchema` | ✅ |
+| user / group / platform 改走 module API | ✅ |
+| `scripts/audit_cross_module_requires.sh`（full） | ✅ 0 P0 |
+
+### Phase 4 — 待辦
+
+1. `OAAO_SMOKE_START_CHAT_RUN=1` 真實 `/v1/runs/chat` smoke（需完整 orchestrator 進 git + 環境）
+2. 恢復 `test_pipeline_hook_resilience` 為嚴格 CI（同上）
+3. `slide-designer/SlideTemplateScope` 可選改 `api('core')->bootstrapTenantContext`（gate 已允許 core）
 
 ---
 

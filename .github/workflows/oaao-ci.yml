@@ -50,11 +50,10 @@ jobs:
           curl -fsS http://127.0.0.1:8103/health
           OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 bash ../scripts/oaao_orchestrator_smoke.sh
 
-  audit-full-report:
+  audit-full:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
-      - name: Full-tree cross-module audit (informational)
-        run: bash scripts/audit_cross_module_requires.sh || true
+      - name: Full-tree cross-module audit
+        run: bash scripts/audit_cross_module_requires.sh

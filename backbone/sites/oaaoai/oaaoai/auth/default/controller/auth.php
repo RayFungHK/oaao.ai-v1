@@ -71,6 +71,8 @@ return new class extends Controller {
             'ensurePgWorkspaceTables'      => 'ensurePgWorkspaceTables',
             'installSqliteLocalSchema'     => 'installSqliteLocalSchema',
             'upgradeSqliteLocalAdjunct'    => 'upgradeSqliteLocalAdjunct',
+            'ensureTenantSchema'           => 'ensureTenantSchema',
+            'ensurePermissionGroupSchema'  => 'ensurePermissionGroupSchema',
         ]);
 
         $agent->addLazyRoute([
@@ -445,6 +447,18 @@ return new class extends Controller {
         require_once __DIR__ . '/api/_install_sqlite_local_schema.php';
         oaao_auth_upgrade_sqlite_local_adjunct($pdo);
         oaao_auth_upgrade_sqlite_message_meta_json($pdo);
+    }
+
+    public function ensureTenantSchema(\PDO $pdo): void
+    {
+        require_once __DIR__ . '/api/_ensure_tenant_schema.php';
+        oaao_auth_ensure_tenant_schema($pdo);
+    }
+
+    public function ensurePermissionGroupSchema(\PDO $pdo): void
+    {
+        require_once __DIR__ . '/api/_ensure_permission_group_schema.php';
+        oaao_auth_ensure_permission_group_schema($pdo);
     }
 
     public function getDB()
