@@ -30,6 +30,7 @@ KIND_LIVE_TRANSCRIPT = "live_transcript"
 KIND_LIVE_BUBBLE = "live_bubble"
 KIND_LIVE_PHASE = "live_phase"
 KIND_LIVE_STATS = "live_stats"
+KIND_LIVE_MATERIALS = "live_materials"
 
 PHASES: tuple[str, ...] = (
     PHASE_TASK,

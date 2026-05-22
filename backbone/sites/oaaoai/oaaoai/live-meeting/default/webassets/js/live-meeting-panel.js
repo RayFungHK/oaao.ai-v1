@@ -76,6 +76,8 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
     const transcriptEl = mount.querySelector('[data-oaao-live-meeting="transcript"]');
     const bubblesWrapEl = mount.querySelector('[data-oaao-live-meeting="bubbles-wrap"]');
     const bubblesEl = mount.querySelector('[data-oaao-live-meeting="bubbles"]');
+    const materialsWrapEl = mount.querySelector('[data-oaao-live-meeting="materials-wrap"]');
+    const materialsEl = mount.querySelector('[data-oaao-live-meeting="materials"]');
     const micBtn = mount.querySelector('[data-oaao-live-meeting="mic"]');
     const keepWrap = mount.querySelector('[data-oaao-live-meeting="keep-audio-wrap"]');
     const keepInput = mount.querySelector('[data-oaao-live-meeting="keep-audio"]');
@@ -160,9 +162,12 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         btn.addEventListener(
             'click',
             () => {
-                setStatus('live_meeting.status.bubble_selected');
-                if (uplink?.requestBubble) {
-                    uplink.requestBubble();
+                setStatus('live_meeting.status.rag_lookup');
+                if (uplink?.bubbleLookup) {
+                    uplink.bubbleLookup({
+                        text: String(payload.text || btn.textContent || ''),
+                        bubble_id: bubbleId,
+                    });
                 }
             },
             { signal },
@@ -176,6 +181,46 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         if (bubblesWrapEl instanceof HTMLElement) {
             bubblesWrapEl.classList.add('hidden');
             bubblesWrapEl.classList.remove('flex');
+        }
+    };
+
+    const renderMaterials = (payload) => {
+        if (!materialsEl) return;
+        const rows = Array.isArray(payload?.payload?.materials) ? payload.payload.materials : [];
+        materialsEl.textContent = '';
+        if (materialsWrapEl instanceof HTMLElement) {
+            materialsWrapEl.classList.remove('hidden');
+            materialsWrapEl.classList.add('flex');
+        }
+        if (rows.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'm-0 fg-[var(--grid-ink-muted)]';
+            empty.textContent = t('live_meeting.materials.empty');
+            materialsEl.append(empty);
+            return;
+        }
+        rows.forEach((row) => {
+            if (!row || typeof row !== 'object') return;
+            const card = document.createElement('article');
+            card.className =
+                'rounded-md border border-[var(--grid-line)] bg-[var(--grid-panel)] p-2 fg-[var(--grid-ink)]';
+            const title = document.createElement('div');
+            title.className = 'font-medium text-[0.72rem] mb-1 truncate';
+            const name = String(row.file_name || row.path || row.vault_name || 'Source');
+            title.textContent = name;
+            const excerpt = document.createElement('p');
+            excerpt.className = 'm-0 text-[0.68rem] leading-snug fg-[var(--grid-ink-muted)] whitespace-pre-wrap';
+            excerpt.textContent = String(row.excerpt || '').trim() || t('live_meeting.materials.no_excerpt');
+            card.append(title, excerpt);
+            materialsEl.append(card);
+        });
+    };
+
+    const clearMaterials = () => {
+        if (materialsEl) materialsEl.textContent = '';
+        if (materialsWrapEl instanceof HTMLElement) {
+            materialsWrapEl.classList.add('hidden');
+            materialsWrapEl.classList.remove('flex');
         }
     };
 
@@ -217,6 +262,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             showEmptyPlaceholder();
         }
         clearBubbles();
+        clearMaterials();
         sessionId = '';
     };
 
@@ -270,8 +316,21 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                     setStatus('live_meeting.status.analyzing');
                     return;
                 }
+                if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'rag') {
+                    setStatus('live_meeting.status.rag_lookup');
+                    return;
+                }
+                if (payload.kind === 'live_materials') {
+                    renderMaterials(payload);
+                    setStatus('live_meeting.status.materials_ready');
+                    return;
+                }
                 if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'idle') {
                     if (sessionId) setStatus('live_meeting.status.recording');
+                    return;
+                }
+                if (payload.kind === 'error' && payload.text === 'vault_rag_not_configured') {
+                    appendErrorLine(t('live_meeting.error.vault_rag_not_configured'));
                     return;
                 }
                 if (payload.phase === 'system' && payload.kind === 'status') {

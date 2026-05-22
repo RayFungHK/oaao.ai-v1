@@ -1024,6 +1024,9 @@ class LiveSessionStartRequest(BaseModel):
     retention_mode: str = "disk_ttl"
     asr: dict[str, Any] | None = None
     glossary: dict[str, Any] | None = None
+    vault_retrieval_profiles: list[dict[str, Any]] | None = None
+    embedding: dict[str, Any] | None = None
+    vault_rag: dict[str, Any] | None = None
 
 
 class LiveSessionStopRequest(BaseModel):
@@ -1056,6 +1059,11 @@ async def live_session_start(
         public_base=_orchestrator_public_base(),
         asr_cfg=req.asr if isinstance(req.asr, dict) else None,
         glossary=req.glossary if isinstance(req.glossary, dict) else None,
+        vault_retrieval_profiles=req.vault_retrieval_profiles
+        if isinstance(req.vault_retrieval_profiles, list)
+        else None,
+        embedding=req.embedding if isinstance(req.embedding, dict) else None,
+        vault_rag_config=req.vault_rag if isinstance(req.vault_rag, dict) else None,
     )
     return {"ok": True, "data": data}
 

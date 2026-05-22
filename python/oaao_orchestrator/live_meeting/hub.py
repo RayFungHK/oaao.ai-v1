@@ -18,6 +18,7 @@ from oaao_orchestrator.live_meeting.bubble_engine import (
     cadence_interval_sec,
     extract_bubbles,
 )
+from oaao_orchestrator.live_meeting.bubble_rag import lookup_bubble_vault
 from oaao_orchestrator.live_meeting.dashscope_asr_stream import (
     DashscopeRealtimeAsrBridge,
     create_and_start_bridge,
@@ -32,6 +33,7 @@ from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_st
 from oaao_orchestrator.streaming.events import (
     KIND_ERROR,
     KIND_LIVE_BUBBLE,
+    KIND_LIVE_MATERIALS,
     KIND_LIVE_PHASE,
     KIND_LIVE_TRANSCRIPT,
     PHASE_LIVE,
@@ -53,6 +55,9 @@ class _SessionRuntime:
     session: LiveMeetingSession
     asr_cfg: dict[str, Any] | None
     glossary: dict[str, Any] | None
+    vault_retrieval_profiles: list[dict[str, Any]] | None = None
+    embedding: dict[str, Any] | None = None
+    vault_rag_config: dict[str, Any] | None = None
     carry_prompt: str = ""
 
 
@@ -67,6 +72,9 @@ def create_session(
     user_id: int | None = None,
     asr_cfg: dict[str, Any] | None = None,
     glossary: dict[str, Any] | None = None,
+    vault_retrieval_profiles: list[dict[str, Any]] | None = None,
+    embedding: dict[str, Any] | None = None,
+    vault_rag_config: dict[str, Any] | None = None,
 ) -> LiveMeetingSession:
     root = live_meeting_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -83,10 +91,18 @@ def create_session(
     session.ensure_dirs()
     session.write_meta()
     _active[session.session_id] = session
+    profiles = (
+        [p for p in vault_retrieval_profiles if isinstance(p, dict)]
+        if isinstance(vault_retrieval_profiles, list)
+        else None
+    )
     _runtime[session.session_id] = _SessionRuntime(
         session=session,
         asr_cfg=asr_cfg if isinstance(asr_cfg, dict) else None,
         glossary=glossary if isinstance(glossary, dict) else None,
+        vault_retrieval_profiles=profiles or None,
+        embedding=embedding if isinstance(embedding, dict) else None,
+        vault_rag_config=vault_rag_config if isinstance(vault_rag_config, dict) else None,
     )
     get_live_stream(session.session_id)
     if use_dashscope_realtime_stream(asr_cfg):
@@ -339,6 +355,94 @@ async def _maybe_emit_bubbles(session_id: str, *, force: bool = False) -> None:
     )
 
 
+async def _run_bubble_lookup(session_id: str, query: str, bubble_id: str) -> None:
+    runtime = _runtime.get(session_id)
+    if runtime is None:
+        return
+    hub = get_live_stream(session_id)
+    label = (query or "").strip()
+    if not label:
+        return
+    profiles = runtime.vault_retrieval_profiles
+    if not profiles:
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_ERROR,
+                text="vault_rag_not_configured",
+                payload={"bubble_id": bubble_id},
+            )
+        )
+        return
+
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_PHASE,
+            text="rag",
+            payload={"live_phase": "rag", "bubble_id": bubble_id},
+        )
+    )
+    try:
+        result = await lookup_bubble_vault(
+            label,
+            vault_retrieval_profiles=profiles,
+            embedding=runtime.embedding,
+            vault_rag=runtime.vault_rag_config,
+            vault_auto_rag=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("live_meeting bubble_rag_failed id=%s", session_id)
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_ERROR,
+                text=f"bubble_rag_failed:{str(e)[:120]}",
+                payload={"bubble_id": bubble_id},
+            )
+        )
+        await hub.append(
+            StreamEnvelope(
+                phase=PHASE_LIVE,
+                kind=KIND_LIVE_PHASE,
+                text="idle",
+                payload={"live_phase": "idle"},
+            )
+        )
+        return
+
+    materials = result.get("materials") if isinstance(result.get("materials"), list) else []
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_MATERIALS,
+            text=label,
+            payload={
+                "bubble_id": bubble_id,
+                "query": label,
+                "passage_count": int(result.get("passage_count") or 0),
+                "materials": materials,
+                "activity_lines": result.get("activity_lines") if isinstance(result.get("activity_lines"), list) else [],
+            },
+        )
+    )
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_LIVE_PHASE,
+            text="idle",
+            payload={"live_phase": "idle", "bubble_id": bubble_id},
+        )
+    )
+    logger.info(
+        "live_meeting bubble_rag_done id=%s bubble=%s hits=%s materials=%s",
+        session_id,
+        bubble_id,
+        result.get("passage_count"),
+        len(materials),
+    )
+
+
 def _on_segment_closed(session_id: str, pcm_path: Path, segment_index: int) -> None:
     try:
         loop = asyncio.get_running_loop()
@@ -430,6 +534,14 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
                 if isinstance(payload, dict) and payload.get("type") == "bubble_request":
                     await _maybe_emit_bubbles(sid, force=True)
                     await websocket.send_text(json.dumps({"type": "bubble_ack"}))
+                    continue
+                if isinstance(payload, dict) and payload.get("type") == "bubble_lookup":
+                    text = str(payload.get("text") or "").strip()
+                    bubble_id = str(payload.get("bubble_id") or "").strip()
+                    if text:
+                        task = asyncio.create_task(_run_bubble_lookup(sid, text, bubble_id))
+                        _track_asr_task(sid, task)
+                    await websocket.send_text(json.dumps({"type": "bubble_lookup_ack"}))
     except WebSocketDisconnect:
         pass
     finally:
@@ -470,6 +582,9 @@ def session_start_payload(
     public_base: str,
     asr_cfg: dict[str, Any] | None = None,
     glossary: dict[str, Any] | None = None,
+    vault_retrieval_profiles: list[dict[str, Any]] | None = None,
+    embedding: dict[str, Any] | None = None,
+    vault_rag_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     session = create_session(
         cadence=cadence,
@@ -478,6 +593,9 @@ def session_start_payload(
         user_id=user_id,
         asr_cfg=asr_cfg,
         glossary=glossary,
+        vault_retrieval_profiles=vault_retrieval_profiles,
+        embedding=embedding,
+        vault_rag_config=vault_rag_config,
     )
     urls = public_urls(session.session_id, public_base=public_base)
     out: dict[str, Any] = {
@@ -486,4 +604,6 @@ def session_start_payload(
     }
     if asr_cfg:
         out["asr_configured"] = True
+    if vault_retrieval_profiles:
+        out["vault_rag_configured"] = True
     return out

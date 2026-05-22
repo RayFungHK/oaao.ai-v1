@@ -55,6 +55,12 @@ const OAAO_I18N_BASE = {
         'live_meeting.bubble.question_hint': 'Question — tap to refresh suggestions',
         'live_meeting.status.analyzing': 'Analyzing transcript…',
         'live_meeting.status.bubble_selected': 'Suggestion selected (RAG in next phase)',
+        'live_meeting.status.rag_lookup': 'Searching knowledge base…',
+        'live_meeting.status.materials_ready': 'Sources ready',
+        'live_meeting.materials.label': 'Sources',
+        'live_meeting.materials.empty': 'No matching sources in the vault.',
+        'live_meeting.materials.no_excerpt': '(no excerpt)',
+        'live_meeting.error.vault_rag_not_configured': 'Knowledge base is not configured for this workspace.',
 
         // Settings nav (embedded registry)
         'settings.nav.endpoints.label': 'Endpoints',
@@ -535,6 +541,12 @@ const OAAO_I18N_BASE = {
         'live_meeting.bubble.question_hint': '問題 — 點擊可重新擷取建議',
         'live_meeting.status.analyzing': '分析轉寫中…',
         'live_meeting.status.bubble_selected': '已選建議（RAG 於下階段）',
+        'live_meeting.status.rag_lookup': '搜尋知識庫中…',
+        'live_meeting.status.materials_ready': '已找到來源',
+        'live_meeting.materials.label': '來源',
+        'live_meeting.materials.empty': '知識庫中沒有相符來源。',
+        'live_meeting.materials.no_excerpt': '（無摘要）',
+        'live_meeting.error.vault_rag_not_configured': '此工作區尚未設定知識庫檢索。',
 
         'settings.nav.endpoints.label': '端點',
         'settings.nav.endpoints.title': 'LLM 端點',

@@ -46,6 +46,7 @@ return function (): void {
                 static fn (string $ref): ?string => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($ref),
             );
         }
+        $wsId = $wid > 0 ? $wid : null;
         if ($wid > 0) {
             require_once dirname(__DIR__, 4) . '/vault/default/library/VaultGlossary.php';
             $canonPdo = $canonDb->getPDO();
@@ -55,6 +56,32 @@ return function (): void {
                     $orchPayload['glossary'] = $glossary;
                 }
             }
+        }
+        require_once dirname(__DIR__, 4) . '/chat/default/library/ChatVaultScope.php';
+        require_once dirname(__DIR__, 4) . '/chat/default/library/ChatVaultRetrievalProfiles.php';
+        $vaultIds = \oaaoai\chat\ChatVaultScope::vaultIdsForUserWorkspace($canonDb, $uid, $wsId);
+        $vaultIds = \oaaoai\chat\ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($canonDb, $vaultIds);
+        if ($vaultIds !== []) {
+            $profiles = \oaaoai\chat\ChatVaultRetrievalProfiles::forVaultIds($canonDb, $uid, $wsId, $vaultIds);
+            if ($profiles !== []) {
+                $orchPayload['vault_retrieval_profiles'] = $profiles;
+            }
+        }
+        $embBind = $embRepo->resolveVaultIngestEmbeddingBinding();
+        if ($embBind !== null) {
+            $eref = trim($embBind['api_key_ref']);
+            $orchPayload['embedding'] = [
+                'purpose_key' => $embBind['purpose_key'],
+                'base_url'    => $embBind['base_url'],
+                'model'       => $embBind['model'],
+                'api_key_env' => ($eref !== ''
+                    ? \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($eref)
+                    : null),
+            ];
+        }
+        $ragCfg = $embRepo->resolveRagRetrievalConfig();
+        if ($ragCfg !== []) {
+            $orchPayload['vault_rag'] = $ragCfg;
         }
     }
 

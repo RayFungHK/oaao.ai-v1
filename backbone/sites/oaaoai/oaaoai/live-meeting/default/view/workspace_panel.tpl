@@ -24,6 +24,10 @@
             <span class="text-xs font-medium fg-[var(--grid-ink-muted)]" data-i18n="live_meeting.bubbles.label">Suggestions</span>
             <div data-oaao-live-meeting="bubbles" class="flex flex-wrap gap-2 min-h-[2rem]"></div>
         </div>
+        <div data-oaao-live-meeting="materials-wrap" class="hidden shrink-0 flex-col gap-1 max-h-[28%] min-h-0 overflow-hidden" aria-live="polite">
+            <span class="text-xs font-medium fg-[var(--grid-ink-muted)]" data-i18n="live_meeting.materials.label">Sources</span>
+            <div data-oaao-live-meeting="materials" class="flex flex-col gap-2 min-h-0 overflow-y-auto overscroll-contain rounded-lg border border-[var(--grid-line)] bg-[var(--grid-panel-bright)] p-2 text-xs"></div>
+        </div>
         <div data-oaao-live-meeting="transcript"
             class="oaao-live-transcript flex-1 min-h-0 overflow-y-auto overscroll-contain rounded-xl border border-[var(--grid-line)] bg-[var(--grid-panel-bright)] p-4 text-sm leading-relaxed whitespace-pre-wrap fg-[var(--grid-ink)]"
             aria-live="polite">

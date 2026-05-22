@@ -21,7 +21,7 @@ function float32ToPcm16(floats) {
 /**
  * @param {string} wsUrl ws:// or wss:// orchestrator audio endpoint
  * @param {{ signal?: AbortSignal, onState?: (state: string) => void, onError?: (message: string) => void }} [opts]
- * @returns {Promise<{ stop: () => void, ws: WebSocket, requestBubble: () => void }>}
+ * @returns {Promise<{ stop: () => void, ws: WebSocket, requestBubble: () => void, bubbleLookup: (opts: { text: string, bubble_id?: string }) => void }>}
  */
 export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
     const { signal, onState, onError } = opts;
@@ -123,5 +123,17 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         }
     };
 
-    return { stop, ws, requestBubble };
+    const bubbleLookup = ({ text, bubble_id: bubbleId = '' }) => {
+        const label = String(text || '').trim();
+        if (!label || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(
+            JSON.stringify({
+                type: 'bubble_lookup',
+                text: label,
+                bubble_id: String(bubbleId || label).slice(0, 64),
+            }),
+        );
+    };
+
+    return { stop, ws, requestBubble, bubbleLookup };
 }
