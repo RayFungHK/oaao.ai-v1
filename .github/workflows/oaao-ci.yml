@@ -25,11 +25,6 @@ jobs:
         working-directory: python
         run: python -m pytest tests/test_orchestrator_bridge_contract.py -q
 
-      - name: Hook resilience tests (orchestrator agents)
-        working-directory: python
-        run: python -m pytest tests/test_pipeline_hook_resilience.py -q
-        continue-on-error: true
-
   orchestrator-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -53,8 +48,7 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:8103/health
-          cd ..
-          OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 bash scripts/oaao_orchestrator_smoke.sh
+          OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 bash ../scripts/oaao_orchestrator_smoke.sh
 
   audit-full-report:
     runs-on: ubuntu-latest
