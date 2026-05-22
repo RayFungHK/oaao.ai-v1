@@ -1,0 +1,978 @@
+/**
+ * Workspace admin UI strings — English defaults + Traditional Chinese; keyed for unified shells.
+ * Extend {@link globalThis.OAAO_I18N_OVERRIDES} before boot to merge extra locales without editing this file.
+ */
+
+/** @type {Record<string, Record<string, string>>} */
+const OAAO_I18N_BASE = {
+    en: {
+        // Settings shell / dialog
+        'settings.dialog.title': 'Admin settings',
+        'settings.dialog.nav_aria': 'Admin settings sections',
+        'settings.dialog.loading_panel': 'Loading…',
+        'settings.dialog.empty_nav_label': 'Admin settings',
+        'settings.dialog.empty_nav_sub': 'No administrator sections registered yet.',
+        'settings.dialog.empty_nav_body':
+            '<p class="text-sm fg-[var(--grid-ink-muted)]">Administrator modules register global panels via <code class="font-mono text-xs">settings.register</code> (PHP).</p>',
+        'settings.dialog.panel_load_failed': 'Could not load panel ({{status}}).',
+        'settings.dialog.panel_load_failed_generic': 'Could not load panel.',
+        'settings.dialog.panel_none': 'No panel source registered for this section.',
+        'settings.dialog.panel_error': 'Failed to load this panel.',
+
+        /** Workspace chrome — {@see workspace.js applyWorkspaceShellLabels} */
+        'workspace.rail_chat_title': 'Chat',
+        'workspace.rail_vault_title': 'Vault',
+        'workspace.rail_agents_title': 'Agents',
+        'workspace.vault_menu_heading': 'Vault',
+        'workspace.agents.page_title': 'Agents',
+        'workspace.agents.page_intro':
+            'Capabilities available in this workspace. The task planner may enable a subset per run — configure in Settings → Task planner.',
+        'workspace.agents.badge_enabled': 'Enabled',
+        'workspace.agents.badge_disabled': 'Not enabled',
+
+        'live_meeting.title': 'Live meeting',
+        'live_meeting.subtitle': 'Streaming transcript from your microphone',
+        'live_meeting.start_mic': 'Start microphone',
+        'live_meeting.stop_mic': 'Stop',
+        'live_meeting.keep_audio': 'Keep recorded audio on server',
+        'live_meeting.status.idle': 'Idle',
+        'live_meeting.status.starting': 'Starting…',
+        'live_meeting.status.recording': 'Recording',
+        'live_meeting.status.error': 'Error',
+        'live_meeting.status.stopping': 'Stopping…',
+        'live_meeting.conn.sse_connected': 'Transcript stream connected',
+        'live_meeting.conn.sse_reconnecting': 'Transcript stream reconnecting…',
+        'live_meeting.conn.ws_open': 'Audio uplink connected',
+        'live_meeting.conn.ws_closed': 'Audio uplink closed',
+        'live_meeting.conn.ws_failed': 'Audio uplink failed',
+        'live_meeting.error.mic_denied': 'Microphone permission denied',
+        'live_meeting.error.mic_ws': 'Microphone or audio uplink failed',
+        'live_meeting.error.asr_not_configured': 'Speech recognition is not configured (Settings → ASR)',
+        'live_meeting.error.session_start': 'Could not start live session',
+        'live_meeting.transcript.empty': 'Transcript will appear here while you speak.',
+
+        // Settings nav (embedded registry)
+        'settings.nav.endpoints.label': 'Endpoints',
+        'settings.nav.endpoints.title': 'LLM endpoints',
+        'settings.nav.endpoints.sub':
+            'Canonical provider rows (<code class="font-mono text-xs">oaao_endpoint</code>) on the auth canonical database.',
+
+        'settings.nav.asr.label': 'ASR',
+        'settings.nav.asr.title': 'Speech pipeline',
+        'settings.nav.asr.sub':
+            'Normal vs Speaker mode, chunk buffer, diarization, and language hints — separate from purpose routing.',
+
+        'settings.nav.purposes.label': 'Purpose allocation',
+        'settings.nav.purposes.title': 'Purpose allocation',
+        'settings.nav.purposes.sub':
+            'Slots are <strong>registered pipeline groups</strong> (from <code class="font-mono text-xs">oaaoai/endpoints</code> <code class="font-mono text-xs">PurposeAllocationRegister</code>). This panel sets root default LLMs via <code class="font-mono text-xs">oaao_purpose</code> (PostgreSQL). Chat-specific modes and selector profiles are configured by the <strong>Chat</strong> module. Downstream tools consume the registry together with purpose rows.',
+
+        // Purpose allocation panel
+        'settings.purposes.intro_title': 'Purpose allocation',
+        'settings.purposes.intro_body':
+            'Each block is a <strong>registered pipeline</strong> — collapsible cards (<code class="font-mono text-xs">details</code> / summary). Non-chat pipelines set the root default LLM for <code class="font-mono text-xs">oaao_purpose</code>. The <strong>Chat</strong> pipeline only lists <strong>chat completion profiles</strong> here (no duplicate root LLM picker).',
+        'settings.purposes.pg_only':
+            'Stored on <strong>PostgreSQL</strong> only. Point <code class="font-mono text-xs">auth.database.driver</code> at <span class="font-mono text-xs">pgsql</span> to edit allocations.',
+        'settings.purposes.slots_missing':
+            'Pipeline slots are missing from the shell (<code class="font-mono text-xs">oaao-purpose-allocation-registry</code>). Reload after bootstrap or check module load order. Raw <code class="font-mono text-xs">oaao_purpose</code> rows from the API (if any):',
+        'settings.purposes.orphan_empty': 'No purpose rows yet — confirm PostgreSQL canonical and that purposes_list succeeds.',
+        'settings.purposes.other_section': 'Other — unmatched routing keys ({{count}})',
+        'settings.purposes.chat_section_title': 'Chat completion endpoints',
+        'settings.purposes.chat_section_desc':
+            'Matches the legacy “create chat endpoint” flow. List tags: <strong>single</strong>, <strong>ToT</strong>, <strong>DTree</strong>; details still live in <code class="font-mono text-[0.6875rem]">config_json</code>.',
+        'settings.purposes.chat_profile_count_aria': 'Chat profile count',
+        'settings.purposes.assign_prefix': 'Assign the default LLM for <code class="font-mono text-[0.6875rem]">{{prefix}}</code>.',
+        'settings.purposes.llm_endpoint': 'LLM endpoint',
+        'settings.purposes.enabled': 'Enabled',
+        'settings.purposes.disabled_tag': 'disabled',
+        'settings.purposes.edit_details': 'Edit details',
+        'settings.purposes.save': 'Save',
+        'settings.purposes.card_incomplete_tooltip':
+            'Not configured yet — choose a default endpoint and save (for Chat: add an enabled profile with LLMs bound).',
+
+        // Endpoints list panel
+        'settings.endpoints.section_title': 'LLM endpoints',
+        'settings.endpoints.section_desc':
+            'Canonical provider rows (<code class="font-mono text-xs">oaao_endpoint</code>). Secrets stay in vault refs via <code class="font-mono text-xs">api_key_ref</code> when wired.',
+        'settings.endpoints.add': 'Add endpoint',
+        'settings.endpoints.cards_hint': 'Endpoints shown as cards — URL and model wrap within the dialog width.',
+        'settings.endpoints.empty': 'No endpoints yet.',
+        'settings.endpoints.type_combobox_placeholder': 'Select purpose types…',
+        'settings.endpoints.none_option': '— none —',
+        'settings.endpoints.card_disabled': 'disabled',
+        'settings.endpoints.card_actions_aria': 'Endpoint actions',
+        'settings.endpoints.edit': 'Edit',
+        'settings.endpoints.delete': 'Delete',
+        'settings.endpoints.field_base_url': 'Base URL',
+        'settings.endpoints.field_model': 'Model',
+        'settings.endpoints.field_id': 'ID',
+        'settings.endpoints.field_type': 'Type',
+
+        // Purpose rows table
+        'settings.purpose_rows.actions_aria': 'Row actions',
+
+        // Endpoint / purpose dialogs (labels)
+        'settings.ep.form.name': 'Name',
+        'settings.ep.form.endpoint_type': 'Endpoint type',
+        'settings.ep.form.endpoint_type_hint':
+            'Purpose prefixes (same family as <span class="font-mono text-[0.6875rem]">purpose_key</span>). Multiple types allowed — stored as a comma-separated list on the endpoint row.',
+        'settings.ep.form.base_url': 'Base URL',
+        'settings.ep.form.model': 'Model',
+        'settings.ep.form.api_key_ref': 'API key ref',
+        'settings.ep.form.enabled': 'Enabled',
+        'settings.ep.form.config_json': 'config_json',
+
+        'settings.pu.form.purpose_key': 'purpose_key',
+        'settings.pu.form.label': 'Label',
+        'settings.pu.form.description': 'Description',
+        'settings.pu.form.default_endpoint': 'Default endpoint',
+        'settings.pu.form.sort_order': 'sort_order',
+        'settings.pu.form.meta_json': 'meta_json',
+
+        'settings.asr.loading': 'Loading ASR configuration…',
+        'settings.asr.load_failed': 'Could not load ASR configuration.',
+        'settings.asr.postgresql_only': 'ASR pipeline settings require PostgreSQL (canonical purposes table).',
+        'settings.asr.no_purpose_row':
+            'No ASR purpose row yet. Save the ASR slot once under Purpose allocation, then return here.',
+        'settings.asr.routing_note': 'Default ASR endpoint (change under Purpose allocation): {endpoint}',
+        'settings.asr.intro':
+            'Pipeline tuning for vault audio and chat voice. Speaker mode uses the built-in FunASR sidecar; routing stays on Purpose allocation.',
+        'settings.asr.pipeline_legend': 'Pipeline mode',
+        'settings.asr.mode': 'Mode',
+        'settings.asr.mode_hint':
+            'Normal: flat transcript via your ASR endpoint. Speaker: built-in FunASR diarization (who spoke when).',
+        'settings.asr.mode_normal': 'Normal (flat text, chunked upload)',
+        'settings.asr.mode_speaker': 'Speaker (built-in FunASR diarization)',
+        'settings.asr.normal_legend': 'Normal mode',
+        'settings.asr.speaker_legend': 'Speaker mode',
+        'settings.asr.shared_legend': 'Shared',
+        'settings.asr.chunk_buffer_sec': 'Chunk buffer (seconds)',
+        'settings.asr.chunk_buffer_hint':
+            'Audio pad before/after each upload chunk (0–120 s). Leave empty for orchestrator default (3 s).',
+        'settings.asr.funasr_builtin':
+            'Built-in FunASR sidecar — enabling Speaker mode downloads the image and runs a smoke test.',
+        'settings.asr.funasr_provisioning': 'Downloading FunASR image and starting the built-in service…',
+        'settings.asr.funasr_checking': 'Checking built-in FunASR…',
+        'settings.asr.funasr_ready': 'Built-in FunASR passed smoke test — you can save.',
+        'settings.asr.funasr_failed': 'FunASR is not ready. Retry after the image finishes downloading.',
+        'settings.asr.funasr_retry': 'Retry download & smoke test',
+        'settings.asr.funasr_adapter_mode': 'FunASR adapter mode',
+        'settings.asr.funasr_adapter_mode_hint':
+            'Stub: dev fallback (may use your Qwen ASR text + estimated speakers). Pipeline: real local Paraformer + diarization (needs GPU & model download).',
+        'settings.asr.funasr_adapter_stub': 'Stub (dev / fallback)',
+        'settings.asr.funasr_adapter_pipeline': 'Pipeline (real FunASR)',
+        'settings.asr.funasr_spk_model': 'Speaker (SPK) model',
+        'settings.asr.funasr_spk_model_hint':
+            'CAM++ or compatible ModelScope id — required for real who-spoke-when labels in Pipeline mode.',
+        'settings.asr.funasr_spk_none': 'None (no diarization)',
+        'settings.asr.funasr_spk_campp_zh': 'CAM++ zh 16k (recommended)',
+        'settings.asr.funasr_spk_custom': 'Custom model id…',
+        'settings.asr.qwen_vs_funasr_hint':
+            'Normal mode uses your Qwen ASR endpoint (flat text). Speaker mode uses built-in FunASR for diarization — they are separate pipelines.',
+        'settings.asr.choose_guide_legend': 'When to choose',
+        'settings.asr.choose_normal_title': 'Normal — flat transcript',
+        'settings.asr.choose_normal_body':
+            'Pick when you only need the full text (search, RAG, subtitles) and do not care who spoke when. Uses your ASR endpoint under Purpose allocation (e.g. Qwen). Low resource; long files are chunked.',
+        'settings.asr.choose_speaker_stub_title': 'Speaker + Stub — speaker UI, estimated timing',
+        'settings.asr.choose_speaker_stub_body':
+            'Pick when you want the vault Speaker transcript UI (S1/S2 cards, seek) but have no GPU or FunASR models yet. Text often comes from your Qwen ASR; speaker labels and timestamps are approximate (pseudo diarization). Good for dev/demo — re-transcribe after switching to Pipeline.',
+        'settings.asr.choose_speaker_pipeline_title': 'Speaker + Pipeline + SPK — real diarization',
+        'settings.asr.choose_speaker_pipeline_body':
+            'Pick when you need accurate who-spoke-when for meetings: set Adapter to Pipeline and choose a SPK model (e.g. CAM++). Requires GPU, model download, and re-transcribe existing files. Enables voiceprint auto-naming.',
+        'settings.asr.guide_active_label': 'Your current selection',
+        'settings.asr.guide_active_normal':
+            'Normal mode — vault audio becomes flat text via your configured ASR endpoint. No speaker labels.',
+        'settings.asr.guide_active_speaker_stub':
+            'Speaker + Stub — Speaker transcript UI with estimated speakers/times. Expect a pseudo-diarization notice in the transcript dialog.',
+        'settings.asr.guide_active_speaker_pipeline_no_spk':
+            'Speaker + Pipeline without SPK — FunASR runs locally but diarization is limited until you select a SPK model (CAM++ recommended).',
+        'settings.asr.guide_active_speaker_pipeline':
+            'Speaker + Pipeline + SPK — production path: real speaker segments, better timeline alignment, and voiceprint matching.',
+        'settings.asr.normal_when_hint':
+            'Best for: archives, podcasts, content where speaker identity does not matter.',
+        'settings.asr.speaker_when_hint':
+            'After enabling Speaker, choose Stub (transition) or Pipeline + SPK (production) below.',
+        'settings.asr.save_blocked_not_ready':
+            'Save is blocked until built-in FunASR finishes loading and passes the smoke test.',
+        'settings.asr.speaker_count': 'Speaker count (hint)',
+        'settings.asr.language_hints': 'Language hints',
+        'settings.asr.enable_itn': 'Inverse text normalization (ITN)',
+        'settings.asr.save': 'Save pipeline settings',
+        'settings.asr.saving': 'Saving…',
+        'settings.asr.saved': 'Pipeline settings saved.',
+        'settings.asr.save_failed': 'Save failed ({status}).',
+
+        'settings.nav.rag.label': 'RAG',
+        'settings.nav.rag.title': 'Retrieval tuning',
+        'settings.nav.rag.sub':
+            'Qdrant top-K, similarity threshold, GraphRAG limits, and ASR transcript retrieval boosts.',
+        'settings.rag.loading': 'Loading RAG configuration…',
+        'settings.rag.load_failed': 'Could not load RAG configuration.',
+        'settings.rag.postgresql_only': 'RAG retrieval settings require PostgreSQL (canonical purposes table).',
+        'settings.rag.no_purpose_row':
+            'No embedding purpose row found. Add embedding or embedding.primary under Purpose allocation and assign your vector model first.',
+        'settings.rag.routing_note':
+            'Stored on your embedding purpose ({endpoint}). Chat vault retrieval uses this model for vectors — not the unused RAG LLM slot.',
+        'settings.rag.retrieval_legend': 'Vector retrieval',
+        'settings.rag.retrieval_intro':
+            'Controls how many Qdrant chunks are fetched per vault and the minimum cosine similarity for chat grounding.',
+        'settings.rag.qdrant_limit': 'Chunks per vault (top-K)',
+        'settings.rag.qdrant_limit_hint': 'Default 6. Higher values retrieve more passages but increase LLM context size (2–24).',
+        'settings.rag.min_score': 'Minimum similarity score',
+        'settings.rag.min_score_hint': 'Chunks below this score are dropped (0–1). Default 0.38.',
+        'settings.rag.graph_limit': 'GraphRAG context lines',
+        'settings.rag.graph_limit_hint': 'Max Arango graph snippets merged per query (4–16). Default 12.',
+        'settings.rag.asr_boost_legend': 'ASR / meeting transcript boosts',
+        'settings.rag.asr_boost_intro':
+            'Additive score boosts after vector search so meeting summaries and ASR transcripts rank higher when competing with PDFs.',
+        'settings.rag.transcript_summary_boost': 'Transcript summary boost',
+        'settings.rag.transcript_summary_boost_hint': 'Added to similarity for transcript_summary chunks (0–0.3). Default 0.10.',
+        'settings.rag.asr_transcript_boost': 'ASR transcript boost',
+        'settings.rag.asr_transcript_boost_hint': 'Added to similarity for full ASR plain-text chunks (0–0.2). Default 0.03.',
+        'settings.rag.save': 'Save retrieval settings',
+        'settings.rag.saving': 'Saving…',
+        'settings.rag.saved': 'Retrieval settings saved.',
+        'settings.rag.save_failed': 'Save failed ({status}).',
+
+        'settings.nav.planner.label': 'Task planner',
+        'settings.nav.planner.title': 'Run task planner',
+        'settings.nav.planner.sub':
+            'LLM dynamic checklist vs fixed pipeline — stored on planning.* purpose meta.',
+        'settings.planner.loading': 'Loading task planner configuration…',
+        'settings.planner.load_failed': 'Could not load task planner configuration.',
+        'settings.planner.postgresql_only': 'Task planner settings require PostgreSQL (canonical purposes table).',
+        'settings.planner.no_purpose_row':
+            'No planning purpose row found. Add planning or planning.primary under Purpose allocation first.',
+        'settings.planner.routing_note':
+            'Stored on your planning purpose ({endpoint}). Chat runs read this on every send — env OAAO_RUN_PLANNER_MODE applies only when meta is unset.',
+        'settings.planner.mode_legend': 'Planner mode',
+        'settings.planner.mode_intro':
+            'Controls how the orchestrator builds the visible task checklist before the main assistant stream.',
+        'settings.planner.mode_llm': 'LLM task planner (dynamic checklist)',
+        'settings.planner.mode_llm_hint':
+            'One non-streaming LLM call plans Run Tasks (vault RAG, agents, compose reply). Recommended.',
+        'settings.planner.mode_stub': 'Fixed pipeline only',
+        'settings.planner.mode_stub_hint':
+            'Skip LLM planning — use the deterministic vault → attachments → compose sequence (Phase 1).',
+        'settings.planner.save': 'Save planner settings',
+        'settings.planner.saving': 'Saving…',
+        'settings.planner.saved': 'Planner settings saved.',
+        'settings.planner.save_failed': 'Save failed ({status}).',
+        'settings.planner.agents_legend': 'Allowed agents',
+        'settings.planner.agents_intro':
+            'Planner and the agent registry only use checked capabilities for this tenant. Uncheck to hide an ability from dynamic task plans.',
+        'settings.planner.agent.vault_rag': 'Knowledge base (vault RAG)',
+        'settings.planner.agent.sandbox_code': 'Sandbox code',
+        'settings.planner.agent.slides': 'Slides / deck export (legacy)',
+        'settings.planner.agent.slide_designer': 'Slide designer',
+        'settings.planner.agent.image_gen': 'Image generation',
+        'settings.planner.agent.web_search': 'Web search',
+        'settings.planner.agent.mcp_tool': 'MCP integrations',
+
+        'workspace.task.agents_heading': 'Agents',
+        'workspace.task.agents_page_title': 'Agents',
+        'workspace.task.tab_steps': 'Steps',
+        'workspace.task.tab_agents': 'Agents',
+        'workspace.task.agent_hooked': 'In use',
+        'workspace.task.agent_desc.vault_rag': 'Retrieve answers from vault sources',
+        'workspace.task.agent_desc.sandbox_code': 'Write and run code in an isolated environment',
+        'workspace.task.agent_desc.slides': 'Generate presentation decks (legacy stub)',
+        'workspace.task.agent_desc.slide_designer':
+            'Create slide projects, per-page HTML, and deck export — continue in conversation materials',
+        'workspace.task.agent_desc.image_gen': 'Generate images from prompts',
+        'workspace.task.agent_desc.web_search': 'Search the public web for live information',
+        'workspace.composer.web_search': 'Web search',
+        'workspace.composer.planner_steps': 'Planner steps',
+        'workspace.task.agent_desc.mcp_tool': 'Call connected MCP tools',
+
+        'chat.materials.toolbar_tip': 'View all files in this task',
+        'chat.materials.dialog_title': 'All files in this task',
+        'chat.materials.filter_all': 'All',
+        'chat.materials.filter_documents': 'Documents',
+        'chat.materials.filter_images': 'Images',
+        'chat.materials.filter_code': 'Code files',
+        'chat.materials.filter_links': 'Links',
+        'chat.materials.section_earlier': 'Earlier',
+        'chat.materials.empty': 'No files in this category.',
+        'chat.materials.download_all': 'Download all',
+        'chat.materials.close': 'Close',
+        'chat.materials.load_failed': 'Could not load materials',
+
+        'chat.desk_mode.badge': 'Desk Mode',
+        'chat.agent_ask.proceed': 'Run',
+        'chat.agent_ask.skip': 'Skip',
+        'chat.agent_ask.fork_new_chat': 'New chat for this mode',
+        'chat.agent_ask.fork_done': 'Opened a new chat for the other mode',
+        'chat.agent_ask.fork_failed': 'Could not start a new chat',
+        'chat.agent_ask.waiting': 'Waiting for your confirmation…',
+        'chat.agent_ask.failed': 'Could not apply agent decision',
+        'chat.agent_ask.slide_designer.title': 'Start slide designer?',
+        'chat.agent_ask.slide_designer.message':
+            'I can build a slide deck (outline, per-slide HTML, export). Proceed with the slide designer for this reply?',
+        'chat.agent_ask.generic.title': 'Confirm next step',
+        'chat.agent_ask.generic.message': 'The planner wants to run a specialized agent. Proceed?',
+
+        'rag.citation.transcript_summary': 'Transcript summary',
+        'rag.citation.asr_transcript': 'ASR transcript',
+        'rag.citation.open_transcript': 'Open transcript',
+        'rag.citation.open_transcript_seek': 'Open transcript at this time',
+
+        'settings.pu.asr.legend': 'ASR pipeline',
+        'settings.pu.asr.hint':
+            'Choose how vault audio is transcribed. Normal mode uses your default ASR endpoint; Speaker mode adds who-spoke-when labels.',
+        'settings.pu.asr.mode': 'Mode',
+        'settings.pu.asr.mode_normal': 'Normal ASR (flat text, chunked upload)',
+        'settings.pu.asr.mode_speaker': 'Speaker mode (built-in FunASR diarization)',
+        'settings.pu.asr.chunk_buffer_sec': 'Chunk buffer (seconds)',
+        'settings.pu.asr.chunk_buffer_hint':
+            'Audio pad before/after each upload chunk (0–120 s). Leave empty for orchestrator default (3 s).',
+        'settings.pu.asr.funasr_base_url': 'FunASR base URL',
+        'settings.pu.asr.funasr_builtin':
+            'Speaker mode uses the built-in FunASR sidecar (managed by this stack). Image download and smoke test run when you enable Speaker mode.',
+        'settings.pu.asr.funasr_provisioning': 'Downloading FunASR image and starting the built-in service…',
+        'settings.pu.asr.funasr_checking': 'Checking built-in FunASR…',
+        'settings.pu.asr.funasr_ready': 'Built-in FunASR passed smoke test — you can save.',
+        'settings.pu.asr.funasr_failed': 'FunASR is not ready. Retry after the image finishes downloading.',
+        'settings.pu.asr.funasr_retry': 'Retry download & smoke test',
+        'settings.pu.asr.save_blocked_not_ready':
+            'Save is blocked until built-in FunASR finishes loading and passes the smoke test.',
+        'settings.pu.asr.speaker_count': 'Speaker count (hint)',
+        'settings.pu.asr.language_hints': 'Language hints',
+        'settings.pu.asr.enable_itn': 'Inverse text normalization (ITN)',
+        'settings.pu.asr.meta_preview': 'Saved meta_json preview',
+
+        // Slots (PurposeAllocationRegister)
+        'settings.slot.chat.label': 'Chat',
+        'settings.slot.chat.sub':
+            'Registered chat pipeline — multiple chat-endpoint profiles in the selector; rows here set default LLMs per routing key.',
+        'settings.slot.planning.label': 'Planning',
+        'settings.slot.planning.sub':
+            'Planner and step routing for chat-side orchestration (<code class="font-mono text-xs">planning.*</code>).',
+        'settings.slot.embedding.label': 'Embedding',
+        'settings.slot.embedding.sub': 'Vector embedding models — RAG module (retrieval index / passage vectors).',
+        'settings.slot.slide_template.label': 'Slide template',
+        'settings.slot.slide_template.sub':
+            'LLM for PPTX import analyze, dummy preview slides, fix, and publish (slide_template.*).',
+        'settings.slot.rerank.label': 'Rerank',
+        'settings.slot.rerank.sub': 'Cross-encoder / passage reranking — RAG module.',
+        'settings.slot.rag.label': 'RAG',
+        'settings.slot.rag.sub':
+            'Retrieval-augmented generation orchestration (retrieve → optionally rerank → generate).',
+        'settings.slot.vault.label': 'Vault summary',
+        'settings.slot.vault.sub':
+            'Knowledge-base summarisation and vault-grounded routing — RAG pipeline facet (<code class="font-mono text-xs">vault.*</code>).',
+        'settings.slot.graph_rag.label': 'Graph RAG',
+        'settings.slot.graph_rag.sub':
+            'Knowledge-graph construction and hybrid retrieval over ArangoDB plus vectors (<code class="font-mono text-xs">graph.*</code>).',
+        'settings.slot.uiqe.label': 'Input quality',
+        'settings.slot.uiqe.sub': 'Pre-flight scoring (e.g. IQS / ACCS) — fast, low-cost models.',
+        'settings.slot.asr.label': 'ASR',
+        'settings.slot.asr.sub':
+            'Speech-to-text routing — pick a default endpoint here. Pipeline mode, chunk buffer, and Speaker settings are under Settings → ASR.',
+        'settings.slot.asr.pipeline_hint': 'Open Settings → ASR for pipeline mode, chunk buffer, Speaker / FunASR, and language hints.',
+        'settings.slot.asr_summary.label': 'ASR Summary',
+        'settings.slot.asr_summary.sub':
+            'LLM for View Transcript → Customize Summary (<code class="font-mono text-xs">asr_summary.*</code>).',
+        'settings.slot.polish.label': 'ASR polish',
+        'settings.slot.polish.sub': 'Transcript cleanup after speech recognition (<code class="font-mono text-xs">polish.*</code>).',
+        'settings.slot.other.label': 'Other',
+        'settings.slot.other.title': 'Other purposes',
+        'settings.slot.other.sub': 'Routing keys that do not match any registered prefix above.',
+
+        // Chat completion profile UI (Purpose allocation + dialogs)
+        'chat.profile.type.single': 'Single',
+        'chat.profile.type.tree': 'Tree of thought',
+        'chat.profile.type.ddtree': 'DDTree',
+        'chat.profile.type.single_short': 'Single',
+        'chat.profile.type.tree_short': 'ToT',
+        'chat.profile.type.ddtree_short': 'DTree',
+        'chat.profile.desc.single': 'Single-path completion — general chat and streaming drafts.',
+        'chat.profile.desc.tree': 'Tree-of-thought · hint, expand, and judge stages.',
+        'chat.profile.desc.ddtree': 'Decision / dependency tree · structured branching.',
+        'chat.profile.summary.temp': 'Temperature {{t}}',
+        'chat.profile.summary.temp_fjt': 'Temperature {{t}} · fast-judge {{f}}',
+        'chat.profile.edit': 'Edit',
+        'chat.profile.delete': 'Delete',
+        'chat.profile.set_default': 'Set as default',
+        'chat.profile.create_btn': 'Create chat endpoint',
+        'chat.profile.head_title': 'Chat completion profiles',
+        'chat.profile.count_aria': 'Profile count',
+        'chat.profile.hint_empty_list': 'After creating a profile, expand the list here to manage it.',
+        'chat.profile.hint_default': 'Default view: <strong class="fw-semibold fg-[var(--grid-ink)]">{{name}}</strong> · {{mode}}',
+        'chat.profile.hint_expand': 'Expand to edit each profile.',
+        'chat.profile.list_empty': 'No profiles yet — use “Create chat endpoint” above.',
+        'chat.profile.role.default': 'Model',
+        'chat.profile.role.hint': 'Hint',
+        'chat.profile.role.expand': 'Expand',
+        'chat.profile.role.judge': 'Judge',
+        'chat.profile.select_endpoint': 'Choose endpoint…',
+        'chat.profile.no_llm': 'No LLM bound yet — edit this profile.',
+        'chat.profile.disabled': 'Disabled',
+        'chat.profile.actions_aria': 'Profile actions',
+        'chat.profile.redirect.title': 'Chat completion endpoints',
+        'chat.profile.redirect.body':
+            'Moved to <strong>Settings → Purpose allocation</strong> under Chat: use the <strong>dropdown list</strong> for profiles (title, description, type tags <strong>single</strong> / <strong>ToT</strong> / <strong>DTree</strong>), and <strong>Create chat endpoint</strong> for details.',
+        'chat.profile.form.name': 'Name',
+        'chat.profile.form.name_ph': 'e.g. GPT-4o, fast draft…',
+        'chat.profile.form.type': 'Type',
+        'chat.profile.form.llm_default': 'LLM endpoint',
+        'chat.profile.form.llm_hint': 'Hint',
+        'chat.profile.form.llm_expand': 'Expand',
+        'chat.profile.form.llm_judge': 'Judge',
+        'chat.profile.form.fjt_label': 'Fast-judge threshold',
+        'chat.profile.form.fjt_help':
+            'When confidence exceeds this value, the final answer streams from the fast draft model instead of the heavy judge model.',
+        'chat.profile.form.temp': 'Temperature',
+        'chat.profile.form.enabled': 'Enabled',
+        'chat.profile.form.is_default': 'Set as default',
+        'chat.profile.dialog.no_shell': 'Could not open dialog.',
+        'chat.profile.dialog.no_endpoints': 'Add at least one LLM endpoint under Settings → Endpoints first.',
+        'chat.profile.dialog.edit_title': 'Edit chat endpoint',
+        'chat.profile.dialog.create_title': 'Create chat endpoint',
+        'chat.profile.dialog.cancel': 'Cancel',
+        'chat.profile.dialog.save': 'Save',
+        'chat.profile.dialog.create': 'Create',
+        'chat.profile.dialog.saving': 'Saving…',
+        'chat.profile.dialog.save_failed': 'Save failed ({{status}})',
+        'chat.profile.dialog.reload_failed': 'Reload failed',
+        'chat.profile.delete_confirm_title': 'Delete chat endpoint?',
+        'chat.profile.delete_confirm_body':
+            'Delete profile <strong>#{{id}}</strong>? This cannot be undone.',
+        'chat.profile.delete_failed': 'Delete failed ({{status}})',
+        'chat.profile.default_view_mode.single': 'Single',
+        'chat.profile.default_view_mode.tree': 'Tree of thought (ToT)',
+        'chat.profile.default_view_mode.ddtree': 'DDTree (DTree)',
+        'chat.profile.form.type_ddtree_long': 'DDTree (decision / dependency tree)',
+        'chat.settings.assistant_stream_title': 'Assistant stream',
+        'chat.settings.assistant_stream_desc':
+            'Orchestrator phases stay on the Python SSE terminal — PHP serves JSON only.',
+        'chat.settings.phased_stream_checkbox': 'Show phased activity stream',
+
+        'settings.errors.load_endpoints': 'Failed to load endpoints',
+        'settings.errors.load_purposes': 'Failed to load purposes',
+        'settings.errors.load_generic': 'Failed to load',
+        'settings.errors.dialog_unavailable': 'Dialog component unavailable.',
+
+        'settings.endpoints.dialog.edit_title': 'Edit endpoint',
+        'settings.endpoints.dialog.add_title': 'Add endpoint',
+        'settings.endpoints.dialog.cancel': 'Cancel',
+        'settings.endpoints.dialog.save': 'Save',
+        'settings.endpoints.dialog.saving': 'Saving…',
+        'settings.endpoints.dialog.save_failed': 'Save failed ({{status}})',
+        'settings.endpoints.dialog.reload_failed': 'Reload failed',
+
+        'settings.endpoints.delete_confirm_title': 'Delete endpoint?',
+        'settings.endpoints.delete_confirm_body':
+            'Delete endpoint <strong>#{{id}}</strong>? This cannot be undone.',
+        'settings.endpoints.delete_failed': 'Delete failed ({{status}})',
+
+        'settings.purpose.dialog.edit_title': 'Edit routing row',
+        'settings.purpose.dialog.add_title': 'Add routing row',
+        'settings.purpose.dialog.cancel': 'Cancel',
+        'settings.purpose.dialog.save': 'Save',
+        'settings.purpose.dialog.saving': 'Saving…',
+        'settings.purpose.dialog.save_failed': 'Save failed ({{status}})',
+        'settings.purpose.dialog.reload_failed': 'Reload failed',
+
+        'settings.purpose.delete_confirm_title': 'Delete purpose?',
+        'settings.purpose.delete_confirm_body':
+            'Delete purpose <strong>#{{id}}</strong>? This cannot be undone.',
+        'settings.purpose.delete_failed': 'Delete failed ({{status}})',
+        'settings.purpose.rows_empty': 'No rows.',
+
+        'settings.endpoints.endpoint_type_custom': 'custom',
+    },
+    'zh-Hant': {
+        'settings.dialog.title': '管理員設定',
+        'settings.dialog.nav_aria': '管理員設定區塊',
+        'settings.dialog.loading_panel': '載入中…',
+        'settings.dialog.empty_nav_label': '管理員設定',
+        'settings.dialog.empty_nav_sub': '尚未註冊任何管理員區塊。',
+        'settings.dialog.empty_nav_body':
+            '<p class="text-sm fg-[var(--grid-ink-muted)]">管理員模組透過 <code class="font-mono text-xs">settings.register</code>（PHP）註冊全域面板。</p>',
+        'settings.dialog.panel_load_failed': '無法載入面板（{{status}}）。',
+        'settings.dialog.panel_load_failed_generic': '無法載入面板。',
+        'settings.dialog.panel_none': '此區塊未註冊面板來源。',
+        'settings.dialog.panel_error': '載入此面板失敗。',
+
+        'workspace.rail_chat_title': '聊天',
+        'workspace.rail_vault_title': 'Vault',
+        'workspace.rail_agents_title': 'Agent',
+        'workspace.vault_menu_heading': '文件庫',
+        'workspace.agents.page_title': 'Agent',
+        'workspace.agents.page_intro':
+            '此工作區可用的能力。任務規劃器每次執行可能只啟用其中一部分 — 請在「設定 → 任務規劃器」調整。',
+        'workspace.agents.badge_enabled': '已啟用',
+        'workspace.agents.badge_disabled': '未啟用',
+
+        'live_meeting.title': '即時會議',
+        'live_meeting.subtitle': '麥克風即時轉寫字幕',
+        'live_meeting.start_mic': '開始麥克風',
+        'live_meeting.stop_mic': '停止',
+        'live_meeting.keep_audio': '保留伺服器上的錄音',
+        'live_meeting.status.idle': '閒置',
+        'live_meeting.status.starting': '啟動中…',
+        'live_meeting.status.recording': '錄音中',
+        'live_meeting.status.error': '錯誤',
+        'live_meeting.status.stopping': '停止中…',
+        'live_meeting.conn.sse_connected': '字幕串流已連線',
+        'live_meeting.conn.sse_reconnecting': '字幕串流重新連線中…',
+        'live_meeting.conn.ws_open': '音訊上傳已連線',
+        'live_meeting.conn.ws_closed': '音訊上傳已關閉',
+        'live_meeting.conn.ws_failed': '音訊上傳失敗',
+        'live_meeting.error.mic_denied': '未取得麥克風權限',
+        'live_meeting.error.mic_ws': '麥克風或音訊上傳失敗',
+        'live_meeting.error.asr_not_configured': '未設定語音辨識（設定 → ASR）',
+        'live_meeting.error.session_start': '無法啟動即時會議',
+        'live_meeting.transcript.empty': '開始說話後，轉寫內容會顯示於此。',
+
+        'settings.nav.endpoints.label': '端點',
+        'settings.nav.endpoints.title': 'LLM 端點',
+        'settings.nav.endpoints.sub':
+            '認證資料庫上的標準供應商列（<code class="font-mono text-xs">oaao_endpoint</code>）。',
+
+        'settings.nav.asr.label': '語音辨識',
+        'settings.nav.asr.title': '語音管線',
+        'settings.nav.asr.sub':
+            '一般／Speaker 模式、分段緩衝、說話者分離與語言提示 — 與用途分配（路由）分開設定。',
+
+        'settings.nav.purposes.label': '用途分配',
+        'settings.nav.purposes.title': '用途分配',
+        'settings.nav.purposes.sub':
+            '區塊為<strong>已註冊的管線群組</strong>（來自 <code class="font-mono text-xs">oaaoai/endpoints</code> 的 <code class="font-mono text-xs">PurposeAllocationRegister</code>）。此面板透過 <code class="font-mono text-xs">oaao_purpose</code>（PostgreSQL）設定根預設 LLM。聊天模式與選擇器設定檔由<strong>聊天</strong>模組設定。下游工具會一併使用登錄檔與 purpose 列。',
+
+        'settings.purposes.intro_title': '用途分配',
+        'settings.purposes.intro_body':
+            '每個區塊為<strong>已註冊管線</strong>—可摺疊卡片（<code class="font-mono text-xs">details</code> / summary）。非聊天管線會為 <code class="font-mono text-xs">oaao_purpose</code> 設定根預設 LLM。<strong>聊天</strong>管線僅在此列出<strong>聊天完成設定檔</strong>（不重複根 LLM 選擇器）。',
+        'settings.purposes.pg_only':
+            '僅儲存在 <strong>PostgreSQL</strong>。請將 <code class="font-mono text-xs">auth.database.driver</code> 設為 <span class="font-mono text-xs">pgsql</span> 以編輯分配。',
+        'settings.purposes.slots_missing':
+            'Shell 缺少管線槽位（<code class="font-mono text-xs">oaao-purpose-allocation-registry</code>）。請在開機後重新載入或檢查模組載入順序。API 回傳的原始 <code class="font-mono text-xs">oaao_purpose</code> 列（若有）：',
+        'settings.purposes.orphan_empty': '尚無 purpose 列 — 請確認 PostgreSQL 與 purposes_list API。',
+        'settings.purposes.other_section': '其他 — 未對應的路由鍵（{{count}}）',
+        'settings.purposes.chat_section_title': '聊天完成端點',
+        'settings.purposes.chat_section_desc':
+            '對應舊版「建立聊天端點」。列表標籤：<strong>單一</strong>（single）、<strong>ToT</strong>（思維樹）、<strong>DTree</strong>（DDTree）；細項仍寫入 <code class="font-mono text-[0.6875rem]">config_json</code>。',
+        'settings.purposes.chat_profile_count_aria': '聊天設定檔數量',
+        'settings.purposes.assign_prefix': '為 <code class="font-mono text-[0.6875rem]">{{prefix}}</code> 指定預設 LLM。',
+        'settings.purposes.llm_endpoint': 'LLM 端點',
+        'settings.purposes.enabled': '啟用',
+        'settings.purposes.disabled_tag': '已停用',
+        'settings.purposes.edit_details': '編輯細項',
+        'settings.purposes.save': '儲存',
+        'settings.purposes.card_incomplete_tooltip':
+            '尚未設定 — 請選擇預設端點並儲存（聊天用途請新增已啟用並綁定 LLM 的設定檔）。',
+
+        'settings.endpoints.section_title': 'LLM 端點',
+        'settings.endpoints.section_desc':
+            '標準供應商列（<code class="font-mono text-xs">oaao_endpoint</code>）。機密請透過 <code class="font-mono text-xs">api_key_ref</code> 綁定保管庫。',
+        'settings.endpoints.add': '新增端點',
+        'settings.endpoints.cards_hint': '端點以卡片顯示 — URL 與模型會在對話框寬度內換行。',
+        'settings.endpoints.empty': '尚無端點。',
+        'settings.endpoints.type_combobox_placeholder': '選擇用途類型…',
+        'settings.endpoints.none_option': '— 無 —',
+        'settings.endpoints.card_disabled': '已停用',
+        'settings.endpoints.card_actions_aria': '端點操作',
+        'settings.endpoints.edit': '編輯',
+        'settings.endpoints.delete': '刪除',
+        'settings.endpoints.field_base_url': 'Base URL',
+        'settings.endpoints.field_model': '模型',
+        'settings.endpoints.field_id': 'ID',
+        'settings.endpoints.field_type': '類型',
+
+        'settings.purpose_rows.actions_aria': '列操作',
+
+        'settings.ep.form.name': '名稱',
+        'settings.ep.form.endpoint_type': '端點類型',
+        'settings.ep.form.endpoint_type_hint':
+            '用途前綴（與 <span class="font-mono text-[0.6875rem]">purpose_key</span> 同家族）。可多選 — 以逗號分隔存於端點列。',
+        'settings.ep.form.base_url': 'Base URL',
+        'settings.ep.form.model': '模型',
+        'settings.ep.form.api_key_ref': 'API 金鑰參照',
+        'settings.ep.form.enabled': '啟用',
+        'settings.ep.form.config_json': 'config_json',
+
+        'settings.pu.form.purpose_key': 'purpose_key',
+        'settings.pu.form.label': '標籤',
+        'settings.pu.form.description': '說明',
+        'settings.pu.form.default_endpoint': '預設端點',
+        'settings.pu.form.sort_order': 'sort_order',
+        'settings.pu.form.meta_json': 'meta_json',
+
+        'settings.asr.loading': '正在載入 ASR 設定…',
+        'settings.asr.load_failed': '無法載入 ASR 設定。',
+        'settings.asr.postgresql_only': 'ASR 管線設定需要 PostgreSQL（canonical purposes 表）。',
+        'settings.asr.no_purpose_row': '尚無 ASR purpose 列。請先在「用途分配」儲存 ASR 區塊，再返回此處。',
+        'settings.asr.routing_note': '預設 ASR 端點（在「用途分配」變更）：{endpoint}',
+        'settings.asr.intro':
+            'Vault 音檔與聊天語音的管線設定。Speaker 模式使用內建 FunASR；路由仍在「用途分配」。',
+        'settings.asr.pipeline_legend': '管線模式',
+        'settings.asr.mode': '模式',
+        'settings.asr.mode_hint': '一般：透過 ASR 端點輸出扁平文字。Speaker：內建 FunASR 說話者分離。',
+        'settings.asr.mode_normal': '一般（扁平文字、分段上傳）',
+        'settings.asr.mode_speaker': 'Speaker（內建 FunASR 說話者分離）',
+        'settings.asr.normal_legend': '一般模式',
+        'settings.asr.speaker_legend': 'Speaker 模式',
+        'settings.asr.shared_legend': '共用',
+        'settings.asr.chunk_buffer_sec': '分段緩衝（秒）',
+        'settings.asr.chunk_buffer_hint': '每個上傳 chunk 前後保留的秒數（0–120）。留空則用 orchestrator 預設（3 秒）。',
+        'settings.asr.funasr_builtin': '內建 FunASR sidecar — 啟用 Speaker 模式會下載映像並執行 smoke test。',
+        'settings.asr.funasr_provisioning': '正在下載 FunASR 映像並啟動內建服務…',
+        'settings.asr.funasr_checking': '正在檢查內建 FunASR…',
+        'settings.asr.funasr_ready': '內建 FunASR 已通過 smoke test，可以儲存。',
+        'settings.asr.funasr_failed': 'FunASR 尚未就緒。請等映像下載完成後重試。',
+        'settings.asr.funasr_retry': '重試下載與 smoke test',
+        'settings.asr.funasr_adapter_mode': 'FunASR 適配器模式',
+        'settings.asr.funasr_adapter_mode_hint':
+            'Stub：開發 fallback（可能用 Qwen ASR 文字 + 估算說話者）。Pipeline：本地 Paraformer + 說話者分離（需 GPU 與下載模型）。',
+        'settings.asr.funasr_adapter_stub': 'Stub（開發 / fallback）',
+        'settings.asr.funasr_adapter_pipeline': 'Pipeline（真 FunASR）',
+        'settings.asr.funasr_spk_model': '說話者（SPK）模型',
+        'settings.asr.funasr_spk_model_hint': 'CAM++ 或 ModelScope 模型 id — Pipeline 模式要真 diarization 必須設定。',
+        'settings.asr.funasr_spk_none': '無（不做 diarization）',
+        'settings.asr.funasr_spk_campp_zh': 'CAM++ 中文 16k（建議）',
+        'settings.asr.funasr_spk_custom': '自訂模型 id…',
+        'settings.asr.qwen_vs_funasr_hint':
+            '一般模式走 Qwen ASR 端點（扁平文字）；Speaker 模式走內建 FunASR 做說話者分離 — 兩者是不同管線。',
+        'settings.asr.choose_guide_legend': '何時選擇',
+        'settings.asr.choose_normal_title': 'Normal — 普通轉文字',
+        'settings.asr.choose_normal_body':
+            '只要全文、不需要「誰在何時說話」時選這個（搜尋、RAG、純字幕）。走「用途分配」的 ASR 端點（例如 Qwen）。資源需求低；長音檔可分段上傳。',
+        'settings.asr.choose_speaker_stub_title': 'Speaker + Stub — 有說話者 UI，時間為估算',
+        'settings.asr.choose_speaker_stub_body':
+            '想要 vault 轉寫稿的 Speaker 版面（S1/S2 卡片、跳播），但尚未有 GPU 或 FunASR 模型。文字常仍來自 Qwen；說話者與時間軸多為估算（pseudo diarization）。適合開發／demo — 日後改 Pipeline 請重新轉寫。',
+        'settings.asr.choose_speaker_pipeline_title': 'Speaker + Pipeline + SPK — 真實說話者分離',
+        'settings.asr.choose_speaker_pipeline_body':
+            '會議紀要需要準確「誰在幾點幾分說」時選這個：Adapter 設 Pipeline，並選 SPK 模型（如 CAM++）。需 GPU、下載模型，既有檔案要重新轉寫。可配合聲紋自動對名。',
+        'settings.asr.guide_active_label': '你目前的設定',
+        'settings.asr.guide_active_normal':
+            'Normal 模式 — vault 音檔透過 ASR 端點轉成扁平文字，沒有說話者標記。',
+        'settings.asr.guide_active_speaker_stub':
+            'Speaker + Stub — 有 Speaker 轉寫 UI，但說話者／時間多為估算。轉寫稿會顯示 pseudo diarization 提示。',
+        'settings.asr.guide_active_speaker_pipeline_no_spk':
+            'Speaker + Pipeline 但未選 SPK — FunASR 本地跑起來了，要真 diarization 請選 SPK 模型（建議 CAM++）。',
+        'settings.asr.guide_active_speaker_pipeline':
+            'Speaker + Pipeline + SPK — 正式環境：真實說話者分段、時間軸較準、可聲紋自動對名。',
+        'settings.asr.normal_when_hint': '適用：存檔、播客、不需區分說話者的內容。',
+        'settings.asr.speaker_when_hint': '啟用 Speaker 後，下方選 Stub（過渡）或 Pipeline + SPK（正式）。',
+        'settings.asr.save_blocked_not_ready': '內建 FunASR 載入並通過 smoke test 後才能儲存。',
+        'settings.asr.speaker_count': '說話者人數（提示）',
+        'settings.asr.language_hints': '語言提示',
+        'settings.asr.enable_itn': '逆文本正規化（ITN）',
+        'settings.asr.save': '儲存管線設定',
+        'settings.asr.saving': '儲存中…',
+        'settings.asr.saved': '管線設定已儲存。',
+        'settings.asr.save_failed': '儲存失敗（{status}）。',
+
+        'settings.nav.rag.label': 'RAG',
+        'settings.nav.rag.title': '檢索調校',
+        'settings.nav.rag.sub': 'Qdrant 每 vault 取段數、相似度門檻、GraphRAG 上限，以及 ASR 轉寫檢索加權。',
+        'settings.rag.loading': '正在載入 RAG 設定…',
+        'settings.rag.load_failed': '無法載入 RAG 設定。',
+        'settings.rag.postgresql_only': 'RAG 檢索設定需要 PostgreSQL（canonical purposes 表）。',
+        'settings.rag.no_purpose_row': '找不到 embedding purpose 列。請先在「用途分配」新增 embedding 或 embedding.primary 並指定向量模型。',
+        'settings.rag.routing_note':
+            '設定寫入 embedding purpose（{endpoint}）。Chat 保管庫檢索使用此向量模型 — 與未使用的 RAG LLM slot 無關。',
+        'settings.rag.retrieval_legend': '向量檢索',
+        'settings.rag.retrieval_intro': '控制每個 vault 從 Qdrant 取多少 chunk，以及 Chat  grounding 的最低相似度。',
+        'settings.rag.qdrant_limit': '每 vault 段落數（top-K）',
+        'settings.rag.qdrant_limit_hint': '預設 6。數值愈大檢索愈多，但 LLM context 也愈大（2–24）。',
+        'settings.rag.min_score': '最低相似度分數',
+        'settings.rag.min_score_hint': '低於此分數的 chunk 會被捨棄（0–1）。預設 0.38。',
+        'settings.rag.graph_limit': 'GraphRAG 上下文行數',
+        'settings.rag.graph_limit_hint': '每次查詢合併的 Arango 圖譜片段上限（4–16）。預設 12。',
+        'settings.rag.asr_boost_legend': 'ASR／會議轉寫加權',
+        'settings.rag.asr_boost_intro': '向量搜尋後加算分數，使會議摘要與 ASR 全文在與 PDF 競爭時較易進入 top-K。',
+        'settings.rag.transcript_summary_boost': '轉寫摘要加權',
+        'settings.rag.transcript_summary_boost_hint': '加在 transcript_summary chunk 相似度上（0–0.3）。預設 0.10。',
+        'settings.rag.asr_transcript_boost': 'ASR 全文加權',
+        'settings.rag.asr_transcript_boost_hint': '加在 ASR plain 全文 chunk 相似度上（0–0.2）。預設 0.03。',
+        'settings.rag.save': '儲存檢索設定',
+        'settings.rag.saving': '儲存中…',
+        'settings.rag.saved': '檢索設定已儲存。',
+        'settings.rag.save_failed': '儲存失敗（{status}）。',
+
+        'settings.nav.planner.label': '任務規劃',
+        'settings.nav.planner.title': 'Run 任務規劃器',
+        'settings.nav.planner.sub': 'LLM 動態清單 vs 固定管線 — 寫入 planning.* purpose meta。',
+        'settings.planner.loading': '正在載入任務規劃器設定…',
+        'settings.planner.load_failed': '無法載入任務規劃器設定。',
+        'settings.planner.postgresql_only': '任務規劃器設定需要 PostgreSQL（canonical purposes 表）。',
+        'settings.planner.no_purpose_row': '找不到 planning purpose 列。請先在「用途分配」新增 planning 或 planning.primary。',
+        'settings.planner.routing_note':
+            '設定寫入 planning purpose（{endpoint}）。每次送出 Chat 都會讀取；僅在 meta 未設定時才 fallback 至環境變數 OAAO_RUN_PLANNER_MODE。',
+        'settings.planner.mode_legend': '規劃器模式',
+        'settings.planner.mode_intro': '控制協調器在主助理串流前如何建立可見的任務清單。',
+        'settings.planner.mode_llm': 'LLM 任務規劃（動態清單）',
+        'settings.planner.mode_llm_hint': '以一次非串流 LLM 呼叫規劃 Run Tasks（保管庫 RAG、Agent、撰寫回覆）。建議開啟。',
+        'settings.planner.mode_stub': '僅固定管線',
+        'settings.planner.mode_stub_hint': '略過 LLM 規劃 — 使用確定性 vault → 附件 → 撰寫序列（Phase 1）。',
+        'settings.planner.save': '儲存規劃器設定',
+        'settings.planner.saving': '儲存中…',
+        'settings.planner.saved': '規劃器設定已儲存。',
+        'settings.planner.save_failed': '儲存失敗（{status}）。',
+        'settings.planner.agents_legend': '允許的 Agent',
+        'settings.planner.agents_intro': '規劃器與 Agent 註冊表僅使用已勾選的能力。取消勾選可從動態任務計畫中隱藏該能力。',
+        'settings.planner.agent.vault_rag': '知識庫（Vault RAG）',
+        'settings.planner.agent.sandbox_code': '沙箱程式',
+        'settings.planner.agent.slides': '簡報 / 投影片（舊版）',
+        'settings.planner.agent.slide_designer': '簡報設計',
+        'settings.planner.agent.image_gen': '圖片生成',
+        'settings.planner.agent.web_search': '網路搜尋',
+        'settings.planner.agent.mcp_tool': 'MCP 整合',
+
+        'workspace.task.agents_heading': 'Agent',
+        'workspace.task.agents_page_title': 'Agent',
+        'workspace.task.tab_steps': '步驟',
+        'workspace.task.tab_agents': 'Agent',
+        'workspace.task.agent_hooked': '使用中',
+        'workspace.task.agent_desc.vault_rag': '從 Vault 知識庫檢索並回答',
+        'workspace.task.agent_desc.sandbox_code': '在隔離環境中撰寫與執行程式',
+        'workspace.task.agent_desc.slides': '產生簡報／投影片（舊版 stub）',
+        'workspace.task.agent_desc.slide_designer': '建立簡報專案、逐頁 HTML 與匯出 — 可在對話素材庫延續',
+        'workspace.task.agent_desc.image_gen': '依提示詞產生圖片',
+        'workspace.task.agent_desc.web_search': '搜尋公開網路取得即時資訊',
+        'workspace.composer.web_search': '網路搜尋',
+        'workspace.composer.planner_steps': 'Planner 步驟',
+        'workspace.task.agent_desc.mcp_tool': '呼叫已連線的 MCP 工具',
+
+        'chat.materials.toolbar_tip': '查看此任務中的所有檔案',
+        'chat.materials.dialog_title': '此任務中的所有檔案',
+        'chat.materials.filter_all': '全部',
+        'chat.materials.filter_documents': '文件',
+        'chat.materials.filter_images': '圖片',
+        'chat.materials.filter_code': '程式碼檔案',
+        'chat.materials.filter_links': '連結',
+        'chat.materials.section_earlier': '更早',
+        'chat.materials.empty': '此分類沒有檔案。',
+        'chat.materials.download_all': '全部下載',
+        'chat.materials.close': '關閉',
+        'chat.materials.load_failed': '無法載入素材',
+
+        'chat.desk_mode.badge': 'Desk Mode',
+        'chat.agent_ask.proceed': '執行',
+        'chat.agent_ask.skip': '略過',
+        'chat.agent_ask.fork_new_chat': '新對話處理此模式',
+        'chat.agent_ask.fork_done': '已開啟新對話以使用其他模式',
+        'chat.agent_ask.fork_failed': '無法建立新對話',
+        'chat.agent_ask.waiting': '等待你確認…',
+        'chat.agent_ask.failed': '無法套用代理確認',
+        'chat.agent_ask.slide_designer.title': '要開始製作簡報嗎？',
+        'chat.agent_ask.slide_designer.message':
+            '我可以啟動簡報設計（大綱、逐頁 HTML、匯出）。是否為這則回覆執行簡報設計？',
+        'chat.agent_ask.generic.title': '確認下一步',
+        'chat.agent_ask.generic.message': '規劃器想要執行專門代理，是否繼續？',
+
+        'rag.citation.transcript_summary': '轉寫摘要',
+        'rag.citation.asr_transcript': 'ASR 轉寫',
+        'rag.citation.open_transcript': '開啟轉寫稿',
+        'rag.citation.open_transcript_seek': '開啟轉寫稿並跳至該時間',
+
+        'settings.pu.asr.legend': 'ASR 管線',
+        'settings.pu.asr.hint':
+            '選擇 Vault 音檔如何轉寫。一般模式使用下方預設端點；Speaker 模式會標示說話者與時間。',
+        'settings.pu.asr.mode': '模式',
+        'settings.pu.asr.mode_normal': '一般 ASR（扁平文字、分段上傳）',
+        'settings.pu.asr.mode_speaker': 'Speaker 模式（內建 FunASR 說話者分離）',
+        'settings.pu.asr.chunk_buffer_sec': '分段緩衝（秒）',
+        'settings.pu.asr.chunk_buffer_hint': '每個上傳 chunk 前後保留的秒數（0–120）。留空則用 orchestrator 預設（3 秒）。',
+        'settings.pu.asr.funasr_base_url': 'FunASR 服務 URL',
+        'settings.pu.asr.funasr_builtin':
+            'Speaker 模式使用內建 FunASR sidecar（由此 stack 管理）。啟用 Speaker 模式時會下載映像並執行 smoke test。',
+        'settings.pu.asr.funasr_provisioning': '正在下載 FunASR 映像並啟動內建服務…',
+        'settings.pu.asr.funasr_checking': '正在檢查內建 FunASR…',
+        'settings.pu.asr.funasr_ready': '內建 FunASR 已通過 smoke test，可以儲存。',
+        'settings.pu.asr.funasr_failed': 'FunASR 尚未就緒。請等映像下載完成後重試。',
+        'settings.pu.asr.funasr_retry': '重試下載與 smoke test',
+        'settings.pu.asr.save_blocked_not_ready': '內建 FunASR 載入並通過 smoke test 後才能儲存。',
+        'settings.pu.asr.speaker_count': '說話者人數（提示）',
+        'settings.pu.asr.language_hints': '語言提示',
+        'settings.pu.asr.enable_itn': '逆文本正規化（ITN）',
+        'settings.pu.asr.meta_preview': '將寫入的 meta_json',
+
+        'settings.slot.chat.label': '聊天',
+        'settings.slot.chat.sub':
+            '已註冊的聊天管線 — 選擇器中可多個聊天端點設定檔；此處列為各路徑鍵設定預設 LLM。',
+        'settings.slot.planning.label': '規劃',
+        'settings.slot.planning.sub':
+            '聊天側協調的規劃與步驟路由（<code class="font-mono text-xs">planning.*</code>）。',
+        'settings.slot.embedding.label': '嵌入',
+        'settings.slot.embedding.sub': '向量嵌入模型 — RAG 模組（索引／段落向量）。',
+        'settings.slot.slide_template.label': '簡報模板',
+        'settings.slot.slide_template.sub': 'PPTX 匯入分析、預覽假稿、修正與發佈用的 LLM（slide_template.*）。',
+        'settings.slot.rerank.label': '重排',
+        'settings.slot.rerank.sub': '交叉編碼器／段落重排 — RAG 模組。',
+        'settings.slot.rag.label': 'RAG',
+        'settings.slot.rag.sub': '檢索增強生成協調（檢索 → 選擇性重排 → 生成）。',
+        'settings.slot.vault.label': '保管庫摘要',
+        'settings.slot.vault.sub':
+            '知識庫摘要與保管庫導向路由 — RAG 管線面向（<code class="font-mono text-xs">vault.*</code>）。',
+        'settings.slot.graph_rag.label': '圖譜 RAG',
+        'settings.slot.graph_rag.sub':
+            'ArangoDB 知識圖譜與向量混合檢索（<code class="font-mono text-xs">graph.*</code>）。',
+        'settings.slot.uiqe.label': '輸入品質',
+        'settings.slot.uiqe.sub': '前置評分（如 IQS／ACCS）— 輕量低成本模型。',
+        'settings.slot.asr.label': '語音辨識',
+        'settings.slot.asr.sub':
+            '語音轉文字路由 — 在此選擇預設端點。管線模式、分段緩衝與 Speaker 設定請至「設定 → ASR」。',
+        'settings.slot.asr.pipeline_hint': '管線模式、分段緩衝、Speaker／FunASR 與語言提示請至「設定 → ASR」。',
+        'settings.slot.asr_summary.label': 'ASR 摘要',
+        'settings.slot.asr_summary.sub':
+            '「查看轉寫稿」自訂摘要所用 LLM（<code class="font-mono text-xs">asr_summary.*</code>）。',
+        'settings.slot.polish.label': 'ASR 潤稿',
+        'settings.slot.polish.sub': '語音轉文字後的標點與專有名詞修正（<code class="font-mono text-xs">polish.*</code>）。',
+        'settings.slot.other.label': '其他',
+        'settings.slot.other.title': '其他用途',
+        'settings.slot.other.sub': '不符合上方任何已註冊前綴的路由鍵。',
+
+        'chat.profile.type.single': '單一',
+        'chat.profile.type.tree': '思維樹',
+        'chat.profile.type.ddtree': 'DDTree',
+        'chat.profile.type.single_short': '單一',
+        'chat.profile.type.tree_short': 'ToT',
+        'chat.profile.type.ddtree_short': 'DTree',
+        'chat.profile.desc.single': '單一路徑完成 · 適合一般對話與串流草稿。',
+        'chat.profile.desc.tree': '思維樹 · 提示、展開、評判多階段推理。',
+        'chat.profile.desc.ddtree': '決策／依賴樹 · 結構化分支與依賴演進。',
+        'chat.profile.summary.temp': '溫度 {{t}}',
+        'chat.profile.summary.temp_fjt': '溫度 {{t}} · 快速評判 {{f}}',
+        'chat.profile.edit': '編輯',
+        'chat.profile.delete': '刪除',
+        'chat.profile.set_default': '設為預設',
+        'chat.profile.create_btn': '建立聊天端點',
+        'chat.profile.head_title': '聊天完成設定檔',
+        'chat.profile.count_aria': '設定檔數',
+        'chat.profile.hint_empty_list': '建立設定檔後，在此展開列表管理。',
+        'chat.profile.hint_default': '預設檢視：<strong class="fw-semibold fg-[var(--grid-ink)]">{{name}}</strong> · {{mode}}',
+        'chat.profile.hint_expand': '展開以編輯各設定檔。',
+        'chat.profile.list_empty': '尚無設定檔 — 請按上方「建立聊天端點」。',
+        'chat.profile.role.default': '模型',
+        'chat.profile.role.hint': '提示',
+        'chat.profile.role.expand': '展開',
+        'chat.profile.role.judge': '評判',
+        'chat.profile.select_endpoint': '選擇端點…',
+        'chat.profile.no_llm': '尚未綁定 LLM — 請編輯此設定檔。',
+        'chat.profile.disabled': '已停用',
+        'chat.profile.actions_aria': '設定檔動作',
+        'chat.profile.redirect.title': '聊天完成端點',
+        'chat.profile.redirect.body':
+            '已移至<strong>設定 → 用途分配</strong>的聊天區塊：以<strong>下拉列表</strong>展開設定檔（標題、說明、類型標籤 <strong>單一</strong>／<strong>ToT</strong>／<strong>DTree</strong>），並可<strong>建立聊天端點</strong>編輯細項。',
+        'chat.profile.form.name': '名稱',
+        'chat.profile.form.name_ph': '例如 GPT-4o、快速草稿…',
+        'chat.profile.form.type': '類型',
+        'chat.profile.form.llm_default': 'LLM 端點',
+        'chat.profile.form.llm_hint': '提示',
+        'chat.profile.form.llm_expand': '展開',
+        'chat.profile.form.llm_judge': '評判',
+        'chat.profile.form.fjt_label': '快速評判閾值',
+        'chat.profile.form.fjt_help':
+            '信心度超過此值時，最終回答會使用快速草稿模型串流，而非重型評判模型。',
+        'chat.profile.form.temp': '溫度',
+        'chat.profile.form.enabled': '啟用',
+        'chat.profile.form.is_default': '設為預設',
+        'chat.profile.dialog.no_shell': '無法開啟對話框。',
+        'chat.profile.dialog.no_endpoints': '請先在「設定 → 端點」新增至少一筆 LLM 端點。',
+        'chat.profile.dialog.edit_title': '編輯聊天端點',
+        'chat.profile.dialog.create_title': '建立聊天端點',
+        'chat.profile.dialog.cancel': '取消',
+        'chat.profile.dialog.save': '儲存',
+        'chat.profile.dialog.create': '建立',
+        'chat.profile.dialog.saving': '儲存中…',
+        'chat.profile.dialog.save_failed': '儲存失敗（{{status}}）',
+        'chat.profile.dialog.reload_failed': '重新載入失敗',
+        'chat.profile.delete_confirm_title': '刪除聊天端點？',
+        'chat.profile.delete_confirm_body': '刪除設定檔 <strong>#{{id}}</strong>？此動作無法復原。',
+        'chat.profile.delete_failed': '刪除失敗（{{status}}）',
+        'chat.profile.default_view_mode.single': '單一',
+        'chat.profile.default_view_mode.tree': '思維樹（ToT）',
+        'chat.profile.default_view_mode.ddtree': 'DDTree（DTree）',
+        'chat.profile.form.type_ddtree_long': 'DDTree（決策／依賴樹）',
+        'chat.settings.assistant_stream_title': 'Assistant 串流',
+        'chat.settings.assistant_stream_desc': '協調器階段仍由 Python SSE 終端處理 — PHP 僅提供 JSON。',
+        'chat.settings.phased_stream_checkbox': '顯示分階段活動串流',
+
+        'settings.errors.load_endpoints': '載入端點失敗',
+        'settings.errors.load_purposes': '載入用途列失敗',
+        'settings.errors.load_generic': '載入失敗',
+        'settings.errors.dialog_unavailable': '無法使用對話框元件。',
+
+        'settings.endpoints.dialog.edit_title': '編輯端點',
+        'settings.endpoints.dialog.add_title': '新增端點',
+        'settings.endpoints.dialog.cancel': '取消',
+        'settings.endpoints.dialog.save': '儲存',
+        'settings.endpoints.dialog.saving': '儲存中…',
+        'settings.endpoints.dialog.save_failed': '儲存失敗（{{status}}）',
+        'settings.endpoints.dialog.reload_failed': '重新載入失敗',
+
+        'settings.endpoints.delete_confirm_title': '刪除端點？',
+        'settings.endpoints.delete_confirm_body':
+            '刪除端點 <strong>#{{id}}</strong>？此動作無法復原。',
+        'settings.endpoints.delete_failed': '刪除失敗（{{status}}）',
+
+        'settings.purpose.dialog.edit_title': '編輯路由列',
+        'settings.purpose.dialog.add_title': '新增路由列',
+        'settings.purpose.dialog.cancel': '取消',
+        'settings.purpose.dialog.save': '儲存',
+        'settings.purpose.dialog.saving': '儲存中…',
+        'settings.purpose.dialog.save_failed': '儲存失敗（{{status}}）',
+        'settings.purpose.dialog.reload_failed': '重新載入失敗',
+
+        'settings.purpose.delete_confirm_title': '刪除用途列？',
+        'settings.purpose.delete_confirm_body':
+            '刪除用途列 <strong>#{{id}}</strong>？此動作無法復原。',
+        'settings.purpose.delete_failed': '刪除失敗（{{status}}）',
+        'settings.purpose.rows_empty': '尚無列。',
+
+        'settings.endpoints.endpoint_type_custom': '自訂',
+    },
+};
+
+function mergeDeep(base, over) {
+    const out = { ...base };
+    for (const [lang, map] of Object.entries(over || {})) {
+        if (!map || typeof map !== 'object') continue;
+        out[lang] = { ...(out[lang] || {}), ...map };
+    }
+    return out;
+}
+
+/** @type {Record<string, Record<string, string>>} */
+let merged = mergeDeep(
+    OAAO_I18N_BASE,
+    typeof globalThis.OAAO_I18N_OVERRIDES === 'object' && globalThis.OAAO_I18N_OVERRIDES !== null
+        ? globalThis.OAAO_I18N_OVERRIDES
+        : {},
+);
+
+/** Reload merges when overrides are injected late. */
+export function oaaoI18nReloadOverrides() {
+    merged = mergeDeep(
+        OAAO_I18N_BASE,
+        typeof globalThis.OAAO_I18N_OVERRIDES === 'object' && globalThis.OAAO_I18N_OVERRIDES !== null
+            ? globalThis.OAAO_I18N_OVERRIDES
+            : {},
+    );
+}
+
+/** @returns {'en' | 'zh-Hant'} */
+export function oaaoResolveLang() {
+    const raw = (document.documentElement.lang || navigator.language || 'en').toLowerCase();
+    if (raw.startsWith('zh')) return 'zh-Hant';
+    return 'en';
+}
+
+/**
+ * @param {string} key dotted key
+ * @param {string} [fallback]
+ * @param {Record<string, string | number>} [vars] placeholders {{name}}
+ */
+export function oaaoT(key, fallback = '', vars = {}) {
+    const lang = oaaoResolveLang();
+    const pick =
+        merged[lang]?.[key] ?? merged.en?.[key] ?? (fallback !== '' ? fallback : key);
+    let out = pick;
+    for (const [vk, vv] of Object.entries(vars)) {
+        out = out.split(`{{${vk}}}`).join(String(vv));
+    }
+    return out;
+}

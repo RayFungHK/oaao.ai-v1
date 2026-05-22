@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from oaao_orchestrator.config_models import EndpointSnapshot
 from oaao_orchestrator.queue_pool import QueuePool, load_pool_settings, spawn_post_stream_jobs
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,22 @@ async def stop_post_stream_pools() -> None:
 
 def post_stream_pools() -> list[QueuePool]:
     return list(_pools)
+
+
+def uiqe_endpoint_from_request(req: Any) -> EndpointSnapshot | None:
+    raw = getattr(req, "uiqe", None)
+    if not isinstance(raw, dict):
+        return None
+    base = str(raw.get("base_url") or "").strip()
+    model = str(raw.get("model") or "").strip()
+    if not base or not model:
+        return None
+    return EndpointSnapshot(
+        endpoint_ref=str(raw.get("purpose_key") or "uiqe"),
+        base_url=base,
+        model=model,
+        api_key_env=raw.get("api_key_env") if isinstance(raw.get("api_key_env"), str) else None,
+    )
 
 
 def build_post_stream_plugin_ctx_meta(req: Any, metrics_payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -91,10 +108,15 @@ async def enqueue_post_stream_jobs_for_chat(
     if not pools:
         return
     plugin_ctx_meta = build_post_stream_plugin_ctx_meta(req, metrics_payload)
+    uiqe_ep = uiqe_endpoint_from_request(req)
     for pool in pools:
         if not pool.settings.plugins_after_stream:
             continue
-        await spawn_post_stream_jobs(pool=pool, plugin_ctx_meta=plugin_ctx_meta)
+        await spawn_post_stream_jobs(
+            pool=pool,
+            plugin_ctx_meta=plugin_ctx_meta,
+            uiqe_endpoint=uiqe_ep,
+        )
         logger.info(
             "post_stream_jobs enqueued pool=%s plugins=%s conversation_id=%s assistant_message_id=%s",
             pool.settings.pool_id,

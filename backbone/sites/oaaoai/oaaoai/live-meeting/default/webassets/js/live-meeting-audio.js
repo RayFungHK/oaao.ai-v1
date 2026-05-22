@@ -1,5 +1,5 @@
 /**
- * Microphone → 16 kHz mono PCM s16le → WebSocket uplink (Phase B).
+ * Microphone → 16 kHz mono PCM s16le → WebSocket uplink.
  */
 
 const TARGET_SAMPLE_RATE = 16000;
@@ -20,11 +20,11 @@ function float32ToPcm16(floats) {
 
 /**
  * @param {string} wsUrl ws:// or wss:// orchestrator audio endpoint
- * @param {{ signal?: AbortSignal, onState?: (state: string) => void }} [opts]
- * @returns {Promise<{ stop: () => void }>}
+ * @param {{ signal?: AbortSignal, onState?: (state: string) => void, onError?: (message: string) => void }} [opts]
+ * @returns {Promise<{ stop: () => void, ws: WebSocket }>}
  */
 export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
-    const { signal, onState } = opts;
+    const { signal, onState, onError } = opts;
     const url = String(wsUrl || '').trim();
     if (!url) {
         throw new Error('ws_audio_url required');
@@ -36,6 +36,9 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
     const setState = (s) => {
         if (typeof onState === 'function') onState(s);
     };
+    const fail = (msg) => {
+        if (typeof onError === 'function') onError(msg);
+    };
 
     await new Promise((resolve, reject) => {
         const t = setTimeout(() => reject(new Error('WebSocket connect timeout')), 12_000);
@@ -46,7 +49,11 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         };
         ws.onerror = () => {
             clearTimeout(t);
+            fail('ws_failed');
             reject(new Error('WebSocket failed'));
+        };
+        ws.onclose = () => {
+            setState('ws_closed');
         };
         signal?.addEventListener('abort', () => {
             clearTimeout(t);
@@ -58,14 +65,23 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         });
     });
 
-    const media = await navigator.mediaDevices.getUserMedia({
-        audio: {
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-        },
-        video: false,
-    });
+    let media;
+    try {
+        media = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: 1,
+                echoCancellation: true,
+                noiseSuppression: true,
+            },
+            video: false,
+        });
+    } catch (err) {
+        const name = err && typeof err === 'object' ? err.name : '';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+            throw new Error('mic_denied');
+        }
+        throw err;
+    }
 
     const ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
     const source = ctx.createMediaStreamSource(media);

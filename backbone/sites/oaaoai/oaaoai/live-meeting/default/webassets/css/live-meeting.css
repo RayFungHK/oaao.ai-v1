@@ -1,7 +1,35 @@
-.oaao-live-meeting-root [data-oaao-live-meeting="transcript"] .is-partial {
+/* Live meeting — minimal shell; layout via JIT / utility classes on markup */
+
+.oaao-live-meeting-root [data-oaao-live-meeting="transcript"] {
+    -webkit-overflow-scrolling: touch;
+}
+
+.oaao-live-meeting-root .oaao-live-transcript-line.is-partial {
     opacity: 0.72;
+    font-style: italic;
+}
+
+.oaao-live-meeting-root .oaao-live-transcript-line.is-final {
+    opacity: 1;
+}
+
+.oaao-live-meeting-root .oaao-live-transcript-line.is-error {
+    color: var(--grid-danger, #b91c1c);
+    font-size: 0.75rem;
+}
+
+.oaao-live-meeting-root .oaao-live-transcript-empty {
+    display: block;
+}
+
+.oaao-live-meeting-root .oaao-live-transcript-empty.is-hidden {
+    display: none;
 }
 
 .oaao-live-meeting-root [data-oaao-live-meeting="mic"][data-oaao-live-recording="1"] {
     background: #dc2626;
+}
+
+.oaao-live-meeting-root [data-oaao-live-meeting="keep-audio-wrap"].is-visible {
+    display: inline-flex;
 }

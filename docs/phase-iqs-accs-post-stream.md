@@ -1,6 +1,6 @@
 # Phase Plan — IQS / ACCS (Post-Stream Queue)
 
-> **Status**: Phase 1 wired (2026-05-19) — enqueue after chat `system/end`; persist/UIQE in Phase 2–3  
+> **Status**: Phase 2 wired (2026-05-19) — UIQE resolve + worker prompts + LLM scoring; Phase 3 persist pending  
 > **Goal**: After each assistant reply completes, enqueue **non-blocking** quality jobs (`iqs`, `accs`) that score the turn and persist to `oaao_turn_score`.  
 > **Scheme**: Python orchestrator only (scheme **B** in `docs/MIGRATION_LEGACY_OAAO.md`); PHP provides internal persist API + Purpose `uiqe.*` routing.
 
@@ -109,9 +109,11 @@ sequenceDiagram
 2. SSE latency unchanged vs today.
 3. `assistant_patch` still succeeds before workers finish.
 
-### Phase 2 — Resolve UIQE endpoint + prompts
+### Phase 2 — Resolve UIQE endpoint + prompts (done)
 
 **Outcome**: Workers call a real small model with versioned prompts.
+
+**Shipped**: `send.php` passes `uiqe` snapshot; `queue_pool.render_prompt` loads `iqs.md` / `accs.md`; plugins call UIQE via `post_stream_llm.call_uiqe_chat`.
 
 | Task | Owner | Files |
 |------|-------|-------|

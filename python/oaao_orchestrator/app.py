@@ -135,6 +135,10 @@ class ChatRunRequest(BaseModel):
     asr: dict[str, Any] | None = None
     polish: dict[str, Any] | None = None
     glossary: dict[str, Any] | None = None
+    uiqe: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved uiqe.* purpose for post-stream IQS/ACCS workers.",
+    )
     allowed_agents: list[str] = Field(
         default_factory=list,
         description="Agent kinds permitted this run (sandbox_code, slides, …) — drives planner abilities.",

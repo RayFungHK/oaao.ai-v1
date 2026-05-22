@@ -6,7 +6,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from oaao_orchestrator.config_models import QueueJobPayload, QueuePoolSettings
+from oaao_orchestrator.config_models import EndpointSnapshot, QueueJobPayload, QueuePoolSettings
+from oaao_orchestrator.post_stream_llm import uiqe_endpoint_ready
+from oaao_orchestrator.post_stream_prompt import (
+    build_prompt_variables,
+    prompt_ref_for_plugin,
+    render_worker_prompt,
+    resolve_prompt_path,
+)
 from oaao_orchestrator.plugins.registry import default_plugin_factories
 from oaao_orchestrator.plugins.spec import PluginContext
 
@@ -55,36 +62,63 @@ class QueuePool:
                 logger.warning("unknown plugin_id=%s pool=%s worker=%s", job.plugin_id, self.settings.pool_id, worker_id)
                 continue
             plugin = handler()
-            prompt = self._render_prompt_stub(job)
+            prompt = self.render_prompt(job)
+            meta = job.plugin_ctx_meta if isinstance(job.plugin_ctx_meta, dict) else {}
             ctx = PluginContext(
                 pool_id=self.settings.pool_id,
                 purpose_id=self.settings.purpose_id,
                 mode_id=self.settings.mode_id,
-                meta=job.plugin_ctx_meta,
+                conversation_id=str(meta.get("conversation_id") or "") or None,
+                message_id=str(meta.get("assistant_message_id") or "") or None,
+                user_id=str(meta.get("user_id") or "") or None,
+                meta=meta,
             )
             try:
                 await plugin.run(ctx, prompt_rendered=prompt, endpoint_snapshot=job.endpoint.model_dump())
             except Exception:
                 logger.exception("plugin %s failed pool=%s worker=%s", job.plugin_id, self.settings.pool_id, worker_id)
 
-    def _render_prompt_stub(self, job: QueueJobPayload) -> str:
-        """Replace with MD loader + purpose interpolation."""
-        ref = job.prompt_material_ref or self.settings.prompt_bundle_ref
-        return f"[stub prompt ref={ref}]"
+    def render_prompt(self, job: QueueJobPayload) -> str:
+        ref = job.prompt_material_ref or prompt_ref_for_plugin(
+            job.plugin_id, bundle_ref=self.settings.prompt_bundle_ref
+        )
+        path = resolve_prompt_path(ref)
+        if path is None:
+            return f"[missing prompt ref={ref}]"
+        variables = build_prompt_variables(
+            job.plugin_ctx_meta if isinstance(job.plugin_ctx_meta, dict) else {}
+        )
+        return render_worker_prompt(path, variables)
 
 
 async def spawn_post_stream_jobs(
     *,
     pool: QueuePool,
     plugin_ctx_meta: dict[str, Any],
-    per_job_prompt_ref: str | None = None,
+    uiqe_endpoint: EndpointSnapshot | dict[str, Any] | None = None,
 ) -> None:
     """Called from Pipeline ``after_stream`` — never blocks LLM stream."""
-    ep = pool.settings.endpoint
+    if isinstance(uiqe_endpoint, EndpointSnapshot):
+        ep = uiqe_endpoint
+    elif isinstance(uiqe_endpoint, dict):
+        ep = EndpointSnapshot.model_validate(uiqe_endpoint)
+    else:
+        ep = pool.settings.endpoint
+
+    ep_dump = ep.model_dump()
+    if not uiqe_endpoint_ready(ep_dump):
+        logger.warning(
+            "post_stream jobs skipped — uiqe endpoint unresolved pool=%s conversation_id=%s",
+            pool.settings.pool_id,
+            plugin_ctx_meta.get("conversation_id"),
+        )
+        return
+
     for pid in pool.settings.plugins_after_stream:
+        ref = prompt_ref_for_plugin(pid, bundle_ref=pool.settings.prompt_bundle_ref)
         payload = QueueJobPayload(
             plugin_id=pid,
-            prompt_material_ref=per_job_prompt_ref or pool.settings.prompt_bundle_ref,
+            prompt_material_ref=ref,
             endpoint=ep,
             plugin_ctx_meta=plugin_ctx_meta,
         )

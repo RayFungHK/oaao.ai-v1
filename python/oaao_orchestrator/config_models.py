@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, PositiveInt
+from pydantic import BaseModel, Field, PositiveFloat, PositiveInt
 
 
 class EndpointSnapshot(BaseModel):

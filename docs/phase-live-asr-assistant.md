@@ -144,7 +144,7 @@ flowchart LR
 - Qwen3-ASR streaming **WebSocket URL, auth, binary frame format** from your deployed endpoint doc
 - `asr.*` row configured in Purpose allocation (Settings → ASR)
 
-### Phase D — UI polish (M1 complete)
+### Phase D — UI polish (done)
 
 | Task | Notes |
 |------|-------|
