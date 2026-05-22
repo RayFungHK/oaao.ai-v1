@@ -4,14 +4,10 @@ declare(strict_types=1);
 
 namespace oaaoai\livemeeting;
 
-require_once dirname(__DIR__, 3) . '/chat/default/library/OrchestratorInternalUrl.php';
-require_once dirname(__DIR__, 3) . '/chat/default/library/OrchestratorSidecarClient.php';
-
-use oaaoai\chat\OrchestratorInternalUrl;
-use oaaoai\chat\OrchestratorSidecarClient;
-
 /**
  * Internal JSON to Python orchestrator — live meeting sessions (no browser SSE via PHP).
+ *
+ * Requires {@code api('chat')} bridge — no cross-module require of chat libraries.
  */
 final class LiveMeetingOrchestrator
 {
@@ -20,15 +16,9 @@ final class LiveMeetingOrchestrator
      *
      * @return array<string, mixed>|null
      */
-    public static function sessionStart(array $payload): ?array
+    public static function sessionStart(object $chatApi, array $payload): ?array
     {
-        $base = OrchestratorInternalUrl::base();
-        $secret = OrchestratorInternalUrl::sharedSecret();
-        if ($base === '' || $secret === null) {
-            return null;
-        }
-
-        $resp = OrchestratorSidecarClient::postInternalJson($base, $secret, '/v1/live/session_start', $payload, 30);
+        $resp = $chatApi->postOrchestratorInternalJson('/v1/live/session_start', $payload, 30);
         if (! \is_array($resp) || empty($resp['ok'])) {
             return null;
         }
@@ -40,15 +30,9 @@ final class LiveMeetingOrchestrator
     /**
      * @return array<string, mixed>|null
      */
-    public static function sessionStop(string $sessionId, bool $keepAudio): ?array
+    public static function sessionStop(object $chatApi, string $sessionId, bool $keepAudio): ?array
     {
-        $base = OrchestratorInternalUrl::base();
-        $secret = OrchestratorInternalUrl::sharedSecret();
-        if ($base === '' || $secret === null) {
-            return null;
-        }
-
-        return OrchestratorSidecarClient::postInternalJson($base, $secret, '/v1/live/session_stop', [
+        return $chatApi->postOrchestratorInternalJson('/v1/live/session_stop', [
             'session_id' => $sessionId,
             'keep_audio' => $keepAudio,
         ], 30);

@@ -1,12 +1,7 @@
 <?php
 
-use oaaoai\chat\ChatVaultRetrievalProfiles;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\ChatAttachmentStorage;
-use oaaoai\endpoints\CanonicalEndpointsRepository;
-
-require_once dirname(__DIR__, 4) . '/vault/default/library/VaultGlossary.php';
-use oaaoai\vault\VaultGlossary;
 
 /**
  * POST /chat/api/send — append user message + assistant row; when orchestrator + binding exist, start Python stream run.
@@ -161,12 +156,10 @@ return function (): void {
 
     $hasPublishedSlideTemplate = false;
     $slideTemplateLabel = '';
-    if ($slideTemplateId !== '') {
-        require_once dirname(__DIR__, 4) . '/slide-designer/default/library/SlideTemplateStorage.php';
-        require_once dirname(__DIR__, 4) . '/slide-designer/default/library/SlideTemplateScope.php';
-        $tplScope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $authApi);
-        $tplRow = \oaaoai\slide_designer\SlideTemplateStorage::resolveTemplateRecord($slideTemplateId, $tplScope);
-        if ($tplRow !== null && (string) ($tplRow['status'] ?? '') === 'published') {
+    $slideDesignerApi = $this->api('slide_designer');
+    if ($slideTemplateId !== '' && $slideDesignerApi) {
+        $tplRow = $slideDesignerApi->resolvePublishedTemplate($slideTemplateId);
+        if ($tplRow !== null) {
             $hasPublishedSlideTemplate = true;
             $slideTemplateLabel = trim((string) ($tplRow['label'] ?? ''));
             if ($slideTemplateLabel === '') {
@@ -504,11 +497,12 @@ return function (): void {
                 'assistant_message_id'   => (string) $asstMsgId,
             ];
 
-            if ($canonDb instanceof \Razy\Database) {
-                $embRepoForAgents = new CanonicalEndpointsRepository($canonDb);
-                $allowedAgents = $embRepoForAgents->resolveAllowedAgents();
+            $endpointsApi = $this->api('endpoints');
+            if ($endpointsApi) {
+                $allowedAgents = $endpointsApi->resolveAllowedAgents();
             } else {
-                $allowedAgents = \oaaoai\endpoints\ChatAllowedAgentsPurposeConfig::defaultAllowed();
+                require_once dirname(__DIR__, 2) . '/library/ChatAllowedAgentsPurposeConfig.php';
+                $allowedAgents = \oaaoai\chat\ChatAllowedAgentsPurposeConfig::defaultAllowed();
             }
             if (! $enableWebSearch) {
                 $allowedAgents = array_values(array_filter(
@@ -541,16 +535,14 @@ return function (): void {
             }
 
             require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
-            require_once dirname(__DIR__, 4) . '/slide-designer/default/library/SlideProjectStorage.php';
-            require_once dirname(__DIR__, 4) . '/slide-designer/default/library/SlideProjectRegistry.php';
-            $slideDesignerPayload = [
-                'storage_root' => \oaaoai\slide_designer\SlideProjectStorage::root(),
-            ];
+            $slideExtras = [];
             if ($hasPublishedSlideTemplate) {
-                $slideDesignerPayload['template_id'] = $slideTemplateId;
-                // Template chip = new deck from published PPTX — do not auto-resume an older conversation project.
-                $slideDesignerPayload['start_new_deck'] = true;
+                $slideExtras['template_id'] = $slideTemplateId;
+                $slideExtras['start_new_deck'] = true;
             }
+            $slideDesignerPayload = ($slideDesignerApi ?? null)
+                ? $slideDesignerApi->orchestratorSlideDesignerBase($slideExtras)
+                : ['storage_root' => ''];
             $splitPdo = $splitDb->getDBAdapter();
             if ($splitPdo instanceof \PDO) {
                 require_once dirname(__DIR__, 2) . '/library/MicroSkillCatalog.php';
@@ -561,6 +553,8 @@ return function (): void {
                     $uid,
                     $wid,
                     $hasPublishedSlideTemplate ? $slideTemplateId : null,
+                    $this,
+                    $slideDesignerApi,
                 );
             }
             $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
@@ -572,6 +566,7 @@ return function (): void {
                         $conversationId,
                         $uid,
                         $activeMaterialId,
+                        $slideDesignerApi,
                     );
                     if ($resolved !== null) {
                         $slideDesignerPayload['resume_project_id'] = $resolved['project_id'];
@@ -584,6 +579,7 @@ return function (): void {
                     $conversationId,
                     $uid,
                     16,
+                    $slideDesignerApi,
                 );
                 $reuseGroundingMid = (int) ($input['reuse_grounding_message_id'] ?? 0);
                 $grounding = \oaaoai\chat\ChatConversationMaterial::groundingContextForOrchestrator(
@@ -592,6 +588,7 @@ return function (): void {
                     $uid,
                     $activeMaterialId !== '' ? $activeMaterialId : null,
                     $reuseGroundingMid,
+                    $slideDesignerApi,
                 );
                 if ($grounding !== []) {
                     $payload['conversation_material_grounding'] = $grounding;
@@ -654,10 +651,8 @@ return function (): void {
             }
 
             if ($canonDb instanceof \Razy\Database) {
-                $embRepo = new CanonicalEndpointsRepository($canonDb);
                 if ($vaultSourceIds !== []) {
-                    $payload['vault_retrieval_profiles'] = ChatVaultRetrievalProfiles::forVaultIds(
-                        $canonDb,
+                    $payload['vault_retrieval_profiles'] = $this->vaultRetrievalProfilesForVaultIds(
                         $uid,
                         $wid,
                         $vaultSourceIds,
@@ -678,51 +673,37 @@ return function (): void {
                         }
                     }
                 }
-                /** @var array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null $embBind */
-                $embBind = $embRepo->resolveVaultIngestEmbeddingBinding();
-                if ($embBind !== null) {
-                    $eref = trim($embBind['api_key_ref']);
-                    $payload['embedding'] = [
-                        'purpose_key' => $embBind['purpose_key'],
-                        'base_url'    => $embBind['base_url'],
-                        'model'       => $embBind['model'],
-                        'api_key_env' => ($eref !== ''
-                            ? \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($eref)
-                            : null),
-                    ];
+                if ($endpointsApi) {
+                    $emb = $endpointsApi->resolveOrchestratorEmbeddingPayload();
+                    if ($emb !== null) {
+                        $payload['embedding'] = $emb;
+                    }
+                    $rag = $endpointsApi->resolveOrchestratorVaultRagConfig();
+                    if ($rag !== []) {
+                        $payload['vault_rag'] = $rag;
+                    }
+                    $payload['run_planner_mode'] = $endpointsApi->resolveRunPlannerMode();
+                    $asr = $endpointsApi->resolveOrchestratorAsrPayload();
+                    if ($asr !== null) {
+                        $payload['asr'] = $asr;
+                    }
+                    $polish = $endpointsApi->resolveOrchestratorPolishPayload();
+                    if ($polish !== null) {
+                        $payload['polish'] = $polish;
+                    }
+                    $uiqe = $endpointsApi->resolveOrchestratorUiqePayload();
+                    if ($uiqe !== null) {
+                        $payload['uiqe'] = $uiqe;
+                    }
                 }
-                $payload['vault_rag'] = $embRepo->resolveRagRetrievalConfig();
-                $payload['run_planner_mode'] = $embRepo->resolveRunPlannerMode();
-                $asrBind = $embRepo->resolveAsrBinding();
-                if ($asrBind !== null) {
-                    $payload['asr'] = \oaaoai\endpoints\AsrPurposeConfig::jobPayloadFromBinding(
-                        $asrBind,
-                        static fn (string $ref): ?string => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($ref),
-                    );
-                }
-                $polishBind = $embRepo->resolvePolishBinding();
-                if ($polishBind !== null) {
-                    $pref = trim($polishBind['api_key_ref']);
-                    $payload['polish'] = [
-                        'purpose_key' => $polishBind['purpose_key'],
-                        'base_url'    => $polishBind['base_url'],
-                        'model'       => $polishBind['model'],
-                        'api_key_env' => ($pref !== ''
-                            ? \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($pref)
-                            : null),
-                    ];
-                }
-                require_once dirname(__DIR__, 4) . '/endpoints/default/library/UiqePurposeConfig.php';
-                $uiqeBind = $embRepo->resolveUiqeBinding();
-                if ($uiqeBind !== null) {
-                    $payload['uiqe'] = \oaaoai\endpoints\UiqePurposeConfig::jobPayloadFromBinding(
-                        $uiqeBind,
-                        static fn (string $ref): ?string => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($ref),
-                    );
-                }
-                $canonPdo = $canonDb->getDBAdapter();
-                if ($canonPdo instanceof \PDO && $wid !== null && $wid > 0) {
-                    $payload['glossary'] = VaultGlossary::loadWorkspaceGlossary($canonPdo, $wid);
+                if ($wid !== null && $wid > 0) {
+                    $vaultApi = $this->api('vault');
+                    if ($vaultApi) {
+                        $glossary = $vaultApi->getWorkspaceGlossary($wid);
+                        if ($glossary !== []) {
+                            $payload['glossary'] = $glossary;
+                        }
+                    }
                 }
             }
 
@@ -736,7 +717,7 @@ return function (): void {
                 $tenantForPrincipal > 0 ? $tenantForPrincipal : null,
             );
 
-            $started = \oaaoai\chat\OrchestratorSidecarClient::startChatRun($internalBase, $secret, $payload);
+            $started = $this->startOrchestratorChatRun($payload);
 
             if ($started === null) {
                 $failStub = '*(Sidecar)* Could not start stream — check OAAO_ORCHESTRATOR_INTERNAL_URL and that the orchestrator is running.';

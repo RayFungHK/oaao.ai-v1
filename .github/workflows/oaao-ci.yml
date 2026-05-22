@@ -1,0 +1,35 @@
+name: oaao-ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  bridge-and-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross-module require gate
+        run: bash scripts/audit_cross_module_requires.sh --gate
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Bridge contract + hook resilience tests
+        working-directory: python
+        run: python -m pytest tests/test_orchestrator_bridge_contract.py tests/test_pipeline_hook_resilience.py -q
+
+  audit-full-report:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Full-tree cross-module audit (informational)
+        run: bash scripts/audit_cross_module_requires.sh || true

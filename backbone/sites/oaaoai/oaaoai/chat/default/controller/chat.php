@@ -4,9 +4,14 @@ namespace Module\oaao\chat;
 
 require_once __DIR__ . '/../library/ChatPipelineRegister.php';
 require_once __DIR__ . '/../library/PlannerAgentRegister.php';
+require_once __DIR__ . '/../library/ChatOrchestratorApi.php';
+require_once __DIR__ . '/../library/ChatVaultScope.php';
 
+use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\chat\ChatPipelineRegister;
+use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\PlannerAgentRegister;
+use Razy\Database;
 use Razy\Agent;
 use Razy\Controller;
 
@@ -428,6 +433,210 @@ return new class extends Controller {
         return PlannerAgentRegister::allSorted();
     }
 
+    public function getOrchestratorInternalBase(): string
+    {
+        return ChatOrchestratorApi::internalBase();
+    }
+
+    public function getOrchestratorSharedSecret(): string
+    {
+        return ChatOrchestratorApi::sharedSecret();
+    }
+
+    /**
+     * @param array<string, mixed>|null $payload
+     *
+     * @return array<string, mixed>|null
+     */
+    public function postOrchestratorInternalJson(string $path, ?array $payload = null, int $timeoutSec = 45): ?array
+    {
+        return ChatOrchestratorApi::postInternalJson($path, $payload, $timeoutSec);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getOrchestratorInternalJson(string $path, int $timeoutSec = 30): ?array
+    {
+        return ChatOrchestratorApi::getInternalJson($path, $timeoutSec);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return array{run_id: string, stream_token: string}|null
+     */
+    public function startOrchestratorChatRun(array $payload): ?array
+    {
+        return ChatOrchestratorApi::startChatRun($payload);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function cancelOrchestratorChatRun(string $runId): ?array
+    {
+        return ChatOrchestratorApi::cancelChatRun($runId);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorAgentAsk(string $runId, string $taskId, string $decision): ?array
+    {
+        return ChatOrchestratorApi::resolveAgentAsk($runId, $taskId, $decision);
+    }
+
+    /**
+     * @param array<string, string> $funasrEnv
+     *
+     * @return array<string, mixed>|null
+     */
+    public function ensureOrchestratorFunasr(bool $pull = true, array $funasrEnv = []): ?array
+    {
+        return ChatOrchestratorApi::ensureFunasr($pull, $funasrEnv);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function orchestratorFunasrStatus(): ?array
+    {
+        return ChatOrchestratorApi::funasrStatus();
+    }
+
+    public function inferOrchestratorApiKeyEnv(string $apiKeyRef): ?string
+    {
+        return ChatOrchestratorApi::inferApiKeyEnv($apiKeyRef);
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function embeddedVaultIdsForUserWorkspace(int $uid, ?int $workspaceId): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database) {
+            return [];
+        }
+        $ids = ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId);
+
+        return ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($db, $ids);
+    }
+
+    /**
+     * @param list<int> $vaultIds
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function vaultRetrievalProfilesForVaultIds(int $uid, ?int $workspaceId, array $vaultIds): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database) {
+            return [];
+        }
+        /** @var list<int> $clean */
+        $clean = [];
+        foreach ($vaultIds as $v) {
+            $n = \is_int($v) ? $v : (int) $v;
+            if ($n > 0) {
+                $clean[] = $n;
+            }
+            if (\count($clean) >= 24) {
+                break;
+            }
+        }
+        $clean = array_values(array_unique($clean, SORT_NUMERIC));
+        if ($clean === []) {
+            return [];
+        }
+
+        $allowed = array_fill_keys(ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId), true);
+        /** @var list<int> $filtered */
+        $filtered = [];
+        foreach ($clean as $vid) {
+            if (isset($allowed[$vid])) {
+                $filtered[] = $vid;
+            }
+        }
+        if ($filtered === []) {
+            return [];
+        }
+
+        $vault = $this->api('vault');
+
+        return $vault ? $vault->buildRetrievalProfilesFromVaultIds($filtered) : [];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function vaultRetrievalProfilesForUserWorkspace(int $uid, ?int $workspaceId): array
+    {
+        return $this->vaultRetrievalProfilesForVaultIds(
+            $uid,
+            $workspaceId,
+            $this->embeddedVaultIdsForUserWorkspace($uid, $workspaceId),
+        );
+    }
+
+    /**
+     * ASR, embedding, vault RAG config, glossary, retrieval profiles for live meeting session_start.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildLiveMeetingOrchestratorExtras(int $uid, int $workspaceId): array
+    {
+        $extras = [];
+        $endpoints = $this->api('endpoints');
+        if ($endpoints) {
+            $asr = $endpoints->resolveOrchestratorAsrPayload();
+            if ($asr !== null) {
+                $extras['asr'] = $asr;
+            }
+            $emb = $endpoints->resolveOrchestratorEmbeddingPayload();
+            if ($emb !== null) {
+                $extras['embedding'] = $emb;
+            }
+            $rag = $endpoints->resolveOrchestratorVaultRagConfig();
+            if ($rag !== []) {
+                $extras['vault_rag'] = $rag;
+            }
+        }
+        if ($workspaceId > 0) {
+            $vault = $this->api('vault');
+            if ($vault) {
+                $glossary = $vault->getWorkspaceGlossary($workspaceId);
+                if ($glossary !== []) {
+                    $extras['glossary'] = $glossary;
+                }
+            }
+        }
+        $profiles = $this->vaultRetrievalProfilesForUserWorkspace($uid, $workspaceId > 0 ? $workspaceId : null);
+        if ($profiles !== []) {
+            $extras['vault_retrieval_profiles'] = $profiles;
+        }
+
+        return $extras;
+    }
+
+    public function userHasWorkspaceAccess(int $userId, int $workspaceId): bool
+    {
+        if ($userId < 1 || $workspaceId < 1) {
+            return false;
+        }
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database) {
+            return false;
+        }
+        require_once __DIR__ . '/api/_workspace_membership.php';
+
+        return \oaao_chat_user_has_workspace_access($db, $userId, $workspaceId);
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -438,7 +647,25 @@ return new class extends Controller {
             return false;
         }
 
-        return $method === 'getChatPipelineRegistry' || $method === 'getPlannerAgentRegistry';
+        return \in_array($method, [
+            'getChatPipelineRegistry',
+            'getPlannerAgentRegistry',
+            'getOrchestratorInternalBase',
+            'getOrchestratorSharedSecret',
+            'postOrchestratorInternalJson',
+            'getOrchestratorInternalJson',
+            'startOrchestratorChatRun',
+            'cancelOrchestratorChatRun',
+            'resolveOrchestratorAgentAsk',
+            'ensureOrchestratorFunasr',
+            'orchestratorFunasrStatus',
+            'inferOrchestratorApiKeyEnv',
+            'embeddedVaultIdsForUserWorkspace',
+            'vaultRetrievalProfilesForVaultIds',
+            'vaultRetrievalProfilesForUserWorkspace',
+            'buildLiveMeetingOrchestratorExtras',
+            'userHasWorkspaceAccess',
+        ], true);
     }
 
     public function __onInit(Agent $agent): bool
@@ -569,8 +796,23 @@ return new class extends Controller {
         ]);
 
         $agent->addAPICommand([
-            'getChatPipelineRegistry'  => 'getChatPipelineRegistry',
-            'getPlannerAgentRegistry'  => 'getPlannerAgentRegistry',
+            'getChatPipelineRegistry'              => 'getChatPipelineRegistry',
+            'getPlannerAgentRegistry'              => 'getPlannerAgentRegistry',
+            'getOrchestratorInternalBase'          => 'getOrchestratorInternalBase',
+            'getOrchestratorSharedSecret'          => 'getOrchestratorSharedSecret',
+            'postOrchestratorInternalJson'         => 'postOrchestratorInternalJson',
+            'getOrchestratorInternalJson'          => 'getOrchestratorInternalJson',
+            'startOrchestratorChatRun'             => 'startOrchestratorChatRun',
+            'cancelOrchestratorChatRun'            => 'cancelOrchestratorChatRun',
+            'resolveOrchestratorAgentAsk'          => 'resolveOrchestratorAgentAsk',
+            'ensureOrchestratorFunasr'             => 'ensureOrchestratorFunasr',
+            'orchestratorFunasrStatus'             => 'orchestratorFunasrStatus',
+            'inferOrchestratorApiKeyEnv'           => 'inferOrchestratorApiKeyEnv',
+            'embeddedVaultIdsForUserWorkspace'     => 'embeddedVaultIdsForUserWorkspace',
+            'vaultRetrievalProfilesForVaultIds'      => 'vaultRetrievalProfilesForVaultIds',
+            'vaultRetrievalProfilesForUserWorkspace' => 'vaultRetrievalProfilesForUserWorkspace',
+            'buildLiveMeetingOrchestratorExtras'   => 'buildLiveMeetingOrchestratorExtras',
+            'userHasWorkspaceAccess'               => 'userHasWorkspaceAccess',
         ]);
 
         // Controller-root closures need a `{className}.` filename prefix; subfolder paths (`panel/…`) skip that and avoid name clashes.

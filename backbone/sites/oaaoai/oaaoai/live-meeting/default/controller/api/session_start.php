@@ -14,6 +14,14 @@ return function (): void {
         return;
     }
 
+    $chatApi = $this->api('chat');
+    if (! $chatApi) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'message' => 'Chat orchestrator bridge unavailable'], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
     $cadence = trim((string) ($input['cadence'] ?? '1v1'));
     if ($cadence === '') {
@@ -33,59 +41,11 @@ return function (): void {
         'user_id'         => $uid,
     ];
 
-    $authApi = $this->api('auth');
-    $canonDb = $authApi ? $authApi->getDB() : null;
-    if ($canonDb instanceof \Razy\Database) {
-        require_once dirname(__DIR__, 4) . '/endpoints/default/library/AsrPurposeConfig.php';
-        require_once dirname(__DIR__, 4) . '/chat/default/library/ChatOrchestratorBootstrap.php';
-        $embRepo = new \oaaoai\endpoints\CanonicalEndpointsRepository($canonDb);
-        $asrBind = $embRepo->resolveAsrBinding();
-        if ($asrBind !== null) {
-            $orchPayload['asr'] = \oaaoai\endpoints\AsrPurposeConfig::jobPayloadFromBinding(
-                $asrBind,
-                static fn (string $ref): ?string => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($ref),
-            );
-        }
-        $wsId = $wid > 0 ? $wid : null;
-        if ($wid > 0) {
-            require_once dirname(__DIR__, 4) . '/vault/default/library/VaultGlossary.php';
-            $canonPdo = $canonDb->getPDO();
-            if ($canonPdo instanceof \PDO) {
-                $glossary = \oaaoai\vault\VaultGlossary::loadWorkspaceGlossary($canonPdo, $wid);
-                if ($glossary !== []) {
-                    $orchPayload['glossary'] = $glossary;
-                }
-            }
-        }
-        require_once dirname(__DIR__, 4) . '/chat/default/library/ChatVaultScope.php';
-        require_once dirname(__DIR__, 4) . '/chat/default/library/ChatVaultRetrievalProfiles.php';
-        $vaultIds = \oaaoai\chat\ChatVaultScope::vaultIdsForUserWorkspace($canonDb, $uid, $wsId);
-        $vaultIds = \oaaoai\chat\ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($canonDb, $vaultIds);
-        if ($vaultIds !== []) {
-            $profiles = \oaaoai\chat\ChatVaultRetrievalProfiles::forVaultIds($canonDb, $uid, $wsId, $vaultIds);
-            if ($profiles !== []) {
-                $orchPayload['vault_retrieval_profiles'] = $profiles;
-            }
-        }
-        $embBind = $embRepo->resolveVaultIngestEmbeddingBinding();
-        if ($embBind !== null) {
-            $eref = trim($embBind['api_key_ref']);
-            $orchPayload['embedding'] = [
-                'purpose_key' => $embBind['purpose_key'],
-                'base_url'    => $embBind['base_url'],
-                'model'       => $embBind['model'],
-                'api_key_env' => ($eref !== ''
-                    ? \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv($eref)
-                    : null),
-            ];
-        }
-        $ragCfg = $embRepo->resolveRagRetrievalConfig();
-        if ($ragCfg !== []) {
-            $orchPayload['vault_rag'] = $ragCfg;
-        }
+    if ($wid > 0) {
+        $orchPayload = array_merge($orchPayload, $chatApi->buildLiveMeetingOrchestratorExtras($uid, $wid));
     }
 
-    $orch = LiveMeetingOrchestrator::sessionStart($orchPayload);
+    $orch = LiveMeetingOrchestrator::sessionStart($chatApi, $orchPayload);
     if ($orch === null || empty($orch['session_id'])) {
         http_response_code(502);
         echo json_encode([

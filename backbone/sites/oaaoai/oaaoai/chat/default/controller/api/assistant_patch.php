@@ -122,18 +122,9 @@ return function (): void {
         if (\is_array($input['meta'] ?? null)) {
             $metaForMaterials = $input['meta'];
             try {
-                $proj = $metaForMaterials['slide_project'] ?? null;
-                if (\is_array($proj)) {
-                    require_once dirname(__DIR__, 4) . '/slide-designer/default/library/SlideProjectRegistry.php';
-                    $materials = \oaaoai\slide_designer\SlideProjectRegistry::materialsFromManifest($proj);
-                    if ($materials !== []) {
-                        $existing = $metaForMaterials['materials'] ?? [];
-                        $metaForMaterials['materials'] = array_merge(
-                            \is_array($existing) ? $existing : [],
-                            $materials,
-                        );
-                    }
-                    \oaaoai\slide_designer\SlideProjectRegistry::syncFromAssistantMeta(
+                $slideApi = $this->api('slide_designer');
+                if ($slideApi && \is_array($metaForMaterials['slide_project'] ?? null)) {
+                    $metaForMaterials = $slideApi->enrichAndSyncAssistantSlideMeta(
                         $pdo,
                         $cid,
                         $mid,

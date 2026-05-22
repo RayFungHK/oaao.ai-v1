@@ -13,8 +13,18 @@ return function (): void {
         return;
     }
 
+    $chatApi = $this->api('chat');
+    if (! $chatApi) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'message' => 'Chat orchestrator bridge unavailable'], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
     $sessionId = trim((string) ($input['session_id'] ?? ''));
+    $keepAudio = ! empty($input['keep_audio']);
+
     if ($sessionId === '') {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'session_id required'], JSON_UNESCAPED_UNICODE);
@@ -22,20 +32,13 @@ return function (): void {
         return;
     }
 
-    $keepAudio = ! empty($input['keep_audio']);
-    $resp = LiveMeetingOrchestrator::sessionStop($sessionId, $keepAudio);
+    $resp = LiveMeetingOrchestrator::sessionStop($chatApi, $sessionId, $keepAudio);
     if ($resp === null || empty($resp['ok'])) {
         http_response_code(502);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Orchestrator could not stop session',
-        ], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['success' => false, 'message' => 'Orchestrator could not stop session'], JSON_UNESCAPED_UNICODE);
 
         return;
     }
 
-    $this->oaao_live_json_exit(200, true, '', [
-        'session_id' => $sessionId,
-        'keep_audio' => $keepAudio,
-    ]);
+    $this->oaao_live_json_exit(200, true, '', $resp['data'] ?? $resp);
 };
