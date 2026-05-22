@@ -452,13 +452,39 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
     });
 }
 
-export default function init(mount, opts) {
-    if (!document.querySelector(`link[href="${OAAO_LIVE_MEETING_CSS}"]`)) {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = OAAO_LIVE_MEETING_CSS;
-        document.head.append(link);
-    }
-    void ensureLiveMeetingI18n();
+/** @type {AbortController | null} */
+let liveMeetingPanelAbort = null;
+
+function ensureLiveMeetingCss() {
+    const href = OAAO_LIVE_MEETING_CSS;
+    if (document.querySelector(`link[href="${href}"]`)) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    document.head.append(link);
+}
+
+/**
+ * Workspace shell entry — must match {@code workspace.js} dynamic panel loader.
+ * @param {HTMLElement} mount
+ */
+export async function mountShellPanel(mount) {
+    teardownShellPanel();
+    ensureLiveMeetingCss();
+    await ensureLiveMeetingI18n();
+    liveMeetingPanelAbort = new AbortController();
+    mountLiveMeetingPanel(mount, { signal: liveMeetingPanelAbort.signal });
+}
+
+/** @param {Record<string, unknown>} [_opts] */
+export function teardownShellPanel(_opts = {}) {
+    liveMeetingPanelAbort?.abort();
+    liveMeetingPanelAbort = null;
+}
+
+/** Legacy direct import (tests / manual mount). */
+export default async function init(mount, opts = {}) {
+    ensureLiveMeetingCss();
+    await ensureLiveMeetingI18n();
     mountLiveMeetingPanel(mount, opts);
 }

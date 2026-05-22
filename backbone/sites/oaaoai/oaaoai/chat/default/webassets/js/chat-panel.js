@@ -126,7 +126,12 @@ const CHAT_VAULT_SOURCE_UI = {
         en: 'Auto Source — searches all embedded vaults in this workspace when you send (open to pick specific files)',
         'zh-Hant': '自動來源 — 送出時會搜尋此工作區內所有已向量化保管庫（可點開改選特定檔案）',
     },
+    trigger_aria_direct: {
+        en: 'Direct reply — no vault search (turn on Auto vault RAG, or pick specific files)',
+        'zh-Hant': '直接回覆 — 不搜尋保管庫（可勾選自動保管庫 RAG，或手動選檔）',
+    },
     auto_source: { en: 'Auto Source', 'zh-Hant': '自動來源' },
+    direct_source: { en: 'Direct', 'zh-Hant': '直接回覆' },
     items_selected: { en: '{{n}} items selected', 'zh-Hant': '已選 {{n}} 個檔案' },
     item_selected_one: { en: '1 item selected', 'zh-Hant': '已選 1 個檔案' },
     empty_scope: { en: 'No vaults in this scope', 'zh-Hant': '此範圍尚無保管庫' },
@@ -418,6 +423,7 @@ function mountVaultAutoRagToggle(host, signal) {
     chatComposerVaultAutoRag = readVaultAutoRagPreference();
 
     const row = document.createElement('label');
+    row.dataset.oaaoChat = 'vault-auto-rag-toggle';
     row.className =
         'inline-flex flex-row items-center gap-1.5 shrink-0 cursor-pointer select-none font-inherit text-[0.625rem] leading-tight fg-[var(--grid-ink-muted)]';
     row.setAttribute('title', chatVaultAutoRagUiString('toggle_aria'));
@@ -441,6 +447,7 @@ function mountVaultAutoRagToggle(host, signal) {
             } catch {
                 /* ignore */
             }
+            document.dispatchEvent(new CustomEvent('oaao:composer-vault-auto-rag-changed'));
         },
         { signal },
     );
@@ -614,8 +621,15 @@ async function mountVaultSourceComposerSlot(host, signal, onSourcesChange, zone 
         if (pickerRows.length === 0) {
             if (!vaultTreeLoadAttempted) {
                 trigger.disabled = false;
-                paintVaultSourceTrigger(chatVaultSourceUiString('auto_source'), false);
-                trigger.setAttribute('aria-label', chatVaultSourceUiString('trigger_aria_auto'));
+                const autoMode = chatComposerVaultAutoRag;
+                paintVaultSourceTrigger(
+                    chatVaultSourceUiString(autoMode ? 'auto_source' : 'direct_source'),
+                    false,
+                );
+                trigger.setAttribute(
+                    'aria-label',
+                    chatVaultSourceUiString(autoMode ? 'trigger_aria_auto' : 'trigger_aria_direct'),
+                );
 
                 return;
             }
@@ -633,8 +647,13 @@ async function mountVaultSourceComposerSlot(host, signal, onSourcesChange, zone 
         let visible;
         let aria;
         if (selectionCount === 0) {
-            visible = chatVaultSourceUiString('auto_source');
-            aria = chatVaultSourceUiString('trigger_aria_auto');
+            if (chatComposerVaultAutoRag) {
+                visible = chatVaultSourceUiString('auto_source');
+                aria = chatVaultSourceUiString('trigger_aria_auto');
+            } else {
+                visible = chatVaultSourceUiString('direct_source');
+                aria = chatVaultSourceUiString('trigger_aria_direct');
+            }
         } else {
             const fileUnion = unionEmbeddedFileCountForSelection();
             visible = chatVaultSourceItemsSelectedLabel(fileUnion);
@@ -904,6 +923,8 @@ async function mountVaultSourceComposerSlot(host, signal, onSourcesChange, zone 
         },
         { signal },
     );
+
+    document.addEventListener('oaao:composer-vault-auto-rag-changed', () => updateTriggerLabel(), { signal });
 
     syncFromDom();
     updateTriggerLabel();
@@ -8084,7 +8105,7 @@ const CHAT_VAULT_SOURCE_REFS_KEY = 'oaao_vault_chat_source_refs';
 const CHAT_PENDING_SLIDE_TEMPLATE_KEY = 'oaao_chat_pending_slide_template';
 
 /** When true and there are no explicit file/folder/vault picks, {@code POST /chat/api/send} expands to all vaults in the active workspace/personal scope. */
-let chatComposerVaultAutoRag = false;
+let chatComposerVaultAutoRag = true;
 
 /**
  * Vault scope flags for {@code POST /chat/api/send} (composer picks + auto RAG).

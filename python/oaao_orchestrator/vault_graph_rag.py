@@ -1076,6 +1076,37 @@ def _embedding_query_for_record_lookup(query: str) -> str:
     return f"{q}\n\n{boost}"
 
 
+def _embedding_query_for_handbook_lookup(query: str) -> str:
+    """Expand handbook / volume questions for embedding search (Vol.3 vs Volume III, etc.)."""
+    q = query.strip()
+    if not q:
+        return q
+    low = q.lower()
+    extras: list[str] = []
+    if "regulatory handbook" in low:
+        extras.append("Regulatory Handbook")
+    if any(k in low for k in ("handbook", "手冊", "manual")):
+        extras.append("handbook manual 手冊")
+    m = re.search(r"vol\.?\s*(\d+)", q, re.I)
+    if m:
+        n = str(m.group(1) or "").strip()
+        if n:
+            extras.extend(
+                [
+                    f"Volume {n}",
+                    f"Vol.{n}",
+                    f"Vol {n}",
+                    f"第{n}卷",
+                    f"第{n}冊",
+                ],
+            )
+    elif re.search(r"第\s*[\d一二三四五六七八九十]+\s*[卷冊]", q):
+        extras.append("volume 卷 冊")
+    if not extras:
+        return q
+    return f"{q}\n\n{' '.join(extras)}"
+
+
 def _file_name_from_payload(pl: dict[str, Any]) -> str:
     for key in ("file_name", "filename", "original_name", "name"):
         v = pl.get(key)
@@ -1302,13 +1333,22 @@ async def augment_chat_messages_for_vault_rag(
         handbook_turn = bool(query and text_signals_vault_grounding(query))
         record_turn = bool(query and text_signals_personal_record_lookup(query))
         if vault_auto_rag or handbook_turn or record_turn:
-            _inject_system(
-                messages,
-                "Knowledge-base search was requested for this turn, but no embedded documents "
-                "are available in the current workspace scope (or retrieval profiles could not be loaded). "
-                "Answer from general knowledge when needed. Do **not** claim you cannot access the user's "
-                "private vault or knowledge base — the search step ran with an empty scope.",
-            )
+            if handbook_turn:
+                _inject_system(
+                    messages,
+                    "Knowledge-base search was requested for a **handbook / volume** question, but no embedded "
+                    "documents are available in the current workspace scope (or retrieval profiles could not be loaded). "
+                    "Tell the user no handbook excerpts were retrieved and they should confirm the Regulatory Handbook "
+                    "(or relevant Vol.) file is embedded in Vault for this workspace.",
+                )
+            else:
+                _inject_system(
+                    messages,
+                    "Knowledge-base search was requested for this turn, but no embedded documents "
+                    "are available in the current workspace scope (or retrieval profiles could not be loaded). "
+                    "Answer from general knowledge when needed. Do **not** claim you cannot access the user's "
+                    "private vault or knowledge base — the search step ran with an empty scope.",
+                )
             out.activity_lines = ["vault_rag · no_profiles · scope_empty"]
         return out
 
@@ -1320,8 +1360,13 @@ async def augment_chat_messages_for_vault_rag(
     if not query:
         return out
 
+    from oaao_orchestrator.slide_project.teaching_intent import (  # noqa: PLC0415
+        text_signals_vault_grounding,
+    )
+
+    handbook_turn = bool(text_signals_vault_grounding(query))
     wants_record = _query_wants_meeting_record(query)
-    wants_gk = _query_is_general_knowledge(query)
+    wants_gk = _query_is_general_knowledge(query) and not handbook_turn
 
     emb_cfg = embedding if isinstance(embedding, dict) else {}
     bu = str(emb_cfg.get("base_url") or "").strip()
@@ -1349,7 +1394,12 @@ async def augment_chat_messages_for_vault_rag(
         ek = _resolve_secret(ake.strip())
 
     embed_url = ensure_url_scheme(url_direct) if url_direct else openai_compat_embeddings_url_from_base(bu)
-    embed_query = _embedding_query_for_record_lookup(query) if wants_record else query
+    if wants_record:
+        embed_query = _embedding_query_for_record_lookup(query)
+    elif handbook_turn:
+        embed_query = _embedding_query_for_handbook_lookup(query)
+    else:
+        embed_query = query
 
     scope_by_vault = _scoped_docs_by_vault(vault_source_refs, vault_scope_documents)
     passages: list[str] = []
@@ -1365,6 +1415,8 @@ async def augment_chat_messages_for_vault_rag(
     min_score = float(rag_cfg["min_score"])
     if wants_record:
         min_score = max(0.12, min_score * 0.45)
+    elif handbook_turn:
+        min_score = max(0.10, min_score * 0.55)
     graph_limit = int(rag_cfg["graph_limit"])
     fetch_limit = max(per_vault_limit, min(24, per_vault_limit * 3))
     below_score = 0
@@ -1480,6 +1532,9 @@ async def augment_chat_messages_for_vault_rag(
         relevant = [p for p in all_picks if _passage_relevant_to_query(query, p.passage)]
         if relevant:
             all_picks = relevant
+        elif handbook_turn:
+            # Handbook / Vol questions: trust vector rank when lexical overlap is weak (e.g. "Volume III" vs "Vol.3").
+            all_picks = all_picks[:12]
         elif wants_record:
             summaries = [p for p in all_picks if p.segment_type == "transcript_summary"]
             if summaries:
@@ -1579,6 +1634,16 @@ async def augment_chat_messages_for_vault_rag(
 
     if wants_record:
         _inject_system(messages, _GROUNDING_RECORD_ZERO_HITS)
+    elif handbook_turn:
+        _inject_system(
+            messages,
+            "The user asked about a **specific handbook volume** in the workspace knowledge base "
+            "(e.g. Regulatory Handbook Vol.3). Vault search returned **no matching excerpts** for this turn. "
+            "State clearly that no on-topic Vol./volume passage was retrieved from embedded vault documents. "
+            "Do **not** answer as if the user referred to an unknown industry-wide handbook in the abstract. "
+            "Suggest checking that the handbook file is embedded in Vault and named with handbook/volume markers. "
+            "You may add brief general context only if clearly labeled as outside retrieved sources.",
+        )
     else:
         _inject_general_knowledge_only(messages, explicit_scope=explicit_scope)
     if gk_had_off_topic:
