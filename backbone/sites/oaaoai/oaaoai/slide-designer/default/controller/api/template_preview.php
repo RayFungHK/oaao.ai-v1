@@ -13,8 +13,8 @@ use oaaoai\slide_designer\SlideTemplateScope;
  * Body: { template_id, chat_endpoint_id? }
  */
 return function (): void {
-    \$chatApi = \$this->api('chat');
-    if (! \$chatApi) {
+    $chatApi = $this->api('chat');
+    if (! $chatApi) {
         http_response_code(503);
         echo json_encode(['success' => false, 'message' => 'Chat orchestrator bridge unavailable']);
         return;

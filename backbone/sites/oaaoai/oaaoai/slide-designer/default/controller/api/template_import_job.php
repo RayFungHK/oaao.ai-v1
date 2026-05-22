@@ -11,8 +11,8 @@ use oaaoai\slide_designer\SlideTemplateScope;
  * GET /slide-designer/api/template_import_job?job_id=
  */
 return function (): void {
-    \$chatApi = \$this->api('chat');
-    if (! \$chatApi) {
+    $chatApi = $this->api('chat');
+    if (! $chatApi) {
         http_response_code(503);
         echo json_encode(['success' => false, 'message' => 'Chat orchestrator bridge unavailable']);
         return;

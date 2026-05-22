@@ -13,8 +13,8 @@ use oaaoai\slide_designer\SlideProjectRegistry;
  * Body: { project_id, page, conversation_id, chat_endpoint_id?, regen_markdown?: bool }
  */
 return function (): void {
-    \$chatApi = \$this->api('chat');
-    if (! \$chatApi) {
+    $chatApi = $this->api('chat');
+    if (! $chatApi) {
         http_response_code(503);
         echo json_encode(['success' => false, 'message' => 'Chat orchestrator bridge unavailable']);
         return;

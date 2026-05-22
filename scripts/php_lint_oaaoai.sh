@@ -10,6 +10,15 @@ if ! command -v php >/dev/null 2>&1; then
   exit 0
 fi
 
+# Bad editor escape: literal backslash-dollar breaks closures (see slide-designer api/).
+if bad=$(grep -rlE '\\\$((this)|(chatApi))' "$OAao" --include='*.php' 2>/dev/null || true); then
+  if [[ -n "$bad" ]]; then
+    echo "php_lint: invalid escaped \\\$ in PHP (use \$this / \$chatApi, not backslash-dollar):" >&2
+    echo "$bad" >&2
+    exit 1
+  fi
+fi
+
 failed=0
 count=0
 while IFS= read -r -d '' f; do

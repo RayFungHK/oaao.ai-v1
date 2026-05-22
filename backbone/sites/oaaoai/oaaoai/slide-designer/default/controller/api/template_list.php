@@ -14,8 +14,8 @@ use oaaoai\slide_designer\SlideTemplateStorage;
  * Query: published_only=1, scope_filter=global|tenant|personal
  */
 return function (): void {
-    \$chatApi = \$this->api('chat');
-    if (! \$chatApi) {
+    $chatApi = $this->api('chat');
+    if (! $chatApi) {
         http_response_code(503);
         echo json_encode(['success' => false, 'message' => 'Chat orchestrator bridge unavailable']);
         return;

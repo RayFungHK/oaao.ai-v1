@@ -64,6 +64,97 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Purpose rows for the active scope: platform rows ({@code tenant_id IS NULL}) plus tenant overrides.
+     *
+     * @param list<string> $columns empty = all columns
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function listPurposeRowsForScope(array $columns = []): array
+    {
+        $select = $columns === [] ? '*' : implode(',', $columns);
+        $tid = $this->scopedTenantId();
+
+        if ($tid <= 0) {
+            $raw = $this->db->prepare()
+                ->select($select)
+                ->from('purpose')
+                ->where('tenant_id=NULL')
+                ->order('<sort_order,<purpose_key')
+                ->query()
+                ->fetchAll();
+
+            return \is_array($raw) ? $raw : [];
+        }
+
+        $tenantRaw = $this->db->prepare()
+            ->select($select)
+            ->from('purpose')
+            ->where('tenant_id=:oaao_tid')
+            ->assign(['oaao_tid' => $tid])
+            ->order('<sort_order,<purpose_key')
+            ->query()
+            ->fetchAll();
+        $globalRaw = $this->db->prepare()
+            ->select($select)
+            ->from('purpose')
+            ->where('tenant_id=NULL')
+            ->order('<sort_order,<purpose_key')
+            ->query()
+            ->fetchAll();
+
+        return $this->mergeTenantPurposeRows(
+            \is_array($globalRaw) ? $globalRaw : [],
+            \is_array($tenantRaw) ? $tenantRaw : [],
+        );
+    }
+
+    /**
+     * @param list<array<string, mixed>> $global platform defaults ({@code tenant_id IS NULL})
+     * @param list<array<string, mixed>> $tenant tenant-specific rows (override by {@code purpose_key})
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function mergeTenantPurposeRows(array $global, array $tenant): array
+    {
+        /** @var array<string, array<string, mixed>> $byKey */
+        $byKey = [];
+        foreach ($global as $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            $pk = trim((string) ($row['purpose_key'] ?? ''));
+            if ($pk !== '') {
+                $byKey[$pk] = $row;
+            }
+        }
+        foreach ($tenant as $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            $pk = trim((string) ($row['purpose_key'] ?? ''));
+            if ($pk !== '') {
+                $byKey[$pk] = $row;
+            }
+        }
+
+        $merged = array_values($byKey);
+        usort(
+            $merged,
+            static function (array $a, array $b): int {
+                $so = ((int) ($a['sort_order'] ?? 500)) <=> ((int) ($b['sort_order'] ?? 500));
+                if ($so !== 0) {
+                    return $so;
+                }
+
+                return strcmp((string) ($a['purpose_key'] ?? ''), (string) ($b['purpose_key'] ?? ''));
+            },
+        );
+
+        return $merged;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function listEndpoints(): array
@@ -155,7 +246,25 @@ final class CanonicalEndpointsRepository
             ->query()
             ->fetch();
 
-        return \is_array($row) ? $row : null;
+        if (\is_array($row)) {
+            return $row;
+        }
+
+        $tid = $this->scopedTenantId();
+        if ($tid > 0) {
+            $global = $this->db->prepare()
+                ->select('*')
+                ->from('endpoint')
+                ->where('id=?,tenant_id=NULL')
+                ->assign(['id' => $id])
+                ->limit(1)
+                ->query()
+                ->fetch();
+
+            return \is_array($global) ? $global : null;
+        }
+
+        return null;
     }
 
     /**
@@ -163,17 +272,8 @@ final class CanonicalEndpointsRepository
      */
     public function listPurposesWithDefaultEndpointName(): array
     {
-        $q = $this->db->prepare()
-            ->select('*')
-            ->from('purpose');
-        $tid = $this->scopedTenantId();
-        if ($tid > 0) {
-            $q = $q->where('tenant_id=:oaao_tid')->assign(['oaao_tid' => $tid]);
-        }
-        $raw = $q->order('<sort_order,<purpose_key')->query()->fetchAll();
-
         /** @var list<array<string, mixed>> $purposes */
-        $purposes = \is_array($raw) ? $raw : [];
+        $purposes = $this->listPurposeRowsForScope();
 
         if ($purposes === []) {
             return [];
@@ -473,17 +573,16 @@ final class CanonicalEndpointsRepository
      */
     public function findPurposeRowByPrefix(string $prefix, string $primaryKey, string $exactKey): ?array
     {
-        $q = $this->db->prepare()
-            ->select('id, purpose_key, label, description, default_endpoint_id, is_enabled, sort_order, meta_json')
-            ->from('purpose');
-        $tid = $this->scopedTenantId();
-        if ($tid > 0) {
-            $q = $q->where('tenant_id=:oaao_tid')->assign(['oaao_tid' => $tid]);
-        }
-        $raw = $q->order('<sort_order,<purpose_key')->query()->fetchAll();
-        if (! \is_array($raw)) {
-            return null;
-        }
+        $raw = $this->listPurposeRowsForScope([
+            'id',
+            'purpose_key',
+            'label',
+            'description',
+            'default_endpoint_id',
+            'is_enabled',
+            'sort_order',
+            'meta_json',
+        ]);
 
         /** @var list<array<string, mixed>> $candidates */
         $candidates = [];
@@ -523,17 +622,13 @@ final class CanonicalEndpointsRepository
      */
     private function resolveVaultPurposeBinding(string $prefix, string $primaryKey, string $exactKey): ?array
     {
-        $q = $this->db->prepare()
-            ->select('purpose_key, default_endpoint_id, is_enabled, meta_json')
-            ->from('purpose');
-        $tid = $this->scopedTenantId();
-        if ($tid > 0) {
-            $q = $q->where('tenant_id=:oaao_tid')->assign(['oaao_tid' => $tid]);
-        }
-        $raw = $q->order('<sort_order,<purpose_key')->query()->fetchAll();
-
-        /** @var list<array<string, mixed>> $purposes */
-        $purposes = \is_array($raw) ? $raw : [];
+        $purposes = $this->listPurposeRowsForScope([
+            'purpose_key',
+            'default_endpoint_id',
+            'is_enabled',
+            'meta_json',
+            'sort_order',
+        ]);
 
         /** @var list<array{purpose_key: string, endpoint_id: int, meta_json: mixed}> $candidates */
         $candidates = [];
