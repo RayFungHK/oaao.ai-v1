@@ -18,8 +18,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python deps
-        run: pip install -r python/requirements.txt -r python/requirements-dev.txt
+      - name: Install CI Python deps
+        run: pip install -r python/requirements-ci.txt
 
       - name: Bridge contract tests
         working-directory: python
@@ -34,13 +34,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install orchestrator
-        run: pip install -r python/requirements.txt
+      - name: Install smoke deps
+        run: pip install -r python/requirements-ci.txt
 
       - name: Start sidecar and smoke health
         working-directory: python
         run: |
-          uvicorn oaao_orchestrator.health_app:app --host 127.0.0.1 --port 8103 &
+          python -m uvicorn oaao_orchestrator.health_app:app --host 127.0.0.1 --port 8103 &
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8103/health >/dev/null 2>&1; then
               break
