@@ -85,6 +85,12 @@ export async function fetchVaultTreeCached(workspaceId, buildUrl, opts = {}) {
     const scopeKey = vaultTreeScopeKey(workspaceId);
     const force = opts.force === true;
     const now = Date.now();
+
+    if (force) {
+        treeByScope.delete(scopeKey);
+        inflightTree.delete(scopeKey);
+    }
+
     const cached = treeByScope.get(scopeKey);
 
     if (!force && cached && now - cached.fetchedAt < TREE_TTL_MS) {
@@ -100,14 +106,22 @@ export async function fetchVaultTreeCached(workspaceId, buildUrl, opts = {}) {
             const url = buildUrl();
             /** @type {Record<string, string>} */
             const headers = { Accept: 'application/json' };
-            if (cached?.etag) headers['If-None-Match'] = cached.etag;
+            const revalidateFrom = treeByScope.get(scopeKey);
+            if (!force && revalidateFrom?.etag) headers['If-None-Match'] = revalidateFrom.etag;
 
-            const res = await fetch(url, { credentials: 'include', headers });
-            if (res.status === 304 && cached) {
-                cached.fetchedAt = Date.now();
-                treeByScope.set(scopeKey, cached);
+            const res = await fetch(url, {
+                credentials: 'include',
+                headers,
+                cache: force ? 'no-store' : 'default',
+            });
+            if (!force && res.status === 304 && revalidateFrom) {
+                revalidateFrom.fetchedAt = Date.now();
+                treeByScope.set(scopeKey, revalidateFrom);
 
-                return cached;
+                return revalidateFrom;
+            }
+            if (res.status === 403 && workspaceId != null) {
+                document.dispatchEvent(new CustomEvent('oaao-workspace-scope-invalid'));
             }
             if (!res.ok) return null;
 

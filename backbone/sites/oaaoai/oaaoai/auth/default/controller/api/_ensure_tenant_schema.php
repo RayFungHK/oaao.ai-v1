@@ -92,8 +92,12 @@ function oaao_auth_ensure_tenant_schema(\PDO $pdo): void
 
     oaao_auth_seed_default_tenants($pdo);
     oaao_auth_ensure_platform_host_bindings($pdo);
+    oaao_auth_ensure_customer_host_bindings($pdo);
     oaao_auth_ensure_platform_admin_user($pdo);
     oaao_auth_backfill_tenant_ids($pdo);
+
+    require_once __DIR__ . '/_ensure_credit_schema.php';
+    oaao_auth_ensure_credit_schema($pdo);
 }
 
 /** Primary platform admin hostname ({@code OAAO_PLATFORM_ADMIN_HOST}, default {@code admin.localhost}). */
@@ -138,6 +142,55 @@ function oaao_auth_ensure_platform_host_bindings(\PDO $pdo): void
             continue;
         }
         $ins->execute([$platformId, $h]);
+    }
+}
+
+/**
+ * Idempotent: bind env-configured customer / apex hosts to the default {@code localhost} tenant.
+ *
+ * {@code OAAO_APEX_DOMAIN} adds apex + {@code *.{apex}} wildcard rows.
+ * {@code OAAO_CUSTOMER_HOSTS} adds explicit FQDNs (comma/space separated).
+ */
+function oaao_auth_ensure_customer_host_bindings(\PDO $pdo): void
+{
+    $localId = (int) $pdo->query("SELECT tenant_id FROM oaao_tenant WHERE slug = 'localhost' LIMIT 1")->fetchColumn();
+    if ($localId < 1) {
+        return;
+    }
+
+    /** @var list<string> $hosts */
+    $hosts = [];
+
+    $apex = getenv('OAAO_APEX_DOMAIN');
+    if ($apex !== false && ($apex = strtolower(trim($apex))) !== '') {
+        $hosts[] = $apex;
+        $hosts[] = '*.' . $apex;
+    }
+
+    $extra = getenv('OAAO_CUSTOMER_HOSTS');
+    if ($extra !== false && trim((string) $extra) !== '') {
+        foreach (preg_split('/[\s,]+/', trim((string) $extra)) ?: [] as $h) {
+            $h = strtolower(trim((string) $h));
+            if ($h !== '') {
+                $hosts[] = $h;
+            }
+        }
+    }
+
+    if ($hosts === []) {
+        return;
+    }
+
+    $platformPrimary = oaao_platform_admin_host();
+    $ins = $pdo->prepare(
+        'INSERT INTO oaao_tenant_host (tenant_id, host, is_primary) VALUES (?, ?, 0)
+         ON CONFLICT (host) DO UPDATE SET tenant_id = EXCLUDED.tenant_id',
+    );
+    foreach (array_unique($hosts) as $h) {
+        if ($h === $platformPrimary) {
+            continue;
+        }
+        $ins->execute([$localId, $h]);
     }
 }
 

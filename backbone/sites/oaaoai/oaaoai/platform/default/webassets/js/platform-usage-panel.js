@@ -1,6 +1,8 @@
 /**
  * Platform sidemenu panel — cross-tenant usage summary.
  */
+import { oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
+
 export async function mountSettingsPanel(host, ctx = {}) {
     return mountPlatformUsagePanel(host, ctx);
 }
@@ -9,10 +11,7 @@ export async function mountPlatformUsagePanel(host, { signal } = {}) {
     if (!(host instanceof HTMLElement)) return;
 
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = 'Loading usage…';
-    host.append(loading);
+    oaaoMountLoadingLogo(host, { label: 'Loading usage…' });
 
     try {
         const res = await fetch('/platform/api/usage_summary', { credentials: 'same-origin', signal });

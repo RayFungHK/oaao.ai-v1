@@ -134,10 +134,14 @@ async def run_smoke_test(client: httpx.AsyncClient, base_url: str) -> dict[str, 
 
 def _compose_file_args(project_dir: str) -> tuple[str, list[str]]:
     compose_file = os.path.join(project_dir, "docker-compose.yml")
-    env_file = os.path.join(project_dir, ".env")
     extra: list[str] = []
-    if os.path.isfile(env_file):
-        extra.extend(["--env-file", env_file])
+    for candidate in (
+        os.path.join(project_dir, ".env"),
+        os.path.join(project_dir, "docker", "env"),
+    ):
+        if os.path.isfile(candidate):
+            extra.extend(["--env-file", candidate])
+            break
     return compose_file, extra
 
 
@@ -368,12 +372,18 @@ def _ensure_failure_message(
     return "FunASR is not ready"
 
 
-async def ensure_funasr(*, pull: bool = True, funasr_env: dict[str, str] | None = None) -> dict[str, Any]:
+async def ensure_funasr(
+    *,
+    pull: bool = True,
+    funasr_env: dict[str, str] | None = None,
+    recreate: bool = False,
+) -> dict[str, Any]:
     """
     Ensure built-in FunASR is reachable and passes smoke test.
 
     When compose is enabled, tries docker start on existing container, then compose up.
-    Optional ``funasr_env`` overrides FUNASR_* compose variables (forces recreate on compose up).
+    Optional ``funasr_env`` overrides FUNASR_* compose variables for compose up.
+    Set ``recreate=True`` only when adapter mode or SPK model changed (``--force-recreate``).
     """
     base = funasr_base_url()
     compose_result: dict[str, Any] | None = None
@@ -383,7 +393,7 @@ async def ensure_funasr(*, pull: bool = True, funasr_env: dict[str, str] | None 
         env_clean = {str(k): str(v) for k, v in funasr_env.items() if str(k).strip() and str(v).strip() != ""}
         if "FUNASR_ADAPTER_MODE" in funasr_env:
             env_clean["FUNASR_ADAPTER_MODE"] = str(funasr_env["FUNASR_ADAPTER_MODE"]).strip().lower() or "stub"
-    force_recreate = bool(env_clean)
+    force_recreate = recreate
 
     if pull and compose_enabled():
         if not force_recreate:

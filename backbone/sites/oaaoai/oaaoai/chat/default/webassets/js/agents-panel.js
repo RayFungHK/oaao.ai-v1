@@ -4,7 +4,7 @@
 
 import { OAAO_TASK_AGENT_CATALOG } from './oaao-agent-catalog.js';
 
-const OAAO_AGENTS_PAGE_CSS_REV = '20260519-agents-page';
+const OAAO_AGENTS_PAGE_CSS_REV = '20260523-agents-grid-v';
 
 /** @type {string[]} */
 let oaaoAgentsPageAllowed = [];
@@ -85,7 +85,7 @@ function renderAgentsGrid(grid) {
 
     grid.replaceChildren();
     const list = document.createElement('ul');
-    list.className = 'oaao-agents-grid';
+    list.className = 'oaao-agents-grid oaao-gallery-card-grid';
 
     for (const entry of OAAO_TASK_AGENT_CATALOG) {
         const enabled = allowed.has(entry.id);

@@ -5,7 +5,7 @@
         <header
             class="flex items-center justify-between gap-md shrink-0 px-lg py-md border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]">
             <div class="flex items-center gap-sm min-w-0">
-                <img src="{$asset_path}images/logo.svg" alt="" class="h-[22px] w-[22px] shrink-0" />
+                <img src="{$asset_path}images/logo.svg?v={$oaao_shell_esm_v}" alt="" class="h-[22px] w-[22px] shrink-0" />
                 <div class="min-w-0">
                     <div class="text-[0.9375rem] fw-semibold fg-[var(--grid-ink)] truncate">oaao Platform</div>
                     <div class="text-[0.6875rem] fg-[var(--grid-caption)] truncate">Tenant control plane</div>

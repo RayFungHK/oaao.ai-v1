@@ -4,6 +4,7 @@
  * @module template-gallery-sidebar
  */
 
+import { oaaoLoadingLogoElement } from '@oaao/core-js/oaao-loading-logo.js';
 import {
     createGalleryPreviewEyeIcon,
     ensureTemplateAnalyzeConfig,
@@ -336,10 +337,11 @@ function normalizeTemplateRows(custom) {
  *   showPending: boolean;
  *   showImport: boolean;
  *   statusMessage?: string;
+ *   statusLoader?: string;
  * }} opts
  */
 function paintGalleryGrid(grid, opts) {
-    const { rows, pending, showPending, showImport, statusMessage } = opts;
+    const { rows, pending, showPending, showImport, statusMessage, statusLoader } = opts;
     const visibleRows = filterRowsAgainstPending(rows, showPending ? pending : []);
     grid.replaceChildren();
 
@@ -356,7 +358,11 @@ function paintGalleryGrid(grid, opts) {
         grid.append(renderGalleryCard(raw));
     }
 
-    if (statusMessage) {
+    if (statusLoader) {
+        const loader = oaaoLoadingLogoElement({ block: true, label: statusLoader });
+        loader.classList.add('oaao-tpl-gallery-empty');
+        grid.append(loader);
+    } else if (statusMessage) {
         const msg = document.createElement('p');
         msg.className = 'oaao-tpl-gallery-empty';
         msg.textContent = statusMessage;
@@ -375,9 +381,9 @@ async function refreshGallery(grid, options = {}) {
     const showPending = listMode === 'all';
     const showImport = listMode === 'all' && isTemplateAnalyzeConfigured();
 
-    let bootMessage = '';
+    let bootLoader = '';
     if (fetchList && cachedGalleryRows.length === 0 && pending.length === 0) {
-        bootMessage = hasBackgroundTemplateAnalyze() ? 'Analyzing PPTX…' : 'Loading…';
+        bootLoader = hasBackgroundTemplateAnalyze() ? 'Analyzing PPTX…' : 'Loading…';
     }
 
     paintGalleryGrid(grid, {
@@ -385,7 +391,7 @@ async function refreshGallery(grid, options = {}) {
         pending,
         showPending,
         showImport,
-        statusMessage: bootMessage,
+        statusLoader: bootLoader,
     });
 
     if (!fetchList) {
@@ -423,7 +429,15 @@ async function refreshGallery(grid, options = {}) {
         statusMessage =
             'Import is disabled until an administrator assigns an LLM to the Slide template purpose (Settings → Purpose allocation, slide_template.*).';
     } else if (cachedGalleryRows.length === 0 && pending.length === 0 && hasBackgroundTemplateAnalyze()) {
-        statusMessage = 'Analyzing PPTX…';
+        paintGalleryGrid(grid, {
+            rows: cachedGalleryRows,
+            pending: [...importQueue.values()],
+            showPending,
+            showImport: showImportAfter,
+            statusLoader: 'Analyzing PPTX…',
+        });
+        applyGalleryHighlight(grid);
+        return;
     }
 
     paintGalleryGrid(grid, {

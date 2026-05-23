@@ -6,7 +6,7 @@
                 Capabilities available in this workspace. The task planner may enable a subset per run — configure in Settings → Task planner.
             </p>
         </header>
-        <div class="oaao-agents-grid-host oaao-gallery-page-column w-full max-w-[48rem] mx-auto box-border px-8 pb-10 flex-1 min-h-0"
+        <div class="oaao-agents-grid-host oaao-gallery-card-grid-container oaao-gallery-page-column oaao-gallery-page-column--cards w-full mx-auto box-border pb-10 flex-1 min-h-0"
             data-oaao-agents="grid" aria-live="polite"></div>
     </div>
 </section>

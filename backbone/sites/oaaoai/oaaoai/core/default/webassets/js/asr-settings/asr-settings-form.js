@@ -45,21 +45,24 @@ function funasrEnvFromMeta(meta) {
     return out;
 }
 
-/** @param {HTMLFormElement} form @param {{ pull?: boolean }} [opts] */
+/** @param {HTMLFormElement} form @param {{ pull?: boolean, recreate?: boolean }} [opts] */
 export async function runFunasrProvision(form, opts = {}) {
     if (!isSpeakerMode(form)) {
         setFunasrReady(form, true);
         return true;
     }
     const pull = opts.pull !== false;
+    const recreate = opts.recreate === true;
     setFunasrReady(form, false);
     setProvisionStatus(form, oaaoT(pull ? 'settings.asr.funasr_provisioning' : 'settings.asr.funasr_checking'), 'busy');
+    const retryBtn = form.querySelector('[data-oaao-funasr-retry]');
+    if (retryBtn instanceof HTMLButtonElement) retryBtn.disabled = true;
     try {
         const meta = readAsrSettingsMetaObject(form);
         const { res, data } = await endpointsFetchJson(endpointsApiUrl('funasr_ensure'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pull, funasr_env: funasrEnvFromMeta(meta) }),
+            body: JSON.stringify({ pull, recreate, funasr_env: funasrEnvFromMeta(meta) }),
         });
         const ready = Boolean(data?.ready);
         const runtimeMode =
@@ -95,6 +98,8 @@ export async function runFunasrProvision(form, opts = {}) {
         setProvisionStatus(form, e instanceof Error ? e.message : oaaoT('settings.asr.funasr_failed'), 'err');
         setFunasrReady(form, false);
         return false;
+    } finally {
+        if (retryBtn instanceof HTMLButtonElement) retryBtn.disabled = false;
     }
 }
 
@@ -279,12 +284,12 @@ export function wireAsrSettingsForm(form) {
     const modeEl = form.elements.namedItem('asr_mode');
     const onModeChange = () => {
         syncModeUi(form);
-        if (isSpeakerMode(form)) void runFunasrProvision(form, { pull: true });
+        if (isSpeakerMode(form)) void runFunasrProvision(form, { pull: true, recreate: false });
     };
     if (modeEl instanceof HTMLSelectElement) modeEl.addEventListener('change', onModeChange);
     const retryBtn = form.querySelector('[data-oaao-funasr-retry]');
     if (retryBtn instanceof HTMLButtonElement) {
-        retryBtn.addEventListener('click', () => void runFunasrProvision(form, { pull: true }));
+        retryBtn.addEventListener('click', () => void runFunasrProvision(form, { pull: true, recreate: false }));
     }
     const spkEl = form.elements.namedItem('asr_funasr_spk_model');
     const spkCustom = form.elements.namedItem('asr_funasr_spk_model_custom');
@@ -296,10 +301,14 @@ export function wireAsrSettingsForm(form) {
     if (spkEl instanceof HTMLSelectElement) spkEl.addEventListener('change', () => {
         onSpkChange();
         updateActiveGuide(form);
+        if (isSpeakerMode(form)) void runFunasrProvision(form, { pull: true, recreate: true });
     });
     const adapterEl = form.elements.namedItem('asr_funasr_adapter_mode');
     if (adapterEl instanceof HTMLSelectElement) {
-        adapterEl.addEventListener('change', () => updateActiveGuide(form));
+        adapterEl.addEventListener('change', () => {
+            updateActiveGuide(form);
+            if (isSpeakerMode(form)) void runFunasrProvision(form, { pull: true, recreate: true });
+        });
     }
     syncModeUi(form);
     if (isSpeakerMode(form)) void runFunasrProvision(form, { pull: false });

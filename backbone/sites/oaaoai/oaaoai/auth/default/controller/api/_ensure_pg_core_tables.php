@@ -9,12 +9,41 @@
  * Uses {@see MigrationManager} without migration paths — avoids getMigrationManager()
  * throwing when auth/default/migration/ is absent from the image.
  *
- * No request-static cache: {@see \Razy\Database::GetInstance} survives across PHP-FPM
- * requests on the same worker; caching by spl_object_id caused permanent skips after a
- * mistaken non-pgsql classification or stale state.
+ * Per PHP-FPM worker cache: full bootstrap runs once per worker after a successful pass.
+ * {@see oaao_auth_reset_pg_core_tables_cache()} after install/migrations that add ensure steps.
  */
 
 declare(strict_types=1);
+
+/**
+ * Per PHP-FPM / mod_php worker cache ({@code static} survives across requests in the same process).
+ */
+final class OaaoAuthPgCoreBootstrapCache
+{
+    private static bool $done = false;
+
+    public static function isDone(): bool
+    {
+        return self::$done;
+    }
+
+    public static function markDone(): void
+    {
+        self::$done = true;
+    }
+
+    public static function reset(): void
+    {
+        self::$done = false;
+    }
+}
+
+function oaao_auth_reset_pg_core_tables_cache(): void
+{
+    OaaoAuthPgCoreBootstrapCache::reset();
+    require_once dirname(__DIR__) . '/../library/CrossProcessBootCache.php';
+    OaaoAuthCrossProcessBootCache::resetAll();
+}
 
 function oaao_auth_database_is_pgsql(\Razy\Database $database): bool
 {
@@ -34,6 +63,13 @@ function oaao_auth_ensure_pg_core_tables(\Razy\Database $database): void
 
     $pdo = $database->getDBAdapter();
     if (! $pdo instanceof \PDO) {
+        return;
+    }
+
+    require_once dirname(__DIR__) . '/../library/CrossProcessBootCache.php';
+    if (OaaoAuthPgCoreBootstrapCache::isDone() || OaaoAuthCrossProcessBootCache::pgCoreBootDone()) {
+        OaaoAuthPgCoreBootstrapCache::markDone();
+
         return;
     }
 
@@ -115,4 +151,14 @@ function oaao_auth_ensure_pg_core_tables(\Razy\Database $database): void
         oaao_auth_ensure_tenant_schema($pdo);
     } catch (\Throwable) {
     }
+
+    try {
+        require_once __DIR__ . '/_ensure_notification_schema.php';
+        oaao_auth_ensure_notification_schema($pdo);
+    } catch (\Throwable) {
+    }
+
+    OaaoAuthPgCoreBootstrapCache::markDone();
+    require_once dirname(__DIR__) . '/../library/CrossProcessBootCache.php';
+    OaaoAuthCrossProcessBootCache::markPgCoreBootDone();
 }

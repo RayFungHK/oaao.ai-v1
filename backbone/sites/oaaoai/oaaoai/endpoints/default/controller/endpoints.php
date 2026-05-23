@@ -3,6 +3,7 @@
 namespace Module\oaao\endpoints;
 
 require_once __DIR__ . '/../library/PurposeAllocationRegister.php';
+require_once __DIR__ . '/../library/FeatureRegistryBootstrap.php';
 require_once __DIR__ . '/../library/CanonicalEndpointsRepository.php';
 require_once __DIR__ . '/../library/AsrPurposeConfig.php';
 require_once __DIR__ . '/../library/UiqePurposeConfig.php';
@@ -10,6 +11,7 @@ require_once __DIR__ . '/../library/UiqePurposeConfig.php';
 use oaaoai\endpoints\AsrPurposeConfig;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
+use oaaoai\endpoints\FeatureRegistryBootstrap;
 use oaaoai\endpoints\PurposeAllocationRegister;
 use oaaoai\endpoints\UiqePurposeConfig;
 use Razy\Database;
@@ -113,12 +115,22 @@ return new class extends Controller {
     }
 
     /**
+     * Pull-based registry bootstrap — fires {@code collect_feature_registries} once per request.
+     */
+    public function ensureFeatureRegistries(): void
+    {
+        FeatureRegistryBootstrap::collect($this);
+    }
+
+    /**
      * Embedded into {@code index.tpl} by {@see core.main.php} via {@code api('endpoints')->getPurposeAllocationSlots()}.
      *
      * @return list<array<string, mixed>>
      */
     public function getPurposeAllocationSlots(): array
     {
+        $this->ensureFeatureRegistries();
+
         return PurposeAllocationRegister::allSorted();
     }
 
@@ -198,6 +210,8 @@ return new class extends Controller {
      */
     public function resolveAllowedAgents(): array
     {
+        $this->ensureFeatureRegistries();
+
         $db = $this->oaao_endpoints_canonical_db();
         if (! $db) {
             require_once dirname(__DIR__, 3) . '/library/ChatAllowedAgentsPurposeConfig.php';
@@ -280,6 +294,7 @@ return new class extends Controller {
         $agent->addAPICommand([
             'registerPurposeAllocationSlot'       => 'registerPurposeAllocationSlot',
             'getPurposeAllocationSlots'           => 'getPurposeAllocationSlots',
+            'ensureFeatureRegistries'             => 'ensureFeatureRegistries',
             'resolveOrchestratorAsrPayload'       => 'resolveOrchestratorAsrPayload',
             'resolveOrchestratorEmbeddingPayload' => 'resolveOrchestratorEmbeddingPayload',
             'resolveOrchestratorVaultRagConfig'   => 'resolveOrchestratorVaultRagConfig',
@@ -294,6 +309,7 @@ return new class extends Controller {
         $plannerAgentListener = 'event/planner_agent_register_listener';
         $microSkillProviderListener = 'event/micro_skill_provider_register_listener';
         $vaultDocumentHookListener = 'event/vault_document_hook_register_listener';
+        $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
         $agent->listen([
             'oaaoai/chat:purpose_allocation.register'      => $purposeAllocationListener,
             'oaaoai/rag:purpose_allocation.register'       => $purposeAllocationListener,
@@ -320,73 +336,16 @@ return new class extends Controller {
             'oaaoai/endpoints:vault_document_hook.register' => $vaultDocumentHookListener,
         ]);
 
-        PurposeAllocationRegister::add(
-            'pa-chat',
-            'Chat',
-            'Chat',
-            'Registered chat pipeline — multiple chat-endpoint profiles in the selector; rows here set default LLMs per routing key.',
-            'message-circle-more',
-            [
-                'sort' => 10,
-                'purpose_key_prefix' => 'chat',
-                'allocation_mode' => 'chat_multi',
-                'module_code' => 'oaaoai/endpoints',
-                'label_key' => 'settings.slot.chat.label',
-                'sub_key'   => 'settings.slot.chat.sub',
-            ]
-        );
-        PurposeAllocationRegister::add(
-            'pa-uiqe',
-            'Input quality',
-            'Input quality',
-            'Pre-flight scoring (e.g. IQS / ACCS) — fast, low-cost models.',
-            'sparkles',
-            [
-                'sort' => 60,
-                'purpose_key_prefix' => 'uiqe',
-                'module_code' => 'oaaoai/endpoints',
-                'label_key' => 'settings.slot.uiqe.label',
-                'sub_key'   => 'settings.slot.uiqe.sub',
-            ]
-        );
-        PurposeAllocationRegister::add(
-            'pa-asr',
-            'ASR',
-            'ASR',
-            'Speech-to-text modules register here (<code class="font-mono text-xs">asr.*</code>).',
-            'mic',
-            [
-                'sort' => 70,
-                'purpose_key_prefix' => 'asr',
-                'module_code' => 'oaaoai/endpoints',
-                'label_key' => 'settings.slot.asr.label',
-                'sub_key'   => 'settings.slot.asr.sub',
-            ]
-        );
-        PurposeAllocationRegister::add(
-            'pa-other',
-            'Other',
-            'Other purposes',
-            'Routing keys that do not match any registered prefix above.',
-            'circle-dotted',
-            [
-                'sort' => 900,
-                'fallback' => true,
-                'module_code' => 'oaaoai/endpoints',
-                'label_key' => 'settings.slot.other.label',
-                'title_key' => 'settings.slot.other.title',
-                'sub_key'   => 'settings.slot.other.sub',
-            ]
-        );
-
         // Settings nav rows for endpoints / purposes: {@code panel_js_module} is {@code /webassets/core/default/js/oaao-endpoints-settings-panel.js} (registered in {@code oaaoai/core}) so {@code index.tpl} embeds {@code oaao-settings-registry} before SPA bootstrap.
 
         // {@code 'api' => [ … ]} scopes routes under {@code /endpoints/api/…} and resolves handlers from {@code controller/api/}.
         // Values are **relative to that folder** — do not prefix {@code api/} again ({@code 'api/endpoints_list'} would double-resolve).
         $agent->addLazyRoute([
             'api' => [
-                'GET endpoints_list'    => 'endpoints_list',
-                'POST endpoints_save'   => 'endpoints_save',
+                'GET endpoints_list'         => 'endpoints_list',
+                'GET endpoints_usage_stats'  => 'endpoints_usage_stats',
+                'GET usage_by_purpose'       => 'usage_by_purpose',
+                'POST endpoints_save'        => 'endpoints_save',
                 'POST endpoints_delete' => 'endpoints_delete',
                 'GET purposes_list'     => 'purposes_list',
                 'POST purposes_save'    => 'purposes_save',
@@ -411,6 +370,7 @@ return new class extends Controller {
         return \in_array($method, [
             'registerPurposeAllocationSlot',
             'getPurposeAllocationSlots',
+            'ensureFeatureRegistries',
             'resolveOrchestratorAsrPayload',
             'resolveOrchestratorEmbeddingPayload',
             'resolveOrchestratorVaultRagConfig',

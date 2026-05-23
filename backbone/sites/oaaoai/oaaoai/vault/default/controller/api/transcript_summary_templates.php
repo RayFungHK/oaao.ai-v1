@@ -5,9 +5,6 @@ declare(strict_types=1);
 use oaaoai\vault\VaultTranscriptSummaryLanguages;
 use oaaoai\vault\VaultTranscriptSummaryTemplates;
 
-require_once dirname(__DIR__, 2) . '/library/VaultTranscriptSummaryTemplates.php';
-require_once dirname(__DIR__, 2) . '/library/VaultTranscriptSummaryLanguages.php';
-
 /**
  * GET /vault/api/transcript_summary_templates — list HiNote-style summary prompt templates.
  */

@@ -5,13 +5,16 @@
  */
 
 import razyui from 'razyui';
+import { oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
 
 /** @type {Promise<typeof import('../../../../core/default/webassets/js/vault-tree-cache.js')> | null} */
 let vaultTreeCacheModPromise = null;
 
 function loadVaultTreeCacheMod() {
     if (!vaultTreeCacheModPromise) {
-        const url = oaaoPrefixedSitePath('/webassets/core/default/js/vault-tree-cache.js');
+        const shellV = (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim() ?? '';
+        let url = oaaoPrefixedSitePath('/webassets/core/default/js/vault-tree-cache.js');
+        if (shellV) url += `${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(shellV)}`;
         vaultTreeCacheModPromise = import(/* webpackIgnore: true */ url);
     }
 
@@ -152,8 +155,14 @@ async function vaultEnqueueDocumentRetranscribe(docId, signal, opts = {}) {
 }
 
 function vaultInvalidateTreeCache() {
-    void loadVaultTreeCacheMod().then((m) => m.invalidateVaultTreeCache());
+    void vaultInvalidateTreeCacheAsync();
     document.dispatchEvent(new CustomEvent('oaao:vault-tree-invalidate'));
+}
+
+async function vaultInvalidateTreeCacheAsync() {
+    const cache = await loadVaultTreeCacheMod();
+    const wid = getOaaoActiveWorkspaceIdForVault();
+    cache.invalidateVaultTreeCache(cache.vaultTreeScopeKey(wid));
 }
 
 /** @param {string} pathOnly */
@@ -168,17 +177,34 @@ function oaaoPrefixedSitePath(pathOnly) {
     return `${prefix}${path}`;
 }
 
-/** Dynamic Toast ctor — matches {@see oaao-razy-toast.js} URL strategy for SPA prefix. */
-/** @type {Promise<{ show: function, info: function, success: function, error: function }> | null} */
+/** Dynamic Toast ctor — via {@code razyui.load} (same as {@link vaultLoadDialogCtor} / Uploader). */
+/** @type {Promise<{ show: function, info: function, success: function, error: function } | null> | null} */
 let vaultToastCtorPromise = null;
 
 function loadVaultToastCtor() {
     if (!vaultToastCtorPromise) {
-        const url = oaaoPrefixedSitePath('/webassets/core/default/razyui/component/Toast.js');
-        vaultToastCtorPromise = import(/* webpackIgnore: true */ url).then((m) => m.default);
+        vaultToastCtorPromise = razyui
+            .load('Toast')
+            .then((Toast) => (typeof Toast === 'function' ? Toast : null))
+            .catch((err) => {
+                vaultToastCtorPromise = null;
+                console.warn('[oaao vault] Toast load failed', err);
+
+                return null;
+            });
     }
 
     return vaultToastCtorPromise;
+}
+
+/** @param {keyof typeof VAULT_SIDEBAR_UI} key */
+async function vaultToastSuccess(key) {
+    try {
+        const Toast = await loadVaultToastCtor();
+        Toast?.success(vaultSidebarUiString(key), { duration: 2400, position: 'bottom-right' });
+    } catch {
+        /* noop */
+    }
 }
 
 /** Persistent upload-progress toast ({@code duration: 0}); body text updated from xhr progress. */
@@ -730,6 +756,9 @@ const VAULT_SIDEBAR_UI = {
     kind_document: { en: 'File', 'zh-Hant': '檔案' },
     vault_name_required: { en: 'Enter a vault name.', 'zh-Hant': '請輸入保管庫名稱。' },
     folder_name_required: { en: 'Enter a folder name.', 'zh-Hant': '請輸入資料夾名稱。' },
+    folder_created: { en: 'Folder created', 'zh-Hant': '已建立資料夾' },
+    folder_deleted: { en: 'Folder deleted', 'zh-Hant': '已刪除資料夾' },
+    document_deleted: { en: 'File deleted', 'zh-Hant': '已刪除檔案' },
     vault_card_open: { en: 'Open vault', 'zh-Hant': '開啟保管庫' },
     vault_card_config: { en: 'Config', 'zh-Hant': '設定' },
     vault_config_title: { en: 'Vault config', 'zh-Hant': '保管庫設定' },
@@ -1706,13 +1735,15 @@ async function vaultOpenTranscriptDialog(docNode, signal, opts = {}) {
     const wid = getOaaoActiveWorkspaceIdForVault();
 
     /** @type {HTMLElement} */
-    const loading = document.createElement('p');
-    loading.className = 'text-[0.8125rem] fg-[var(--grid-caption)] m-0';
-    loading.textContent = vaultSidebarUiString('transcript_btn_loading');
+    const loadingHost = document.createElement('div');
+    oaaoMountLoadingLogo(loadingHost, {
+        block: true,
+        label: vaultSidebarUiString('transcript_btn_loading'),
+    });
 
     const dlg = DialogMod.open({
         title: `${vaultSidebarUiString('transcript_dialog_title')} · ${fileName}`,
-        content: loading,
+        content: loadingHost,
         size: 'xl',
         height: 'min(82vh, calc(100vh - 3rem))',
         onOpen(ctrl) {
@@ -1732,19 +1763,27 @@ async function vaultOpenTranscriptDialog(docNode, signal, opts = {}) {
         if (signal.aborted) return;
 
         if (!ok || json.success !== true || !json.data || typeof json.data !== 'object') {
-            loading.textContent =
+            loadingHost.replaceChildren();
+            const err = document.createElement('p');
+            err.className = 'text-[0.8125rem] fg-[var(--grid-caption)] m-0';
+            err.textContent =
                 status === 409
                     ? vaultSidebarUiString('transcript_unavailable')
                     : typeof json.message === 'string' && json.message.trim()
                       ? json.message.trim()
                       : vaultSidebarUiString('transcript_load_fail');
+            loadingHost.append(err);
             return;
         }
 
         const mod = await loadVaultTranscriptMod();
         const mountFn = mod.mountTranscriptView ?? mod.default?.mountTranscriptView;
         if (typeof mountFn !== 'function') {
-            loading.textContent = vaultSidebarUiString('transcript_load_fail');
+            loadingHost.replaceChildren();
+            const err = document.createElement('p');
+            err.className = 'text-[0.8125rem] fg-[var(--grid-caption)] m-0';
+            err.textContent = vaultSidebarUiString('transcript_load_fail');
+            loadingHost.append(err);
             return;
         }
 
@@ -1774,12 +1813,16 @@ async function vaultOpenTranscriptDialog(docNode, signal, opts = {}) {
                 dialog: view.closest('.dialog-box') ?? undefined,
                 body: view.closest('.dialog-body') ?? undefined,
             });
-        } else if (loading.parentElement) {
-            loading.replaceWith(view);
+        } else if (loadingHost.parentElement) {
+            loadingHost.replaceWith(view);
         }
     } catch (e) {
         if (!signal.aborted) {
-            loading.textContent = vaultSidebarUiString('transcript_load_fail');
+            loadingHost.replaceChildren();
+            const err = document.createElement('p');
+            err.className = 'text-[0.8125rem] fg-[var(--grid-caption)] m-0';
+            err.textContent = vaultSidebarUiString('transcript_load_fail');
+            loadingHost.append(err);
             console.warn('[oaao vault] document_transcript failed', e);
         }
     }
@@ -3209,8 +3252,10 @@ function syncVaultUploadTargets(mount, vaultId, containerId) {
 }
 
 async function vaultExplorerRefreshAfterMutation() {
+    await vaultInvalidateTreeCacheAsync();
+    const refreshOpts = { forceFullTree: true };
     if (typeof vaultExplorerListRefreshRef === 'function') {
-        await vaultExplorerListRefreshRef();
+        await vaultExplorerListRefreshRef(refreshOpts);
     } else if (typeof vaultExplorerRefreshTreeRef === 'function') {
         await vaultExplorerRefreshTreeRef();
     }
@@ -3470,6 +3515,7 @@ function renderVaultContainerDetailPanel(folderNode, mount, signal, navigate) {
                     }
                     resetVaultDetailPanel(mount);
                     await vaultExplorerRefreshAfterMutation();
+                    await vaultToastSuccess('folder_deleted');
                 } finally {
                     if (!signal.aborted) delBtn.disabled = false;
                 }
@@ -3717,6 +3763,7 @@ function renderVaultDetailPanel(docNode, mount, signal) {
 
                     resetVaultDetailPanel(mount);
                     await vaultExplorerRefreshAfterMutation();
+                    await vaultToastSuccess('document_deleted');
                 } finally {
                     if (!signal.aborted) delBtn.disabled = false;
                 }
@@ -3960,6 +4007,7 @@ async function hydrateVaultMountJit(mount) {
  * @param {AbortSignal} signal
  */
 function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
+    rlShell.classList.add('oaao-gallery-card-grid-container');
     const vaultNodes = Array.isArray(rows)
         ? rows.filter(
               (r) =>
@@ -3974,8 +4022,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
     hint.textContent = vaultSidebarUiString('vault_gallery_hint');
 
     const grid = document.createElement('div');
-    grid.className =
-        'oaao-vault-gallery grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-sm pt-sm pb-sm content-start items-start';
+    grid.className = 'oaao-vault-gallery oaao-gallery-card-grid';
 
     rlShell.append(hint, grid);
 
@@ -3999,7 +4046,8 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
 
     if (vaultNodes.length === 0) {
         const p = document.createElement('p');
-        p.className = 'text-[0.8125rem] fg-[var(--grid-caption)] px-sm py-md m-0 col-span-full';
+        p.className =
+            'oaao-gallery-card-grid-span-full text-[0.8125rem] fg-[var(--grid-caption)] py-md m-0';
         p.textContent = vaultSidebarUiString('empty');
         grid.append(p);
 
@@ -4334,6 +4382,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
         vaultRlDropAbort = new AbortController();
 
         destroyVaultExplorer();
+        rlShell.classList.remove('oaao-gallery-card-grid-container');
         rlShell.textContent = '';
         vaultRlSelectionAnchorKey = '';
 
@@ -4780,20 +4829,26 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
 async function loadVaultMainTree(host, signal, mount, handlers) {
     host.textContent = '';
     host.setAttribute('aria-busy', 'true');
-
-    const loading = document.createElement('p');
-    loading.className = 'text-[0.8125rem] fg-[var(--grid-caption)] px-sm py-xs m-0';
-    loading.textContent = vaultSidebarUiString('loading');
-    host.append(loading);
+    oaaoMountLoadingLogo(host, { block: true, label: vaultSidebarUiString('loading') });
 
     /** @type {{ success?: boolean, data?: { tree?: unknown[] } }} */
     let j = {};
+    const widBefore = getOaaoActiveWorkspaceIdForVault();
     try {
         j = /** @type {{ success?: boolean, data?: { tree?: unknown[] } }} */ (
             await fetchVaultTreeJson({ force: true })
         );
     } catch {
         j = {};
+    }
+    if (!j?.success && widBefore != null && getOaaoActiveWorkspaceIdForVault() === null) {
+        try {
+            j = /** @type {{ success?: boolean, data?: { tree?: unknown[] } }} */ (
+                await fetchVaultTreeJson({ force: true })
+            );
+        } catch {
+            j = {};
+        }
     }
 
     if (signal.aborted) return;
@@ -4828,86 +4883,6 @@ async function loadVaultMainTree(host, signal, mount, handlers) {
     renderWorkspaceVaultSidebarList(mount, rows, signal);
 
     await mountVaultExplorer(host, rows, signal, handlers, mount);
-}
-
-/**
- * @param {AbortSignal} signal
- */
-function wireVaultSidebarCreate(signal, refreshTree) {
-    const input = document.getElementById('workspace-vault-create-input');
-    const btn = document.getElementById('workspace-vault-create-btn');
-    const note = document.getElementById('workspace-vault-create-note');
-    if (!input || !btn || !(input instanceof HTMLInputElement) || !(btn instanceof HTMLButtonElement)) return;
-
-    /** @param {string} text @param {boolean} visible */
-    const setNote = (text, visible) => {
-        if (!note) return;
-        note.textContent = text;
-        note.classList.toggle('hidden', !visible);
-    };
-
-    const submit = async () => {
-        const nm = input.value.trim();
-        if (!nm) {
-            setNote(vaultSidebarUiString('vault_name_required'), true);
-
-            return;
-        }
-        setNote('', false);
-        btn.disabled = true;
-        try {
-            const wid = getOaaoActiveWorkspaceIdForVault();
-            /** @type {Record<string, unknown>} */
-            const payload = { name: nm };
-            if (wid != null) payload.workspace_id = wid;
-
-            const res = await fetch(`${vaultApiBase()}vault_create`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                body: JSON.stringify(payload),
-                signal,
-            });
-            /** @type {{ success?: boolean, message?: string }} */
-            const j = await res.json().catch(() => ({}));
-            if (signal.aborted) return;
-
-            if (!j.success) {
-                const msg =
-                    typeof j.message === 'string' && j.message.trim()
-                        ? j.message.trim()
-                        : vaultSidebarUiString('error');
-                setNote(msg, true);
-
-                return;
-            }
-
-            input.value = '';
-            await refreshTree();
-        } catch {
-            if (!signal.aborted) setNote(vaultSidebarUiString('error'), true);
-        } finally {
-            if (!signal.aborted) btn.disabled = false;
-        }
-    };
-
-    btn.addEventListener(
-        'click',
-        () => {
-            void submit();
-        },
-        { signal },
-    );
-    input.addEventListener(
-        'keydown',
-        (ev) => {
-            if (ev.key === 'Enter') {
-                ev.preventDefault();
-                void submit();
-            }
-        },
-        { signal },
-    );
 }
 
 /**
@@ -5091,19 +5066,9 @@ function wireVaultNewFolder(signal, mount, refreshTree) {
                 return;
             }
 
-            const rawCid =
-                j.data && typeof j.data === 'object'
-                    ? /** @type {{ container_id?: unknown }} */ (j.data).container_id
-                    : undefined;
-            const newCid =
-                typeof rawCid === 'number' ? rawCid : Math.floor(Number(rawCid ?? NaN));
             input.value = '';
-            vaultExplorerPendingNav = {
-                vaultId: vid,
-                containerId:
-                    Number.isFinite(newCid) && newCid > 0 ? newCid : vaultExplorerNav.containerId,
-            };
-            await refreshTree();
+            await vaultExplorerRefreshAfterMutation();
+            await vaultToastSuccess('folder_created');
         } catch {
             if (!signal.aborted) setNote(vaultSidebarUiString('error'), true);
         } finally {
@@ -5215,6 +5180,97 @@ function renderWorkspaceVaultSidebarList(mount, treeRows, signal) {
     paintWorkspaceVaultSidebarListSelection(host, cur != null && cur > 0 ? cur : null);
 }
 
+/** @type {ResizeObserver | null} */
+let vaultBrowseLayoutObserver = null;
+
+/**
+ * Inline grid placement — survives stale {@code oaao.css} / JIT flex overrides on production.
+ *
+ * @param {HTMLElement} mount
+ * @param {AbortSignal} signal
+ */
+function wireVaultBrowseLayout(mount, signal) {
+    vaultBrowseLayoutObserver?.disconnect();
+    vaultBrowseLayoutObserver = null;
+
+    const body = mount.querySelector('.oaao-vault-browse-body');
+    const explorer = mount.querySelector('.oaao-vault-browse-body > .oaao-vault-explorer-column');
+    const aside = mount.querySelector('.oaao-vault-browse-body > .oaao-vault-document-detail');
+    if (!(body instanceof HTMLElement) || !(explorer instanceof HTMLElement) || !(aside instanceof HTMLElement)) {
+        return;
+    }
+
+    const apply = () => {
+        const wide = body.clientWidth >= 768;
+        body.style.setProperty('display', 'grid', 'important');
+        body.style.width = '100%';
+        body.style.boxSizing = 'border-box';
+        body.style.minHeight = '0';
+        body.style.minWidth = '0';
+        body.style.overflow = 'hidden';
+        explorer.style.display = 'flex';
+        explorer.style.flexDirection = 'column';
+        explorer.style.minWidth = '0';
+        explorer.style.minHeight = '0';
+        explorer.style.overflow = 'hidden';
+
+        aside.style.display = 'flex';
+        aside.style.flexDirection = 'column';
+        aside.style.overflow = 'hidden';
+        aside.style.minWidth = '0';
+
+        if (wide) {
+            body.style.setProperty('grid-template-columns', 'minmax(0, 1fr) 280px', 'important');
+            body.style.gridTemplateRows = 'minmax(0, 1fr)';
+            explorer.style.gridColumn = '1';
+            explorer.style.gridRow = '1';
+            explorer.style.width = '100%';
+            aside.style.gridColumn = '2';
+            aside.style.gridRow = '1';
+            aside.style.width = '100%';
+            aside.style.maxWidth = '280px';
+            aside.style.justifySelf = 'stretch';
+            aside.style.maxHeight = 'none';
+            aside.style.borderTop = '';
+            aside.style.borderLeft = '1px solid var(--grid-line)';
+        } else {
+            body.style.setProperty('grid-template-columns', 'minmax(0, 1fr)', 'important');
+            body.style.gridTemplateRows = 'minmax(0, 1fr) auto';
+            explorer.style.gridColumn = '1';
+            explorer.style.gridRow = '1';
+            explorer.style.width = '100%';
+            aside.style.gridColumn = '1';
+            aside.style.gridRow = '2';
+            aside.style.width = '100%';
+            aside.style.maxWidth = 'none';
+            aside.style.justifySelf = 'stretch';
+            aside.style.maxHeight = '42vh';
+            aside.style.borderLeft = '';
+            aside.style.borderTop = '1px solid var(--grid-line)';
+        }
+    };
+
+    const scheduleApply = () => {
+        apply();
+        requestAnimationFrame(apply);
+    };
+
+    scheduleApply();
+    if (typeof ResizeObserver === 'function') {
+        vaultBrowseLayoutObserver = new ResizeObserver(() => scheduleApply());
+        vaultBrowseLayoutObserver.observe(body);
+    }
+    window.addEventListener('resize', scheduleApply, { signal });
+    signal.addEventListener(
+        'abort',
+        () => {
+            vaultBrowseLayoutObserver?.disconnect();
+            vaultBrowseLayoutObserver = null;
+        },
+        { once: true },
+    );
+}
+
 /** @type {(() => void) | null} */
 let vaultResizeTeardown = null;
 
@@ -5245,6 +5301,9 @@ export function teardownShellPanel(_options = {}) {
     vaultExplorerPendingNav = null;
     vaultGallerySelectedVaultId = null;
     vaultExplorerRefreshTreeRef = null;
+    if ('__oaaoVaultExplorerRefreshTree' in globalThis) {
+        delete globalThis.__oaaoVaultExplorerRefreshTree;
+    }
     vaultExplorerEmbedPollRefreshRef = null;
     vaultExplorerListRefreshRef = null;
     vaultExplorerRedraw = () => {};
@@ -5287,6 +5346,9 @@ export function teardownShellPanel(_options = {}) {
         vaultResizeTeardown = null;
     }
 
+    vaultBrowseLayoutObserver?.disconnect();
+    vaultBrowseLayoutObserver = null;
+
     cleanupWorkspaceVaultSidebarList();
 }
 
@@ -5301,6 +5363,7 @@ export async function mountShellPanel(mount) {
 
     syncVaultUploadTargets(mount, null, null);
     resetVaultDetailPanel(mount);
+    wireVaultBrowseLayout(mount, signal);
 
     const treeHandlers = {
         /** @param {{ kind: string, node: Record<string, unknown> }} ev */
@@ -5361,6 +5424,7 @@ export async function mountShellPanel(mount) {
     };
 
     vaultExplorerRefreshTreeRef = refreshTree;
+    globalThis.__oaaoVaultExplorerRefreshTree = refreshTree;
 
     /** Manual hash edits (or tools) while Vault is mounted: reopen matching folder without full reload. */
     const onVaultExplorerFragmentChange = () => {
@@ -5372,7 +5436,6 @@ export async function mountShellPanel(mount) {
     };
     window.addEventListener('hashchange', onVaultExplorerFragmentChange, { signal });
 
-    wireVaultSidebarCreate(signal, refreshTree);
     wireVaultNewFolder(signal, mount, refreshTree);
     await wireVaultRazyUploader(mount, signal, refreshTree);
     wireVaultUploadPickPairs(mount, signal);
@@ -5394,10 +5457,15 @@ export async function mountShellPanel(mount) {
     vaultResizeTeardown = () => window.removeEventListener('resize', onResize);
 
     await hydrateVaultMountJit(mount);
+    wireVaultBrowseLayout(mount, signal);
 }
 
 /** Chat RAG citations → transcript dialog with optional seek ({@see rag-citations.js}). */
 if (typeof document !== 'undefined') {
+    document.addEventListener('oaao-vault-explorer-refresh', () => {
+        void vaultExplorerRefreshTreeRef?.();
+    });
+
     document.addEventListener('oaao:open-vault-transcript', (ev) => {
         const detail = ev && typeof ev.detail === 'object' && ev.detail !== null ? ev.detail : {};
         const docId = Math.floor(Number(detail.document_id ?? detail.documentId ?? 0));

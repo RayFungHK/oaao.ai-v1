@@ -1,10 +1,76 @@
 /**
  * Live meeting workspace panel — session_start, WS PCM uplink, SSE live_transcript.
+ *
+ * Cross-module core imports use explicit {@code /webassets/core/default/js/…} URLs (not filesystem-relative
+ * {@code …/webassets/js/…}) — Apache serves {@code /webassets/{dist}/{version}/js/} without a {@code webassets/}
+ * segment in the URL ({@see backbone/.htaccess}, {@see shell-registry-url.js}).
  */
 import { startLiveMeetingPcmUplink } from './live-meeting-audio.js';
+import { wireLiveMeetingAudioInputPicker } from './live-meeting-audio-input-picker.js';
+import { hydrateLiveMeetingJit } from './live-meeting-jit.js';
+import { liveMeetingWorkspaceId, wireLiveMeetingWorkspacePicker } from './live-meeting-workspace-picker.js';
 
+const OAAO_LIVE_MEETING_CSS_REV = '20260522-mic-split-fix3';
 const OAAO_LIVE_MEETING_CSS = '/webassets/live-meeting/default/css/live-meeting.css';
 const OAAO_I18N_URL = '/webassets/core/default/js/oaao-i18n.js';
+const OAAO_LIVE_MEETING_LEVEL_SILENT = 0.015;
+
+function liveMeetingMountPrefix() {
+    return (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
+}
+
+/** @param {string} relUnderCoreDefault e.g. {@code js/oaao-sse.js} */
+function oaaoLiveMeetingCoreImportHref(relUnderCoreDefault) {
+    let pathOnly = `/webassets/core/default/${String(relUnderCoreDefault ?? '').replace(/^\/+/, '')}`.replace(
+        /\/{2,}/g,
+        '/',
+    );
+
+    const rawMount = liveMeetingMountPrefix();
+    if (rawMount !== '' && rawMount !== '/') {
+        const pref = (rawMount.startsWith('/') ? rawMount : `/${rawMount}`).replace(/\/+$/, '');
+        if (pref !== '' && !(pathOnly === pref || pathOnly.startsWith(`${pref}/`))) {
+            pathOnly = `${pref}${pathOnly}`.replace(/\/{2,}/g, '/');
+        }
+    }
+
+    let s = pathOnly;
+    const dup = /\/webassets\/(core|chat|endpoints|vault|live-meeting)\/([^/]+)\/webassets(?:\/|$)/;
+    while (dup.test(s)) {
+        s = s.replace(dup, '/webassets/$1/$2/');
+    }
+    pathOnly = s.replace(/\/{2,}/g, '/');
+
+    const v = (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim() ?? '';
+    const q = v ? `?v=${encodeURIComponent(v)}` : '';
+
+    if (
+        typeof window !== 'undefined' &&
+        window.location &&
+        (window.location.protocol === 'http:' || window.location.protocol === 'https:')
+    ) {
+        const o = window.location.origin;
+        if (o && o !== 'null') {
+            return `${o}${pathOnly}${q}`;
+        }
+    }
+
+    return `${pathOnly}${q}`;
+}
+
+const [_mSse, _mShell] = await Promise.all([
+    import(/* webpackIgnore: true */ oaaoLiveMeetingCoreImportHref('js/oaao-sse.js')),
+    import(/* webpackIgnore: true */ oaaoLiveMeetingCoreImportHref('js/shell-registry-url.js')),
+]);
+
+const { readOaaoSseStream } = _mSse;
+const { resolveOrchestratorPublicUrl } = _mShell;
+
+function liveMeetingPrefixedPath(path) {
+    const prefix = liveMeetingMountPrefix();
+    const p = String(path ?? '').startsWith('/') ? path : `/${path}`;
+    return `${prefix}${p}`.replace(/\/{2,}/g, '/');
+}
 
 /** @type {((key: string, vars?: Record<string, string>) => string) | null} */
 let liveT = null;
@@ -12,8 +78,7 @@ let liveT = null;
 async function ensureLiveMeetingI18n() {
     if (liveT) return liveT;
     try {
-        const prefix = document.documentElement?.dataset?.oaaoMountPrefix || '';
-        const url = `${prefix}${OAAO_I18N_URL}`.replace(/\/{2,}/g, '/');
+        const url = liveMeetingPrefixedPath(OAAO_I18N_URL);
         const m = await import(/* webpackIgnore: true */ url);
         if (typeof m.oaaoT === 'function') {
             liveT = m.oaaoT;
@@ -33,8 +98,7 @@ async function ensureLiveMeetingI18n() {
 }
 
 function liveMeetingApiUrl(path) {
-    const prefix = document.documentElement?.dataset?.oaaoMountPrefix || '';
-    const base = `${prefix}/live-meeting/api`.replace(/\/{2,}/g, '/');
+    const base = liveMeetingPrefixedPath('/live-meeting/api');
     const p = String(path || '').replace(/^\//, '');
     return p ? `${base}/${p}` : base;
 }
@@ -54,13 +118,6 @@ async function liveMeetingFetchJson(path, options = {}) {
     return { res, data };
 }
 
-function workspaceIdFromDom() {
-    const raw = document.documentElement?.dataset?.oaaoWorkspaceId
-        || document.querySelector('[data-oaao-workspace-id]')?.getAttribute('data-oaao-workspace-id');
-    const n = Number(raw || 0);
-    return n > 0 ? n : null;
-}
-
 /** Map orchestrator ASR error codes to i18n keys. */
 function asrErrorMessage(code, t) {
     const c = String(code || '').trim();
@@ -70,6 +127,8 @@ function asrErrorMessage(code, t) {
 
 export function mountLiveMeetingPanel(mount, { signal } = {}) {
     if (!(mount instanceof HTMLElement)) return;
+
+    wireLiveMeetingWorkspacePicker(mount, { signal });
 
     const statusEl = mount.querySelector('[data-oaao-live-meeting="status"]');
     const connEl = mount.querySelector('[data-oaao-live-meeting="connections"]');
@@ -81,24 +140,54 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
     const materialsWrapEl = mount.querySelector('[data-oaao-live-meeting="materials-wrap"]');
     const materialsEl = mount.querySelector('[data-oaao-live-meeting="materials"]');
     const micBtn = mount.querySelector('[data-oaao-live-meeting="mic"]');
+    const micGroupEl = mount.querySelector('[data-oaao-live-meeting="mic-group"]');
     const keepWrap = mount.querySelector('[data-oaao-live-meeting="keep-audio-wrap"]');
     const keepInput = mount.querySelector('[data-oaao-live-meeting="keep-audio"]');
+    const audioMeterWrapEl = mount.querySelector('[data-oaao-live-meeting="audio-meter-wrap"]');
+    const audioLevelFillEl = mount.querySelector('[data-oaao-live-meeting="audio-level-fill"]');
+    const audioLevelTextEl = mount.querySelector('[data-oaao-live-meeting="audio-level-text"]');
+    const audioDotEl = mount.querySelector('[data-oaao-live-meeting="audio-dot"]');
+    const audioActiveLabelEl = mount.querySelector('[data-oaao-live-meeting="audio-active-label"]');
     const emptyEl = transcriptEl?.querySelector('.oaao-live-transcript-empty');
 
     let sessionId = '';
-    let eventSource = null;
+    /** @type {AbortController | null} */
+    let sseAbort = null;
     /** @type {{ stop?: () => void } | null} */
     let uplink = null;
+    let lastLevelPaintAt = 0;
+    let meterSilentSince = 0;
+
     /** @type {((key: string, vars?: Record<string, string>) => string)} */
     let t = (k) => k;
+    /** @type {((key: string, _fb?: string, vars?: Record<string, string>) => string)} */
+    let tFn = (key, _fb = '', vars = {}) => {
+        let s = key;
+        Object.entries(vars).forEach(([k, v]) => {
+            s = s.split(`{{${k}}}`).join(String(v));
+        });
+        return s;
+    };
+
+    const isRecording = () =>
+        micBtn instanceof HTMLButtonElement && micBtn.dataset.oaaoLiveRecording === '1';
+
+    /** @type {ReturnType<typeof wireLiveMeetingAudioInputPicker>} */
+    let audioInputPicker = wireLiveMeetingAudioInputPicker(mount, {
+        signal,
+        t: (key, fb = '', vars = {}) => tFn(key, fb, vars),
+        isRecording,
+    });
 
     void ensureLiveMeetingI18n().then((fn) => {
         t = fn;
+        tFn = (key, _fb = '', vars = {}) => fn(key, vars);
         if (statusEl && !sessionId) statusEl.textContent = t('live_meeting.status.idle');
         if (micBtn instanceof HTMLButtonElement && micBtn.dataset.oaaoLiveRecording !== '1') {
             const label = micBtn.querySelector('[data-i18n], span') || micBtn;
             if (label instanceof HTMLElement) label.textContent = t('live_meeting.start_mic');
         }
+        void audioInputPicker?.refreshDevices({ preferStored: true });
     });
 
     const setStatus = (key) => {
@@ -107,6 +196,94 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
     const setConn = (keyOrText, { raw = false } = {}) => {
         if (!connEl) return;
         connEl.textContent = raw ? String(keyOrText) : t(keyOrText);
+    };
+
+    const setMicGroupRecording = (on) => {
+        if (micGroupEl instanceof HTMLElement) {
+            if (on) {
+                micGroupEl.dataset.oaaoLiveRecording = '1';
+            } else {
+                delete micGroupEl.dataset.oaaoLiveRecording;
+            }
+        }
+    };
+
+    const setActiveAudioLabel = (label) => {
+        if (!(audioActiveLabelEl instanceof HTMLElement)) return;
+        const text = String(label || '').trim();
+        if (!text) {
+            audioActiveLabelEl.classList.add('hidden');
+            audioActiveLabelEl.textContent = '';
+            audioActiveLabelEl.title = '';
+            return;
+        }
+        audioActiveLabelEl.textContent = t('live_meeting.audio_input.active', '', { device: text });
+        audioActiveLabelEl.title = text;
+        audioActiveLabelEl.classList.remove('hidden');
+    };
+
+    const resetAudioMeter = () => {
+        lastLevelPaintAt = 0;
+        meterSilentSince = 0;
+        if (audioMeterWrapEl instanceof HTMLElement) {
+            audioMeterWrapEl.classList.add('hidden');
+            audioMeterWrapEl.classList.remove('flex');
+        }
+        if (audioLevelFillEl instanceof HTMLElement) {
+            audioLevelFillEl.style.width = '0%';
+            audioLevelFillEl.classList.remove('is-hot');
+        }
+        if (audioLevelTextEl instanceof HTMLElement) {
+            audioLevelTextEl.textContent = '0';
+        }
+        if (audioDotEl instanceof HTMLElement) {
+            audioDotEl.classList.remove('is-listening', 'is-open');
+        }
+        setActiveAudioLabel('');
+    };
+
+    const showAudioMeter = () => {
+        if (audioMeterWrapEl instanceof HTMLElement) {
+            audioMeterWrapEl.classList.remove('hidden');
+            audioMeterWrapEl.classList.add('flex');
+        }
+        if (audioDotEl instanceof HTMLElement) {
+            audioDotEl.classList.add('is-open');
+        }
+    };
+
+    const paintAudioLevel = (level) => {
+        const now = performance.now();
+        if (now - lastLevelPaintAt < 50) return;
+        lastLevelPaintAt = now;
+
+        const pct = Math.max(0, Math.min(100, Math.round(level * 100)));
+        if (audioLevelFillEl instanceof HTMLElement) {
+            audioLevelFillEl.style.width = `${pct}%`;
+            audioLevelFillEl.classList.toggle('is-hot', pct >= 72);
+        }
+        if (audioLevelTextEl instanceof HTMLElement) {
+            audioLevelTextEl.textContent = String(pct);
+        }
+        if (audioDotEl instanceof HTMLElement) {
+            const listening = level >= OAAO_LIVE_MEETING_LEVEL_SILENT;
+            audioDotEl.classList.toggle('is-listening', listening);
+            audioDotEl.classList.toggle('is-open', !listening);
+        }
+        if (level >= OAAO_LIVE_MEETING_LEVEL_SILENT) {
+            if (meterSilentSince && connEl?.textContent === t('live_meeting.audio_level.silent')) {
+                setConn(sessionId ? 'live_meeting.status.recording' : 'live_meeting.audio_level.listening');
+            }
+            meterSilentSince = 0;
+            return;
+        }
+        if (!meterSilentSince) {
+            meterSilentSince = now;
+            return;
+        }
+        if (now - meterSilentSince > 2500 && connEl) {
+            connEl.textContent = t('live_meeting.audio_level.silent');
+        }
     };
 
     const hideEmptyPlaceholder = () => {
@@ -127,15 +304,13 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             : null;
         if (!line) {
             line = document.createElement('p');
-            line.className = 'oaao-live-transcript-line m-0 mb-2 text-sm';
+            line.className = 'oaao-live-transcript-line';
             if (seg) line.dataset.oaaoLiveSegment = seg;
             transcriptEl.append(line);
         }
         line.textContent = payload.text;
         line.classList.toggle('is-partial', !isFinal);
         line.classList.toggle('is-final', isFinal);
-        line.classList.toggle('fg-[var(--grid-ink)]', isFinal);
-        line.classList.toggle('fg-[var(--grid-ink-muted)]', !isFinal);
         transcriptEl.scrollTop = transcriptEl.scrollHeight;
     };
 
@@ -149,7 +324,6 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         if (bubbleId) seenBubbleIds.add(bubbleId);
         if (bubblesWrapEl instanceof HTMLElement) {
             bubblesWrapEl.classList.remove('hidden');
-            bubblesWrapEl.classList.add('flex');
         }
         const type = String(payload.payload?.bubble_type || 'keyword');
         const btn = document.createElement('button');
@@ -175,6 +349,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             { signal },
         );
         bubblesEl.append(btn);
+        void hydrateLiveMeetingJit(btn);
     };
 
     const clearBubbles = () => {
@@ -182,7 +357,6 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         if (bubblesEl) bubblesEl.textContent = '';
         if (bubblesWrapEl instanceof HTMLElement) {
             bubblesWrapEl.classList.add('hidden');
-            bubblesWrapEl.classList.remove('flex');
         }
     };
 
@@ -190,7 +364,6 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         if (statsEl) statsEl.textContent = '';
         if (statsWrapEl instanceof HTMLElement) {
             statsWrapEl.classList.add('hidden');
-            statsWrapEl.classList.remove('flex');
         }
     };
 
@@ -208,7 +381,6 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         statsEl.textContent = t(lineKey, '', vars);
         if (statsWrapEl instanceof HTMLElement) {
             statsWrapEl.classList.remove('hidden');
-            statsWrapEl.classList.add('flex');
         }
     };
 
@@ -218,7 +390,6 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         materialsEl.textContent = '';
         if (materialsWrapEl instanceof HTMLElement) {
             materialsWrapEl.classList.remove('hidden');
-            materialsWrapEl.classList.add('flex');
         }
         if (rows.length === 0) {
             const empty = document.createElement('p');
@@ -248,7 +419,6 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         if (materialsEl) materialsEl.textContent = '';
         if (materialsWrapEl instanceof HTMLElement) {
             materialsWrapEl.classList.add('hidden');
-            materialsWrapEl.classList.remove('flex');
         }
     };
 
@@ -256,17 +426,14 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         if (!transcriptEl) return;
         hideEmptyPlaceholder();
         const line = document.createElement('p');
-        line.className = 'oaao-live-transcript-line is-error m-0 mb-2';
+        line.className = 'oaao-live-transcript-line is-error';
         line.textContent = text;
         transcriptEl.append(line);
         transcriptEl.scrollTop = transcriptEl.scrollHeight;
     };
 
     const stopAll = ({ clearTranscript = false } = {}) => {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        closeSse();
         if (uplink?.stop) {
             uplink.stop();
             uplink = null;
@@ -276,13 +443,18 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             const label = micBtn.querySelector('span') || micBtn;
             label.textContent = t('live_meeting.start_mic');
         }
+        setMicGroupRecording(false);
+        audioInputPicker?.setRecordingLock(false);
+        audioInputPicker?.closePanel();
         if (keepWrap instanceof HTMLElement) {
-            keepWrap.classList.remove('is-visible');
             keepWrap.classList.add('hidden');
+            keepWrap.classList.remove('inline-flex');
         }
         if (keepInput instanceof HTMLInputElement) {
             keepInput.checked = false;
         }
+        void audioInputPicker?.refreshDevices({ preferStored: true });
+        resetAudioMeter();
         setStatus('live_meeting.status.idle');
         setConn('', { raw: true });
         if (clearTranscript && transcriptEl) {
@@ -312,7 +484,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 cadence: '1v1',
-                workspace_id: workspaceIdFromDom(),
+                workspace_id: liveMeetingWorkspaceId(),
                 retention_mode: 'disk_ttl',
             }),
             signal,
@@ -326,60 +498,94 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         return data.data;
     };
 
-    const openSse = (streamUrl) => {
-        if (!streamUrl) return;
-        eventSource = new EventSource(streamUrl, { withCredentials: false });
-        eventSource.addEventListener('oaao.stream', (ev) => {
-            try {
-                const payload = JSON.parse(ev.data || '{}');
-                if (!payload) return;
-                if (payload.kind === 'live_transcript') {
-                    upsertTranscriptLine(payload);
-                    return;
-                }
-                if (payload.kind === 'live_bubble') {
-                    addBubbleChip(payload);
-                    return;
-                }
-                if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'thinking') {
-                    setStatus('live_meeting.status.analyzing');
-                    return;
-                }
-                if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'rag') {
-                    setStatus('live_meeting.status.rag_lookup');
-                    return;
-                }
-                if (payload.kind === 'live_stats') {
-                    renderStats(payload);
-                    return;
-                }
-                if (payload.kind === 'live_materials') {
-                    renderMaterials(payload);
-                    setStatus('live_meeting.status.materials_ready');
-                    return;
-                }
-                if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'idle') {
-                    if (sessionId) setStatus('live_meeting.status.recording');
-                    return;
-                }
-                if (payload.kind === 'error' && payload.text === 'vault_rag_not_configured') {
-                    appendErrorLine(t('live_meeting.error.vault_rag_not_configured'));
-                    return;
-                }
-                if (payload.phase === 'system' && payload.kind === 'status') {
-                    if (payload.text === 'live_meeting_ready') {
-                        setConn('live_meeting.conn.sse_connected');
-                    }
-                    return;
-                }
-                if (payload.kind === 'error' && payload.text) {
-                    appendErrorLine(asrErrorMessage(payload.text, t));
-                }
-            } catch {
-                /* ignore */
+    const closeSse = () => {
+        if (sseAbort) {
+            sseAbort.abort();
+            sseAbort = null;
+        }
+    };
+
+    const handleStreamPayload = (payload) => {
+        if (!payload) return;
+        if (payload.kind === 'live_transcript') {
+            upsertTranscriptLine(payload);
+            return;
+        }
+        if (payload.kind === 'live_bubble') {
+            addBubbleChip(payload);
+            return;
+        }
+        if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'thinking') {
+            setStatus('live_meeting.status.analyzing');
+            return;
+        }
+        if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'rag') {
+            setStatus('live_meeting.status.rag_lookup');
+            return;
+        }
+        if (payload.kind === 'live_stats') {
+            renderStats(payload);
+            return;
+        }
+        if (payload.kind === 'live_materials') {
+            renderMaterials(payload);
+            setStatus('live_meeting.status.materials_ready');
+            return;
+        }
+        if (payload.kind === 'live_phase' && payload.payload?.live_phase === 'idle') {
+            if (sessionId) setStatus('live_meeting.status.recording');
+            return;
+        }
+        if (payload.kind === 'error' && payload.text === 'vault_rag_not_configured') {
+            appendErrorLine(t('live_meeting.error.vault_rag_not_configured'));
+            return;
+        }
+        if (payload.phase === 'system' && payload.kind === 'status') {
+            if (payload.text === 'live_meeting_ready') {
+                setConn('live_meeting.conn.sse_connected');
             }
-        });
-        eventSource.onerror = () => setConn('live_meeting.conn.sse_reconnecting');
+            return;
+        }
+        if (payload.kind === 'error' && payload.text) {
+            appendErrorLine(asrErrorMessage(payload.text, t));
+        }
+    };
+
+    const openSse = (streamUrl) => {
+        closeSse();
+        if (!streamUrl) return;
+        const u = new URL(resolveOrchestratorPublicUrl(streamUrl), window.location.href);
+        sseAbort = new AbortController();
+        const { signal: sseSignal } = sseAbort;
+
+        void (async () => {
+            try {
+                const res = await fetch(u.href, {
+                    method: 'GET',
+                    mode: 'cors',
+                    credentials: 'omit',
+                    signal: sseSignal,
+                    headers: { Accept: 'text/event-stream' },
+                });
+                if (!res.ok || !res.body) {
+                    setConn('live_meeting.conn.sse_reconnecting');
+                    return;
+                }
+                const reader = res.body.getReader();
+                await readOaaoSseStream(
+                    reader,
+                    ({ eventName, data }) => {
+                        if (eventName === 'oaao.stream' && data && typeof data === 'object') {
+                            handleStreamPayload(data);
+                        }
+                    },
+                    sseSignal,
+                );
+            } catch (err) {
+                if (err?.name === 'AbortError') return;
+                setConn('live_meeting.conn.sse_reconnecting');
+            }
+        })();
     };
 
     if (micBtn instanceof HTMLButtonElement) {
@@ -399,25 +605,46 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                 setStatus('live_meeting.status.recording');
                 if (keepWrap instanceof HTMLElement) {
                     keepWrap.classList.remove('hidden');
-                    keepWrap.classList.add('is-visible');
+                    keepWrap.classList.add('inline-flex');
                 }
-                const wsUrl =
+                const wsUrl = resolveOrchestratorPublicUrl(
                     data.ws_audio_url_ws ||
-                    (data.ws_audio_url
-                        ? String(data.ws_audio_url).replace(/^http/i, 'ws')
-                        : '');
+                        (data.ws_audio_url
+                            ? String(data.ws_audio_url).replace(/^http/i, 'ws')
+                            : ''),
+                );
                 const label = micBtn.querySelector('span') || micBtn;
                 micBtn.dataset.oaaoLiveRecording = '1';
+                setMicGroupRecording(true);
                 label.textContent = t('live_meeting.stop_mic');
+                audioInputPicker?.setRecordingLock(true);
+                showAudioMeter();
+                const pickedDeviceId = String(audioInputPicker?.getSelectedDeviceId() || '').trim();
                 try {
                     uplink = await startLiveMeetingPcmUplink(wsUrl, {
                         signal,
+                        deviceId: pickedDeviceId || undefined,
                         onState: (s) => {
                             if (s === 'ws_open') setConn('live_meeting.conn.ws_open');
+                            if (s === 'mic_open') {
+                                setConn('live_meeting.audio_level.listening');
+                                void audioInputPicker?.refreshDevices({ preferStored: true });
+                            }
                             if (s === 'ws_closed') setConn('live_meeting.conn.ws_closed');
                         },
                         onError: (code) => {
                             if (code === 'ws_failed') setConn('live_meeting.conn.ws_failed');
+                        },
+                        onLevel: paintAudioLevel,
+                        onDevice: ({ deviceId, label: deviceLabel }) => {
+                            if (deviceId) {
+                                audioInputPicker?.setDeviceId(deviceId, String(deviceLabel || '').trim());
+                            }
+                            const shown =
+                                String(deviceLabel || '').trim()
+                                || audioInputPicker?.getSelectedLabel()
+                                || '';
+                            setActiveAudioLabel(shown);
                         },
                     });
                 } catch (err) {
@@ -425,6 +652,8 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                     setStatus('live_meeting.status.error');
                     if (msg === 'mic_denied') {
                         setConn('live_meeting.error.mic_denied');
+                    } else if (msg === 'mic_device_unavailable') {
+                        setConn('live_meeting.error.mic_device_unavailable');
                     } else {
                         setConn('live_meeting.error.mic_ws');
                     }
@@ -433,7 +662,7 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
                     return;
                 }
                 if (data.stream_url) {
-                    const u = new URL(data.stream_url, window.location.href);
+                    const u = new URL(resolveOrchestratorPublicUrl(data.stream_url), window.location.href);
                     if (data.stream_token) {
                         u.searchParams.set('token', data.stream_token);
                     }
@@ -450,17 +679,39 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
         }
         stopAll();
     });
+
+    window.addEventListener(
+        'oaao-workspace-scope-changed',
+        () => {
+            if (!sessionId && !(micBtn instanceof HTMLButtonElement && micBtn.dataset.oaaoLiveRecording === '1')) {
+                return;
+            }
+            void (async () => {
+                const keepAudio = keepInput instanceof HTMLInputElement && keepInput.checked;
+                await stopSession(keepAudio);
+                stopAll({ clearTranscript: true });
+                appendErrorLine(t('live_meeting.error.workspace_scope_changed'));
+            })();
+        },
+        { signal },
+    );
 }
 
 /** @type {AbortController | null} */
 let liveMeetingPanelAbort = null;
 
 function ensureLiveMeetingCss() {
-    const href = OAAO_LIVE_MEETING_CSS;
-    if (document.querySelector(`link[href="${href}"]`)) return;
-    const link = document.createElement('link');
+    if (typeof document === 'undefined') return;
+    const href = liveMeetingPrefixedPath(
+        `${OAAO_LIVE_MEETING_CSS}?v=${encodeURIComponent(OAAO_LIVE_MEETING_CSS_REV)}`,
+    );
+    let link = document.querySelector('link[data-oaao-live-meeting-css]');
+    if (link instanceof HTMLLinkElement && link.href.includes(OAAO_LIVE_MEETING_CSS_REV)) return;
+    link?.remove();
+    link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = href;
+    link.dataset.oaaoLiveMeetingCss = OAAO_LIVE_MEETING_CSS_REV;
     document.head.append(link);
 }
 
@@ -474,6 +725,7 @@ export async function mountShellPanel(mount) {
     await ensureLiveMeetingI18n();
     liveMeetingPanelAbort = new AbortController();
     mountLiveMeetingPanel(mount, { signal: liveMeetingPanelAbort.signal });
+    await hydrateLiveMeetingJit(mount);
 }
 
 /** @param {Record<string, unknown>} [_opts] */
@@ -487,4 +739,5 @@ export default async function init(mount, opts = {}) {
     ensureLiveMeetingCss();
     await ensureLiveMeetingI18n();
     mountLiveMeetingPanel(mount, opts);
+    await hydrateLiveMeetingJit(mount);
 }

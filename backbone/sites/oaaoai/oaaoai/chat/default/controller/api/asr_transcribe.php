@@ -178,7 +178,14 @@ return function (): void {
             if ($tenantId > 0) {
                 $coreApi = $this->api('core');
                 if ($coreApi) {
-                    $coreApi->recordUsageChatAsr($canonPdo, $tenantId, $dec);
+                    $uid = isset($user->user_id) ? (int) $user->user_id : 0;
+                    $asrUsage = $dec;
+                    $asrPurpose = 'asr';
+                    if (isset($payload['asr']['purpose_key']) && trim((string) $payload['asr']['purpose_key']) !== '') {
+                        $asrPurpose = trim((string) $payload['asr']['purpose_key']);
+                    }
+                    $asrUsage['purpose_key'] = $asrPurpose;
+                    $coreApi->recordUsageChatAsr($canonPdo, $tenantId, $asrUsage, $uid > 0 ? $uid : null);
                 }
             }
         }

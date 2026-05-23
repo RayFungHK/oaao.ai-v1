@@ -2,6 +2,8 @@
  * Admin Settings — Users + Permission groups ({@see settings-users}, {@see settings-permission-groups}).
  */
 
+import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
+
 const FEATURE_KEYS = ['chat', 'vault', 'workspace', 'settings'];
 const LIMIT_KEYS = ['workspace_max', 'vault_max', 'storage_bytes_max'];
 const PAGE_SIZE = 10;
@@ -28,10 +30,7 @@ export default mountSettingsPanel;
  */
 async function mountUsersPanel(host, ctx, page = 1) {
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = 'Loading users…';
-    host.append(loading);
+    oaaoMountLoadingLogo(host, { label: 'Loading users…' });
 
     try {
         const url = `/user/api/users_list?page=${page}&page_size=${PAGE_SIZE}`;
@@ -79,10 +78,7 @@ async function mountUsersPanel(host, ctx, page = 1) {
  */
 async function mountGroupsPanel(host, ctx, page = 1) {
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = 'Loading permission groups…';
-    host.append(loading);
+    oaaoMountLoadingLogo(host, { label: 'Loading permission groups…' });
 
     try {
         const url = `/group/api/groups_list?page=${page}&page_size=${PAGE_SIZE}`;

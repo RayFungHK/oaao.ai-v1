@@ -1,10 +1,59 @@
 import razyui from 'razyui';
 import { applyLoginPreset } from './preset/login.js';
 import oaaoPresets from './oaao-jit.js';
-import { initWorkspaceShell } from './workspace.js';
 import { initPlatformShell } from './platform-shell.js';
 
 const isPlatformHostShell = () => document.body?.dataset?.oaaoPlatformHost === '1';
+
+/**
+ * Versioned same-origin URL for shell ESM siblings ({@code import.meta.url} query does not bust {@code ./workspace.js}).
+ *
+ * @param {string} relativePath e.g. {@code ./workspace.js} or {@code ../razyui/component/Input.js}
+ */
+function shellModuleUrl(relativePath) {
+    const meta = new URL(import.meta.url);
+    meta.search = '';
+    const u = new URL(relativePath, meta);
+    const v = (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim() ?? '';
+    if (v) u.searchParams.set('v', v);
+
+    return u.href;
+}
+
+function dismissOaaoBootOverlay() {
+    document.body.classList.add('oaao-shell-ready');
+    const root = document.getElementById('workspace-view');
+    if (root instanceof HTMLElement) {
+        root.hidden = false;
+        root.setAttribute('razyui-cloak', 'ready');
+        root.querySelectorAll('[razyui-cloak]:not([razyui-cloak="ready"])').forEach((el) => {
+            el.setAttribute('razyui-cloak', 'ready');
+        });
+    }
+    document.dispatchEvent(new CustomEvent('oaao:shell-ready'));
+}
+
+/** @type {Promise<typeof import('./workspace.js')> | null} */
+let workspaceShellModulePromise = null;
+
+function loadWorkspaceShellModule() {
+    if (!workspaceShellModulePromise) {
+        workspaceShellModulePromise = import(/* webpackIgnore: true */ shellModuleUrl('./workspace.js')).catch((err) => {
+            console.error('[oaao] workspace.js load failed — unblocking boot overlay', err);
+            workspaceShellModulePromise = null;
+            dismissOaaoBootOverlay();
+
+            return {
+                initWorkspaceShell: () => {},
+                revealAuthenticatedWorkspaceShell: async () => {
+                    dismissOaaoBootOverlay();
+                },
+            };
+        });
+    }
+
+    return workspaceShellModulePromise;
+}
 
 /**
  * Pages registered by backend modules (@see SpaRegister PHP). Empty until modules run __onInit.
@@ -336,7 +385,7 @@ function finalizeAuthenticatedSession(user, authBaseRaw) {
     }
     applyWorkspaceUi(user);
     wireWorkspaceLogout(authBaseRaw);
-    initWorkspaceShell();
+    void loadWorkspaceShellModule().then((m) => m.initWorkspaceShell());
 }
 
 function wireWorkspaceLogout(authBaseRaw) {
@@ -373,7 +422,7 @@ async function wireLoginForm(authBaseRaw) {
     if (!form || form.dataset.oaaoLoginBound === '1') return;
     form.dataset.oaaoLoginBound = '1';
 
-    const { default: AjaxForm } = await import('../razyui/component/AjaxForm.js');
+    const { default: AjaxForm } = await import(/* webpackIgnore: true */ shellModuleUrl('../razyui/component/AjaxForm.js'));
     const loginUrl = resolveAuthApiPath(authBaseRaw, 'login');
 
     AjaxForm.wrapAll(form, {
@@ -418,19 +467,22 @@ async function wireLoginForm(authBaseRaw) {
         },
         onSuccess(parsed) {
             oaaoSessionUser = parsed.data ?? null;
-            const lv = document.getElementById('login-view');
-            const wv = document.getElementById('workspace-view');
-            const pv = document.getElementById('platform-view');
-            if (lv) lv.hidden = true;
-            if (isPlatformHostShell()) {
-                if (pv) pv.hidden = false;
-                if (wv) wv.hidden = true;
-            } else {
-                if (wv) wv.hidden = false;
-                if (pv) pv.hidden = true;
-            }
-            document.body.classList.add('oaao-session-active');
-            if (oaaoSessionUser) finalizeAuthenticatedSession(oaaoSessionUser, authBaseRaw);
+            void (async () => {
+                const lv = document.getElementById('login-view');
+                const wv = document.getElementById('workspace-view');
+                const pv = document.getElementById('platform-view');
+                if (lv) lv.hidden = true;
+                if (isPlatformHostShell()) {
+                    if (pv) pv.hidden = false;
+                    if (wv) wv.hidden = true;
+                } else {
+                    const { revealAuthenticatedWorkspaceShell } = await loadWorkspaceShellModule();
+                    await revealAuthenticatedWorkspaceShell();
+                    if (pv) pv.hidden = true;
+                }
+                document.body.classList.add('oaao-session-active');
+                if (oaaoSessionUser) finalizeAuthenticatedSession(oaaoSessionUser, authBaseRaw);
+            })();
         },
         onError(err) {
             errEl?.classList.remove('hidden');
@@ -574,14 +626,25 @@ if (isPlatformHostShell()) {
         loginSub.removeAttribute('data-i18n');
     }
 }
-if (authInstalledEarly && loginViewEl) {
+/**
+ * Reveal login/install cloaks only — workspace shell keeps `[razyui-cloak]` until
+ * {@see workspace.js revealAuthenticatedWorkspaceShell} finishes JIT hydrate (RazyUI {@code preload()} reveals all cloaks globally).
+ */
+function revealAuthShellCloak() {
+    document.querySelectorAll('#login-view [razyui-cloak], #install-view [razyui-cloak]').forEach((el) => {
+        el.setAttribute('razyui-cloak', 'ready');
+    });
+}
+
+function applySessionShellVisibility() {
+    if (!authInstalledEarly || !loginViewEl) return;
     if (oaaoSessionUser) {
         loginViewEl.hidden = true;
         if (isPlatformHostShell() && platformViewEl) {
             platformViewEl.hidden = false;
             if (workspaceViewEl) workspaceViewEl.hidden = true;
         } else if (workspaceViewEl) {
-            workspaceViewEl.hidden = false;
+            if (workspaceViewEl.hidden) workspaceViewEl.hidden = false;
             if (platformViewEl) platformViewEl.hidden = true;
         }
         document.body.classList.add('oaao-session-active');
@@ -602,16 +665,21 @@ try {
     await razyui.boot();
 
     await razyui.load('Input');
-    const { registerElement } = await import('../razyui/component/Input.js');
+    const { registerElement } = await import(/* webpackIgnore: true */ shellModuleUrl('../razyui/component/Input.js'));
     await registerElement();
 
-    await razyui.preload();
+    revealAuthShellCloak();
 } catch (err) {
     console.error('[oaao] RazyUI shell boot failed — login fields may look empty until fixed.', err);
-    document.querySelectorAll('#login-view [razyui-cloak], #install-view [razyui-cloak]').forEach((el) => {
-        el.setAttribute('razyui-cloak', 'ready');
-    });
+    revealAuthShellCloak();
 }
+
+if (oaaoSessionUser && !isPlatformHostShell()) {
+    const { revealAuthenticatedWorkspaceShell } = await loadWorkspaceShellModule();
+    await revealAuthenticatedWorkspaceShell();
+}
+
+applySessionShellVisibility();
 
 if (authInstalledEarly && authBaseEarly) {
     if (oaaoSessionUser) {

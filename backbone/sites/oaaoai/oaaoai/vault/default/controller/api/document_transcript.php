@@ -6,8 +6,6 @@ use oaaoai\vault\VaultTranscriptSummaryLanguages;
 use oaaoai\vault\VaultTranscriptSummaryTemplates;
 
 require_once __DIR__ . '/_vault_hook_jobs.php';
-require_once dirname(__DIR__, 2) . '/library/VaultTranscriptSummaryTemplates.php';
-require_once dirname(__DIR__, 2) . '/library/VaultTranscriptSummaryLanguages.php';
 
 /**
  * GET /vault/api/document_transcript — ASR transcript payload for vault detail UI.

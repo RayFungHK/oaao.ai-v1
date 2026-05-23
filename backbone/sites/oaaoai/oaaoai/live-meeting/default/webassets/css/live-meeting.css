@@ -1,53 +1,274 @@
-/* Live meeting — minimal shell; layout via JIT / utility classes on markup */
+/* Live meeting — JIT utilities on markup; this file only for states JIT does not cover. */
+
+
 
 .oaao-live-meeting-root [data-oaao-live-meeting="transcript"] {
+
     -webkit-overflow-scrolling: touch;
+
 }
+
+
 
 .oaao-live-meeting-root .oaao-live-transcript-line.is-partial {
+
     opacity: 0.72;
+
     font-style: italic;
+
 }
+
+
 
 .oaao-live-meeting-root .oaao-live-transcript-line.is-final {
+
     opacity: 1;
+
 }
+
+
 
 .oaao-live-meeting-root .oaao-live-transcript-line.is-error {
+
     color: var(--grid-danger, #b91c1c);
+
     font-size: 0.75rem;
+
 }
+
+
 
 .oaao-live-meeting-root .oaao-live-transcript-empty {
+
     display: block;
+
 }
+
+
 
 .oaao-live-meeting-root .oaao-live-transcript-empty.is-hidden {
+
     display: none;
+
 }
+
+
+
+.oaao-live-meeting-root .oaao-live-meeting-mic-split {
+
+    display: inline-flex;
+
+    align-items: stretch;
+
+    border-radius: 9999px !important;
+
+    overflow: hidden;
+
+}
+
+
+
+.oaao-live-meeting-root [data-oaao-live-meeting="mic-group"] {
+
+    overflow: visible;
+
+}
+
+
 
 .oaao-live-meeting-root [data-oaao-live-meeting="mic"] {
+
     color: #fff;
+
     background: #2d2d2d;
+
+    border-radius: 0;
+
 }
+
+
 
 .oaao-live-meeting-root [data-oaao-live-meeting="mic"] span {
+
     color: inherit;
+
 }
+
+
 
 .oaao-live-meeting-root [data-oaao-live-meeting="mic"]:hover {
+
     background: #1a1a1a;
+
 }
+
+
+
+.oaao-live-meeting-root .oaao-live-meeting-mic-menu-btn {
+
+    color: #fff;
+
+    background: #2d2d2d;
+
+    border-radius: 0;
+
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+
+}
+
+
+
+.oaao-live-meeting-root .oaao-live-meeting-mic-menu-btn:hover:not(:disabled) {
+
+    background: #1a1a1a;
+
+}
+
+
+
+.oaao-live-meeting-root .oaao-live-meeting-mic-menu-btn:disabled {
+
+    opacity: 0.55;
+
+    cursor: not-allowed;
+
+}
+
+
+
+.oaao-live-meeting-root [data-oaao-live-meeting="mic-group"][data-oaao-live-recording="1"] [data-oaao-live-meeting="mic"],
+
+.oaao-live-meeting-root [data-oaao-live-meeting="mic-group"][data-oaao-live-recording="1"] .oaao-live-meeting-mic-menu-btn {
+
+    background: #dc2626;
+
+    color: #fff;
+
+}
+
+
+
+.oaao-live-meeting-root [data-oaao-live-meeting="mic-group"][data-oaao-live-recording="1"] [data-oaao-live-meeting="mic"]:hover,
+
+.oaao-live-meeting-root [data-oaao-live-meeting="mic-group"][data-oaao-live-recording="1"] .oaao-live-meeting-mic-menu-btn:hover:not(:disabled) {
+
+    background: #b91c1c;
+
+}
+
+
 
 .oaao-live-meeting-root [data-oaao-live-meeting="mic"][data-oaao-live-recording="1"] {
+
     background: #dc2626;
+
     color: #fff;
+
 }
 
-.oaao-live-meeting-root [data-oaao-live-meeting="keep-audio-wrap"].is-visible {
-    display: inline-flex;
+
+
+.oaao-live-meeting-root .oaao-live-meeting-audio-input-anchor {
+
+    display: none;
+
+    flex-direction: column;
+
 }
+
+
+
+.oaao-app .oaao-live-meeting-root .oaao-live-meeting-audio-input-anchor[hidden],
+
+.oaao-app .oaao-live-meeting-root .oaao-live-meeting-audio-input-anchor.hidden {
+
+    display: none !important;
+
+}
+
+
+
+.oaao-app .oaao-live-meeting-root .oaao-live-meeting-audio-input-anchor:not([hidden]):not(.hidden) {
+
+    display: flex !important;
+
+    flex-direction: column;
+
+}
+
+
 
 .oaao-live-meeting-root .oaao-live-bubble-chip[data-oaao-live-bubble-type="question"] {
+
     border-color: var(--grid-accent, #2563eb);
+
 }
+
+
+
+.oaao-live-meeting-root .oaao-live-audio-dot {
+
+    width: 0.625rem;
+
+    height: 0.625rem;
+
+    border-radius: 9999px;
+
+    background: var(--grid-line);
+
+    transition: background-color 120ms ease, box-shadow 120ms ease;
+
+}
+
+
+
+.oaao-live-meeting-root .oaao-live-audio-dot.is-listening {
+
+    background: #16a34a;
+
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.22);
+
+    animation: oaao-live-audio-pulse 1.2s ease-in-out infinite;
+
+}
+
+
+
+.oaao-live-meeting-root .oaao-live-audio-dot.is-open {
+
+    background: #eab308;
+
+}
+
+
+
+.oaao-live-meeting-root .oaao-live-audio-level-fill.is-hot {
+
+    background: #f59e0b;
+
+}
+
+
+
+@keyframes oaao-live-audio-pulse {
+
+    0%,
+
+    100% {
+
+        transform: scale(1);
+
+        opacity: 1;
+
+    }
+
+    50% {
+
+        transform: scale(1.08);
+
+        opacity: 0.88;
+
+    }
+
+}
+

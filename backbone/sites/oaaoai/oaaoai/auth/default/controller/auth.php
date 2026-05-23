@@ -103,8 +103,16 @@ return new class extends Controller {
 
     public function __onReady(): void
     {
+        if (class_exists(\OaaoBenchProbe::class, false)) {
+            \OaaoBenchProbe::mark('auth_onready_start');
+        }
+
         $config   = $this->getModuleConfig();
         $dbConfig = $config['database'] ?? [];
+
+        if (class_exists(\OaaoBenchProbe::class, false)) {
+            \OaaoBenchProbe::mark('auth_onready_after_config');
+        }
 
         if (empty($dbConfig)) {
             return;
@@ -114,7 +122,15 @@ return new class extends Controller {
 
         try {
             $db = \Razy\Database::GetInstance('oaao');
-            if ($driver === 'pgsql') {
+            if (class_exists(\OaaoBenchProbe::class, false)) {
+                \OaaoBenchProbe::mark('auth_onready_after_get_instance');
+            }
+            if ($db->getDBAdapter() instanceof \PDO) {
+                $this->db = $db;
+                if (class_exists(\OaaoBenchProbe::class, false)) {
+                    \OaaoBenchProbe::mark('auth_onready_reused_pdo');
+                }
+            } elseif ($driver === 'pgsql') {
                 $ok = $db->connectWithDriver('pgsql', [
                     'host'     => $dbConfig['host'] ?? 'localhost',
                     'port'     => (int) ($dbConfig['port'] ?? 5432),
@@ -122,6 +138,13 @@ return new class extends Controller {
                     'username' => $dbConfig['username'] ?? '',
                     'password' => $dbConfig['password'] ?? '',
                 ]);
+                if (! $ok || $db->getDBAdapter() === null) {
+                    $this->db = null;
+
+                    return;
+                }
+                $db->setPrefix($dbConfig['prefix'] ?? 'oaao_');
+                $this->db = $db;
             } else {
                 $sqlitePath = $dbConfig['database'] ?? ':memory:';
                 if ($sqlitePath !== ':memory:') {
@@ -133,57 +156,91 @@ return new class extends Controller {
                 $ok = $db->connectWithDriver('sqlite', [
                     'database' => $sqlitePath,
                 ]);
-            }
+                if (! $ok || $db->getDBAdapter() === null) {
+                    $this->db = null;
 
-            if (! $ok || $db->getDBAdapter() === null) {
-                $this->db = null;
-
-                return;
+                    return;
+                }
+                $db->setPrefix($dbConfig['prefix'] ?? 'oaao_');
+                $this->db = $db;
             }
-            $db->setPrefix($dbConfig['prefix'] ?? 'oaao_');
-            $this->db = $db;
         } catch (\Throwable $e) {
             $this->db = null;
 
             return;
         }
 
+        if (class_exists(\OaaoBenchProbe::class, false)) {
+            \OaaoBenchProbe::mark('auth_onready_after_connect');
+        }
+
+        require_once __DIR__ . '/../library/CrossProcessBootCache.php';
+        if ($this->isInstalled() && $this->db && \OaaoAuthCrossProcessBootCache::workerReady()) {
+            require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
+            \OaaoAuthPgCoreBootstrapCache::markDone();
+            if (class_exists(\OaaoBenchProbe::class, false)) {
+                \OaaoBenchProbe::mark('auth_onready_fast_path');
+            }
+            if (class_exists(\OaaoBenchProbe::class, false)) {
+                \OaaoBenchProbe::mark('auth_onready_done');
+            }
+
+            return;
+        }
+
         if ($this->isInstalled() && $this->db) {
-            try {
-                // Do not use getMigrationManager() here: it throws if migration/ is missing (common in
-                // slim Docker copies). Tracking table + DDL bootstrap only need a bare MigrationManager.
-                $tracking = new MigrationManager($this->db);
-                $tracking->ensureTrackingTable();
-
-                if (($this->db->getDriverType() ?? '') === 'sqlite') {
-                    require_once __DIR__ . '/api/_install_sqlite_schema.php';
-                    $pdo = $this->db->getDBAdapter();
-                    $hasUser = (bool) $pdo->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oaao_user'")->fetchColumn();
-                    if (! $hasUser) {
-                        oaao_auth_install_sqlite_core_schema($pdo);
-                        oaao_auth_seed_sqlite_migration_rows($pdo);
-                    }
-                    oaao_auth_upgrade_sqlite_core_schema($pdo);
-                } elseif (($this->db->getDriverType() ?? '') === 'pgsql') {
-                    require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
-                    oaao_auth_ensure_pg_core_tables($this->db);
+            static $oaaoAuthReadyBootstrapped = false;
+            if (! $oaaoAuthReadyBootstrapped) {
+                if (class_exists(\OaaoBenchProbe::class, false)) {
+                    \OaaoBenchProbe::mark('auth_onready_bootstrap_run');
                 }
-
                 try {
-                    $manager = $this->getMigrationManager($this->db);
-                    $pending = $manager->getPending();
-                    if (! empty($pending)) {
-                        $manager->migrate();
+                    // Do not use getMigrationManager() here: it throws if migration/ is missing (common in
+                    // slim Docker copies). Tracking table + DDL bootstrap only need a bare MigrationManager.
+                    $tracking = new MigrationManager($this->db);
+                    $tracking->ensureTrackingTable();
+
+                    if (($this->db->getDriverType() ?? '') === 'sqlite') {
+                        require_once __DIR__ . '/api/_install_sqlite_schema.php';
+                        $pdo = $this->db->getDBAdapter();
+                        $hasUser = (bool) $pdo->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='oaao_user'")->fetchColumn();
+                        if (! $hasUser) {
+                            oaao_auth_install_sqlite_core_schema($pdo);
+                            oaao_auth_seed_sqlite_migration_rows($pdo);
+                        }
+                        oaao_auth_upgrade_sqlite_core_schema($pdo);
+                    } elseif (($this->db->getDriverType() ?? '') === 'pgsql') {
+                        require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
+                        oaao_auth_ensure_pg_core_tables($this->db);
                     }
-                } catch (InvalidArgumentException) {
-                    // No migration/ directory — skip optional PHP migrations only.
+
+                    try {
+                        $manager = $this->getMigrationManager($this->db);
+                        $pending = $manager->getPending();
+                        if (! empty($pending)) {
+                            $manager->migrate();
+                        }
+                    } catch (InvalidArgumentException) {
+                        // No migration/ directory — skip optional PHP migrations only.
+                    }
+                } catch (\Throwable $e) {
+                    error_log('oaaoai/auth __onReady DB bootstrap: ' . $e->getMessage());
                 }
-            } catch (\Throwable $e) {
-                error_log('oaaoai/auth __onReady DB bootstrap: ' . $e->getMessage());
+                $oaaoAuthReadyBootstrapped = true;
+            } elseif (class_exists(\OaaoBenchProbe::class, false)) {
+                \OaaoBenchProbe::mark('auth_onready_bootstrap_skip');
+            }
+            if (class_exists(\OaaoBenchProbe::class, false)) {
+                \OaaoBenchProbe::mark('auth_onready_after_pg_boot');
             }
         }
 
-        $this->wireAdjunctSqliteFromConfig();
+        if ($this->isInstalled() && $this->db) {
+            \OaaoAuthCrossProcessBootCache::markWorkerReady();
+        }
+        if (class_exists(\OaaoBenchProbe::class, false)) {
+            \OaaoBenchProbe::mark('auth_onready_done');
+        }
     }
 
     /**
@@ -247,6 +304,14 @@ return new class extends Controller {
 
         // Dedicated registry name avoids a stale broken {@see Database::GetInstance()} surviving across PHP-FPM worker requests under the legacy {@code oaao_local} key after failed connects.
         $ldb = \Razy\Database::GetInstance('oaao_adjunct_sqlite');
+        if ($ldb->getDBAdapter() instanceof \PDO) {
+            $ldb->setPrefix($prefix);
+            $this->dbLocal = $ldb;
+            $this->adjunctSqliteLastError = '';
+
+            return;
+        }
+
         $lastErr = '';
 
         foreach ($paths as $localPath) {
@@ -351,14 +416,8 @@ return new class extends Controller {
             return null;
         }
 
-        try {
-            require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
-            oaao_auth_ensure_pg_core_tables($this->db);
-        } catch (\Throwable) {
-            return null;
-        }
-
         $pdo = $this->db->getDBAdapter();
+        require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
         if ($pdo instanceof \PDO && oaao_auth_database_is_pgsql($this->db)) {
             require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
             \Oaaoai\Core\TenantContext::bootstrap($pdo);
@@ -472,13 +531,17 @@ return new class extends Controller {
      */
     public function getDBLocal()
     {
+        if ($this->dbLocal === null || ! ($this->dbLocal->getDBAdapter() instanceof \PDO)) {
+            $this->wireAdjunctSqliteFromConfig();
+        }
+
         return $this->dbLocal;
     }
 
     /** @see getDBLocal() */
     public function getDBSplit()
     {
-        return $this->dbLocal;
+        return $this->getDBLocal();
     }
 
     public function requireAdmin()

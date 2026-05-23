@@ -281,6 +281,7 @@ function oaao_auth_ensure_pg_workspace_tables(\PDO $pdo): void
         token TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT \'pending\',
         expires_at TIMESTAMPTZ NOT NULL,
+        role TEXT NOT NULL DEFAULT \'member\',
         accepted_at TIMESTAMPTZ DEFAULT NULL,
         accepted_user_id BIGINT DEFAULT NULL REFERENCES oaao_user(user_id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

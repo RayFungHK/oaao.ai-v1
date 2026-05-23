@@ -65,6 +65,17 @@ return function (): void {
     }
 
     try {
+        require_once dirname(__DIR__, 4) . '/core/default/library/GroupLimitEnforcer.php';
+
+        $limits = \Oaaoai\Core\GroupLimitEnforcer::limitsForUser($pdo, $uid);
+        $limitMsg = \Oaaoai\Core\GroupLimitEnforcer::assertCanCreateWorkspace($pdo, $uid, $limits);
+        if ($limitMsg !== null) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => $limitMsg]);
+
+            return;
+        }
+
         $pdo->beginTransaction();
         $ins = $pdo->prepare(
             'INSERT INTO oaao_workspace (name, created_by, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) RETURNING workspace_id',

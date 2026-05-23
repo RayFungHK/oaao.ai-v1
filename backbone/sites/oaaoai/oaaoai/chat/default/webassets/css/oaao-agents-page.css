@@ -2,13 +2,18 @@
  * Workspace Agents catalog page ({@see agents-panel.js}).
  */
 
+.oaao-agents-grid-host {
+    padding-inline: 1rem;
+}
+
+@media (min-width: 640px) {
+    .oaao-agents-grid-host {
+        padding-inline: 2rem;
+    }
+}
+
 .oaao-agents-grid {
-    display: flex;
-    flex-direction: column;
     gap: 10px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
 }
 
 .oaao-agents-card {
@@ -21,6 +26,7 @@
     border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
     background: var(--grid-panel-bright, #fff);
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.04);
+    min-width: 0;
 }
 
 .oaao-agents-card--disabled {

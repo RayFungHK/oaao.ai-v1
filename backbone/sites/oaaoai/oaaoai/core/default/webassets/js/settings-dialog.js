@@ -5,6 +5,7 @@
 
 import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-url.js';
 import { oaaoT } from './oaao-i18n.js';
+import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 
 /** Razy {@code Dialog} shell tokens — avoid arbitrary {@code min(a,b)} with commas here (JIT often skips them). Size uses {@link Dialog} {@code height} below. */
 const SDLG_DIALOG_BOX_JIT = 'overflow-hidden bg-[var(--grid-panel-bright)] min-h-0';
@@ -215,9 +216,7 @@ export async function openWorkspaceSettingsDialog(razyui) {
         if (sec.panel_html) {
             panel.innerHTML = sec.panel_html;
         } else {
-            panel.innerHTML = `<p class="text-sm fg-[var(--grid-ink-muted)] oaao-settings-panel-placeholder">${oaaoT(
-                'settings.dialog.loading_panel',
-            )}</p>`;
+            panel.append(oaaoLoadingLogoElement({ block: true, label: oaaoT('settings.dialog.loading_panel') }));
         }
         scroll.appendChild(panel);
     });
@@ -264,6 +263,7 @@ export async function openWorkspaceSettingsDialog(razyui) {
             }
 
             if (sec.panel_url) {
+                oaaoMountLoadingLogo(host, { block: true, label: oaaoT('settings.dialog.loading_panel') });
                 const res = await fetch(resolveShellRegistryUrl(sec.panel_url), {
                     credentials: 'include',
                     redirect: 'manual',

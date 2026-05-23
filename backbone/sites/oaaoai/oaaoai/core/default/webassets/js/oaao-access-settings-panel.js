@@ -2,8 +2,35 @@
  * Admin Settings — Users + Permission groups ({@see settings-users}, {@see settings-permission-groups}).
  */
 
+import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
+
 const FEATURE_KEYS = ['chat', 'vault', 'workspace', 'settings'];
-const LIMIT_KEYS = ['workspace_max', 'vault_max', 'storage_bytes_max'];
+const LIMIT_KEYS = ['workspace_max', 'vault_max', 'vault_files_max', 'storage_bytes_max'];
+
+/** @type {Record<string, string>} */
+const LIMIT_LABELS = {
+    workspace_max: 'Workspace max',
+    vault_max: 'Vault create max',
+    vault_files_max: 'Vault file count max',
+    storage_bytes_max: 'Vault storage max (bytes)',
+};
+
+/**
+ * @param {string} key
+ */
+function limitFieldLabel(key) {
+    return LIMIT_LABELS[key] || key;
+}
+
+/**
+ * @param {Record<string, unknown>} limits
+ */
+function renderLimitFields(limits) {
+    return LIMIT_KEYS.map(
+        (k) =>
+            `<label class="text-xs block mb-1">${limitFieldLabel(k)}<input name="limit_${k}" type="number" min="0" class="oaao-access-input" value="${limits[k] != null && limits[k] !== '' ? escapeAttr(String(limits[k])) : ''}" placeholder="Unlimited" /></label>`,
+    ).join('');
+}
 const PAGE_SIZE = 10;
 
 /**
@@ -28,10 +55,7 @@ export default mountSettingsPanel;
  */
 async function mountUsersPanel(host, ctx, page = 1) {
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = 'Loading users…';
-    host.append(loading);
+    oaaoMountLoadingLogo(host, { label: 'Loading users…' });
 
     try {
         const url = `/user/api/users_list?page=${page}&page_size=${PAGE_SIZE}`;
@@ -79,10 +103,7 @@ async function mountUsersPanel(host, ctx, page = 1) {
  */
 async function mountGroupsPanel(host, ctx, page = 1) {
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = 'Loading permission groups…';
-    host.append(loading);
+    oaaoMountLoadingLogo(host, { label: 'Loading permission groups…' });
 
     try {
         const url = `/group/api/groups_list?page=${page}&page_size=${PAGE_SIZE}`;
@@ -369,9 +390,9 @@ async function openGroupDialog(group, ctx, reload) {
                 return `<label class="text-xs flex items-center gap-2 mr-3 inline-flex"><input type="checkbox" name="feature_${k}"${checked ? ' checked' : ''} /> ${k}</label>`;
             }).join('')}
         </fieldset>
-        ${isEdit ? `<fieldset class="border-0 p-0 m-0"><legend class="text-xs fw-medium mb-1">Limits (empty = unlimited)</legend>
-            ${LIMIT_KEYS.map((k) => `<label class="text-xs block mb-1">${k}<input name="limit_${k}" type="number" min="0" class="oaao-access-input" value="${limits[k] != null && limits[k] !== '' ? escapeAttr(String(limits[k])) : ''}" /></label>`).join('')}
-        </fieldset>` : ''}
+        <fieldset class="border-0 p-0 m-0"><legend class="text-xs fw-medium mb-1">Limits (empty = unlimited)</legend>
+            ${renderLimitFields(limits)}
+        </fieldset>
         ${isEdit ? `<label class="text-xs flex items-center gap-2"><input name="disabled" type="checkbox"${group.disabled ? ' checked' : ''} /> Disabled</label>` : ''}`;
 
     const status = document.createElement('p');

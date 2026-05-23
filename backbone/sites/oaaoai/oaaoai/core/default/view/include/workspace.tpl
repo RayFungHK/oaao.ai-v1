@@ -1,7 +1,7 @@
     <!-- Authenticated shell: icon rail + sidebar + main (all layout via JIT utilities — {@see oaao-jit.js} tokens only). -->
     <div id="workspace-view"
         class="workspace-view-shell flex flex-col flex-1 w-full box-border min-h-[100dvh] h-[100dvh] max-h-[100dvh] overflow-hidden bg-[var(--grid-paper)]"
-        hidden>
+        hidden razyui-cloak>
         <div class="workspace-shell-inner flex flex-1 min-h-0 min-w-0 w-full h-full max-h-full overflow-hidden items-stretch">
             <!-- Left: narrow rail + sidebar (on narrow viewports becomes slide-over drawer; see oaao.css + workspace.js) -->
             <aside id="workspace-shell-aside"
@@ -15,7 +15,7 @@
                             class="flex items-center justify-center w-10 h-10 rounded-[10px] hover:bg-[var(--grid-line)]/45 border-none bg-transparent cursor-pointer font-inherit select-none p-0 mb-xs"
                             title="Chat"
                             aria-label="Chat">
-                            <img src="{$asset_path}images/logo.svg" alt="" class="w-[22px] h-[22px]" />
+                            <img src="{$asset_path}images/logo.svg?v={$oaao_shell_esm_v}" alt="" class="w-[22px] h-[22px]" width="22" height="22" />
                         </button>
                         <button type="button" id="workspace-rail-chat"
                             class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none"
@@ -210,6 +210,22 @@
                             </svg>
                             <span data-i18n="workspace.service_ok">All systems operational</span>
                         </span>
+                        <div class="relative inline-flex items-center">
+                            <button type="button" id="workspace-notifications-trigger"
+                                class="relative inline-flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer font-inherit fg-[var(--grid-caption)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
+                                aria-expanded="false"
+                                aria-haspopup="true"
+                                aria-controls="workspace-notifications-panel"
+                                aria-label="Notifications"
+                                title="Notifications">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                                <span id="workspace-notifications-badge"
+                                    class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-[var(--grid-accent)] fg-white text-[0.625rem] fw-semibold leading-4 text-center pointer-events-none"></span>
+                            </button>
+                            <div id="workspace-notifications-panel" role="menu"
+                                class="hidden absolute right-0 top-[calc(100%+6px)] min-w-[18rem] max-w-[min(24rem,calc(100vw-2rem))] max-h-[min(60vh,420px)] overflow-y-auto z-[90] rounded-[10px] border-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] shadow-[0_8px_24px_rgba(0,0,0,0.1)] py-1">
+                            </div>
+                        </div>
                         <!-- Account menu: hand-rolled panel + JIT today; prefer {@code rui-dropdown} / {@see Dropdown.js} + {@code registerElement} when init wiring lands — practice RazyUI, avoid parallel menu semantics. Keep {@code #workspace-user-label} for preferences greeting ({@see preferences-dialog.js}). -->
                         <div class="oaao-user-menu relative inline-flex items-center">
                             <button type="button" id="workspace-user-menu-trigger"

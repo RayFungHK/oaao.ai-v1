@@ -28,15 +28,17 @@ function oaaoPlannerCoreImportHref(relUnderCoreDefault) {
     return pathOnly;
 }
 
-const [_mI18n, _mJit, _mApi] = await Promise.all([
+const [_mI18n, _mJit, _mApi, _mLoading] = await Promise.all([
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-i18n.js')),
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-jit-dsl.js')),
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/endpoints-settings/api.js')),
+    import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-loading-logo.js')),
 ]);
 
 const { oaaoT } = _mI18n;
 const { replaceChildrenParsed, ruiBuild } = _mJit;
 const { endpointsApiUrl, endpointsFetchJson } = _mApi;
+const { oaaoMountLoadingLogo } = _mLoading;
 
 import {
     fillPlannerSettingsForm,
@@ -79,10 +81,7 @@ const state = { purpose: null, postgresqlOnly: false };
  */
 export async function mountSettingsPanel(host, ctx = {}) {
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = oaaoT('settings.planner.loading');
-    host.appendChild(loading);
+    oaaoMountLoadingLogo(host, { label: oaaoT('settings.planner.loading') });
 
     const { res, data } = await endpointsFetchJson(endpointsApiUrl('purposes_list'));
     if (!res.ok || !data?.success) {

@@ -4,6 +4,7 @@
  */
 
 import { oaaoT } from './oaao-i18n.js';
+import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 import { replaceChildrenParsed, ruiBuild } from './oaao-jit-dsl.js';
 import { endpointsApiUrl, endpointsFetchJson } from './endpoints-settings/api.js';
 import {
@@ -47,10 +48,7 @@ const state = { purpose: null, postgresqlOnly: false };
  */
 export async function mountSettingsPanel(host, ctx = {}) {
     host.textContent = '';
-    const loading = document.createElement('p');
-    loading.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    loading.textContent = oaaoT('settings.rag.loading');
-    host.appendChild(loading);
+    oaaoMountLoadingLogo(host, { label: oaaoT('settings.rag.loading') });
 
     const { res, data } = await endpointsFetchJson(endpointsApiUrl('purposes_list'));
     if (!res.ok || !data?.success) {

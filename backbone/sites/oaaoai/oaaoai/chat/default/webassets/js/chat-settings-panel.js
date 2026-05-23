@@ -43,10 +43,11 @@ function oaaoChatCoreDynamicImportHref(relUnderCoreDefault) {
     return pathOnly;
 }
 
-const [_mI18n, _mJit, _mRz] = await Promise.all([
+const [_mI18n, _mJit, _mRz, _mLoading] = await Promise.all([
     import(/* webpackIgnore: true */ oaaoChatCoreDynamicImportHref('js/oaao-i18n.js')),
     import(/* webpackIgnore: true */ oaaoChatCoreDynamicImportHref('js/oaao-jit-dsl.js')),
     import(/* webpackIgnore: true */ oaaoChatCoreDynamicImportHref('razyui/razyui.js')),
+    import(/* webpackIgnore: true */ oaaoChatCoreDynamicImportHref('js/oaao-loading-logo.js')),
 ]);
 
 const { oaaoT } = _mI18n;
@@ -58,6 +59,7 @@ const {
     SETTINGS_BTN_PRIMARY_JIT,
 } = _mJit;
 const razyui = _mRz.default;
+const { oaaoMountLoadingLogo } = _mLoading;
 
 /** @param {unknown} v */
 function escapeHtml(v) {
@@ -1082,7 +1084,8 @@ export async function mountSettingsPanel(host, ctx) {
         bindPanelDelegation(host);
         host.dataset.oaaoChatSettingsBound = '1';
     }
-    host.textContent = oaaoT('settings.dialog.loading_panel');
+    host.textContent = '';
+    oaaoMountLoadingLogo(host, { label: oaaoT('settings.dialog.loading_panel') });
     try {
         await reload(host);
     } catch (e) {

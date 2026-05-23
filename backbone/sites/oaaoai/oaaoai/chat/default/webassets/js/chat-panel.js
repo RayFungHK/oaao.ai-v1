@@ -33,6 +33,7 @@ import {
     openConversationMaterialsDialog,
     openTaskMaterialsDialog,
 } from './task-materials-dialog.js';
+import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
 
 /** Align with auth SPA paths when the app lives under a subdirectory (same cookie path as `/auth/me`). */
 function chatApiBase() {
@@ -76,6 +77,26 @@ function workspaceChatBodyFields() {
     const w = getOaaoActiveWorkspaceIdForChat();
 
     return w != null ? { workspace_id: w } : {};
+}
+
+/** Wait for shell boot {@code /chat/api/workspaces} validation ({@see workspace.js fetchWorkspaceList}). */
+function awaitWorkspaceListReady() {
+    if (typeof document !== 'undefined' && document.body?.dataset?.oaaoWorkspaceListReady === '1') {
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+        const done = () => resolve(undefined);
+        const t = window.setTimeout(done, 8000);
+        document.addEventListener(
+            'oaao-workspace-list-ready',
+            () => {
+                window.clearTimeout(t);
+                done();
+            },
+            { once: true },
+        );
+    });
 }
 
 /** Vault API root — mirrors {@link vault-panel.js} {@code vaultApiBase}. */
@@ -1069,6 +1090,24 @@ function mountChatComposerBuiltInVaultUi(mount, signal, onVaultSourcesChange) {
     }
 }
 
+/** @type {((spec: string) => string) | null} */
+let chatOrchestratorUrlResolver = null;
+
+async function resolveChatOrchestratorStreamUrl(spec) {
+    if (!chatOrchestratorUrlResolver) {
+        try {
+            const m = await import(
+                /* webpackIgnore: true */ oaaoPrefixedSitePath('/webassets/core/default/js/shell-registry-url.js')
+            );
+            chatOrchestratorUrlResolver =
+                typeof m.resolveOrchestratorPublicUrl === 'function' ? m.resolveOrchestratorPublicUrl : (s) => s;
+        } catch {
+            chatOrchestratorUrlResolver = (s) => s;
+        }
+    }
+    return chatOrchestratorUrlResolver(String(spec ?? '').trim());
+}
+
 /** Prefix root-relative paths when the SPA sits under {@code data-oaao-mount-prefix} ({@see shell-registry-url.js}). */
 function oaaoPrefixedSitePath(pathOnly) {
     const raw = (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
@@ -1284,6 +1323,21 @@ function renderLiteTable(tableLines) {
 }
 
 /**
+ * Render assistant markdown → HTML (fenced code + prose).
+ *
+ * @param {string} md
+ */
+function renderAssistantMarkdownHtml(md) {
+    const text = String(md ?? '');
+    if (!text.trim()) return '';
+    if (chatMd && typeof chatMd.tokenizeStableStreamChunks === 'function') {
+        const tokens = /** @type {Function} */ (chatMd.tokenizeStableStreamChunks)(text);
+        return tokens.map((t) => chatParseStreamToken(t)).join('');
+    }
+    return oaaoLightweightMarkdownToHtml(text);
+}
+
+/**
  * Fast O(n) markdown for assistant replies — avoids RazyUI {@link parseSafe} full re-parses that
  * freeze the main thread on ``\\n\\n`` + headings mid-stream / at stream end.
  *
@@ -1299,6 +1353,21 @@ function oaaoLightweightMarkdownToHtml(md) {
         const line = lines[i];
         if (!line.trim()) {
             i += 1;
+            continue;
+        }
+
+        if (/^```/.test(line.trim())) {
+            i += 1;
+            /** @type {string[]} */
+            const codeLines = [];
+            while (i < lines.length && !/^```\s*$/.test(lines[i].trim())) {
+                codeLines.push(lines[i]);
+                i += 1;
+            }
+            if (i < lines.length && /^```/.test(lines[i].trim())) {
+                i += 1;
+            }
+            html.push(`<pre class="oaao-md-pre"><code>${escapeHtmlLite(codeLines.join('\n'))}</code></pre>`);
             continue;
         }
 
@@ -1396,7 +1465,7 @@ function applyAssistantMarkdown(bubble, md) {
 
     try {
         // Never call RazyUI parseSafe here — tables/headings mid-reply freeze the main thread.
-        const html = oaaoLightweightMarkdownToHtml(text);
+        const html = renderAssistantMarkdownHtml(text);
         if (!html.trim()) {
             bubble.classList.remove('oaao-md-bubble');
             bubble.style.whiteSpace = 'pre-wrap';
@@ -1420,7 +1489,7 @@ function applyAssistantMarkdown(bubble, md) {
 /** Assistant markdown → safe HTML (legacy export; prefer {@link applyAssistantMarkdown}). */
 /** @param {string} md */
 function markdownToSafeHtml(md) {
-    return oaaoLightweightMarkdownToHtml(md);
+    return renderAssistantMarkdownHtml(md);
 }
 
 /**
@@ -1493,7 +1562,7 @@ function loadChatComposerDialogCtor() {
 }
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260519-task-cancelled-x';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260523-composer-border-gap-v';
 
 /** Open conversation overflow panel (fixed layer); cleared on sidebar re-render. */
 let openConvoMenuPanel = null;
@@ -1796,8 +1865,11 @@ function injectPipelineInlineStyles() {
 .oaao-chat-task-panel .oaao-task-list-strip{border:none;background:transparent;flex:1 1 auto;min-height:0;overflow:hidden}
 .oaao-chat-task-panel .oaao-task-list-inner{border:none;border-radius:0;box-shadow:none;min-height:0;max-height:none;overflow-y:auto;padding:10px 14px 14px}
 .oaao-chat-task-panel .oaao-task-list-header{display:none}
-.oaao-app .oaao-chat-composer-region--thread-float{background:var(--grid-paper,#fafafa)}
-.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{background:var(--grid-paper,#fafafa)}
+.oaao-app .oaao-chat-composer-region--thread-float{background:transparent}
+.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{background:transparent}
+.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width{position:relative;padding-top:2.5rem;background:transparent}
+.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width::before{content:'';position:absolute;left:0;right:0;top:0;height:2.5rem;pointer-events:none;background:linear-gradient(to bottom,transparent 0%,color-mix(in srgb,var(--grid-paper,#fafafa) 55%,transparent) 65%,var(--grid-paper,#fafafa) 100%)}
+.oaao-app .oaao-chat-composer-shell--thread [data-oaao-chat='composer-card-wrap']{position:relative;z-index:2;margin-top:0;border:1px solid color-mix(in srgb,var(--grid-ink,#111) 12%,transparent)!important;box-shadow:0 12px 32px rgba(0,0,0,.02)!important}
 .oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer{background:var(--grid-paper,#fafafa)}
 .oaao-app [data-oaao-chat='composer-extra-toolbar-wrap']{background:var(--grid-panel,#f5f5f5);border-top:1px solid var(--grid-line,rgba(0,0,0,.06))}
 .oaao-chat-inline-task-steps{margin:0 0 .65rem;font-size:.8125rem;line-height:1.5;color:var(--grid-ink-muted,#666)}
@@ -2530,20 +2602,11 @@ function formatSlideWorkerDisplayTitle(at) {
  * @returns {HTMLElement}
  */
 function createOaaoSlidePreviewSpinnerEl(label = '') {
-    const overlay = document.createElement('div');
-    overlay.className = 'oaao-chat-substep-preview__loading';
-    overlay.setAttribute('aria-live', 'polite');
-    const ring = document.createElement('div');
-    ring.className = 'oaao-chat-substep-preview__spinner';
-    ring.setAttribute('aria-hidden', 'true');
-    overlay.append(ring);
-    const text = String(label || '').trim();
-    if (text) {
-        const cap = document.createElement('span');
-        cap.className = 'oaao-chat-substep-preview__loading-label';
-        cap.textContent = text;
-        overlay.append(cap);
-    }
+    const overlay = oaaoLoadingLogoElement({
+        block: false,
+        label: String(label || '').trim() || 'Loading preview…',
+    });
+    overlay.className = 'oaao-chat-substep-preview__loading oaao-loading-logo';
     return overlay;
 }
 
@@ -2560,14 +2623,9 @@ function setOaaoSlidePreviewLoading(frame, busy, label = '') {
         if (!overlay) {
             frame.append(createOaaoSlidePreviewSpinnerEl(label));
         } else {
-            const cap = overlay.querySelector('.oaao-chat-substep-preview__loading-label');
-            if (cap instanceof HTMLElement) {
-                cap.textContent = label || cap.textContent;
-            } else if (label) {
-                const cap = document.createElement('span');
-                cap.className = 'oaao-chat-substep-preview__loading-label';
-                cap.textContent = label;
-                overlay.append(cap);
+            const sr = overlay.querySelector('.sr-only');
+            if (sr instanceof HTMLElement && label) {
+                sr.textContent = label;
             }
         }
         return;
@@ -7645,7 +7703,7 @@ async function probeOrchestratorRunAlive(streamUrl, runId) {
     const su = typeof streamUrl === 'string' ? streamUrl.trim() : '';
     const rid = typeof runId === 'string' ? runId.trim() : '';
     if (!su || !rid) return false;
-    const u = new URL(su, window.location.href);
+    const u = new URL(await resolveChatOrchestratorStreamUrl(streamUrl), window.location.href);
     u.searchParams.set('run_id', rid);
     u.searchParams.set('since_seq', '999999');
     const sameOrigin = u.origin === window.location.origin;
@@ -8800,7 +8858,7 @@ export async function mountShellPanel(mount) {
         /** @type {string} */
         let runStatusLabel = 'Starting…';
 
-        const u = new URL(streamUrl, window.location.href);
+        const u = new URL(await resolveChatOrchestratorStreamUrl(streamUrl), window.location.href);
         u.searchParams.set('run_id', runId);
         if (sinceSeq > 0) u.searchParams.set('since_seq', String(sinceSeq));
 
@@ -9119,7 +9177,7 @@ export async function mountShellPanel(mount) {
             await readSseStream(reader, onStreamEvent);
 
             if (!sawRunEnd && !signal.aborted && lastStreamSeq > sinceSeq) {
-                const tailUrl = new URL(streamUrl, window.location.href);
+                const tailUrl = new URL(await resolveChatOrchestratorStreamUrl(streamUrl), window.location.href);
                 tailUrl.searchParams.set('run_id', runId);
                 tailUrl.searchParams.set('since_seq', String(lastStreamSeq));
                 if (isStreamConversationVisible()) {
@@ -9538,26 +9596,48 @@ export async function mountShellPanel(mount) {
      * @param {number | null | undefined} [preferredId] — `null` clears selection; omit to keep current if still listed.
      */
     async function refreshConversations(preferredId = undefined) {
-        const q = { ...(showArchivedConversations ? { include_archived: '1' } : {}), ...workspaceChatQueryParams() };
-        const { res, data } = await chatFetchJson(chatApiUrl('conversations', q));
-        cachedConversations = [];
-        if (res.ok && data.success && Array.isArray(data.conversations)) {
-            cachedConversations = data.conversations;
-            syncConversationModesFromRows(cachedConversations);
+        const listHost = document.getElementById('workspace-conversation-list');
+        if (listHost) {
+            oaaoMountLoadingLogo(listHost, { block: true, label: 'Loading chats…' });
         }
-        if (preferredId === null) {
-            activeConversationId = null;
-        } else if (typeof preferredId === 'number' && Number.isFinite(preferredId) && preferredId > 0) {
-            activeConversationId = Math.floor(preferredId);
-        } else if (
-            activeConversationId != null &&
-            activeConversationId > 0 &&
-            !cachedConversations.some((r) => Number(r.id) === activeConversationId)
-        ) {
-            activeConversationId = null;
+        try {
+            const q = { ...(showArchivedConversations ? { include_archived: '1' } : {}), ...workspaceChatQueryParams() };
+            let { res, data } = await chatFetchJson(chatApiUrl('conversations', q));
+            if (res.status === 403) {
+                document.dispatchEvent(new CustomEvent('oaao-workspace-scope-invalid'));
+                ({ res, data } = await chatFetchJson(
+                    chatApiUrl('conversations', {
+                        ...(showArchivedConversations ? { include_archived: '1' } : {}),
+                        ...workspaceChatQueryParams(),
+                    }),
+                ));
+            }
+            cachedConversations = [];
+            if (res.status === 403) {
+                document.dispatchEvent(new CustomEvent('oaao-workspace-scope-invalid'));
+            }
+            if (res.ok && data.success && Array.isArray(data.conversations)) {
+                cachedConversations = data.conversations;
+                syncConversationModesFromRows(cachedConversations);
+            }
+            if (preferredId === null) {
+                activeConversationId = null;
+            } else if (typeof preferredId === 'number' && Number.isFinite(preferredId) && preferredId > 0) {
+                activeConversationId = Math.floor(preferredId);
+            } else if (
+                activeConversationId != null &&
+                activeConversationId > 0 &&
+                !cachedConversations.some((r) => Number(r.id) === activeConversationId)
+            ) {
+                activeConversationId = null;
+            }
+        } catch (err) {
+            console.warn('[chat] refreshConversations failed', err);
+            cachedConversations = [];
+        } finally {
+            renderSidebar();
+            syncThreadToolbarStates();
         }
-        renderSidebar();
-        syncThreadToolbarStates();
     }
 
     /**
@@ -9843,6 +9923,9 @@ export async function mountShellPanel(mount) {
             syncChatComposerChips(mount);
 
             return;
+        }
+        if (messagesEl instanceof HTMLElement) {
+            oaaoMountLoadingLogo(messagesEl, { fill: true, label: 'Loading messages…' });
         }
         const [msgPack, scoreMap] = await Promise.all([
             chatFetchJson(
@@ -10229,6 +10312,7 @@ export async function mountShellPanel(mount) {
     if (!activeConversationId) {
         activeConversationId = readChatConversationIdFromUrl();
     }
+    await awaitWorkspaceListReady();
     await refreshConversations(activeConversationId);
     if (
         activeConversationId != null &&

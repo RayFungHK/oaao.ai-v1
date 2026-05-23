@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace oaaoai\vault;
 
-require_once __DIR__ . '/VaultArangoResolver.php';
-require_once __DIR__ . '/VaultQdrantCollectionResolver.php';
-
 use Razy\Database;
 
 /**

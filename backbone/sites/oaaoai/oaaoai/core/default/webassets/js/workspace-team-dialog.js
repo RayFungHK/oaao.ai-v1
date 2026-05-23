@@ -174,6 +174,19 @@ export async function openWorkspaceTeamDialog(razyui, opts) {
         emailIn.autocomplete = 'off';
         emailIn.className =
             'flex-1 min-w-[12rem] rounded-[10px] border-[1px] border-solid border-[var(--grid-line)] px-3 py-2 text-[0.875rem] fg-[var(--grid-ink)] bg-[var(--grid-paper)] font-inherit box-border';
+        const roleSel = document.createElement('select');
+        roleSel.className =
+            'rounded-[10px] border-[1px] border-solid border-[var(--grid-line)] px-2 py-2 text-[0.8125rem] fg-[var(--grid-ink)] bg-[var(--grid-paper)] font-inherit cursor-pointer';
+        roleSel.setAttribute('aria-label', 'Invite role');
+        for (const opt of [
+            { value: 'member', label: 'User' },
+            { value: 'owner', label: 'Owner' },
+        ]) {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.label;
+            roleSel.append(o);
+        }
         const inviteBtn = document.createElement('button');
         inviteBtn.type = 'button';
         inviteBtn.textContent = 'Invite';
@@ -213,7 +226,11 @@ export async function openWorkspaceTeamDialog(razyui, opts) {
                         method: 'POST',
                         credentials: 'include',
                         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                        body: JSON.stringify({ workspace_id: workspaceId, email: em }),
+                        body: JSON.stringify({
+                            workspace_id: workspaceId,
+                            email: em,
+                            role: roleSel.value === 'owner' ? 'owner' : 'member',
+                        }),
                     });
                     const data = /** @type {{ success?: boolean, mode?: string, message?: string, token?: string }} */ (
                         await res.json().catch(() => ({}))
@@ -241,7 +258,7 @@ export async function openWorkspaceTeamDialog(razyui, opts) {
                 }
             })();
         });
-        inviteRow.append(emailIn, inviteBtn);
+        inviteRow.append(emailIn, roleSel, inviteBtn);
 
         scrollMain.insertBefore(inviteRow, hInv);
         scrollMain.insertBefore(inviteLinkWrap, hInv);
@@ -264,7 +281,7 @@ export async function openWorkspaceTeamDialog(razyui, opts) {
         delBtn.type = 'button';
         delBtn.textContent = 'Delete workspace…';
         delBtn.className =
-            'rounded-[10px] px-4 py-2 text-[0.8125rem] fw-semibold fg-white bg-red-600 border-none cursor-pointer font-inherit hover:opacity-90 w-fit';
+            'rounded-[10px] px-4 py-2 text-[0.8125rem] fw-semibold fg-white bg-[var(--grid-danger,#e5484d)] border-none cursor-pointer font-inherit hover:opacity-90 disabled:opacity-50 w-fit';
         delBtn.addEventListener('click', () => {
             void (async () => {
                 const warn = document.createElement('div');

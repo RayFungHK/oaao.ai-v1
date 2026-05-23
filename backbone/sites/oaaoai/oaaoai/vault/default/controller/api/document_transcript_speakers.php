@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 use oaaoai\vault\VaultSpeakerProfiles;
 
-require_once dirname(__DIR__, 2) . '/library/VaultSpeakerProfiles.php';
-
 /**
  * POST /vault/api/document_transcript_speakers — rename a speaker in ASR metadata.
  *

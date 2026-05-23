@@ -12,6 +12,7 @@ import {
     patchPurposesChatProfileDefault,
 } from '../../../../chat/default/js/chat-settings-panel.js';
 import { oaaoT } from '../oaao-i18n.js';
+import { oaaoMountLoadingLogo } from '../oaao-loading-logo.js';
 import { replaceChildrenParsed, ruiBuild } from '../oaao-jit-dsl.js';
 import { endpointsApiUrl, chatApiUrl, endpointsFetchJson } from './api.js';
 import { rt } from './runtime.js';
@@ -690,7 +691,7 @@ export async function mountSettingsPanel(host, ctx) {
     writePanelMode(host, sid === 'settings-purposes' ? 'purposes' : 'endpoints');
 
     bindPanelDelegation(host);
-    host.textContent = oaaoT('settings.dialog.loading_panel');
+    oaaoMountLoadingLogo(host, { label: oaaoT('settings.dialog.loading_panel') });
     try {
         await reload(host);
     } catch (e) {

@@ -62,9 +62,14 @@ final class OrchestratorSidecarClient
      *
      * @return array<string, mixed>|null
      */
-    public static function ensureFunasr(string $baseUrl, string $sharedSecret, bool $pull = true, array $funasrEnv = []): ?array
-    {
-        $body = ['pull' => $pull];
+    public static function ensureFunasr(
+        string $baseUrl,
+        string $sharedSecret,
+        bool $pull = true,
+        array $funasrEnv = [],
+        bool $recreate = false,
+    ): ?array {
+        $body = ['pull' => $pull, 'recreate' => $recreate];
         if ($funasrEnv !== []) {
             $body['funasr_env'] = $funasrEnv;
         }

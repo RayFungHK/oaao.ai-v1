@@ -5,6 +5,8 @@ declare(strict_types=1);
 use oaaoai\livemeeting\LiveMeetingOrchestrator;
 use oaaoai\livemeeting\LiveMeetingStorage;
 
+require_once dirname(__DIR__, 2) . '/library/_bootstrap.php';
+
 /**
  * POST /live-meeting/api/session_start
  */
@@ -41,8 +43,26 @@ return function (): void {
         'user_id'         => $uid,
     ];
 
-    if ($wid > 0) {
-        $orchPayload = array_merge($orchPayload, $chatApi->buildLiveMeetingOrchestratorExtras($uid, $wid));
+    $orchPayload = array_merge($orchPayload, $chatApi->buildLiveMeetingOrchestratorExtras($uid, $wid));
+
+    if ($wid > 0 && ! $chatApi->userHasWorkspaceAccess($uid, $wid)) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'You do not have access to this workspace.',
+        ], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
+    if (empty($orchPayload['asr']) || ! \is_array($orchPayload['asr'])) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Configure an enabled ASR purpose with a default endpoint (Settings → ASR).',
+        ], JSON_UNESCAPED_UNICODE);
+
+        return;
     }
 
     $orch = LiveMeetingOrchestrator::sessionStart($chatApi, $orchPayload);

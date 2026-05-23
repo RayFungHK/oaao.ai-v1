@@ -280,6 +280,14 @@ body {
     max-width: none;
 }
 
+.oaao-app #workspace-view.oaao-workspace-layout--split #workspace-module-mount:not(.hidden) {
+    display: flex !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+}
+
 .oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-header-tenant-label {
     display: inline-block;
 }
@@ -294,6 +302,136 @@ body {
     max-width: 48rem;
     margin-inline: auto;
     box-sizing: border-box;
+}
+
+/* Wider column for multi-card grids (Agents catalog, etc.). */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery .oaao-gallery-page-column--cards {
+    max-width: 72rem;
+}
+
+/*
+ * Card gallery — column count follows container width (sidebar + file panel shrink the
+ * vault/agents main column), not viewport breakpoints.
+ */
+.oaao-gallery-card-grid-container {
+    container-type: inline-size;
+    container-name: oaao-gallery;
+    min-width: 0;
+}
+
+.oaao-gallery-card-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    align-content: start;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.oaao-gallery-card-grid > * {
+    min-width: 0;
+    max-width: 100%;
+}
+
+@container oaao-gallery (min-width: 30rem) {
+    .oaao-gallery-card-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container oaao-gallery (min-width: 54rem) {
+    .oaao-gallery-card-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.oaao-gallery-card-grid-span-full {
+    grid-column: 1 / -1;
+}
+
+[data-module='oaao-vault'] .oaao-vault-gallery {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--grid-space-sm, 0.75rem);
+    padding-top: var(--grid-space-sm, 0.75rem);
+}
+
+/*
+ * Vault browse — grid list | file actions. No container-type on browse-body (breaks 1fr tracks).
+ */
+[data-module='oaao-vault'] .oaao-vault-browse-body,
+.oaao-vault-root .oaao-vault-browse-body {
+    display: grid !important;
+    width: 100%;
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+}
+
+[data-module='oaao-vault'] .oaao-vault-browse-body > .oaao-vault-explorer-column,
+.oaao-vault-root .oaao-vault-browse-body > .oaao-vault-explorer-column {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+}
+
+[data-module='oaao-vault'] .oaao-vault-browse-body > .oaao-vault-document-detail,
+.oaao-vault-root .oaao-vault-browse-body > .oaao-vault-document-detail {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    max-height: 42vh;
+    overflow: hidden;
+    border-top: 1px solid var(--grid-line);
+    background: var(--grid-panel-bright);
+}
+
+@media (min-width: 768px) {
+    [data-module='oaao-vault'] .oaao-vault-browse-body,
+    .oaao-vault-root .oaao-vault-browse-body {
+        grid-template-columns: minmax(0, 1fr) 280px !important;
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    [data-module='oaao-vault'] .oaao-vault-browse-body > .oaao-vault-document-detail,
+    .oaao-vault-root .oaao-vault-browse-body > .oaao-vault-document-detail {
+        grid-column: 2;
+        grid-row: 1;
+        width: 100%;
+        max-width: 280px;
+        max-height: none;
+        border-top: none;
+        border-left: 1px solid var(--grid-line);
+    }
+}
+
+/* Mobile viewport — pinch/double-tap zoom only (grid columns use container queries above). */
+@media (max-width: 639px) {
+    body.oaao-app {
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+    }
+
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery .oaao-gallery-page-column--cards {
+        max-width: none;
+    }
 }
 
 @media (min-width: 768px) {
@@ -563,12 +701,26 @@ button.oaao-vault-menu-active {
 }
 
 /* Tree / gallery / ResourceList fills the column ({@see vault-panel.js}). */
-[data-module='oaao-vault'] .oaao-vault-tree-scroll {
+[data-module='oaao-vault'] .oaao-vault-tree-scroll,
+.oaao-vault-root .oaao-vault-tree-scroll {
     box-sizing: border-box;
     position: relative;
     z-index: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 0;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding-bottom: 0.65rem;
     scroll-padding-bottom: 0.35rem;
+    font-size: 0.8125rem;
+    color: var(--grid-ink);
+    background: var(--grid-paper);
 }
 
 /*

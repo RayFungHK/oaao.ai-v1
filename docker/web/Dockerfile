@@ -16,6 +16,12 @@ RUN { \
     echo 'post_max_size = 40M'; \
     echo 'memory_limit = 256M'; \
     echo 'max_execution_time = 120'; \
+    echo 'opcache.enable=1'; \
+    echo 'opcache.memory_consumption=256'; \
+    echo 'opcache.max_accelerated_files=20000'; \
+    echo 'opcache.validate_timestamps=0'; \
+    echo 'realpath_cache_size=4096K'; \
+    echo 'realpath_cache_ttl=600'; \
 } > /usr/local/etc/php/conf.d/oaao.ini
 
 WORKDIR /var/www/html

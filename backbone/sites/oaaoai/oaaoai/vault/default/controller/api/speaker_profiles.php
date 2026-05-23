@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 use oaaoai\vault\VaultSpeakerProfiles;
 
-require_once dirname(__DIR__, 2) . '/library/VaultSpeakerProfiles.php';
-
 /**
  * GET /vault/api/speaker_profiles?vault_id= — list enrolled speaker voiceprints for a vault.
  */

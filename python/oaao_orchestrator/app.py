@@ -69,6 +69,7 @@ class EndpointPayload(BaseModel):
     """Subset of {@code oaao_endpoint} for ingress — OpenAI-compatible chat completions today; provider taxonomy TBD vs Open Web UI."""
 
     endpoint_ref: str = ""
+    endpoint_id: int | None = Field(default=None, ge=1)
     base_url: str
     model: str
     api_key_env: str | None = Field(default=None, description="Environment variable name on this process")
@@ -130,6 +131,9 @@ class ChatRunRequest(BaseModel):
         description="Retrieval tuning from Settings → RAG (qdrant_limit, min_score, boosts, …).",
     )
     tenant_id: int | None = None
+    endpoint_id: int | None = Field(default=None, ge=1)
+    chat_endpoint_id: int | None = Field(default=None, ge=1)
+    purpose_key: str | None = None
     embedding: dict[str, Any] | None = None
     chat_attachments: list[dict[str, Any]] = Field(default_factory=list)
     asr: dict[str, Any] | None = None
@@ -197,6 +201,7 @@ class AsrTranscribeRequest(BaseModel):
 class FunasrEnsureRequest(BaseModel):
     pull: bool = True
     funasr_env: dict[str, str] | None = None
+    recreate: bool = False
 
 
 class SlidePageRequest(BaseModel):
@@ -305,10 +310,25 @@ async def _report_usage_to_php(*, tenant_id: int | None, event_kind: str, meta: 
         "meta": meta,
     }
     if event_kind == "chat.completion":
+        pt = meta.get("prompt_tokens")
         ct = meta.get("completion_tokens") or meta.get("tokens_out")
-        if ct is not None:
-            body["quantity"] = float(ct)
+        total = 0.0
+        if pt is not None or ct is not None:
+            try:
+                total = float(int(pt or 0) + int(ct or 0))
+            except (TypeError, ValueError):
+                total = 0.0
+        elif ct is not None:
+            try:
+                total = float(int(ct))
+            except (TypeError, ValueError):
+                total = 0.0
+        if total > 0:
+            body["quantity"] = total
             body["unit"] = "tokens"
+    pk = meta.get("purpose_key")
+    if isinstance(pk, str) and pk.strip():
+        body["purpose_key"] = pk.strip()
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
             await client.post(
@@ -1010,7 +1030,7 @@ async def funasr_ensure(
 ) -> dict[str, Any]:
     if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
         raise HTTPException(status_code=403, detail="bad_internal_token")
-    return await ensure_funasr(pull=bool(req.pull), funasr_env=req.funasr_env)
+    return await ensure_funasr(pull=bool(req.pull), funasr_env=req.funasr_env, recreate=bool(req.recreate))
 
 
 @app.get("/v1/funasr/status")

@@ -65,24 +65,6 @@ return function (): void {
     $db->beginTransaction();
 
     try {
-        /** @var array<string, mixed>|false $vaultRow */
-        $vaultRow = $db->prepare(
-            <<<'SQL'
-SELECT id FROM oaao_vault WHERE id = :id LIMIT 1 FOR UPDATE
-SQL
-        )
-            ->assign(['id' => $vaultId])
-            ->query()
-            ->fetch();
-
-        if ($vaultRow === false || ! \is_array($vaultRow)) {
-            $db->rollback();
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Vault not found']);
-
-            return;
-        }
-
         /** @var list<string> $storagePaths */
         $storagePaths = [];
         /** @var list<int> $docIds */

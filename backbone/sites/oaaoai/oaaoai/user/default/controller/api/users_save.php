@@ -65,6 +65,7 @@ return function (): void {
         $groupId = 0;
     }
     $password = (string) ($body['password'] ?? '');
+    $creditBalanceRaw = $body['credit_balance'] ?? null;
     $now = date('Y-m-d H:i:s');
 
     if ($groupId > 0) {
@@ -155,6 +156,18 @@ return function (): void {
                     $userModel::savePasswordHash($db, $uid, $hash);
                 }
             }
+        }
+
+        if ($pdo instanceof \PDO && array_key_exists('credit_balance', $body)) {
+            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
+            oaao_auth_ensure_credit_schema($pdo);
+            $cb = null;
+            if ($creditBalanceRaw !== null && $creditBalanceRaw !== '' && is_numeric($creditBalanceRaw)) {
+                $cb = (float) $creditBalanceRaw;
+            }
+            $pdo->prepare(
+                'UPDATE oaao_user SET credit_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+            )->execute([$cb, $uid]);
         }
     } else {
         $dupWhere = 'login_name=?';

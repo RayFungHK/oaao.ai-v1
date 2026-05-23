@@ -36,7 +36,12 @@ final class TenantRepository
             }
         }
 
-        return self::matchWildcardHost($pdo, $host);
+        $row = self::matchWildcardHost($pdo, $host);
+        if ($row !== null) {
+            return $row;
+        }
+
+        return self::resolveByApexSubdomain($pdo, $host);
     }
 
     /**
@@ -328,6 +333,9 @@ final class TenantRepository
             /** @var list<array<string, mixed>> $byKind */
             $byKind = $byKindSt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
+            require_once __DIR__ . '/UsageEventRepository.php';
+            $byPurpose = \Oaaoai\Core\UsageEventRepository::aggregateByPurpose($pdo, $tid, null, 30);
+
             $out[] = [
                 'tenant_id'     => $tid,
                 'slug'          => (string) ($t['slug'] ?? ''),
@@ -338,6 +346,7 @@ final class TenantRepository
                 'vault_count'   => $vaults,
                 'usage_events'  => $events,
                 'usage_by_kind' => $byKind,
+                'usage_by_purpose' => $byPurpose,
             ];
         }
 
@@ -396,5 +405,37 @@ final class TenantRepository
         }
 
         return null;
+    }
+
+    /**
+     * When {@code OAAO_APEX_DOMAIN} is set, map {@code {slug}.{apex}} → tenant slug (SaaS subdomain routing).
+     */
+    private static function resolveByApexSubdomain(\PDO $pdo, string $host): ?array
+    {
+        $apex = getenv('OAAO_APEX_DOMAIN');
+        if ($apex === false || ($apex = strtolower(trim($apex))) === '') {
+            return null;
+        }
+
+        if ($host === $apex) {
+            return self::resolveBySlug($pdo, 'localhost');
+        }
+
+        $suffix = '.' . $apex;
+        if (! str_ends_with($host, $suffix)) {
+            return null;
+        }
+
+        $prefix = substr($host, 0, -strlen($suffix));
+        if ($prefix === '' || str_contains($prefix, '.')) {
+            return null;
+        }
+
+        $platformAdmin = getenv('OAAO_PLATFORM_ADMIN_HOST');
+        if ($platformAdmin !== false && strtolower(trim((string) $platformAdmin)) === $host) {
+            return null;
+        }
+
+        return self::resolveBySlug($pdo, $prefix);
     }
 }

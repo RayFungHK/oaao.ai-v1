@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use oaaoai\livemeeting\LiveMeetingOrchestrator;
 
+require_once dirname(__DIR__, 2) . '/library/_bootstrap.php';
+
 /**
  * POST /live-meeting/api/session_stop
  */

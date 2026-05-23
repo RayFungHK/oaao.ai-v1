@@ -3,6 +3,7 @@
  */
 
 import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-url.js';
+import { oaaoLoadingLogoElement } from './oaao-loading-logo.js';
 
 const NAV_JIT =
     'flex flex-col shrink-0 w-[240px] min-w-[180px] [border-right:1px_solid_var(--grid-line)] bg-[var(--grid-nav)] py-4 overflow-y-auto overflow-x-hidden gap-0.5';
@@ -224,10 +225,7 @@ function iconClasses(icon) {
 }
 
 function loadingNote() {
-    const p = document.createElement('p');
-    p.className = 'text-sm fg-[var(--grid-ink-muted)]';
-    p.textContent = 'Loading…';
-    return p;
+    return oaaoLoadingLogoElement({ label: 'Loading…' });
 }
 
 function errorText(text) {

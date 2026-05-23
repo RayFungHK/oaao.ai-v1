@@ -157,7 +157,8 @@ return function (): void {
                         $tenantId = $coreApi->bootstrapTenantContext($pdo);
                     }
                     if ($tenantId > 0 && $coreApi) {
-                        $coreApi->recordUsageChatCompletion($pdo, $tenantId, $input['meta']);
+                        $uid = isset($user->user_id) ? (int) $user->user_id : 0;
+                        $coreApi->recordUsageChatCompletion($pdo, $tenantId, $input['meta'], $uid > 0 ? $uid : null);
                     }
                 }
             } catch (\Throwable $e) {

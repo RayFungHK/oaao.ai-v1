@@ -48,7 +48,7 @@ const OAAO_SVG_ICONS = {
     ellipsis: '<circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />',
     /** Lucide {@code group} — workspace / team rows ({@see workspace.js}). */
     group:
-        '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 7V5a2 2 0 0 0-2-2h-2"/><path d="M7 12h10"/><path d="M7 7v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7"/>',
+        '<path d="M3 7V5c0-1.1.9-2 2-2h2" /><path d="M17 3h2c1.1 0 2 .9 2 2v2" /><path d="M21 17v2c0 1.1-.9 2-2 2h-2" /><path d="M7 21H5c-1.1 0-2-.9-2-2v-2" /><rect width="7" height="5" x="7" y="7" rx="1" /><rect width="7" height="5" x="10" y="12" rx="1" />',
 };
 
 /** @type {Promise<{ el?: (name: string, opts?: object) => Element | null, registerAll?: (icons: Record<string, string>) => void }> | null} */

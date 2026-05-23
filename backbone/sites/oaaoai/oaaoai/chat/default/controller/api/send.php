@@ -418,6 +418,7 @@ return function (): void {
             $publicBase = ($publicBase !== false && trim((string) $publicBase) !== '')
                 ? rtrim(trim((string) $publicBase), '/')
                 : $internalBase;
+            $publicBase = \oaaoai\chat\OrchestratorPublicBase::forClientStream($publicBase);
 
             $histRaw = $splitDb->prepare()
                 ->select('role, content')
@@ -461,6 +462,7 @@ return function (): void {
 
             $endpointPayload = [
                 'endpoint_ref' => trim((string) ($endpointRow['name'] ?? '')),
+                'endpoint_id'  => (int) ($binding['endpoint_id'] ?? 0),
                 'base_url'     => trim((string) ($endpointRow['base_url'] ?? '')),
                 'model'        => trim((string) ($endpointRow['model'] ?? '')),
                 'api_key_env'  => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv(
@@ -497,6 +499,36 @@ return function (): void {
                 ],
                 'assistant_message_id'   => (string) $asstMsgId,
             ];
+
+            $canonicalEndpointId = (int) ($binding['endpoint_id'] ?? 0);
+            if ($canonicalEndpointId > 0) {
+                $payload['endpoint_id'] = $canonicalEndpointId;
+            }
+            if ($chatEndpointId > 0) {
+                $payload['chat_endpoint_id'] = $chatEndpointId;
+            }
+            $chatPurposeKey = 'chat';
+            $profCfgRaw = isset($profileRow['config_json']) ? trim((string) $profileRow['config_json']) : '';
+            if ($profCfgRaw !== '') {
+                try {
+                    /** @var mixed $profCfgDec */
+                    $profCfgDec = json_decode($profCfgRaw, true, 512, JSON_THROW_ON_ERROR);
+                    if (\is_array($profCfgDec)) {
+                        $pk = trim((string) ($profCfgDec['purpose_key'] ?? ''));
+                        if ($pk !== '') {
+                            $chatPurposeKey = $pk;
+                        }
+                    }
+                } catch (\JsonException) {
+                }
+            }
+            $profileIdForPurpose = (int) ($profileRow['id'] ?? 0);
+            if ($chatPurposeKey === 'chat' && $profileIdForPurpose > 0 && (int) ($profileRow['is_default'] ?? 0) !== 1) {
+                $chatPurposeKey = 'chat.profile.' . $profileIdForPurpose;
+            }
+            $payload['purpose_key'] = $chatPurposeKey;
+
+            $this->api('endpoints')?->ensureFeatureRegistries();
 
             $endpointsApi = $this->api('endpoints');
             if ($endpointsApi) {
@@ -735,8 +767,10 @@ return function (): void {
             } elseif ($publicBase !== '') {
                 $runId = $started['run_id'];
                 $streamToken = $started['stream_token'];
-                $streamUrl = $publicBase . '/v1/stream?run_id=' . rawurlencode($runId)
-                    . '&token=' . rawurlencode($streamToken);
+                $streamUrl = \oaaoai\chat\OrchestratorPublicBase::buildStreamUrl($publicBase, [
+                    'run_id' => $runId,
+                    'token'  => $streamToken,
+                ]);
             }
         }
 

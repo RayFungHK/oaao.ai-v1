@@ -17,6 +17,8 @@
 # If the model runs on the host machine instead, use `host.docker.internal:<host-port>` from the orchestrator container.
 #
 # By default `web` bind-mounts `./backbone` so sites/webassets edits apply without rebuilding the image.
+# After changing `sites.inc.php` or host env (`OAAO_APEX_DOMAIN`, …), entrypoint runs `php Razy.phar rewrite`
+# so `/webassets/*` Apache rules match production domains. Non-Docker: run the same from `backbone/`.
 # Pure image-only deploy: comment out `./backbone:/var/www/html` under `web.volumes`, then `docker compose build web --no-cache && docker compose up -d web`.
 #
 # Postgres: localhost:${OAAO_PG_HOST_PORT:-5432}  user/pass/db → see .env defaults
@@ -37,8 +39,14 @@
 
 name: oaaoai-v1
 
+# Compose loads `.env` from repo root by default; this repo keeps vars in `docker/env`.
+x-oaao-env: &oaao-env
+  env_file:
+    - docker/env
+
 services:
   postgres:
+    <<: *oaao-env
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -58,6 +66,7 @@ services:
       start_period: 10s
 
   web:
+    <<: *oaao-env
     build:
       context: .
       dockerfile: docker/web/Dockerfile
@@ -70,7 +79,7 @@ services:
       orchestrator:
         condition: service_started
     ports:
-      - '${OAAO_WEB_PORT:-8080}:80'
+      - '${OAAO_WEB_PORT:-9080}:80'
     environment:
       # Install wizard + PHP auth (must use Docker service hostname `postgres`, not localhost)
       OAAO_PG_URL: ${OAAO_PG_URL:-postgresql://oaao:oaao_dev@postgres:5432/oaao}
@@ -79,6 +88,7 @@ services:
       OAAO_ORCHESTRATOR_INTERNAL_URL: ${OAAO_ORCHESTRATOR_INTERNAL_URL:-http://orchestrator:8103}
       OAAO_ORCHESTRATOR_PUBLIC_BASE: ${OAAO_ORCHESTRATOR_PUBLIC_BASE:-http://localhost:${OAAO_SIDECAR_PORT:-8103}}
       OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
+      # Host routing (OAAO_APEX_DOMAIN, OAAO_CUSTOMER_HOSTS, OAAO_PLATFORM_*): set in docker/env — do not override here with empty defaults.
       OAAO_VAULT_STORAGE: ${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
       OAAO_QDRANT_URL: ${OAAO_QDRANT_URL:-http://qdrant:6333}
       OAAO_ARANGO_URL: ${OAAO_ARANGO_URL:-http://arangodb:8529}
@@ -92,6 +102,7 @@ services:
       OAAO_AUTH_SQLITE_PATH: ${OAAO_AUTH_SQLITE_CONTAINER:-/var/www/html/sites/oaaoai/oaaoai/auth/data/oaao_local.sqlite}
       OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_DIR: ${OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_DIR:-/var/www/html/config/transcript-summary-templates}
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+      OAAO_BENCH_PROBE: ${OAAO_BENCH_PROBE:-}
     volumes:
       # First: full host tree (`sites/`, `.htaccess`, Razy.phar). Later lines overlay config, adjunct DB, vault.
       # Image-only mode: comment this line out and rely on Dockerfile COPY after `docker compose build web`.
@@ -111,6 +122,7 @@ services:
       - ${OAAO_LIVE_MEETING_HOST_PATH:-./docker/data/live-meeting}:${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
 
   orchestrator:
+    <<: *oaao-env
     build:
       context: .
       dockerfile: docker/orchestrator/Dockerfile
@@ -196,8 +208,9 @@ services:
       - ${OAAO_ARANGO_DATA_PATH:-./docker/data/arango}:/var/lib/arangodb3
 
   # Optional: minimal FunASR HTTP adapter for Vault Speaker Mode ASR (stub diarization by default).
+  # NOT started by plain `docker compose up` — use profile `funasr`:
+  #   docker compose --profile funasr up -d --build funasr
   # Settings → ASR → Speaker mode triggers orchestrator ensure (compose build/up when OAAO_FUNASR_COMPOSE_ENABLED=1).
-  # Manual start: docker compose --profile funasr up -d funasr
   funasr:
     build:
       context: .

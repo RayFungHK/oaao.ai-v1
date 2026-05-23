@@ -52,6 +52,8 @@ return function (): void {
     $wid = isset($input['workspace_id']) ? (int) $input['workspace_id'] : 0;
     $emailRaw = trim((string) ($input['email'] ?? ''));
     $emailNorm = \oaao_chat_workspace_normalize_email($emailRaw);
+    $roleRaw = strtolower(trim((string) ($input['role'] ?? 'member')));
+    $inviteRole = $roleRaw === 'owner' ? 'owner' : 'member';
 
     if ($wid < 1) {
         http_response_code(400);
@@ -119,14 +121,37 @@ return function (): void {
                 ->assign([
                     'workspace_id' => $wid,
                     'user_id'      => $targetUid,
-                    'role'         => 'member',
+                    'role'         => $inviteRole,
                 ])
                 ->query();
+
+            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_notification_schema.php';
+            oaao_auth_ensure_notification_schema($pdo);
+            require_once dirname(__DIR__, 4) . '/core/default/library/NotificationRepository.php';
+            /** @var array<string, mixed>|false $wsRow */
+            $wsRow = $db->prepare()
+                ->select('name')
+                ->from('workspace')
+                ->where('workspace_id=:wid')
+                ->assign(['wid' => $wid])
+                ->limit(1)
+                ->query()
+                ->fetch();
+            $wsName = \is_array($wsRow) && isset($wsRow['name']) ? (string) $wsRow['name'] : 'Workspace';
+            $notifRepo = new \Oaaoai\Core\NotificationRepository($pdo);
+            $notifRepo->create(
+                $targetUid,
+                'invitation',
+                'Added to workspace',
+                "You were added to \"{$wsName}\" as {$inviteRole}.",
+                ['workspace_id' => $wid, 'role' => $inviteRole],
+            );
 
             echo json_encode([
                 'success' => true,
                 'mode'    => 'member_added',
                 'user_id' => $targetUid,
+                'role'    => $inviteRole,
             ]);
 
             return;
@@ -166,6 +191,7 @@ return function (): void {
                 'token',
                 'status',
                 'expires_at',
+                'role',
             ])
                 ->assign([
                     'workspace_id'   => $wid,
@@ -174,6 +200,7 @@ return function (): void {
                     'token'          => $token,
                     'status'         => 'pending',
                     'expires_at'     => $expiresAt,
+                    'role'           => $inviteRole,
                 ])
                 ->query();
         } catch (\Razy\Exception\QueryException $e) {
@@ -200,6 +227,7 @@ return function (): void {
             'token'         => $token,
             'expires_at'    => $expiresAt,
             'invitee_email' => $emailNorm,
+            'role'          => $inviteRole,
         ]);
     } catch (\Throwable $e) {
         error_log('oaaoai/chat workspace_member_invite: ' . $e->getMessage());

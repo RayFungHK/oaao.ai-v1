@@ -9,57 +9,73 @@
  * with this source code in the file LICENSE.
  */
 
-	return [
-	'domains' => [
-		/*
-		 * The key is the domain and the value is the string of distribution path.
-		 * You can set the value as an array for advanced distribution setup.
-		 *
-		 * The distribution folder must contain a dist.php
-		 *
-		 * Basic usage:
-		 * 'domain.name' => (string) The module distribution path
-		 *
-		 * Advanced usage:
-		 * (The module folder will not be loaded if it is a distribution folder)
-		 * 'domain.name' => (array) [
-		 *   'path' => (string) The module distribution path in sites folder
-		 * ]
-		 *
-		 * Tagging:
-		 * '/path' => 'mysite@v2'   // use the 'v2' tag from dist.php modules
-		 *
-		 * Per-domain config folder mapping is handled via config_mapping in dist.php.
-		 */
-		'localhost' => [
-			// Path is relative to RELATIVE_ROOT (config relative_url_root), not the host path.
-			// With docroot = repo root and the app in backbone/, URLs are localhost/backbone/…;
-			// Razy strips /backbone for routing, so the distributor mount here stays '/'.
-			'/' => 'oaaoai',
-		],
-		// Wildcard FQDN keys: {@see Application::matchDomain()} matches one label before the suffix
-		// (e.g. foo.localhost, preview.invalid). Embedded / preview browsers sometimes send Host values
-		// that do not equal `localhost` or the explicit `alias` list—without these, bootstrap returns
-		// HTML error before JSON panel routes run.
-		'*.localhost' => [
-			'/' => 'oaaoai',
-		],
-		// `.invalid` is reserved (RFC 2606); safe for tooling that synthesizes unconventional Host names.
-        '*.invalid' => [
-            '/' => 'oaaoai',
-        ],
-        'admin.localhost' => [
-            '/' => 'oaaoai',
-        ],
-    ],
+/** @var array{path: string} */
+$oaaoDist = ['/' => 'oaaoai'];
 
-    // Map extra Host headers to the same distributor tree as localhost (browser often uses 127.0.0.1 or Docker Desktop).
-    // Without this, {@see Application::host()} throws — or you must duplicate the `domains` block per host.
-    // Compose service hostname `web` is used orchestrator→Apache (`http://web/…`); add here so bootstrap matches `localhost` distro.
-    // Platform god-mode console: {@code admin.localhost} → same distributor; tenant kind resolved via {@code oaao_tenant_host}.
-    'alias' => [
-		'127.0.0.1'             => 'localhost',
-		'host.docker.internal' => 'localhost',
-		'web'                   => 'localhost',
-	],
+/** @var array<string, array{path: string}> $domains */
+$domains = [
+	'localhost' => $oaaoDist,
+	// Wildcard FQDN keys: {@see Application::matchDomain()} matches one label before the suffix
+	// (e.g. foo.localhost, preview.invalid). Embedded / preview browsers sometimes send Host values
+	// that do not equal `localhost` or the explicit `alias` list—without these, bootstrap returns
+	// HTML error before JSON panel routes run.
+	'*.localhost' => $oaaoDist,
+	// `.invalid` is reserved (RFC 2606); safe for tooling that synthesizes unconventional Host names.
+	'*.invalid' => $oaaoDist,
+	'admin.localhost' => $oaaoDist,
+];
+
+// Map extra Host headers to the same distributor tree as localhost (browser often uses 127.0.0.1 or Docker Desktop).
+// Without this, {@see Application::host()} throws — or you must duplicate the `domains` block per host.
+// Compose service hostname `web` is used orchestrator→Apache (`http://web/…`); add here so bootstrap matches `localhost` distro.
+// Platform god-mode console: {@code admin.localhost} → same distributor; tenant kind resolved via {@code oaao_tenant_host}.
+/** @var array<string, string> $alias */
+$alias = [
+	'127.0.0.1'             => 'localhost',
+	'host.docker.internal' => 'localhost',
+	'web'                   => 'localhost',
+];
+
+/**
+ * Production / whitelabel hosts.
+ *
+ * Razy {@see NetworkUtil::isFqdn()} rejects bare {@code *}, so {@code updateSites()} never registers a
+ * catch-all key — use apex + {@code *.{apex}} wildcards and explicit FQDNs instead.
+ */
+$apex = getenv('OAAO_APEX_DOMAIN');
+if ($apex === false || trim($apex) === '') {
+	$apex = 'rayfung.hk';
+}
+$apex = strtolower(trim($apex));
+if ($apex !== '') {
+	$domains[$apex] = $oaaoDist;
+	$domains['*.' . $apex] = $oaaoDist;
+}
+
+$adminHost = getenv('OAAO_PLATFORM_ADMIN_HOST');
+if ($adminHost === false || trim($adminHost) === '') {
+	$adminHost = $apex !== '' ? 'admin.' . $apex : 'admin.localhost';
+}
+$adminHost = strtolower(trim($adminHost));
+if ($adminHost !== '' && $adminHost !== 'admin.localhost') {
+	$domains[$adminHost] = $oaaoDist;
+}
+
+$customerHosts = getenv('OAAO_CUSTOMER_HOSTS');
+if ($customerHosts === false || trim($customerHosts) === '') {
+	$customerHosts = $apex !== '' ? 'oaao.' . $apex : '';
+}
+if ($customerHosts !== false && trim($customerHosts) !== '') {
+	foreach (preg_split('/[\s,]+/', trim($customerHosts)) ?: [] as $hostEntry) {
+		$hostEntry = strtolower(trim((string) $hostEntry));
+		if ($hostEntry === '') {
+			continue;
+		}
+		$domains[$hostEntry] = $oaaoDist;
+	}
+}
+
+return [
+	'domains' => $domains,
+	'alias'   => $alias,
 ];

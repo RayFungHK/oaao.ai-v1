@@ -26,6 +26,7 @@ final class PermissionGroup
         return [
             'workspace_max'      => null,
             'vault_max'          => null,
+            'vault_files_max'    => null,
             'storage_bytes_max'  => null,
         ];
     }

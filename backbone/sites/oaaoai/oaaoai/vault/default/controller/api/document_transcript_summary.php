@@ -6,9 +6,6 @@ use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\vault\VaultTranscriptSummaryLanguages;
 use oaaoai\vault\VaultTranscriptSummaryTemplates;
 
-require_once dirname(__DIR__, 2) . '/library/VaultTranscriptSummaryTemplates.php';
-require_once dirname(__DIR__, 2) . '/library/VaultTranscriptSummaryLanguages.php';
-
 /**
  * POST /vault/api/document_transcript_summary — generate or refresh AI summary for a transcript.
  *

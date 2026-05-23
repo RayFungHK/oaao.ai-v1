@@ -50,8 +50,26 @@ return function (): void {
     $db = $ctx['db'];
     $uid = $ctx['uid'];
     $wid = $ctx['wid'];
+    $pdo = $ctx['pdo'];
 
-    $vaultId = $this->oaao_vault_insert_named_vault($db, $uid, $wid, $name);
+    $core = $this->api('core');
+    $limits = $core ? $core->groupLimitsForUser($pdo, $uid) : [];
+    $limitMsg = $core ? $core->assertCanCreateVault($pdo, $uid, $limits) : null;
+    if ($limitMsg !== null) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => $limitMsg]);
+
+        return;
+    }
+
+    try {
+        $vaultId = $this->oaao_vault_insert_named_vault($db, $uid, $wid, $name);
+    } catch (\Throwable) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Could not create vault.']);
+
+        return;
+    }
 
     echo json_encode([
         'success' => true,

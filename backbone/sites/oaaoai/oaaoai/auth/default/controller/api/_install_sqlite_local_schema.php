@@ -9,8 +9,42 @@
  * never the PostgreSQL {@see getDB()} connection.
  */
 
+declare(strict_types=1);
+
+/**
+ * Per PHP-FPM / mod_php worker cache ({@code static} survives across requests in the same process).
+ */
+final class OaaoAuthSqliteLocalSchemaCache
+{
+    private static bool $done = false;
+
+    public static function isDone(): bool
+    {
+        return self::$done;
+    }
+
+    public static function markDone(): void
+    {
+        self::$done = true;
+    }
+
+    public static function reset(): void
+    {
+        self::$done = false;
+    }
+}
+
+function oaao_auth_reset_sqlite_local_schema_cache(): void
+{
+    OaaoAuthSqliteLocalSchemaCache::reset();
+}
+
 function oaao_auth_install_sqlite_local_schema(\PDO $pdo): void
 {
+    if (OaaoAuthSqliteLocalSchemaCache::isDone()) {
+        return;
+    }
+
     $pdo->exec('CREATE TABLE IF NOT EXISTS oaao_local_token_usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         conversation_id INTEGER NOT NULL,
@@ -83,6 +117,8 @@ function oaao_auth_install_sqlite_local_schema(\PDO $pdo): void
 
     require_once dirname(__DIR__, 4) . '/slide-designer/default/controller/api/_ensure_slide_project_schema.php';
     oaao_slide_designer_ensure_schema($pdo);
+
+    OaaoAuthSqliteLocalSchemaCache::markDone();
 }
 
 /**

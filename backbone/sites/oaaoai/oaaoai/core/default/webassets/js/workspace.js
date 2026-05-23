@@ -9,7 +9,9 @@ import { oaaoT } from './oaao-i18n.js';
 import { oaaoRazyToastFire } from './oaao-razy-toast.js';
 import { openWorkspacePreferencesDialog } from './preferences-dialog.js';
 import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-url.js';
+import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 import { openWorkspaceSettingsDialog } from './settings-dialog.js';
+import { wireWorkspaceNotifications } from './notification-panel.js';
 
 /**
  * @param {string} value
@@ -22,21 +24,69 @@ function escapeHtml(value) {
         .replace(/"/g, '&quot;');
 }
 
-/** Hydrate {@code data-oaao-rui-icon} slots in workspace chrome (rail templates, etc.). */
-function hydrateWorkspaceShellRuiIcons() {
-    void import(
-        /* webpackIgnore: true */ oaaoAppendShellEsmV(
-            resolveShellRegistryUrl('/webassets/chat/default/js/oaao-rui-icons.js'),
-        ),
-    )
-        .then((m) => {
-            if (typeof m.hydrateRuiIconSlots === 'function') {
-                m.hydrateRuiIconSlots(document.getElementById('workspace-icon-rail') ?? document);
-            }
-        })
-        .catch((err) => {
-            console.warn('[oaao] workspace RUI icon hydrate failed', err);
-        });
+/** @param {ParentNode} [scope] */
+async function hydrateWorkspaceShellRuiIconsAsync(scope = document) {
+    try {
+        const m = await import(
+            /* webpackIgnore: true */ oaaoAppendShellEsmV(
+                resolveShellRegistryUrl('/webassets/chat/default/js/oaao-rui-icons.js'),
+            ),
+        );
+        if (typeof m.hydrateRuiIconSlots === 'function') {
+            const rail =
+                scope instanceof Document
+                    ? scope.getElementById('workspace-icon-rail')
+                    : scope.querySelector?.('#workspace-icon-rail');
+            m.hydrateRuiIconSlots(rail ?? scope);
+        }
+    } catch (err) {
+        console.warn('[oaao] workspace RUI icon hydrate failed', err);
+    }
+}
+
+/** @param {ParentNode | null | undefined} el */
+async function hydrateOaaoJitMount(el) {
+    if (!(el instanceof HTMLElement)) return;
+    try {
+        const JIT = await razyui.load('JIT');
+        if (JIT && typeof JIT.hydrate === 'function') {
+            JIT.hydrate(el);
+        }
+    } catch {
+        /* JIT optional — cloak reveal still runs */
+    }
+}
+
+/** @param {HTMLElement | null | undefined} el @param {boolean} ready */
+function setRazyuiCloakReady(el, ready) {
+    if (!(el instanceof HTMLElement)) return;
+    el.setAttribute('razyui-cloak', ready ? 'ready' : '');
+}
+
+/** End workspace cloak ({@see razyui.revealCloak}) — includes {@code #workspace-view} itself. */
+function revealWorkspaceShellReady(root) {
+    if (!(root instanceof HTMLElement)) return;
+    if (root.hasAttribute('razyui-cloak') && root.getAttribute('razyui-cloak') !== 'ready') {
+        root.setAttribute('razyui-cloak', 'ready');
+    }
+    root.querySelectorAll('[razyui-cloak]:not([razyui-cloak="ready"])').forEach((el) => {
+        el.setAttribute('razyui-cloak', 'ready');
+    });
+}
+
+/**
+ * JIT-first show: compile utilities while hidden, then unhide + reveal in one turn
+ * ({@see main.js} after {@code razyui.boot()}).
+ */
+export async function revealAuthenticatedWorkspaceShell() {
+    const root = document.getElementById('workspace-view');
+    if (!root) return;
+    await hydrateOaaoJitMount(root);
+    root.hidden = false;
+    revealWorkspaceShellReady(root);
+    document.body.classList.add('oaao-shell-ready');
+    document.dispatchEvent(new CustomEvent('oaao:shell-ready'));
+    void hydrateWorkspaceShellRuiIconsAsync(root);
 }
 
 /** @returns {ReadonlyArray<Record<string, unknown>>} */
@@ -401,6 +451,106 @@ function workspaceChatApiUrl(action) {
     return `/chat/api/${a}`;
 }
 
+/** @type {Promise<{ rows: { workspace_id: number, name: string, role?: string }[], postgresRequired: boolean }> | null} */
+let workspaceListInflight = null;
+/** @type {{ rows: { workspace_id: number, name: string, role?: string }[], postgresRequired: boolean, at: number } | null} */
+let workspaceListCache = null;
+const WORKSPACE_LIST_TTL_MS = 30_000;
+
+/**
+ * Deduped GET /chat/api/workspaces — boot validation + picker share one in-flight request.
+ *
+ * @param {boolean} [force]
+ */
+async function fetchWorkspaceList(force = false) {
+    const now = Date.now();
+    if (!force && workspaceListCache && now - workspaceListCache.at < WORKSPACE_LIST_TTL_MS) {
+        return {
+            rows: workspaceListCache.rows,
+            postgresRequired: workspaceListCache.postgresRequired,
+        };
+    }
+    if (!workspaceListInflight) {
+        workspaceListInflight = (async () => {
+            const res = await fetch(workspaceChatApiUrl('workspaces'), {
+                credentials: 'include',
+                headers: { Accept: 'application/json' },
+            });
+            /** @type {{ success?: boolean, workspaces?: unknown, postgres_required?: boolean }} */
+            const data = await res.json().catch(() => ({}));
+            const postgresRequired = Boolean(data.postgres_required);
+            const raw = Array.isArray(data.workspaces) ? data.workspaces : [];
+            const rows = normalizeWorkspacePickerRows(raw);
+            workspaceListCache = { rows, postgresRequired, at: Date.now() };
+            if (typeof document !== 'undefined' && document.body) {
+                document.body.dataset.oaaoWorkspaceListReady = '1';
+                document.dispatchEvent(
+                    new CustomEvent('oaao-workspace-list-ready', {
+                        detail: { rows, postgresRequired },
+                    }),
+                );
+            }
+
+            return { rows, postgresRequired };
+        })().finally(() => {
+            workspaceListInflight = null;
+        });
+    }
+
+    return workspaceListInflight;
+}
+
+/**
+ * @param {HTMLElement | null} root
+ * @param {{ workspace_id: number, name: string, role?: string }[]} rows
+ */
+function reconcileWorkspaceScopeWithList(root, rows) {
+    const stored = readWorkspaceScopeFromStorage();
+    if (stored.id != null && stored.id > 0) {
+        const hit = rows.find((r) => r.workspace_id === stored.id);
+        if (!hit) {
+            persistWorkspaceScope(null);
+            applyWorkspaceScopeDataset(root, null, null);
+            dispatchWorkspaceScopeChanged(null, { reason: 'scope_invalid' });
+
+            return;
+        }
+        if (!stored.name && hit.name) {
+            persistWorkspaceScope(stored.id, hit.name);
+            applyWorkspaceScopeDataset(root, stored.id, hit.name);
+        }
+
+        return;
+    }
+
+    const idRaw = root?.dataset?.oaaoActiveWorkspaceId?.trim() ?? '';
+    if (!idRaw) return;
+    const wid = Number(idRaw);
+    if (!Number.isFinite(wid) || wid < 1) return;
+    const hit = rows.find((r) => r.workspace_id === wid);
+    if (!hit) {
+        persistWorkspaceScope(null);
+        applyWorkspaceScopeDataset(root, null, null);
+        dispatchWorkspaceScopeChanged(null, { reason: 'scope_invalid' });
+
+        return;
+    }
+    persistWorkspaceScope(wid, hit.name || '');
+    applyWorkspaceScopeDataset(root, wid, hit.name || null);
+}
+
+/**
+ * @param {HTMLElement | null} root
+ */
+async function primeWorkspaceScopeFromServer(root) {
+    try {
+        const { rows } = await fetchWorkspaceList(false);
+        reconcileWorkspaceScopeWithList(root, rows);
+    } catch {
+        /* ignore */
+    }
+}
+
 /**
  * Consumes {@code ?workspace_invite_token=} on load: POST {@code workspace_invite_accept}, switches scope on success.
  *
@@ -475,23 +625,9 @@ async function tryConsumeWorkspaceInviteFromUrl(root, navigateFn, inviteToken = 
  * @param {HTMLElement | null} root
  */
 async function hydrateWorkspaceLabelsFromServer(root) {
-    const idRaw = root?.dataset?.oaaoActiveWorkspaceId?.trim() ?? '';
-    if (!idRaw) return;
-    const wid = Number(idRaw);
-    if (!Number.isFinite(wid) || wid < 1) return;
-
     try {
-        const res = await fetch(workspaceChatApiUrl('workspaces'), {
-            credentials: 'include',
-            headers: { Accept: 'application/json' },
-        });
-        const data = /** @type {{ success?: boolean, workspaces?: unknown }} */ (await res.json().catch(() => ({})));
-        const rows = Array.isArray(data.workspaces) ? data.workspaces : [];
-        const hit = rows.find((r) => Number(/** @type {Record<string, unknown>} */ (r).workspace_id) === wid);
-        if (!hit || typeof hit !== 'object') return;
-        const name = String(/** @type {Record<string, unknown>} */ (hit).name ?? '').trim();
-        persistWorkspaceScope(wid, name || '');
-        applyWorkspaceScopeDataset(root, wid, name || null);
+        const { rows } = await fetchWorkspaceList(false);
+        reconcileWorkspaceScopeWithList(root, rows);
     } catch {
         /* ignore */
     }
@@ -559,7 +695,7 @@ const OAAO_WS_PICKER_ICON_USER =
 
 /** Lucide group — team / shared workspace rows ({@see wireWorkspaceFolderPicker}). */
 const OAAO_WS_PICKER_ICON_WORKSPACE =
-    '<svg xmlns="http://www.w3.org/2000/svg" class="rz-icon w-[1rem] h-[1rem] shrink-0 block pointer-events-none text-[inherit]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 7V5a2 2 0 0 0-2-2h-2"/><path d="M7 12h10"/><path d="M7 7v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7"/></svg>';
+    '<svg xmlns="http://www.w3.org/2000/svg" class="rz-icon w-[1rem] h-[1rem] shrink-0 block pointer-events-none text-[inherit]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>';
 
 /**
  * Open-WebUI-style workspace folder picker + create (PostgreSQL-backed).
@@ -726,27 +862,13 @@ function wireWorkspaceFolderPicker(root) {
         }
     }
 
-    async function refreshFromServer() {
+    async function refreshFromServer(force = false) {
         try {
-            const res = await fetch(workspaceChatApiUrl('workspaces'), {
-                credentials: 'include',
-                headers: { Accept: 'application/json' },
-            });
-            /** @type {{ success?: boolean, workspaces?: unknown, postgres_required?: boolean }} */
-            const data = await res.json().catch(() => ({}));
-            postgresRequired = Boolean(data.postgres_required);
-            const raw = Array.isArray(data.workspaces) ? data.workspaces : [];
-            rows = normalizeWorkspacePickerRows(raw);
+            const { rows: list, postgresRequired: pgReq } = await fetchWorkspaceList(force);
+            postgresRequired = pgReq;
+            rows = list;
             renderPanel();
-
-            const cur = readWorkspaceScopeFromStorage();
-            if (cur.id != null && cur.id > 0) {
-                const hit = rows.find((x) => x.workspace_id === cur.id);
-                if (hit) {
-                    persistWorkspaceScope(cur.id, hit.name);
-                    applyWorkspaceScopeDataset(root, cur.id, hit.name);
-                }
-            }
+            reconcileWorkspaceScopeWithList(root, rows);
         } catch {
             rows = [];
             postgresRequired = false;
@@ -757,7 +879,7 @@ function wireWorkspaceFolderPicker(root) {
     trigger.addEventListener('click', (e) => {
         e.stopPropagation();
         if (anchor.classList.contains('hidden')) {
-            void refreshFromServer().finally(() => openPanel());
+            void refreshFromServer(true).finally(() => openPanel());
         } else closePanel();
     });
 
@@ -799,7 +921,7 @@ function wireWorkspaceFolderPicker(root) {
                 const wid = Number(data.workspace.workspace_id ?? 0);
                 const label = String(data.workspace.name ?? nm).trim();
                 createInput.value = '';
-                await refreshFromServer();
+                await refreshFromServer(true);
                 if (Number.isFinite(wid) && wid > 0) {
                     pickWorkspace(wid, label);
                 }
@@ -810,6 +932,130 @@ function wireWorkspaceFolderPicker(root) {
     });
 
     void refreshFromServer();
+}
+
+/** Same root resolution as {@see vault-panel.js vaultApiBase}. */
+function workspaceVaultApiBase() {
+    const authBase = (typeof document !== 'undefined' && document.body?.dataset?.authBase || '').trim();
+    if (authBase) {
+        try {
+            const u = new URL(authBase, window.location.href);
+            let rootPath = u.pathname.replace(/\/?$/, '');
+            rootPath = rootPath.replace(/\/auth$/i, '') || '/';
+            if (!rootPath.endsWith('/')) rootPath += '/';
+
+            return `${rootPath}vault/api/`;
+        } catch {
+            /* fall through */
+        }
+    }
+
+    return '/vault/api/';
+}
+
+/**
+ * @param {HTMLElement | null} root
+ * @returns {number | null}
+ */
+function workspaceActiveVaultScopeId(root) {
+    const ds =
+        typeof root?.dataset?.oaaoActiveWorkspaceId === 'string' ? root.dataset.oaaoActiveWorkspaceId.trim() : '';
+    if (!ds) return null;
+    const n = Number(ds);
+
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+const OAAO_VAULT_CREATE_UI = {
+    name_required: { en: 'Enter a vault name.', 'zh-Hant': '請輸入保管庫名稱。' },
+    error: { en: 'Could not create vault.', 'zh-Hant': '無法建立保管庫。' },
+};
+
+/** @param {keyof typeof OAAO_VAULT_CREATE_UI} kind */
+function vaultCreateUiString(kind) {
+    const row = OAAO_VAULT_CREATE_UI[kind];
+    if (!row) return '';
+    const lang = workspaceShellUiLang();
+
+    return row[lang] ?? row.en ?? '';
+}
+
+/** Shell sidebar — persistent wiring ({@see workspace.tpl} {@code #workspace-vault-create-row}). */
+function wireWorkspaceVaultSidebarCreate(root) {
+    const row = document.getElementById('workspace-vault-create-row');
+    const input = document.getElementById('workspace-vault-create-input');
+    const btn = document.getElementById('workspace-vault-create-btn');
+    const note = document.getElementById('workspace-vault-create-note');
+    if (!row || !input || !btn || !(input instanceof HTMLInputElement) || !(btn instanceof HTMLButtonElement)) return;
+    if (row.dataset.oaaoVaultCreateBound === '1') return;
+    row.dataset.oaaoVaultCreateBound = '1';
+
+    /** @param {string} text @param {boolean} visible */
+    const setNote = (text, visible) => {
+        if (!note) return;
+        note.textContent = text;
+        note.classList.toggle('hidden', !visible);
+    };
+
+    const submit = async () => {
+        const nm = input.value.trim();
+        if (!nm) {
+            setNote(vaultCreateUiString('name_required'), true);
+
+            return;
+        }
+        if (btn.disabled) return;
+        setNote('', false);
+        btn.disabled = true;
+        try {
+            const wid = workspaceActiveVaultScopeId(root);
+            /** @type {Record<string, unknown>} */
+            const payload = { name: nm };
+            if (wid != null) payload.workspace_id = wid;
+
+            const res = await fetch(`${workspaceVaultApiBase()}vault_create`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            /** @type {{ success?: boolean, message?: string }} */
+            const j = await res.json().catch(() => ({}));
+
+            if (!res.ok || !j.success) {
+                const msg =
+                    typeof j.message === 'string' && j.message.trim()
+                        ? j.message.trim()
+                        : vaultCreateUiString('error');
+                setNote(msg, true);
+
+                return;
+            }
+
+            input.value = '';
+            const refresh = globalThis.__oaaoVaultExplorerRefreshTree;
+            if (typeof refresh === 'function') {
+                await refresh();
+            } else {
+                document.dispatchEvent(new CustomEvent('oaao-vault-explorer-refresh', { detail: { force: true } }));
+            }
+        } catch (err) {
+            console.error('[oaao] vault create failed', err);
+            setNote(vaultCreateUiString('error'), true);
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
+    btn.addEventListener('click', () => {
+        void submit();
+    });
+    input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+            ev.preventDefault();
+            void submit();
+        }
+    });
 }
 
 function wireRoutingPurposeSelector() {
@@ -1059,19 +1305,18 @@ export function initWorkspaceShell() {
 
     applyWorkspaceShellLabels();
 
-    hydrateWorkspaceShellRuiIcons();
-
     syncWorkspaceScopeFromUrlOrStorage(root);
     wireWorkspaceScopeQuickPersonal(root);
+    void primeWorkspaceScopeFromServer(root);
 
-    void (async () => {
-        try {
-            const JIT = await razyui.load('JIT');
-            if (JIT && typeof JIT.hydrate === 'function') JIT.hydrate(root);
-        } catch {
-            /* JIT optional */
-        }
-    })();
+    if (!document.body.dataset.oaaoWsScopeInvalidBound) {
+        document.body.dataset.oaaoWsScopeInvalidBound = '1';
+        document.addEventListener('oaao-workspace-scope-invalid', () => {
+            persistWorkspaceScope(null);
+            applyWorkspaceScopeDataset(root, null, null);
+            dispatchWorkspaceScopeChanged(null, { reason: 'scope_invalid' });
+        });
+    }
 
     const railSettings = document.getElementById('workspace-rail-settings');
     if (railSettings && document.body.dataset.oaaoAdminSettings !== '1') {
@@ -1322,131 +1567,114 @@ export function initWorkspaceShell() {
 
         mount.classList.remove('hidden');
         mount.classList.add('flex', 'flex-col');
-
-        const res = await fetch(resolveShellRegistryUrl(panelUrl), {
-            credentials: 'include',
-            redirect: 'manual',
-            headers: {
-                Accept: 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-        });
-
-        if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
-            const loc = res.headers.get('Location') || '';
-            panelMountSetAuthHint(
-                mount,
-                'This panel requires a signed-in session (server issued a redirect instead of JSON).',
-                loc,
-            );
-            try {
-                const JIT = await razyui.load('JIT');
-                if (JIT && typeof JIT.hydrate === 'function') JIT.hydrate(mount);
-            } catch {
-                //
-            }
-            return true;
-        }
-
-        const raw = await res.text();
-        const ct = (res.headers.get('content-type') || '').toLowerCase();
-        /** @type {unknown} */
-        let payload = null;
-        const rawTrimHead = raw.replace(/^\ufeff\s*/, '').trimStart();
-        if (ct.includes('application/json') || rawTrimHead.startsWith('{') || rawTrimHead.startsWith('[')) {
-            try {
-                payload = JSON.parse(raw);
-            } catch {
-                payload = null;
-            }
-        }
-
-        if (!(payload && typeof payload === 'object' && payload !== null && 'success' in payload)) {
-            /** Non‑JSON OK responses (typically full SPA HTML / mis-routed installs) — never {@code innerHTML} that into {@code mount}. */
-            const msg =
-                !res.ok
-                    ? `Could not load this page (${res.status}).`
-                    : !ct.includes('application/json')
-                      ? `This page loader responded with ${ct.startsWith('text/html') ? 'HTML' : `“${ct}”`} instead of JSON — check routing for the panel endpoint (vault/chat workspace-panel REST).`
-                      : 'Could not parse this page loader JSON.';
-            panelMountSetAuthHint(mount, msg, '');
-            try {
-                const JIT = await razyui.load('JIT');
-                if (JIT && typeof JIT.hydrate === 'function') JIT.hydrate(mount);
-            } catch {
-                //
-            }
-            return true;
-        }
-
-        const p = /** @type {{ success?: boolean, message?: string, data?: { html?: string, sign_in_path?: string } }} */ (
-            payload
-        );
-        if (!p.success || typeof p.data?.html !== 'string') {
-            const hintMsg =
-                typeof p.message === 'string' && p.message
-                    ? p.message
-                    : !res.ok
-                      ? `Could not load this page (${res.status}).`
-                      : 'Could not load this page.';
-            const path = typeof p.data?.sign_in_path === 'string' ? p.data.sign_in_path : '';
-            panelMountSetAuthHint(mount, hintMsg, path);
-            try {
-                const JIT = await razyui.load('JIT');
-                if (JIT && typeof JIT.hydrate === 'function') JIT.hydrate(mount);
-            } catch {
-                /* ignore */
-            }
-            return true;
-        }
-
-        mount.innerHTML = p.data.html;
+        setRazyuiCloakReady(mount, false);
+        oaaoMountLoadingLogo(mount, { fill: true, label: 'Loading…' });
 
         try {
-            const JIT = await razyui.load('JIT');
-            if (JIT && typeof JIT.hydrate === 'function') {
-                JIT.hydrate(mount);
-            }
-        } catch {
-            /* JIT optional — panel still mounts */
-        }
+            const res = await fetch(resolveShellRegistryUrl(panelUrl), {
+                credentials: 'include',
+                redirect: 'manual',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
 
-        if (jsModule) {
-            const moduleUrl = oaaoAppendShellEsmV(resolveShellRegistryUrl(jsModule));
-            /** @type {Record<string, unknown> | null} */
-            let mod = null;
-            try {
-                mod = await import(/* webpackIgnore: true */ moduleUrl);
-            } catch (err) {
-                console.error('[workspace] shell module import failed', moduleUrl, err);
-                const detail = err instanceof Error ? err.message : String(err);
-                mount.insertAdjacentHTML(
-                    'beforeend',
-                    `<p class="p-md text-sm fg-red-6">Failed to load module script: ${escapeHtml(detail)}</p>`,
+            if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+                const loc = res.headers.get('Location') || '';
+                panelMountSetAuthHint(
+                    mount,
+                    'This panel requires a signed-in session (server issued a redirect instead of JSON).',
+                    loc,
                 );
+                await hydrateOaaoJitMount(mount);
                 return true;
             }
-            if (typeof mod.mountShellPanel === 'function') {
+
+            const raw = await res.text();
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            /** @type {unknown} */
+            let payload = null;
+            const rawTrimHead = raw.replace(/^\ufeff\s*/, '').trimStart();
+            if (ct.includes('application/json') || rawTrimHead.startsWith('{') || rawTrimHead.startsWith('[')) {
                 try {
-                    await mod.mountShellPanel(mount);
-                    dynamicUnmount = (opts = {}) => {
-                        if (typeof mod.teardownShellPanel === 'function') {
-                            mod.teardownShellPanel(opts);
-                        }
-                    };
-                    lastMountedShellPageId = nextPid;
+                    payload = JSON.parse(raw);
+                } catch {
+                    payload = null;
+                }
+            }
+
+            if (!(payload && typeof payload === 'object' && payload !== null && 'success' in payload)) {
+                /** Non‑JSON OK responses (typically full SPA HTML / mis-routed installs) — never {@code innerHTML} that into {@code mount}. */
+                const msg =
+                    !res.ok
+                        ? `Could not load this page (${res.status}).`
+                        : !ct.includes('application/json')
+                          ? `This page loader responded with ${ct.startsWith('text/html') ? 'HTML' : `“${ct}”`} instead of JSON — check routing for the panel endpoint (vault/chat workspace-panel REST).`
+                          : 'Could not parse this page loader JSON.';
+                panelMountSetAuthHint(mount, msg, '');
+                await hydrateOaaoJitMount(mount);
+                return true;
+            }
+
+            const p = /** @type {{ success?: boolean, message?: string, data?: { html?: string, sign_in_path?: string } }} */ (
+                payload
+            );
+            if (!p.success || typeof p.data?.html !== 'string') {
+                const hintMsg =
+                    typeof p.message === 'string' && p.message
+                        ? p.message
+                        : !res.ok
+                          ? `Could not load this page (${res.status}).`
+                          : 'Could not load this page.';
+                const path = typeof p.data?.sign_in_path === 'string' ? p.data.sign_in_path : '';
+                panelMountSetAuthHint(mount, hintMsg, path);
+                await hydrateOaaoJitMount(mount);
+                return true;
+            }
+
+            mount.innerHTML = p.data.html;
+            await hydrateOaaoJitMount(mount);
+
+            if (jsModule) {
+                const moduleUrl = oaaoAppendShellEsmV(resolveShellRegistryUrl(jsModule));
+                /** @type {Record<string, unknown> | null} */
+                let mod = null;
+                try {
+                    mod = await import(/* webpackIgnore: true */ moduleUrl);
                 } catch (err) {
-                    console.error('[workspace] mountShellPanel failed', moduleUrl, err);
+                    console.error('[workspace] shell module import failed', moduleUrl, err);
                     const detail = err instanceof Error ? err.message : String(err);
                     mount.insertAdjacentHTML(
                         'beforeend',
-                        `<p class="p-md text-sm fg-red-6">Chat panel failed to start: ${escapeHtml(detail)}</p>`,
+                        `<p class="p-md text-sm fg-red-6">Failed to load module script: ${escapeHtml(detail)}</p>`,
                     );
+                    return true;
+                }
+                if (typeof mod.mountShellPanel === 'function') {
+                    try {
+                        await mod.mountShellPanel(mount);
+                        dynamicUnmount = (opts = {}) => {
+                            if (typeof mod.teardownShellPanel === 'function') {
+                                mod.teardownShellPanel(opts);
+                            }
+                        };
+                        lastMountedShellPageId = nextPid;
+                    } catch (err) {
+                        console.error('[workspace] mountShellPanel failed', moduleUrl, err);
+                        const detail = err instanceof Error ? err.message : String(err);
+                        mount.insertAdjacentHTML(
+                            'beforeend',
+                            `<p class="p-md text-sm fg-red-6">Chat panel failed to start: ${escapeHtml(detail)}</p>`,
+                        );
+                    }
                 }
             }
-        }
 
-        return true;
+            return true;
+        } finally {
+            setRazyuiCloakReady(mount, true);
+        }
     }
 
     async function showPage(pageId) {
@@ -1533,9 +1761,13 @@ export function initWorkspaceShell() {
 
     wireUserHeaderMenu();
 
+    wireWorkspaceNotifications();
+
     wireRoutingPurposeSelector();
 
     wireWorkspaceFolderPicker(root);
+
+    wireWorkspaceVaultSidebarCreate(root);
 
     if (!globalThis.__oaaoWorkspacePopstateBound) {
         globalThis.__oaaoWorkspacePopstateBound = true;

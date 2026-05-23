@@ -25,3 +25,25 @@ def test_extract_bubbles_question() -> None:
     bubbles = extract_bubbles(text, None)
     types = {b["bubble_type"] for b in bubbles}
     assert "question" in types
+
+
+def test_extract_bubbles_intent_ai_tutorial() -> None:
+    text = "我要AI教學"
+    bubbles = extract_bubbles(text, None)
+    labels = {b["text"] for b in bubbles}
+    assert "AI" in labels
+
+
+def test_extract_bubbles_skips_spoken_digit_numerals() -> None:
+    text = "一二三四，聽唔聽到？"
+    bubbles = extract_bubbles(text, None)
+    labels = {b["text"] for b in bubbles}
+    assert "一二三四" not in labels
+
+
+def test_extract_bubbles_glossary_digits() -> None:
+    glossary = {"terms": [{"term": "1234"}]}
+    text = "testing 1234 now"
+    bubbles = extract_bubbles(text, glossary)
+    labels = {b["text"] for b in bubbles}
+    assert "1234" in labels

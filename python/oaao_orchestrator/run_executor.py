@@ -20,7 +20,7 @@ from oaao_orchestrator.chat_attachments import process_chat_attachments
 from oaao_orchestrator.pipeline import RunContext
 from oaao_orchestrator.pipeline_ui import build_minimal_pipeline_snapshot, merge_vault_chat_sources_into_snapshot
 from oaao_orchestrator.planner import build_run_plan, resolve_allowed_agents
-from oaao_orchestrator.planner_llm import plan_report_result_tasks
+from oaao_orchestrator.planner_llm import plan_report_result_tasks, planner_enabled
 from oaao_orchestrator.streaming.events import (
     KIND_STATUS,
     PHASE_LLM,
@@ -1008,7 +1008,8 @@ async def execute_chat_run(
                     break
 
                 if (
-                    not report_replan_done
+                    planner_enabled(req)
+                    and not report_replan_done
                     and not task_failed
                     and run_task.id in report_after_ids
                 ):
@@ -1090,6 +1091,20 @@ async def execute_chat_run(
             "model": req.endpoint.model,
             "chat_profile": req.chat_profile.name,
         }
+        endpoint_id = req.endpoint_id or req.endpoint.endpoint_id
+        if endpoint_id is not None and int(endpoint_id) > 0:
+            metrics_payload["endpoint_id"] = int(endpoint_id)
+        if req.chat_endpoint_id is not None and int(req.chat_endpoint_id) > 0:
+            metrics_payload["chat_endpoint_id"] = int(req.chat_endpoint_id)
+        if req.purpose_key:
+            metrics_payload["purpose_key"] = str(req.purpose_key).strip()
+        if req.user_id:
+            try:
+                uid = int(str(req.user_id).strip())
+                if uid > 0:
+                    metrics_payload["user_id"] = uid
+            except (TypeError, ValueError):
+                pass
         if plan is not None:
             metrics_payload["tasks"] = plan.task_list_payload(allowed_agents=allowed_agents)
         if pipeline_snap is not None:

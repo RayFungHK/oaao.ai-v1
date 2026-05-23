@@ -23,4 +23,14 @@ if [ -f /var/www/html/.htaccess ]; then
     chmod 644 /var/www/html/.htaccess 2>/dev/null || true
 fi
 
+# Keep Apache webassets/data rewrites aligned with sites.inc.php (incl. OAAO_* host env).
+if [ -f /var/www/html/Razy.phar ]; then
+    php /var/www/html/Razy.phar rewrite >/dev/null 2>&1 || true
+    chmod 644 /var/www/html/.htaccess 2>/dev/null || true
+fi
+
+if [ "${OAAO_BENCH_PROBE:-}" = "1" ]; then
+    echo 'auto_prepend_file=/var/www/html/bench_probe_boot.php' >> /usr/local/etc/php/conf.d/oaao-bench.ini
+fi
+
 exec apache2-foreground

@@ -4,6 +4,8 @@
  * @module slide-deck-viewer
  */
 
+import { oaaoLoadingLogoElement } from '@oaao/core-js/oaao-loading-logo.js';
+
 /** @typedef {{ index: number, title?: string, preview_url?: string, total?: number }} SlidePreviewRow */
 
 /** @typedef {{ deckTitle?: string, slides: SlidePreviewRow[], conversationId?: number, projectId?: string, startIndex?: number }} SlideDeckViewerOpts */
@@ -230,10 +232,8 @@ export async function openSlideDeckViewer(opts) {
     const layout = mountScaledIframe(frame, iframe);
     stage.append(frame);
 
-    const loading = document.createElement('div');
-    loading.className = 'oaao-slide-deck-viewer__loading';
-    loading.setAttribute('aria-live', 'polite');
-    loading.textContent = 'Loading preview…';
+    const loading = oaaoLoadingLogoElement({ block: false, label: 'Loading preview…' });
+    loading.className = 'oaao-slide-deck-viewer__loading oaao-loading-logo';
     frame.append(loading);
 
     const setLoading = (busy) => {

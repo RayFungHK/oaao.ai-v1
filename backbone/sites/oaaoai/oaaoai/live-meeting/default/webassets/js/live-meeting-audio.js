@@ -5,6 +5,60 @@
 const TARGET_SAMPLE_RATE = 16000;
 
 /**
+ * @returns {Promise<{ ok: boolean, reason?: string }>}
+ */
+export async function warmLiveMeetingMicPermission() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+        return { ok: false, reason: 'unsupported' };
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: 1,
+                echoCancellation: true,
+                noiseSuppression: true,
+            },
+            video: false,
+        });
+        stream.getTracks().forEach((tr) => {
+            try {
+                tr.stop();
+            } catch {
+                /* ignore */
+            }
+        });
+        return { ok: true };
+    } catch (err) {
+        const name = err && typeof err === 'object' ? err.name : '';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+            return { ok: false, reason: 'denied' };
+        }
+        return { ok: false, reason: 'error' };
+    }
+}
+
+/** @param {MediaDeviceInfo[]} devices */
+export function devicesNeedPermissionUnlock(devices) {
+    if (!devices.length) return true;
+    return devices.every((d) => !String(d.label || '').trim());
+}
+
+/**
+ * @returns {Promise<MediaDeviceInfo[]>}
+ */
+export async function listLiveMeetingAudioInputs() {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+        return [];
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter(
+        (d) =>
+            d.kind === 'audioinput'
+            && (String(d.deviceId || '').trim() !== '' || String(d.label || '').trim() !== ''),
+    );
+}
+
+/**
  * @param {Float32Array} floats
  * @returns {ArrayBuffer}
  */
@@ -20,11 +74,11 @@ function float32ToPcm16(floats) {
 
 /**
  * @param {string} wsUrl ws:// or wss:// orchestrator audio endpoint
- * @param {{ signal?: AbortSignal, onState?: (state: string) => void, onError?: (message: string) => void }} [opts]
- * @returns {Promise<{ stop: () => void, ws: WebSocket, requestBubble: () => void, bubbleLookup: (opts: { text: string, bubble_id?: string }) => void }>}
+ * @param {{ signal?: AbortSignal, deviceId?: string, onState?: (state: string) => void, onError?: (message: string) => void, onLevel?: (level: number) => void, onDevice?: (info: { deviceId: string, label: string }) => void }} [opts]
+ * @returns {Promise<{ stop: () => void, ws: WebSocket, deviceId: string, deviceLabel: string, requestBubble: () => void, bubbleLookup: (opts: { text: string, bubble_id?: string }) => void }>}
  */
 export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
-    const { signal, onState, onError } = opts;
+    const { signal, deviceId, onState, onError, onLevel, onDevice } = opts;
     const url = String(wsUrl || '').trim();
     if (!url) {
         throw new Error('ws_audio_url required');
@@ -65,14 +119,20 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         });
     });
 
+    const audioConstraints = {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+    };
+    const pickedDeviceId = String(deviceId || '').trim();
+    if (pickedDeviceId) {
+        audioConstraints.deviceId = { exact: pickedDeviceId };
+    }
+
     let media;
     try {
         media = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                channelCount: 1,
-                echoCancellation: true,
-                noiseSuppression: true,
-            },
+            audio: audioConstraints,
             video: false,
         });
     } catch (err) {
@@ -80,16 +140,39 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
             throw new Error('mic_denied');
         }
+        if (pickedDeviceId && (name === 'NotFoundError' || name === 'OverconstrainedError')) {
+            throw new Error('mic_device_unavailable');
+        }
         throw err;
     }
 
+    const audioTrack = media.getAudioTracks()[0];
+    const trackSettings = audioTrack?.getSettings?.() || {};
+    const activeDeviceId = String(trackSettings.deviceId || pickedDeviceId || '');
+    const activeDeviceLabel = String(audioTrack?.label || '').trim();
+    if (typeof onDevice === 'function') {
+        onDevice({ deviceId: activeDeviceId, label: activeDeviceLabel });
+    }
+
     const ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+    if (ctx.state === 'suspended') {
+        await ctx.resume();
+    }
     const source = ctx.createMediaStreamSource(media);
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     processor.onaudioprocess = (ev) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
         const input = ev.inputBuffer.getChannelData(0);
-        ws.send(float32ToPcm16(input));
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(float32ToPcm16(input));
+        }
+        if (typeof onLevel === 'function') {
+            let sum = 0;
+            for (let i = 0; i < input.length; i += 1) {
+                sum += input[i] * input[i];
+            }
+            const rms = Math.sqrt(sum / Math.max(1, input.length));
+            onLevel(Math.min(1, rms * 10));
+        }
     };
     source.connect(processor);
     processor.connect(ctx.destination);
@@ -101,14 +184,37 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         }
     }, 15_000);
 
+    let stopped = false;
     const stop = () => {
+        if (stopped) return;
+        stopped = true;
+
         clearInterval(pingTimer);
-        processor.disconnect();
-        source.disconnect();
-        media.getTracks().forEach((tr) => tr.stop());
-        void ctx.close();
+        processor.onaudioprocess = null;
         try {
-            ws.close();
+            processor.disconnect();
+        } catch {
+            /* ignore */
+        }
+        try {
+            source.disconnect();
+        } catch {
+            /* ignore */
+        }
+        media.getTracks().forEach((tr) => {
+            try {
+                tr.stop();
+            } catch {
+                /* ignore */
+            }
+        });
+        if (ctx.state !== 'closed') {
+            void ctx.close().catch(() => {});
+        }
+        try {
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                ws.close();
+            }
         } catch {
             /* ignore */
         }
@@ -135,5 +241,12 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         );
     };
 
-    return { stop, ws, requestBubble, bubbleLookup };
+    return {
+        stop,
+        ws,
+        deviceId: activeDeviceId,
+        deviceLabel: activeDeviceLabel,
+        requestBubble,
+        bubbleLookup,
+    };
 }

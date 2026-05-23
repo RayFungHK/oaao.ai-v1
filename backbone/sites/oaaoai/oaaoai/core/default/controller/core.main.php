@@ -246,13 +246,155 @@ return function (): void {
         return $prefix . $pathOnly;
     };
 
+    /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env. */
+    $oaaoShellEsmRev = '20260523-vault-browse-grid-fill-v';
+    $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
+    $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
+        ? trim((string) $envShellEsmV)
+        : $oaaoShellEsmRev;
+
+    /** Canonical pathname = {@code dir(@oaao/core-js/)} ({@see shell-registry-url.js} — must stay in lockstep). */
+    $coreJsPublicPrefix = \rtrim($oaaoPrefixedWebPath('/webassets/core/default/js/', $oaaoMountPrefix), '/');
+    $coreJsDiskRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'webassets' . DIRECTORY_SEPARATOR . 'js';
+
+    /**
+     * Import-map scope: relative {@code ./} / {@code ../} sibling imports from {@code main.js} must carry {@code ?v=}
+     * ({@code main.js?v=} alone does not bust {@code workspace.js} without a scope entry).
+     *
+     * @return array<string, string>
+     */
+    $oaaoBuildCoreJsImportScope = static function (string $diskRoot, string $publicPrefix, string $esmRev): array {
+        /** @var array<string, string> $scope */
+        $scope = [];
+        $base = \rtrim($publicPrefix, '/') . '/';
+        $qv = '?v=' . \rawurlencode($esmRev);
+
+        if (! \is_dir($diskRoot)) {
+            return $scope;
+        }
+
+        $diskRootNorm = \str_replace('\\', '/', $diskRoot);
+        $diskRootReal = \rtrim(\realpath($diskRootNorm) ?: $diskRootNorm, '/') . '/';
+
+        $resolveRelImport = static function (string $fromRelDir, string $spec) use ($diskRootReal): ?string {
+            $fromRelDir = \str_replace('\\', '/', $fromRelDir);
+            if ($fromRelDir === '.') {
+                $fromRelDir = '';
+            }
+            $combined = $fromRelDir === '' ? $spec : $fromRelDir . '/' . $spec;
+            /** @var list<string> $parts */
+            $parts = [];
+            foreach (\explode('/', \str_replace('\\', '/', $combined)) as $seg) {
+                if ($seg === '' || $seg === '.') {
+                    continue;
+                }
+                if ($seg === '..') {
+                    \array_pop($parts);
+
+                    continue;
+                }
+                $parts[] = $seg;
+            }
+            $resolved = \implode('/', $parts);
+            if ($resolved === '' || ! \is_file($diskRootReal . $resolved)) {
+                return null;
+            }
+
+            return $resolved;
+        };
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($diskRoot, \FilesystemIterator::SKIP_DOTS)
+        );
+        /** @var \SplFileInfo $file */
+        foreach ($iterator as $file) {
+            if (! $file->isFile() || $file->getExtension() !== 'js') {
+                continue;
+            }
+            $abs = \str_replace('\\', '/', $file->getPathname());
+            if (! \str_starts_with($abs, $diskRootReal)) {
+                continue;
+            }
+            $rel = \substr($abs, \strlen($diskRootReal));
+            $scope['./' . $rel] = $base . $rel . $qv;
+
+            $content = @\file_get_contents($file->getPathname());
+            if (! \is_string($content) || $content === '') {
+                continue;
+            }
+            if (\preg_match_all('/\bfrom\s+[\'"]((\.\.)?\/[^\'"]+)[\'"]/', $content, $matches)) {
+                $fromDir = \dirname($rel);
+                foreach ($matches[1] as $spec) {
+                    if (isset($scope[$spec])) {
+                        continue;
+                    }
+                    $resolved = $resolveRelImport($fromDir, $spec);
+                    if ($resolved !== null) {
+                        $scope[$spec] = $base . $resolved . $qv;
+                    }
+                }
+            }
+        }
+
+        return $scope;
+    };
+
+    /**
+     * Per-file {@code @oaao/core-js/*} import-map entries with {@code ?v=} — the bare prefix fallback is unversioned
+     * and browsers/CDN may keep stale modules after shell ESM rev bumps.
+     *
+     * @return array<string, string>
+     */
+    $oaaoBuildCoreJsVersionedImports = static function (string $diskRoot, string $publicPrefix, string $esmRev): array {
+        /** @var array<string, string> $imports */
+        $imports = [];
+        $base = \rtrim($publicPrefix, '/') . '/';
+        $qv = '?v=' . \rawurlencode($esmRev);
+
+        if (! \is_dir($diskRoot)) {
+            return $imports;
+        }
+
+        $diskRootNorm = \str_replace('\\', '/', $diskRoot);
+        $diskRootReal = \rtrim(\realpath($diskRootNorm) ?: $diskRootNorm, '/') . '/';
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($diskRoot, \FilesystemIterator::SKIP_DOTS)
+        );
+        /** @var \SplFileInfo $file */
+        foreach ($iterator as $file) {
+            if (! $file->isFile() || $file->getExtension() !== 'js') {
+                continue;
+            }
+            $abs = \str_replace('\\', '/', $file->getPathname());
+            if (! \str_starts_with($abs, $diskRootReal)) {
+                continue;
+            }
+            $rel = \substr($abs, \strlen($diskRootReal));
+            $imports['@oaao/core-js/' . $rel] = $base . $rel . $qv;
+        }
+
+        return $imports;
+    };
+
     try {
+        $coreJsScopePrefix = $coreJsPublicPrefix . '/';
+        $coreJsScope = $oaaoBuildCoreJsImportScope($coreJsDiskRoot, $coreJsPublicPrefix, $oaao_shell_esm_v);
+        $coreJsVersionedImports = $oaaoBuildCoreJsVersionedImports($coreJsDiskRoot, $coreJsPublicPrefix, $oaao_shell_esm_v);
+        $razyuiUrl = $oaaoPrefixedWebPath('/webassets/core/default/razyui/razyui.js', $oaaoMountPrefix)
+            . '?v=' . \rawurlencode($oaao_shell_esm_v);
         $oaao_import_map = [
-            'imports' => [
-                '@oaao/core-js/'    => $oaaoPrefixedWebPath('/webassets/core/default/js/', $oaaoMountPrefix),
-                '@oaao/chat-js/'    => $oaaoPrefixedWebPath('/webassets/chat/default/js/', $oaaoMountPrefix),
-                '@oaao/endpoints-js/' => $oaaoPrefixedWebPath('/webassets/core/default/js/endpoints-settings/', $oaaoMountPrefix),
-                'razyui'            => $oaaoPrefixedWebPath('/webassets/core/default/razyui/razyui.js', $oaaoMountPrefix),
+            'imports' => \array_merge(
+                $coreJsVersionedImports,
+                [
+                    '@oaao/core-js/'      => $coreJsScopePrefix,
+                    '@oaao/chat-js/'      => $oaaoPrefixedWebPath('/webassets/chat/default/js/', $oaaoMountPrefix),
+                    '@oaao/endpoints-js/' => $oaaoPrefixedWebPath('/webassets/core/default/js/endpoints-settings/', $oaaoMountPrefix),
+                    'razyui'              => $razyuiUrl,
+                ],
+            ),
+            'scopes' => [
+                $coreJsScopePrefix => $coreJsScope,
             ],
         ];
         $oaao_importmap_json = json_encode(
@@ -324,44 +466,6 @@ return function (): void {
         $oaaoTenantDisplay = substr($oaaoTenantDisplay, 0, 117) . '…';
     }
 
-    $oaaoShellEsmTouchPaths = [
-        \dirname(__DIR__) . '/webassets/js/oaao-access-settings-panel.js',
-        \dirname(__DIR__) . '/webassets/js/oaao-endpoints-settings-panel.js',
-        \dirname(__DIR__) . '/webassets/js/oaao-asr-settings-panel.js',
-        \dirname(__DIR__) . '/webassets/js/asr-settings/asr-settings-form.js',
-        \dirname(__DIR__) . '/webassets/js/oaao-rag-settings-panel.js',
-        \dirname(__DIR__) . '/webassets/js/rag-settings/rag-settings-form.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings-panel.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings/oaao-endpoints-actions.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings/actions.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings/purpose-editor-form.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings/purpose-key-prefix.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings/view.js',
-        \dirname(__DIR__) . '/webassets/js/endpoints-settings/endpoints-settings-view.js',
-        \dirname(__DIR__) . '/webassets/js/oaao-core-esm-url.js',
-        \dirname(__DIR__) . '/webassets/js/settings-dialog.js',
-        \dirname(__DIR__) . '/webassets/js/platform-shell.js',
-        \dirname(__DIR__) . '/webassets/js/shell-registry-url.js',
-        \dirname(__DIR__, 3) . '/chat/default/webassets/js/chat-settings-panel.js',
-        \dirname(__DIR__, 3) . '/chat/default/webassets/js/oaao-chat-planner-settings-panel.js',
-        \dirname(__DIR__, 3) . '/chat/default/webassets/js/chat-planner-settings/planner-settings-form.js',
-        \dirname(__DIR__, 3) . '/chat/default/webassets/js/chat-panel.js',
-        \dirname(__DIR__, 3) . '/chat/default/webassets/js/oaao-rui-icons.js',
-        \dirname(__DIR__, 3) . '/chat/default/webassets/css/oaao-chat-shell.css',
-        \dirname(__DIR__) . '/webassets/js/workspace.js',
-        \dirname(__DIR__, 3) . '/vault/default/webassets/js/vault-panel.js',
-        \dirname(__DIR__, 3) . '/vault/default/webassets/js/vault-transcript-speaker.js',
-    ];
-    $oaaoShellEsmMt = [];
-    foreach ($oaaoShellEsmTouchPaths as $tp) {
-        if (\is_file($tp)) {
-            $oaaoShellEsmMt[] = (int) \filemtime($tp);
-        }
-    }
-    $oaao_shell_esm_v = $oaaoShellEsmMt !== [] ? (string) \max($oaaoShellEsmMt) : (string) \time();
-
-    /** Canonical pathname = {@code dir(@oaao/core-js/)} stripped of trailing {@code js} ({@see core.main.php} import map — must stay in lockstep). */
-    $coreJsPublicPrefix = \rtrim($oaaoPrefixedWebPath('/webassets/core/default/js/', $oaaoMountPrefix), '/');
     $oaaoCoreDerivedRoot = \preg_replace('#/js$#', '', $coreJsPublicPrefix);
     $oaaoCoreWebassetsPath =
         (\is_string($oaaoCoreDerivedRoot) && $oaaoCoreDerivedRoot !== '')
@@ -369,6 +473,13 @@ return function (): void {
             : '/webassets/core/default';
     $oaao_core_webassets_root = htmlspecialchars(
         $oaaoCoreWebassetsPath,
+        ENT_QUOTES | ENT_HTML5,
+        'UTF-8'
+    );
+
+    require_once dirname(__DIR__, 3) . '/chat/default/library/OrchestratorPublicBase.php';
+    $oaao_orchestrator_stream_proxy = htmlspecialchars(
+        $oaaoPrefixedWebPath(\oaaoai\chat\OrchestratorPublicBase::streamProxyPath(), $oaaoMountPrefix),
         ENT_QUOTES | ENT_HTML5,
         'UTF-8'
     );
@@ -398,6 +509,7 @@ return function (): void {
         'oaao_session_active_class' => $oaaoSessionActiveClass,
         'oaao_mount_prefix'       => htmlspecialchars($oaaoMountPrefix, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         'oaao_core_webassets_root' => $oaao_core_webassets_root,
+        'oaao_orchestrator_stream_proxy' => $oaao_orchestrator_stream_proxy,
         'oaao_shell_esm_v'        => htmlspecialchars($oaao_shell_esm_v, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         'oaao_importmap_json'    => $oaao_importmap_json,
         'auth_installed'   => $authInstalled ? '1' : '0',

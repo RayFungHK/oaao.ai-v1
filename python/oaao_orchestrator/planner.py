@@ -135,11 +135,11 @@ def build_fast_chat_plan(req: object) -> RunPlan:
 
     Skips the LLM planner round-trip and slide_designer injection.
     """
-    specs, report_after = _build_core_run_tasks(req)
+    specs, _report_after = _build_core_run_tasks(req)
     hint_kinds = [s.agent_kind for s in specs if s.agent_kind]
     if not hint_kinds and _vault_rag_needed(req):
         hint_kinds = ["vault_rag"]
-    return _finalize_run_plan(specs, report_after=report_after, hint_kinds=hint_kinds)
+    return _finalize_run_plan(specs, report_after=[], hint_kinds=hint_kinds)
 
 
 def build_default_run_plan(req: object) -> RunPlan:

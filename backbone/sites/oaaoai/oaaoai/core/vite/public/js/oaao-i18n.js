@@ -33,10 +33,20 @@ const OAAO_I18N_BASE = {
 
         // Live meeting (workspace/live-meeting)
         'live_meeting.title': 'Live meeting',
-        'live_meeting.subtitle': 'Streaming transcript from your microphone',
+        'live_meeting.subtitle': 'Select a workspace, then start the microphone.',
         'live_meeting.start_mic': 'Start microphone',
         'live_meeting.stop_mic': 'Stop',
         'live_meeting.keep_audio': 'Keep recorded audio on server',
+        'live_meeting.audio_input.label': 'Audio input',
+        'live_meeting.audio_input.default': 'System default',
+        'live_meeting.audio_input.none': 'No microphone found',
+        'live_meeting.audio_input.permission_denied':
+            'Microphone access denied — allow mic in browser settings, or use System default via Start microphone.',
+        'live_meeting.audio_input.unknown': 'Microphone {{n}}',
+        'live_meeting.audio_input.active': 'Using: {{device}}',
+        'live_meeting.audio_level.listening': 'Microphone open — speak to test the level meter',
+        'live_meeting.audio_level.silent': 'No audio detected — check input device or speak closer',
+        'live_meeting.error.mic_device_unavailable': 'Selected microphone is unavailable',
         'live_meeting.status.idle': 'Idle',
         'live_meeting.status.starting': 'Starting…',
         'live_meeting.status.recording': 'Recording',
@@ -51,6 +61,7 @@ const OAAO_I18N_BASE = {
         'live_meeting.error.mic_ws': 'Microphone or audio uplink failed',
         'live_meeting.error.asr_not_configured': 'Speech recognition is not configured (Settings → ASR)',
         'live_meeting.error.session_start': 'Could not start live session',
+        'live_meeting.error.workspace_scope_changed': 'Workspace changed — start microphone again for the new scope.',
         'live_meeting.transcript.empty': 'Transcript will appear here while you speak.',
         'live_meeting.bubbles.label': 'Suggestions',
         'live_meeting.bubble.keyword_hint': 'Keyword — tap to refresh suggestions',
@@ -484,6 +495,7 @@ const OAAO_I18N_BASE = {
         'settings.endpoints.dialog.saving': 'Saving…',
         'settings.endpoints.dialog.save_failed': 'Save failed ({{status}})',
         'settings.endpoints.dialog.reload_failed': 'Reload failed',
+        'settings.endpoints.saved': 'Endpoint saved.',
 
         'settings.endpoints.delete_confirm_title': 'Delete endpoint?',
         'settings.endpoints.delete_confirm_body':
@@ -497,6 +509,7 @@ const OAAO_I18N_BASE = {
         'settings.purpose.dialog.saving': 'Saving…',
         'settings.purpose.dialog.save_failed': 'Save failed ({{status}})',
         'settings.purpose.dialog.reload_failed': 'Reload failed',
+        'settings.purpose.saved': 'Purpose allocation saved.',
 
         'settings.purpose.delete_confirm_title': 'Delete purpose?',
         'settings.purpose.delete_confirm_body':
@@ -531,10 +544,20 @@ const OAAO_I18N_BASE = {
         'workspace.agents.badge_disabled': '未啟用',
 
         'live_meeting.title': '即時會議',
-        'live_meeting.subtitle': '麥克風即時轉寫字幕',
+        'live_meeting.subtitle': '請先選擇工作區，再開始麥克風。',
         'live_meeting.start_mic': '開始麥克風',
         'live_meeting.stop_mic': '停止',
         'live_meeting.keep_audio': '保留伺服器上的錄音',
+        'live_meeting.audio_input.label': '音訊輸入',
+        'live_meeting.audio_input.default': '系統預設',
+        'live_meeting.audio_input.none': '找不到麥克風',
+        'live_meeting.audio_input.permission_denied':
+            '麥克風權限被拒 — 請在瀏覽器設定允許麥克風，或直接按「Start microphone」使用系統預設。',
+        'live_meeting.audio_input.unknown': '麥克風 {{n}}',
+        'live_meeting.audio_input.active': '使用中：{{device}}',
+        'live_meeting.audio_level.listening': '麥克風已開啟 — 請說話以測試音量',
+        'live_meeting.audio_level.silent': '未偵測到音訊 — 請確認輸入裝置或靠近麥克風',
+        'live_meeting.error.mic_device_unavailable': '所選麥克風無法使用',
         'live_meeting.status.idle': '閒置',
         'live_meeting.status.starting': '啟動中…',
         'live_meeting.status.recording': '錄音中',
@@ -549,6 +572,7 @@ const OAAO_I18N_BASE = {
         'live_meeting.error.mic_ws': '麥克風或音訊上傳失敗',
         'live_meeting.error.asr_not_configured': '未設定語音辨識（設定 → ASR）',
         'live_meeting.error.session_start': '無法啟動即時會議',
+        'live_meeting.error.workspace_scope_changed': '工作區已切換 — 請重新開始麥克風以套用新範圍。',
         'live_meeting.transcript.empty': '開始說話後，轉寫內容會顯示於此。',
         'live_meeting.bubbles.label': '建議',
         'live_meeting.bubble.keyword_hint': '關鍵字 — 點擊可重新擷取建議',
@@ -951,6 +975,7 @@ const OAAO_I18N_BASE = {
         'settings.endpoints.dialog.saving': '儲存中…',
         'settings.endpoints.dialog.save_failed': '儲存失敗（{{status}}）',
         'settings.endpoints.dialog.reload_failed': '重新載入失敗',
+        'settings.endpoints.saved': '端點已儲存。',
 
         'settings.endpoints.delete_confirm_title': '刪除端點？',
         'settings.endpoints.delete_confirm_body':
@@ -964,6 +989,7 @@ const OAAO_I18N_BASE = {
         'settings.purpose.dialog.saving': '儲存中…',
         'settings.purpose.dialog.save_failed': '儲存失敗（{{status}}）',
         'settings.purpose.dialog.reload_failed': '重新載入失敗',
+        'settings.purpose.saved': '用途分配已儲存。',
 
         'settings.purpose.delete_confirm_title': '刪除用途列？',
         'settings.purpose.delete_confirm_body':

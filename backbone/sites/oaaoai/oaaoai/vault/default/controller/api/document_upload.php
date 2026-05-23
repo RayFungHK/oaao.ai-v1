@@ -68,6 +68,17 @@ return function (): void {
         return;
     }
 
+    $pdo = $ctx['pdo'];
+    $core = $this->api('core');
+    $limits = $core ? $core->groupLimitsForUser($pdo, $uid) : [];
+    $limitMsg = $core ? $core->assertCanUploadVaultDocument($pdo, $uid, $limits, $size) : null;
+    if ($limitMsg !== null) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => $limitMsg]);
+
+        return;
+    }
+
     $origName = isset($f['name']) && \is_string($f['name']) ? $f['name'] : 'upload.bin';
     $declaredMime = isset($f['type']) && \is_string($f['type']) ? trim($f['type']) : '';
 

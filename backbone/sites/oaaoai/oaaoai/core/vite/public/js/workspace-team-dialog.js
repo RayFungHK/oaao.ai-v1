@@ -264,7 +264,7 @@ export async function openWorkspaceTeamDialog(razyui, opts) {
         delBtn.type = 'button';
         delBtn.textContent = 'Delete workspace…';
         delBtn.className =
-            'rounded-[10px] px-4 py-2 text-[0.8125rem] fw-semibold fg-white bg-red-600 border-none cursor-pointer font-inherit hover:opacity-90 w-fit';
+            'rounded-[10px] px-4 py-2 text-[0.8125rem] fw-semibold fg-white bg-[var(--grid-danger,#e5484d)] border-none cursor-pointer font-inherit hover:opacity-90 disabled:opacity-50 w-fit';
         delBtn.addEventListener('click', () => {
             void (async () => {
                 const warn = document.createElement('div');

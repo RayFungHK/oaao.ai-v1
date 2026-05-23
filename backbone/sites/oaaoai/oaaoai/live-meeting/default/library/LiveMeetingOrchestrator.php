@@ -40,15 +40,13 @@ final class LiveMeetingOrchestrator
 
     public static function publicStreamBase(): string
     {
-        $raw = getenv('OAAO_ORCHESTRATOR_PUBLIC_BASE');
-        if (\is_string($raw) && trim($raw) !== '') {
-            return rtrim(trim($raw), '/');
-        }
-        $port = getenv('OAAO_SIDECAR_PORT');
-        if ($port !== false && (string) $port !== '') {
-            return 'http://127.0.0.1:' . max(1, min(65535, (int) $port));
+        if (! class_exists(\oaaoai\chat\OrchestratorPublicBase::class)) {
+            $path = dirname(__DIR__, 3) . '/chat/default/library/OrchestratorPublicBase.php';
+            if (is_readable($path)) {
+                require_once $path;
+            }
         }
 
-        return '';
+        return \oaaoai\chat\OrchestratorPublicBase::fromEnv();
     }
 }

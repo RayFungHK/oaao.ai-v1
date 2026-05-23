@@ -1,6 +1,8 @@
 /**
  * Platform Settings panel — tenant registry (platform host + platform admin only).
  */
+import { oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
+
 export async function mountSettingsPanel(host, ctx = {}) {
     return mountPlatformTenantsPanel(host, ctx);
 }
@@ -10,10 +12,7 @@ export async function mountPlatformTenantsPanel(host, ctx = {}) {
     if (!(host instanceof HTMLElement)) return;
 
     host.textContent = '';
-    const note = document.createElement('p');
-    note.className = 'text-sm fg-[var(--grid-ink-muted)] mb-md';
-    note.textContent = 'Loading tenants…';
-    host.append(note);
+    oaaoMountLoadingLogo(host, { label: 'Loading tenants…' });
 
     const base = '/platform/api/';
     try {

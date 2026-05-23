@@ -164,19 +164,110 @@ return new class extends Controller {
     /**
      * @param array<string, mixed> $meta
      */
-    public function recordUsageChatCompletion(\PDO $pdo, int $tenantId, array $meta): void
+    public function recordUsageChatCompletion(\PDO $pdo, int $tenantId, array $meta, ?int $userId = null): void
     {
         require_once __DIR__ . '/../library/UsageEventRepository.php';
-        \Oaaoai\Core\UsageEventRepository::recordChatCompletion($pdo, $tenantId, $meta);
+        \Oaaoai\Core\UsageEventRepository::recordChatCompletion($pdo, $tenantId, $meta, $userId);
     }
 
     /**
      * @param array<string, mixed> $asrData
      */
-    public function recordUsageChatAsr(\PDO $pdo, int $tenantId, array $asrData): void
+    public function recordUsageChatAsr(\PDO $pdo, int $tenantId, array $asrData, ?int $userId = null): void
     {
         require_once __DIR__ . '/../library/UsageEventRepository.php';
-        \Oaaoai\Core\UsageEventRepository::recordChatAsr($pdo, $tenantId, $asrData);
+        \Oaaoai\Core\UsageEventRepository::recordChatAsr($pdo, $tenantId, $asrData, $userId);
+    }
+
+    /**
+     * @param array<string, mixed>|null $meta
+     */
+    public function recordUsageEvent(
+        \PDO $pdo,
+        int $tenantId,
+        string $eventKind,
+        ?float $quantity = null,
+        ?string $unit = null,
+        ?array $meta = null,
+        ?int $userId = null,
+    ): void {
+        require_once __DIR__ . '/../library/UsageEventRepository.php';
+        \Oaaoai\Core\UsageEventRepository::record($pdo, $tenantId, $eventKind, $quantity, $unit, $meta, $userId);
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     * @param array<string, mixed> $job
+     */
+    public function recordVaultJobFinishUsage(
+        \PDO $pdo,
+        int $tenantId,
+        string $hookId,
+        string $status,
+        array $body,
+        array $job,
+        ?int $userId = null,
+    ): void {
+        require_once __DIR__ . '/../library/UsageEventRepository.php';
+        \Oaaoai\Core\UsageEventRepository::recordVaultJobFinish($pdo, $tenantId, $hookId, $status, $body, $job, $userId);
+    }
+
+    public function requireTenantContext(\PDO $pdo): int
+    {
+        require_once __DIR__ . '/../library/TenantContext.php';
+        \Oaaoai\Core\TenantContext::require($pdo);
+        if (! \Oaaoai\Core\TenantContext::isActive()) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode(['success' => false, 'message' => 'Tenant is suspended'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            exit;
+        }
+
+        return \Oaaoai\Core\TenantContext::id();
+    }
+
+    public function tenantContextSlug(): string
+    {
+        require_once __DIR__ . '/../library/TenantContext.php';
+
+        return \Oaaoai\Core\TenantContext::slug();
+    }
+
+    public function userHasWorkspaceAccess(\Razy\Database $db, int $userId, int $workspaceId): bool
+    {
+        require_once __DIR__ . '/../library/WorkspaceMembership.php';
+
+        return \Oaaoai\Core\WorkspaceMembership::userHasAccess($db, $userId, $workspaceId);
+    }
+
+    /**
+     * @return array<string, int|null>
+     */
+    public function groupLimitsForUser(\PDO $pdo, int $userId): array
+    {
+        require_once __DIR__ . '/../library/GroupLimitEnforcer.php';
+
+        return \Oaaoai\Core\GroupLimitEnforcer::limitsForUser($pdo, $userId);
+    }
+
+    /**
+     * @param array<string, int|null> $limits
+     */
+    public function assertCanCreateVault(\PDO $pdo, int $userId, array $limits): ?string
+    {
+        require_once __DIR__ . '/../library/GroupLimitEnforcer.php';
+
+        return \Oaaoai\Core\GroupLimitEnforcer::assertCanCreateVault($pdo, $userId, $limits);
+    }
+
+    /**
+     * @param array<string, int|null> $limits
+     */
+    public function assertCanUploadVaultDocument(\PDO $pdo, int $userId, array $limits, int $byteSize): ?string
+    {
+        require_once __DIR__ . '/../library/GroupLimitEnforcer.php';
+
+        return \Oaaoai\Core\GroupLimitEnforcer::assertCanUploadDocument($pdo, $userId, $limits, $byteSize);
     }
 
     public function __onInit(Agent $agent): bool
@@ -188,11 +279,19 @@ return new class extends Controller {
             'registerPreferencesSection'     => 'registerPreferencesSection',
             'registerFeatureScope'           => 'registerFeatureScope',
             'bootstrapTenantContext'         => 'bootstrapTenantContext',
+            'requireTenantContext'           => 'requireTenantContext',
             'tenantContextId'                => 'tenantContextId',
+            'tenantContextSlug'              => 'tenantContextSlug',
             'tenantIsPlatform'               => 'tenantIsPlatform',
+            'userHasWorkspaceAccess'         => 'userHasWorkspaceAccess',
+            'groupLimitsForUser'             => 'groupLimitsForUser',
+            'assertCanCreateVault'           => 'assertCanCreateVault',
+            'assertCanUploadVaultDocument'   => 'assertCanUploadVaultDocument',
             'rejectCustomerProductApi'       => 'rejectCustomerProductApi',
             'recordUsageChatCompletion'      => 'recordUsageChatCompletion',
             'recordUsageChatAsr'             => 'recordUsageChatAsr',
+            'recordUsageEvent'               => 'recordUsageEvent',
+            'recordVaultJobFinishUsage'      => 'recordVaultJobFinishUsage',
         ]);
 
         /**
@@ -279,6 +378,38 @@ return new class extends Controller {
                 'title_key'       => 'settings.nav.groups.title',
                 'sub_key'         => 'settings.nav.groups.sub',
             ]
+        );
+
+        /**
+         * Preferences dialog — seed Dashboard + Settings here (same rationale as Settings rows).
+         * Shell JS lives under {@code core} webassets so every install resolves {@code panel_js_module} without {@code oaaoai/user} load-order drift.
+         */
+        $prefJs = '/webassets/core/default/js/user-preferences-panels.js';
+
+        PreferencesRegister::add(
+            'pref-dashboard',
+            'Dashboard',
+            'Dashboard',
+            'Token usage and credit balance for your account (last 30 days).',
+            'layout-grid',
+            [
+                'sort'            => 0,
+                'levels'          => ['personal'],
+                'panel_js_module' => $prefJs,
+            ],
+        );
+
+        PreferencesRegister::add(
+            'pref-personal',
+            'Settings',
+            'Settings',
+            'Profile, password, and display language.',
+            'user-circle',
+            [
+                'sort'            => 10,
+                'levels'          => ['personal'],
+                'panel_js_module' => $prefJs,
+            ],
         );
 
         /**
@@ -399,11 +530,19 @@ return new class extends Controller {
                 'registerPreferencesSection',
                 'registerFeatureScope',
                 'bootstrapTenantContext',
+                'requireTenantContext',
                 'tenantContextId',
+                'tenantContextSlug',
                 'tenantIsPlatform',
+                'userHasWorkspaceAccess',
+                'groupLimitsForUser',
+                'assertCanCreateVault',
+                'assertCanUploadVaultDocument',
                 'rejectCustomerProductApi',
                 'recordUsageChatCompletion',
                 'recordUsageChatAsr',
+                'recordUsageEvent',
+                'recordVaultJobFinishUsage',
             ],
             true,
         );

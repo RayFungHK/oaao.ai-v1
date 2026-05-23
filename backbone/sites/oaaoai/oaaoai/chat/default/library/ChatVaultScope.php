@@ -44,7 +44,7 @@ final class ChatVaultScope
         } else {
             $rows = $db->prepare()
                 ->select('v.id')
-                ->from('v.vault-m.workspace_member[?v.workspace_id=m.workspace_id AND m.user_id=?]')
+                ->from('v.vault-m.workspace_member[?v.workspace_id=m.workspace_id, m.user_id=?]')
                 ->where('v.workspace_id=?')
                 ->assign([$uid, $wid])
                 ->order('+id')

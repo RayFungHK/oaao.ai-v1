@@ -110,14 +110,14 @@ final class ChatOrchestratorApi
      *
      * @return array<string, mixed>|null
      */
-    public static function ensureFunasr(bool $pull = true, array $funasrEnv = []): ?array
+    public static function ensureFunasr(bool $pull = true, array $funasrEnv = [], bool $recreate = false): ?array
     {
         [$base, $secret] = self::internalCredentials();
         if ($base === '') {
             return null;
         }
 
-        return OrchestratorSidecarClient::ensureFunasr($base, $secret, $pull, $funasrEnv);
+        return OrchestratorSidecarClient::ensureFunasr($base, $secret, $pull, $funasrEnv, $recreate);
     }
 
     /**

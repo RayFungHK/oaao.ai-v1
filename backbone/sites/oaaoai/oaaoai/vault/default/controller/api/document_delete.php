@@ -53,37 +53,35 @@ return function (): void {
     $uid = $ctx['uid'];
     $wid = $ctx['wid'];
 
+    /** @var array<string, mixed>|false $row */
+    $row = $db->prepare()
+        ->select('id, vault_id, storage_path')
+        ->from('vault_document')
+        ->where('id=:id')
+        ->assign(['id' => $docId])
+        ->limit(1)
+        ->query()
+        ->fetch();
+    if ($row === false || ! \is_array($row)) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => 'Document not found']);
+
+        return;
+    }
+
+    $vaultId = (int) ($row['vault_id'] ?? 0);
+    if ($vaultId < 1 || ! $this->oaao_vault_user_can_touch_vault($db, $vaultId, $uid, $wid)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Forbidden']);
+
+        return;
+    }
+
+    $relPath = isset($row['storage_path']) && \is_string($row['storage_path']) ? $row['storage_path'] : null;
+
     $db->beginTransaction();
 
     try {
-        /** @var array<string, mixed>|false $row */
-        $row = $db->prepare(
-            <<<'SQL'
-SELECT id, vault_id, storage_path FROM oaao_vault_document WHERE id = :id LIMIT 1 FOR UPDATE
-SQL
-        )
-            ->assign(['id' => $docId])
-            ->query()
-            ->fetch();
-        if ($row === false || ! \is_array($row)) {
-            $db->rollback();
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Document not found']);
-
-            return;
-        }
-
-        $vaultId = (int) ($row['vault_id'] ?? 0);
-        if ($vaultId < 1 || ! $this->oaao_vault_user_can_touch_vault($db, $vaultId, $uid, $wid)) {
-            $db->rollback();
-            http_response_code(403);
-            echo json_encode(['success' => false, 'message' => 'Forbidden']);
-
-            return;
-        }
-
-        $relPath = isset($row['storage_path']) && \is_string($row['storage_path']) ? $row['storage_path'] : null;
-
         $this->oaao_vault_best_effort_delete_qdrant_embeddings($db, $vaultId, $docId);
 
         $db->delete('vault_document', ['id' => $docId])->query();

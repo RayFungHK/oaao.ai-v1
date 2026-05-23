@@ -225,3 +225,44 @@ export function oaaoAppendShellEsmV(url) {
 
     return normalizeOaaoWebassetsRewriteUrl(`${u}${join}v=${encodeURIComponent(v)}`);
 }
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
+
+/**
+ * Rewrite loopback orchestrator URLs (e.g. {@code http://localhost:8103}) to the browser host.
+ * Mobile/LAN clients cannot reach the dev machine's loopback — they need the LAN IP/hostname.
+ *
+ * @param {string} spec absolute or root-relative orchestrator URL
+ * @returns {string}
+ */
+export function resolveOrchestratorPublicUrl(spec) {
+    const raw = String(spec ?? '').trim();
+    if (!raw) return raw;
+    let u;
+    try {
+        u = new URL(raw, typeof window !== 'undefined' ? window.location.href : undefined);
+    } catch {
+        return raw;
+    }
+    const host = u.hostname.toLowerCase();
+    if (LOOPBACK_HOSTS.has(host) && typeof window !== 'undefined' && window.location?.hostname) {
+        u.hostname = window.location.hostname;
+    }
+    if (typeof window !== 'undefined' && u.protocol === 'ws:' && window.location.protocol === 'https:') {
+        u.protocol = 'wss:';
+    }
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.protocol === 'http:') {
+        const proxyRaw =
+            (typeof document !== 'undefined' && document.body?.dataset?.oaaoOrchestratorStreamProxy)?.trim() ??
+            '/chat/api/orchestrator_stream';
+        const proxyPath = applyOaaoMountPrefix(proxyRaw.startsWith('/') ? proxyRaw : `/${proxyRaw}`);
+        try {
+            const proxy = new URL(proxyPath, window.location.href);
+            proxy.search = u.search;
+            return proxy.href;
+        } catch {
+            /* fall through */
+        }
+    }
+    return u.href;
+}

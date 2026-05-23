@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__) . '/../library/VaultDocumentHookRegister.php';
-
 use oaaoai\vault\VaultDocumentHookRegister;
 
 /**
@@ -22,13 +20,26 @@ return function (): void {
         return;
     }
 
+    $this->api('endpoints')?->ensureFeatureRegistries();
+
     $includeRaw = isset($_GET['include']) ? strtolower(trim((string) $_GET['include'])) : '';
     $includeFlat = str_contains($includeRaw, 'flat');
     $fullDocs = str_contains($includeRaw, 'full');
 
-    $payload = $this->oaao_vault_build_scope_payload($ctx['db'], $ctx['uid'], $ctx['wid'], [
-        'lite_documents' => ! $fullDocs,
-    ]);
+    try {
+        $payload = $this->oaao_vault_build_scope_payload($ctx['db'], $ctx['uid'], $ctx['wid'], [
+            'lite_documents' => ! $fullDocs,
+        ]);
+    } catch (\Throwable $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Could not load vault tree.',
+            'data'    => ['detail' => $e->getMessage()],
+        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        return;
+    }
 
     $docCount = \count($payload['documents']);
     $maxDocId = 0;

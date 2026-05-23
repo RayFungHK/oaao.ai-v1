@@ -41,6 +41,7 @@ def test_fast_plan_wallet_query_includes_vault_rag() -> None:
     assert RunTaskType.VAULT_RAG in types
     assert RunTaskType.LLM_STREAM in types
     assert not any(t.type == RunTaskType.AGENT for t in plan.tasks)
+    assert plan.report_after_task_ids == []
 
 
 def test_fast_plan_fourier_without_vault_is_compose_only() -> None:

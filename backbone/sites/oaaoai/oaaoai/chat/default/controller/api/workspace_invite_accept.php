@@ -72,7 +72,7 @@ return function (): void {
         $pdo->beginTransaction();
 
         $invSt = $pdo->prepare(
-            'SELECT invitation_id, workspace_id, invitee_email
+            'SELECT invitation_id, workspace_id, invitee_email, role
              FROM oaao_workspace_invitation
              WHERE token = ? AND status = \'pending\' AND expires_at > CURRENT_TIMESTAMP
              LIMIT 1 FOR UPDATE',
@@ -117,11 +117,14 @@ return function (): void {
         $wsNameRaw = $wsSt->fetchColumn();
         $wsName = \is_string($wsNameRaw) ? $wsNameRaw : '';
 
+        $inviteRole = strtolower(trim((string) ($inv['role'] ?? 'member')));
+        $memberRole = $inviteRole === 'owner' ? 'owner' : 'member';
+
         $memIns = $pdo->prepare(
-            'INSERT INTO oaao_workspace_member (workspace_id, user_id, role) VALUES (?, ?, \'member\')
-             ON CONFLICT (workspace_id, user_id) DO NOTHING',
+            'INSERT INTO oaao_workspace_member (workspace_id, user_id, role) VALUES (?, ?, ?)
+             ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role',
         );
-        $memIns->execute([$wid, $uid]);
+        $memIns->execute([$wid, $uid, $memberRole]);
 
         $upd = $pdo->prepare(
             'UPDATE oaao_workspace_invitation SET status = \'accepted\', accepted_at = CURRENT_TIMESTAMP, accepted_user_id = ?

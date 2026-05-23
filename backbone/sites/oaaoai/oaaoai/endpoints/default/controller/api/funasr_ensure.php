@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../library/CanonicalEndpointsRepository.php';
 /**
  * POST /endpoints/api/funasr_ensure — admin-only; start built-in FunASR + smoke test via orchestrator.
  *
- * Body JSON: { pull?: bool, funasr_env?: { FUNASR_ADAPTER_MODE?, FUNASR_SPK_MODEL? } }.
+ * Body JSON: { pull?: bool, recreate?: bool, funasr_env?: { FUNASR_ADAPTER_MODE?, FUNASR_SPK_MODEL? } }.
  */
 return function (): void {
     $db = $this->oaao_endpoints_require_admin();
@@ -24,6 +24,7 @@ return function (): void {
         $input = [];
     }
     $pull = ! \array_key_exists('pull', $input) || (bool) $input['pull'];
+    $recreate = \array_key_exists('recreate', $input) && (bool) $input['recreate'];
 
     /** @var array<string, string> $funasrEnv */
     $funasrEnv = [];
@@ -48,7 +49,7 @@ return function (): void {
         return;
     }
 
-    $result = $chat->ensureOrchestratorFunasr($pull, $funasrEnv);
+    $result = $chat->ensureOrchestratorFunasr($pull, $funasrEnv, $recreate);
     if ($result === null) {
         http_response_code(502);
         echo json_encode([

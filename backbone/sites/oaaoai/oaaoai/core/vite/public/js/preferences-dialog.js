@@ -4,6 +4,7 @@
  */
 
 import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-url.js';
+import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 
 const PDLG_DIALOG_BOX_JIT = 'overflow-hidden bg-[var(--grid-panel-bright)] min-h-0';
 
@@ -267,8 +268,7 @@ export async function openWorkspacePreferencesDialog(razyui) {
         if (sec.panel_html) {
             panel.innerHTML = sec.panel_html;
         } else {
-            panel.innerHTML =
-                '<p class="text-sm fg-[var(--grid-ink-muted)] oaao-preferences-panel-placeholder">Loading…</p>';
+            panel.append(oaaoLoadingLogoElement({ block: true, label: 'Loading…' }));
         }
         scroll.appendChild(panel);
     });
@@ -317,6 +317,7 @@ export async function openWorkspacePreferencesDialog(razyui) {
             }
 
             if (sec.panel_url) {
+                oaaoMountLoadingLogo(host, { block: true, label: 'Loading…' });
                 const res = await fetch(resolveShellRegistryUrl(sec.panel_url), {
                     credentials: 'include',
                     headers: {

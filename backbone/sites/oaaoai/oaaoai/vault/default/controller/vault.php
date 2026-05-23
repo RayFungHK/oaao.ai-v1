@@ -2,16 +2,6 @@
 
 namespace Module\oaao\vault;
 
-require_once __DIR__ . '/../library/VaultGlossary.php';
-require_once __DIR__ . '/../library/VaultArangoResolver.php';
-require_once __DIR__ . '/../library/VaultDocumentHookRegister.php';
-require_once __DIR__ . '/../library/VaultQdrantCollectionResolver.php';
-require_once __DIR__ . '/../library/VaultQdrantPoints.php';
-require_once __DIR__ . '/../library/VaultTranscriptSummaryLanguages.php';
-require_once __DIR__ . '/api/_vault_hook_jobs.php';
-require_once dirname(__DIR__, 3) . '/core/default/library/TenantHostResolver.php';
-
-use Oaaoai\Core\TenantContext;
 use oaaoai\chat\ChatOrchestratorBootstrap;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\vault\VaultGlossary;
@@ -20,6 +10,7 @@ use oaaoai\vault\VaultDocumentHookRegister;
 use oaaoai\vault\VaultQdrantCollectionResolver;
 use oaaoai\vault\VaultQdrantPoints;
 use oaaoai\vault\VaultTranscriptSummaryLanguages;
+use oaaoai\vault\VaultRetrievalProfiles;
 use Razy\Agent;
 use Razy\Controller;
 use Razy\Database;
@@ -36,6 +27,25 @@ use Razy\Database;
  * {@code oaao_vault.is_enabled}: when {@code 0}, uploads are stored but ingest hooks are **not** auto-queued (documents start as {@code embed_status held}); users may queue manually ({@code document_enqueue}) or rely on chat flows that explicitly target this vault as a source.
  */
 return new class extends Controller {
+    protected function oaao_vault_core_api(): mixed
+    {
+        return $this->api('core');
+    }
+
+    protected function oaao_vault_tenant_id(): int
+    {
+        $core = $this->oaao_vault_core_api();
+
+        return $core ? (int) $core->tenantContextId() : 0;
+    }
+
+    protected function oaao_vault_tenant_slug(): string
+    {
+        $core = $this->oaao_vault_core_api();
+
+        return $core ? (string) $core->tenantContextSlug() : '';
+    }
+
     /**
      * @param array<string, mixed>|null $data
      */
@@ -155,8 +165,8 @@ return new class extends Controller {
             return false;
         }
 
-        $chat = $this->api('chat');
-        if (! $chat || ! $chat->userHasWorkspaceAccess($uid, $wid)) {
+        $core = $this->oaao_vault_core_api();
+        if (! $core || ! $core->userHasWorkspaceAccess($db, $uid, $wid)) {
             http_response_code(403);
             echo json_encode([
                 'success' => false,
@@ -204,16 +214,26 @@ return new class extends Controller {
      */
     protected function oaao_vault_bootstrap_tenant(\PDO $pdo): int
     {
-        TenantContext::require($pdo);
-        if (! TenantContext::isActive()) {
-            http_response_code(403);
+        $core = $this->oaao_vault_core_api();
+        if (! $core) {
+            http_response_code(503);
             header('Content-Type: application/json; charset=UTF-8');
-            echo json_encode(['success' => false, 'message' => 'Tenant is suspended']);
-
+            echo json_encode(['success' => false, 'message' => 'Core unavailable']);
             exit;
         }
 
-        return TenantContext::id();
+        $tid = (int) $core->requireTenantContext($pdo);
+        $this->oaao_vault_prime_qdrant_tenant_slug();
+
+        return $tid;
+    }
+
+    protected function oaao_vault_prime_qdrant_tenant_slug(): void
+    {
+        $slug = $this->oaao_vault_tenant_slug();
+        if ($slug !== '') {
+            VaultQdrantCollectionResolver::setTenantSlug($slug);
+        }
     }
 
     /**
@@ -243,6 +263,8 @@ return new class extends Controller {
 
             return null;
         }
+
+        $auth->ensurePgCoreTables($db);
 
         
         if (! \oaao_auth_database_is_pgsql($db)) {
@@ -524,7 +546,7 @@ return new class extends Controller {
 
     protected function oaao_vault_user_can_touch_vault(Database $db, int $vaultId, int $uid, ?int $wid): bool
     {
-        $tid = TenantContext::id();
+        $tid = $this->oaao_vault_tenant_id();
 
         if ($wid === null) {
             $where = 'id=:vid, workspace_id IS NULL, owner_user_id=:uid';
@@ -554,7 +576,7 @@ return new class extends Controller {
 
         $r = $db->prepare()
             ->select('1 AS ok')
-            ->from('v.vault-m.workspace_member[?v.workspace_id=m.workspace_id AND m.user_id=?]')
+            ->from('v.vault-m.workspace_member[?v.workspace_id=m.workspace_id, m.user_id=?]')
             ->where($where)
             ->assign($assign)
             ->limit(1)
@@ -570,7 +592,7 @@ return new class extends Controller {
     protected function oaao_vault_ensure_default_vault(Database $db, int $uid, ?int $wid): int
     {
         $ts = date('Y-m-d H:i:s');
-        $tid = TenantContext::id();
+        $tid = $this->oaao_vault_tenant_id();
 
         if ($wid === null) {
             $where = 'workspace_id IS NULL, owner_user_id=:uid';
@@ -656,7 +678,7 @@ return new class extends Controller {
     protected function oaao_vault_insert_named_vault(Database $db, int $uid, ?int $wid, string $name): int
     {
         $ts = date('Y-m-d H:i:s');
-        $tid = TenantContext::id();
+        $tid = $this->oaao_vault_tenant_id();
         $cols = ['name', 'scope', 'workspace_id', 'owner_user_id', 'created_by', 'created_at', 'updated_at'];
 
         if ($wid === null) {
@@ -944,9 +966,9 @@ return new class extends Controller {
         }
 
         $qCol = VaultQdrantCollectionResolver::resolveEffectiveCollection($v);
-        if (TenantContext::id() > 0) {
-            $payload['tenant_id'] = TenantContext::id();
-            $payload['tenant_slug'] = TenantContext::slug();
+        if ($this->oaao_vault_tenant_id() > 0) {
+            $payload['tenant_id'] = $this->oaao_vault_tenant_id();
+            $payload['tenant_slug'] = $this->oaao_vault_tenant_slug();
         }
         if ($qCol !== null && $qCol !== '') {
             $payload['qdrant_collection'] = $qCol;
@@ -1573,7 +1595,7 @@ SQL;
     {
         $liteDocuments = ($options['lite_documents'] ?? true) === true;
         /** @var list<array<string, mixed>> $vaults */
-        $tid = TenantContext::id();
+        $tid = $this->oaao_vault_tenant_id();
         if ($wid === null) {
             $where = 'workspace_id IS NULL, owner_user_id=:uid';
             $assign = ['uid' => $uid];
@@ -1598,7 +1620,7 @@ SQL;
             }
             $vaults = $db->prepare()
                 ->select('v.id, v.name, v.scope, v.workspace_id, v.owner_user_id, v.created_at, v.is_enabled, v.graph_mode, v.description')
-                ->from('v.vault-m.workspace_member[?v.workspace_id=m.workspace_id AND m.user_id=?]')
+                ->from('v.vault-m.workspace_member[?v.workspace_id=m.workspace_id, m.user_id=?]')
                 ->where($where)
                 ->assign($assign)
                 ->order('+id')
@@ -1806,6 +1828,8 @@ SQL;
      */
     public function getVaultDocumentHookRegistry(): array
     {
+        $this->api('endpoints')?->ensureFeatureRegistries();
+
         return VaultDocumentHookRegister::allSorted();
     }
 
@@ -1822,8 +1846,6 @@ SQL;
         if (! $db || ! $db->getDBAdapter() instanceof \PDO) {
             return ['terms' => []];
         }
-        require_once __DIR__ . '/../library/VaultGlossary.php';
-
         return \oaaoai\vault\VaultGlossary::loadWorkspaceGlossary($db->getDBAdapter(), $workspaceId);
     }
 
@@ -1841,7 +1863,6 @@ SQL;
         if (! $pdo instanceof \PDO) {
             return false;
         }
-        require_once __DIR__ . '/../library/VaultGlossary.php';
         $encoded = \oaaoai\vault\VaultGlossary::encode(
             \oaaoai\vault\VaultGlossary::parseJson(json_encode($glossary, JSON_THROW_ON_ERROR)),
         );
@@ -1863,7 +1884,7 @@ SQL;
         if (! $db instanceof \Razy\Database) {
             return [];
         }
-        require_once __DIR__ . '/../library/VaultRetrievalProfiles.php';
+        $this->oaao_vault_prime_qdrant_tenant_slug();
         $chat = $this->api('chat');
         $infer = $chat
             ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
@@ -1903,61 +1924,7 @@ SQL;
             );
         }
 
-        $this->trigger('purpose_allocation.register')->resolve([
-            'slot_id' => 'pa-asr-summary',
-            'label'   => 'ASR Summary',
-            'title'   => 'ASR Summary',
-            'sub'     => 'LLM for View Transcript → Customize Summary ({@code asr_summary.*}).',
-            'icon'    => 'file-text',
-            'extras'  => [
-                'sort'               => 71,
-                'purpose_key_prefix' => 'asr_summary',
-                'allocation_mode'    => 'vault_documents',
-                'module_code'        => 'oaaoai/vault',
-                'label_key'          => 'settings.slot.asr_summary.label',
-                'sub_key'            => 'settings.slot.asr_summary.sub',
-            ],
-        ]);
-
-        /** Purpose-allocation slot consumed when resolving embedding models for vault document ingest ({@code embedding.*} keys in {@code oaao_purpose}). */
-        $this->trigger('purpose_allocation.register')->resolve([
-            'slot_id' => 'pa-embedding',
-            'label'   => 'Embedding',
-            'title'   => 'Embedding',
-            'sub'     => 'Vector embedding models for vault documents and retrieval indexes ({@code embedding.*}).',
-            'icon'    => 'layers',
-            'extras'  => [
-                'sort'               => 20,
-                'purpose_key_prefix' => 'embedding',
-                'allocation_mode'    => 'vault_documents',
-                'module_code'        => 'oaaoai/vault',
-                'label_key'          => 'settings.slot.embedding.label',
-                'sub_key'            => 'settings.slot.embedding.sub',
-            ],
-        ]);
-
-        /** Chat pipeline — composer slots + vault-grounded retrieval rail ({@see \\oaaoai\\chat\\ChatPipelineRegister}). */
-        $this->trigger('chat_pipeline.register')->resolve([
-            'entry_id' => 'cp.vault.source_selector',
-            'kind'     => 'composer_slot',
-            'label'    => 'Vault sources',
-            'extras'   => [
-                'sort'           => 18,
-                'module_code'    => 'oaaoai/vault',
-                'composer_zone'  => 'composer_extra_toolbar',
-                'description'    => 'Chat composer mounts vault / folder / embedded-file multi-select when this row is present.',
-            ],
-        ]);
-        $this->trigger('chat_pipeline.register')->resolve([
-            'entry_id' => 'cp.vault.scoped_retrieval_rail',
-            'kind'     => 'step_rail',
-            'label'    => 'Vault-scoped retrieval',
-            'extras'   => [
-                'sort'        => 28,
-                'module_code' => 'oaaoai/vault',
-                'description' => 'Orchestrator may attach vault-grounded retrieval steps when chat sends vault_source_refs / vault_source_ids.',
-            ],
-        ]);
+        $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
 
         $agent->addRoute('GET /vault/workspace-panel', 'panel/workspace_vault_panel');
 

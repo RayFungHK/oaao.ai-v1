@@ -271,6 +271,10 @@ return function (): void {
         return;
     }
 
+    require_once __DIR__ . '/_ensure_pg_core_tables.php';
+    oaao_auth_reset_pg_core_tables_cache();
+    oaao_auth_reset_sqlite_local_schema_cache();
+
     echo json_encode([
         'result'  => true,
         'message' => ($adminInserted

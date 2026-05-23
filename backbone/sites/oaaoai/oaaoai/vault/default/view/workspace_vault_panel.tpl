@@ -1,5 +1,56 @@
 <section class="oaao-vault-root flex flex-1 min-h-0 min-w-0 flex-col w-full overflow-hidden bg-[var(--grid-paper)]"
     data-module="oaao-vault">
+    <style>
+        /* Ships with panel HTML — do not use container-type here (breaks 1fr track sizing). */
+        .oaao-vault-browse-body {
+            display: grid !important;
+            width: 100%;
+            box-sizing: border-box;
+            flex: 1 1 auto;
+            min-height: 0;
+            min-width: 0;
+            overflow: hidden;
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr) auto;
+        }
+        .oaao-vault-browse-body > .oaao-vault-explorer-column {
+            grid-column: 1;
+            grid-row: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            width: 100%;
+            overflow: hidden;
+        }
+        .oaao-vault-browse-body > .oaao-vault-document-detail {
+            grid-column: 1;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            max-height: 42vh;
+            overflow: hidden;
+            border-top: 1px solid var(--grid-line);
+            background: var(--grid-panel-bright);
+        }
+        @media (min-width: 768px) {
+            .oaao-vault-browse-body {
+                grid-template-columns: minmax(0, 1fr) 280px !important;
+                grid-template-rows: minmax(0, 1fr);
+            }
+            .oaao-vault-browse-body > .oaao-vault-document-detail {
+                grid-column: 2;
+                grid-row: 1;
+                width: 100%;
+                max-width: 280px;
+                max-height: none;
+                border-top: none;
+                border-left: 1px solid var(--grid-line);
+            }
+        }
+    </style>
     <header class="shrink-0 px-md py-sm border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]">
         <h1 class="text-[0.9375rem] fw-semibold fg-[var(--grid-ink)] m-0 tracking-tight" data-i18n="workspace.vault_panel_title">Vault</h1>
         <p class="text-[0.8125rem] fg-[var(--grid-caption)] m-0 mt-1 leading-snug max-w-[48rem]"
@@ -41,16 +92,15 @@
                 <p data-oaao-vault-upload-note class="hidden basis-full m-0 text-[0.72rem] fg-[var(--grid-caption)] text-center leading-snug"></p>
             </div>
 
-            <div class="flex flex-1 min-h-0 min-w-0 flex-col md:flex-row overflow-hidden">
-                <div class="oaao-vault-explorer-column relative flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
+            <div class="oaao-vault-browse-body">
+                <div class="oaao-vault-explorer-column">
                     <div data-oaao-vault="tree-main-host" role="region"
                         aria-label="Vault contents"
-                        class="oaao-vault-tree-scroll flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] flex flex-col gap-0 text-[0.8125rem] fg-[var(--grid-ink)] bg-[var(--grid-paper)]"
+                        class="oaao-vault-tree-scroll"
                         aria-busy="false">
                     </div>
                 </div>
-                <aside data-oaao-vault-document-detail
-                    class="shrink-0 md:w-[min(280px,42vw)] w-full md:max-w-none max-h-[38vh] md:max-h-none border-t-[1px] md:border-t-0 md:border-l-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] flex flex-col min-h-0 overflow-hidden">
+                <aside data-oaao-vault-document-detail class="oaao-vault-document-detail">
                     <div class="px-md py-sm border-b-[1px] border-solid border-[var(--grid-line)] text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold shrink-0"
                         data-i18n="workspace.vault_file_actions_heading">File actions</div>
                     <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-md py-sm flex flex-col gap-2">

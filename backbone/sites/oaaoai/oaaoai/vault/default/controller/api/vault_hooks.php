@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__) . '/../library/VaultDocumentHookRegister.php';
-
 use oaaoai\vault\VaultDocumentHookRegister;
 
 /**
@@ -16,6 +14,8 @@ return function (): void {
     if (! $auth || ! $user) {
         return;
     }
+
+    $this->api('endpoints')?->ensureFeatureRegistries();
 
     echo json_encode([
         'success' => true,

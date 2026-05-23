@@ -2,7 +2,7 @@
         <!-- Top chrome -->
         <div class="flex p-lg mb-xl">
             <a href="{$site_url}" class="flex h-[24px] gap-sm" target="_blank" rel="noopener noreferrer" title="oaao.ai">
-                <img src="{$asset_path}images/logo.svg" class="h-full" />
+                <img src="{$asset_path}images/logo.svg?v={$oaao_shell_esm_v}" class="h-full" />
                 <span>oaao</span>
             </a>
         </div>
@@ -11,7 +11,7 @@
         <!-- Cloak only <rui-input> hosts until JIT/boot — keep title + submit button visible so sign-in is never blocked. -->
         <div class="flex flex-col items-center justify-center w-full max-w-[480px] mx-auto px-lg pb-xl box-border">
             <div class="mb-xl">
-                <img src="{$asset_path}images/logo.svg" class="h-[48px] place-item-center" />
+                <img src="{$asset_path}images/logo.svg?v={$oaao_shell_esm_v}" class="h-[48px] place-item-center" />
             </div>
             <h1 class="text-lg fw-bold mb-md" data-i18n="auth.welcome">Sign in</h1>
             <p class="text-sm mb-md fg-[var(--grid-ink-muted)]" data-i18n="auth.subtitle">Use your administrator username or email</p>

@@ -1,16 +1,25 @@
 /**
- * RazyUI {@code Toast} helper — dynamic import so chat shell scripts avoid brittle cross-package static URLs.
+ * RazyUI {@code Toast} helper — {@code razyui.load('Toast')} so chunk graph resolves from the bundle base.
  */
 
-import { resolveShellRegistryUrl } from './shell-registry-url.js';
+import razyui from 'razyui';
 
 /** @type {Promise<unknown> | null} */
 let toastCtorPromise = null;
 
 function loadToastCtor() {
     if (!toastCtorPromise) {
-        const url = resolveShellRegistryUrl('/webassets/core/default/razyui/component/Toast.js');
-        toastCtorPromise = import(/* webpackIgnore: true */ url).then((m) => m.default);
+        toastCtorPromise = razyui
+            .load('Toast')
+            .then((Toast) => {
+                if (typeof Toast !== 'function') throw new Error('Toast unavailable');
+
+                return Toast;
+            })
+            .catch((err) => {
+                toastCtorPromise = null;
+                throw err;
+            });
     }
 
     return toastCtorPromise;

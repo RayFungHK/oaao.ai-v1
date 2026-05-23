@@ -421,6 +421,8 @@ return new class extends Controller {
      */
     public function getChatPipelineRegistry(): array
     {
+        $this->api('endpoints')?->ensureFeatureRegistries();
+
         return ChatPipelineRegister::allSorted();
     }
 
@@ -431,6 +433,8 @@ return new class extends Controller {
      */
     public function getPlannerAgentRegistry(): array
     {
+        $this->api('endpoints')?->ensureFeatureRegistries();
+
         return PlannerAgentRegister::allSorted();
     }
 
@@ -493,9 +497,9 @@ return new class extends Controller {
      *
      * @return array<string, mixed>|null
      */
-    public function ensureOrchestratorFunasr(bool $pull = true, array $funasrEnv = []): ?array
+    public function ensureOrchestratorFunasr(bool $pull = true, array $funasrEnv = [], bool $recreate = false): ?array
     {
-        return ChatOrchestratorApi::ensureFunasr($pull, $funasrEnv);
+        return ChatOrchestratorApi::ensureFunasr($pull, $funasrEnv, $recreate);
     }
 
     /**
@@ -725,78 +729,7 @@ return new class extends Controller {
             );
         }
 
-        $this->oaao_chat_seed_planner_agents();
-
-        $this->trigger('chat_pipeline.register')->resolve([
-            'entry_id' => 'cp.chat.milestone_vertical',
-            'kind'     => 'step_rail',
-            'label'    => 'Milestone timeline',
-            'extras'   => [
-                'sort'        => 10,
-                'module_code' => 'oaaoai/chat',
-                'description' => 'Vertical milestone rail — orchestrator payload key oaao_pipeline.milestone.',
-            ],
-        ]);
-
-        $this->trigger('chat_pipeline.register')->resolve([
-            'entry_id' => 'cp.chat.markdown_stream',
-            'kind'     => 'message_block',
-            'label'    => 'Markdown stream bubble',
-            'extras'   => [
-                'sort'        => 20,
-                'module_code' => 'oaaoai/chat',
-                'block_type'  => 'markdown_stream',
-            ],
-        ]);
-
-        $this->trigger('chat_pipeline.register')->resolve([
-            'entry_id' => 'cp.chat.task_files_cta',
-            'kind'     => 'message_block',
-            'label'    => 'Task files affordance',
-            'extras'   => [
-                'sort'        => 90,
-                'module_code' => 'oaaoai/chat',
-                'block_type'  => 'task_files_cta',
-            ],
-        ]);
-
-        $this->trigger('chat_pipeline.register')->resolve([
-            'entry_id' => 'cp.chat.task_materials',
-            'kind'     => 'message_block',
-            'label'    => 'Task materials dialog',
-            'extras'   => [
-                'sort'        => 91,
-                'module_code' => 'oaaoai/chat',
-                'block_type'  => 'task_materials',
-                'esm_url'     => '/webassets/chat/default/js/task-materials-dialog.js',
-            ],
-        ]);
-
-        $this->trigger('micro_skill_provider.register')->resolve([
-            'provider_id' => 'chat.conversation',
-            'kind'        => 'conversation',
-            'label'       => 'Conversation micro skills',
-            'extras'      => [
-                'sort'        => 20,
-                'module_code' => 'oaaoai/chat',
-                'description' => 'User-saved skills from chat analysis (preview markdown, then publish).',
-            ],
-        ]);
-
-        $this->trigger('purpose_allocation.register')->resolve([
-            'slot_id' => 'pa-planning',
-            'label'   => 'Planning',
-            'title'   => 'Planning',
-            'sub'     => 'Planner and step routing for chat-side orchestration (<code class="font-mono text-xs">planning.*</code>).',
-            'icon'    => 'map',
-            'extras'  => [
-                'sort'               => 50,
-                'purpose_key_prefix' => 'planning',
-                'module_code'        => 'oaaoai/chat',
-                'label_key'          => 'settings.slot.planning.label',
-                'sub_key'            => 'settings.slot.planning.sub',
-            ],
-        ]);
+        $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
 
         $agent->addAPICommand([
             'getChatPipelineRegistry'              => 'getChatPipelineRegistry',
@@ -854,6 +787,7 @@ return new class extends Controller {
                 'POST skills_discover'       => 'skills_discover',
                 'GET routing_purposes'       => 'routing_purposes',
                 'GET routing_profiles'       => 'routing_profiles',
+                'GET orchestrator_stream'    => 'orchestrator_stream',
                 'GET workspaces'             => 'workspaces',
                 'POST workspace_create'      => 'workspace_create',
                 'POST workspace_update'      => 'workspace_update',

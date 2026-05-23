@@ -466,15 +466,17 @@ return function (): void {
         }
         if ($deferUsage !== null) {
             try {
-                require_once dirname(__DIR__, 4) . '/core/default/library/UsageEventRepository.php';
-                \Oaaoai\Core\UsageEventRepository::recordVaultJobFinish(
-                    $pdo,
-                    $deferUsage['tid'],
-                    $deferUsage['hook_id'],
-                    $deferUsage['status'],
-                    $deferUsage['body'],
-                    $deferUsage['job'],
-                );
+                $core = $this->api('core');
+                if ($core) {
+                    $core->recordVaultJobFinishUsage(
+                        $pdo,
+                        $deferUsage['tid'],
+                        $deferUsage['hook_id'],
+                        $deferUsage['status'],
+                        $deferUsage['body'],
+                        $deferUsage['job'],
+                    );
+                }
             } catch (\Throwable $e) {
                 error_log('oaaoai/vault_job_finish usage record: ' . $e->getMessage());
             }

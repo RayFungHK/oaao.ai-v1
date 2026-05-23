@@ -448,6 +448,242 @@ flowchart LR
 | `SlideTemplateScope` → `api('core')` | ✅ |
 | `requirements-orchestrator-app.txt` | ✅ 完整 app 依賴（CI smoke job） |
 
+### Phase 6 — Python 側私有 import 與 Test_Suite 補強（2026-05-22）
+
+本輪聚焦 **`python/oaao_orchestrator/`** 內的隔離違規，以及 UI 無關的 `Test_Suite/` 黑箱層補強。
+
+#### 6.1 Python 跨模組私有 import 清單（新發現）
+
+下列為**繞過模組公開 API**直接 import 他模組底線命名物件，違反「完全隔離」原則。建議依「根因抽公用」優先處理。
+
+| # | 來源檔 | 私有目標 | 違規程度 | 修復建議 |
+|---|--------|----------|----------|----------|
+| P1 | `run_executor.py:186` | `vault_graph_rag._inject_system`, `_last_user_query` | 🔴 高 | `vault_graph_rag` 新增公開 `augment_vault_awareness_messages()`，封裝注入邏輯 |
+| P1 | `run_executor.py:195` | `vault_graph_rag._query_wants_meeting_record` | 🔴 高 | 同上，併入公開函式 |
+| P1 | `run_executor.py:216` | `vault_graph_rag._GROUNDING_RECORD_ZERO_HITS` | 🔴 高 | 移至公開 messages 模組或由公開 API 回傳 |
+| P2 | `planner_llm.py:794, 975` | `planner._vault_rag_needed` | 🟡 中 | 改名為公開 `vault_rag_needed()` 或移入 `planner_llm` |
+| P3 | `micro_skills/discover.py:9` | `planner_llm._extract_json_object` | 🟡 中（**根因**：散佈 7 檔） | 新增 `oaao_orchestrator/json_utils.py`，所有消費者統一 import |
+| P3 | `slide_project/deck_style.py:10` | 同上 | 🟡 中 | 同上 |
+| P3 | `slide_project/llm.py:10` | 同上 | 🟡 中 | 同上 |
+| P3 | `slide_project/slot_content.py:635` | 同上 | 🟡 中 | 同上 |
+| P3 | `slide_project/template_analyzer.py:10` | 同上 | 🟡 中 | 同上 |
+| P3 | `slide_project/template_micro_skills.py:16` | 同上 | 🟡 中 | 同上 |
+| P3 | `slide_project/template_slot_plan.py:523` | 同上 | 🟡 中 | 同上 |
+| P4 | `asr_funasr.py:14` | `asr_common._audio_mime_for_path` | 🟢 低 | 去掉底線（已多模組共用） |
+| P5 | `plugins/builtins/iqs.py:7` | `plugins.post_stream_runner.run_scoring_plugin` | 🟢 低 | 註記為 builtins 共用 helper 即可；非真正跨模組 |
+| P5 | `plugins/builtins/accs.py:7` | 同上 | 🟢 低 | 同上 |
+
+**統計**：14 項；其中 1 根因（`_extract_json_object`）佔 7 項 — **優先修這項即可消除 50%**。
+
+#### 6.2 Hook 韌性現狀與建議
+
+| 層 | 現狀 | 改進 |
+|---|---|---|
+| `QueuePool._worker_loop` | ✅ 已 `try/except` 包覆 `plugin.run`（[queue_pool.py:77](../python/oaao_orchestrator/queue_pool.py)） | 加 per-job timeout（`asyncio.wait_for`） |
+| `run_executor` agent dispatch | ✅ try/except 包覆三處 `get_agent_registry().run()`（行 522–545、609–657、~736） | 加 per-agent timeout；timeout 後 emit `KIND_ERROR` envelope |
+| `AgentRegistry.run` | 已知 agent 例外**會 propagate**（見 `test_pipeline_hook_resilience.py`） | 視為設計：registry 不吞錯，executor 必須 catch；應在 `Test_Suite/resilience/` 持續驗證 |
+| `_hook_before_llm` | 占位 no-op（[app.py:4](../python/oaao_orchestrator/app.py) docstring） | 若未來啟用，必須加 timeout |
+
+#### 6.3 安全性確認（單一新發現）
+
+| 位置 | 風險 | 建議 |
+|---|---|---|
+| `run_executor.py:1118` | `secret = os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()` — 若 ENV 未設則用弱預設值簽發 internal sync token | 上線 gate：缺 ENV 直接 `raise RuntimeError`；dev 透過 `.env.example` 文件化（呼應 §7.2） |
+
+`grep` 全 `python/` 無 `sk-*`、`Bearer eyJ`、`AKIA`、`AIza` 等真實憑證樣式。
+
+#### 6.4 Dirty Code（建議只記錄、不在審計輪動手）
+
+| 位置 | 行為 | 建議 |
+|---|---|---|
+| `run_executor.py:890–920` | LLM stream chunk 解析 6 層巢狀（已被 try/except 包覆） | 抽 `_parse_llm_stream_chunk()` 供單測 |
+| `chat-panel.js`（PHP 側） | 單檔 8000+ 行（已知） | 持續按 concern 切 ESM |
+
+#### 6.5 Test_Suite/ 補強（本輪交付）
+
+`Test_Suite/` 不取代既有 `python/tests/`；它是 **無 UI、CLI 可獨立執行** 的黑箱 + 韌性層：
+
+```
+Test_Suite/
+├── README.md             # 入口（已有 → 本輪更新）
+├── conftest.py           # 共用 fixture：reset registries、tmp pool
+├── mocks/
+│   ├── __init__.py
+│   ├── llm_mock.py       # re-export python/tests/support/llm_mock 避免雙份
+│   └── mock_core.py      # StreamRun + RunContext harness
+├── integration/
+│   └── test_pipeline_event_flow.py   # Hook A payload → Hook B
+├── smoke/
+│   ├── __init__.py
+│   ├── cli_smoke.py                  # python -m Test_Suite.smoke.cli_smoke "hello"
+│   └── test_smoke_message_in_out.py
+└── resilience/
+    ├── __init__.py
+    ├── test_hook_exception_isolation.py
+    └── test_unknown_agent_kind.py
+```
+
+執行：
+
+```bash
+cd oaao.ai-v1/python
+python -m pytest ../Test_Suite -q
+python -m Test_Suite.smoke.cli_smoke "你好，介紹一下 oaao"
+```
+
+詳細指令、tracing 開關、失敗訊息對照 → [Debug_Guide.md §9](./Debug_Guide.md)。
+
 ---
 
-*初版報告為只讀審計；§12 隨實作更新。*
+## Phase 7 — GB10 UMA 部署、Circuit Breaker、Hot-plug Skills、ToT/DDTree 缺口（2026-05-23）
+
+> 本階段為**規劃 + 規範**章節（annotate-only），不對 production 代碼做刪改。所有「待移除」清單於 §7.7 集中列出，等對應替代品落地後才執行 deletion PR。
+> 配合文件：[Evolution_System_Design.md](./Evolution_System_Design.md)、[Manus_Gap_Analysis.md](./Manus_Gap_Analysis.md)。
+
+### 7.1 Hook & Register Hard-Rule（強化）
+
+| 規則 ID | 規則 | 違規處罰 |
+|---|---|---|
+| HR-1 | 任一 Module 必須**只**透過 `purpose_allocation.register` / `agent_factories.register` / `post_stream_plugin.register` / `micro_skill.register` 四條軸註冊；禁止 `from oaao_orchestrator.<mod> import <_underscore_name>` | CI 阻擋（`scripts/sandbox_check.sh` 已含 import lint） |
+| HR-2 | 跨模組共享狀態必須走 `RunContext.extra` 或 `StreamRun.events`，**禁止**改 module-level dict／singleton | grep `^[A-Z_]+\s*=\s*\{` 報警 |
+| HR-3 | 任一 Hook 內的 `await` 必須有 timeout 包裝（直接或經 `circuit_breaker` decorator）| `Test_Suite/perf/test_circuit_breaker_opens.py` 凍結契約 |
+| HR-4 | 新 agent / plugin / skill **必須**在 `default_*_factories()` 中加註冊；CI 抽查 `pytest -k registered` 驗證 | 同 HR-1 |
+
+**Phase 6 已知 14 處違規仍未修**（見 §6.1）— 計畫在 Phase 8 集中修復；Phase 7 只凍結規範，不改碼。
+
+### 7.2 GB10 128GB UMA 部署規格
+
+#### 兩台機分工（Tiered Routing）
+
+> 兩台均支援運行所有列名模型；分工為**負載策略**，非硬體約束。
+
+| Box | 角色 | 常駐模型 | KV 池 | Burst |
+|---|---|---|---:|---:|
+| **Box 1** Heavy | 深推理 + Reflection + ToT/DDTree | Gemma 4 31B IT (FP8, 32GB) + Gemma 4 E4B IT (FP16, 5GB) | 40 GB | 20 GB |
+| **Box 2** Throughput | 高 QPS chat + ASR + RAG | Gemma 4 26B-A4B MoE (FP8, 28GB) + Gemma 4 E4B (5GB) + Qwen ASR 1.7B (3GB) + bge-m3 (2.5GB) + bge-reranker-v2-m3 (2.5GB) | 40 GB | 22 GB |
+
+每台 OS + Razy + sidecar + 安全墊預留 **22–27 GB**。完整切割表見 [Evolution_System_Design.md §3](./Evolution_System_Design.md#3-gb10-uma-記憶體切割)。
+
+#### Lane Selector 路由規則
+
+| 條件 | 路由 |
+|---|---|
+| `purpose_id ∈ {asr, voice_chat}` | Box 2（ASR 駐留） |
+| `purpose_id ∈ {rag, vault_search, document_qa}` | Box 2（bge-m3 + reranker） |
+| `mode_id ∈ {tot, ddtree}` 或 IQS 預測複雜度 ≥ 0.7 | Box 1（31B + Reflection） |
+| `len(messages[-1].content) < 256` 且 IQS < 0.5 | Box 2（MoE 吞吐優勢） |
+| 預設 | Box 2 |
+| 任一 Box health-fail | fallback 對側並自動降級（ToT/DDTree → default） |
+
+**實作位置**：擴張 Razy `purpose_allocation` PurposeConfig 加 `base_urls[]` + `routing_policy`；Python 側只動 `endpoint.py::pick_base_url(policy, ctx)`。**不引入新 router 層**。
+
+### 7.3 Circuit Breaker 設計（強制）
+
+新建 `python/oaao_orchestrator/safety/circuit_breaker.py`（Phase 8 落地，本階段定 spec）：
+
+```python
+@circuit_breaker(
+    name="accs_eval",
+    failure_threshold=3,   # 連續失敗次數
+    reset_timeout=600.0,   # open 後 10 分鐘進 half-open
+    call_timeout=8.0,      # 單次 await 上限
+)
+async def evaluate_accs(...): ...
+```
+
+| 狀態 | 行為 |
+|---|---|
+| `closed` | 正常呼叫；失敗計數累計 |
+| `open` | 立刻 raise `BreakerOpen`；上層 catch 後採取降級 |
+| `half_open` | 放一個探測請求；成功 → `closed`，失敗 → `open` |
+
+**強制套用點**：
+
+| Hook | 降級行為 |
+|---|---|
+| `evaluation.iqs` | open → 跳過澄清，標記 `iqs_skipped=True` 進 metrics |
+| `evaluation.accs` | open → 不評分，輸出直接 ship；標記 `accs_skipped=True` |
+| `reflection.main` | open → 用第一輪輸出；標記 `reflection_skipped=True` |
+| `vault_rag`（既有）| open → 跳過檢索，僅用 user message + glossary |
+| 任一 agent_kind | timeout → AgentResult(success=False, error="timeout:agent_kind") |
+
+Test_Suite 凍結契約：`Test_Suite/perf/test_circuit_breaker_opens.py`。
+
+### 7.4 Hot-plug Skills（對標 OpenWebUI Tools）
+
+| 軸 | 現況 | 缺口 | Phase 7 規範 |
+|---|---|---|---|
+| Skill 註冊 | `catalog_from_request()` per-request；MicroSkill protocol 已存在 | Skill 寫死在 Python；無「熱插拔」入口 | 新 purpose `skills.dynamic`，PHP 側 `Skills Manager` 維護 JSON manifest |
+| LLM Function Call | 已有 `tools` 欄位透傳 endpoint | 沒有「自動把已註冊 Skill 轉成 OpenAI tools schema」轉換器 | 規範 `skill_to_openai_tool(MicroSkill) -> dict`，由 `prompt_builder` 自動注入 |
+| Skill 自我沉澱 | ❌ 無 | CoT → Skill 流程未實作 | §7.5 規格 |
+
+實作放 Phase 9（功能性 PR），本階段只列規範。
+
+### 7.5 Skill 自我沉澱（Crystallization）
+
+當 ACCS ≥ 0.85 且該對話包含 ≥ 2 個 agent 步驟，後台任務（post-stream）將該 CoT 序列化為一個 `CrystallizedSkill`：
+
+| 欄位 | 內容 |
+|---|---|
+| `id` | hash(planner_output + final_answer) |
+| `trigger_intent` | E4B 從 user message 萃取的意圖摘要 |
+| `tool_chain` | `[agent_kind, agent_kind, ...]` |
+| `param_template` | 從 RunTaskSpec 提煉的參數模板 |
+| `success_score` | 來自 ACCS |
+| `usage_count` | 累計被引用次數（後續對話命中時 +1）|
+
+**雙寫儲存**（依你要求）：
+1. **既有 Vault** Qdrant collection（embedding = `trigger_intent`，做相似命中召回）
+2. **新建獨立 `crystallized_skills` Arango collection**（結構化查詢、usage_count 累計、淘汰策略）
+
+下次同類問題到來時，IQS 階段順帶查 Vault → 命中則把 `tool_chain` 直接餵給 planner，跳過動態規劃。
+
+### 7.6 ToT / DDTree 規格（占位填實）
+
+| mode_id | Planner 行為 | 涉及 purpose | Box | 預估延遲（vs default） |
+|---|---|---|---|---|
+| `default` | 既有 stub / llm planner | `planning` (E4B) | 進來那台 | 1.0× |
+| `tot` | E4B 出 N=3 candidate plan → 31B 依序執行 → ACCS 選 best → 回 user | `planning` + `reflection.main` + `evaluation.accs` | Box 1 | 2.5× |
+| `ddtree` | E4B 出 root question + 3 子問 → 逐層 expand 至深度 ≤ 3，每層 IQS 過濾 | `planning` + `evaluation.iqs` | Box 1 | 3.0× |
+
+實作面：**只動 `planner_llm.py` 加 if-elif 分支**，不動 executor、不動 agent registry，仍守 Hook 隔離。Test_Suite 將為兩種 mode 各加一個 integration test（Phase 8）。
+
+### 7.7 待移除清單（annotate-only）
+
+> 列出但**不執行**；對應替代品落地後另開 deletion PR。
+
+| ID | 路徑 | 為何要移除 | 替代品（落地後才刪）|
+|---|---|---|---|
+| RM-1 | `run_executor.py:1118` `oaao_dev_shared_secret` 環境變數 fallback | 硬編碼 dev secret，違反 OWASP A05 | 改用 `OAAO_DEV_SECRET_ENV_NAME` 純間接引用 |
+| RM-2 | §6.1 列出的 14 處 `from oaao_orchestrator.X import _Y` 私有 import | 違反 HR-1 | 對應模組各自暴露公開 helper |
+| RM-3 | `archived/oaao-hub/` 整個目錄 | 已被 oaao.ai-v1 完全取代 | N/A（直接刪）|
+| RM-4 | `oaao.ai-v1-temp/` | 開發暫存副本 | N/A（直接刪，但需先 diff 確認無 unsaved 改動）|
+| RM-5 | `python/tests/support/llm_mock.py` 的舊 `LegacyLlmMock` shim（若存在）| Phase 6 後 Test_Suite 已直接用主類 | 等 Phase 8 開始刪 |
+
+執行順序：**RM-3 / RM-4 可立即刪**（archived 目錄），其餘等 Phase 8。
+
+### 7.8 GB10 效能優化建議
+
+| 項 | 建議 |
+|---|---|
+| vLLM 多模型 | 單進程 `--served-model-name main,coach`；UMA 下 KV 池共享 |
+| KV 池上限 | 設 `--gpu-memory-utilization 0.85`（≈40GB on 128GB）；不設 0.95 留 burst 空間 |
+| Page size | `--block-size 32`（MoE 友好）|
+| Prefix caching | 開（chat history 大量重複） |
+| FP8 / INT4 | Box 1 31B 走 FP8（tensor core）；Box 2 26B-A4B 走 FP8（MoE 友好）；ASR 走 INT8 |
+| Speculative Decoding | E4B 當 31B 的 draft model（Box 1）；可省 ≈25% latency |
+| 監控 | Prometheus exporter 抓 `vllm_kv_cache_usage_perc`、`vllm_num_requests_running`、CPU/GPU SM utilization |
+
+### 7.9 Phase 7 完成條件（DoD）
+
+- [x] §7.1–§7.8 規範定稿、向 [Evolution_System_Design.md](./Evolution_System_Design.md) 與 [Manus_Gap_Analysis.md](./Manus_Gap_Analysis.md) 對齊
+- [x] Test_Suite/perf/ 與 Test_Suite/evolution/ 凍結契約測試落地
+- [ ] Phase 8 落地 Circuit Breaker（`safety/circuit_breaker.py`）
+- [ ] Phase 8 落地 IQS/ACCS Hook（`evaluation/iqs.py`, `evaluation/accs.py`）
+- [ ] Phase 9 落地 Hot-plug Skills + Skill 自我沉澱
+- [ ] Phase 10 落地兩台機 LB（Razy purpose_allocation 擴張）
+
+---
+
+*Phase 7 新增 GB10 UMA 部署規格、Circuit Breaker、Hot-plug Skills、ToT/DDTree、Skill Crystallization 規範；對應實作分批進入 Phase 8–10。*
+
