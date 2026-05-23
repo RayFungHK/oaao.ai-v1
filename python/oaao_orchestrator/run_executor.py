@@ -101,6 +101,23 @@ def _materials_end_snapshot(
     return out
 
 
+def _tool_chain_from_plan(plan: RunPlan | None) -> list[str]:
+    """Agent kinds executed this run — used for crystallization sealing."""
+    if plan is None:
+        return []
+    chain: list[str] = []
+    for task in plan.tasks:
+        if task.type == RunTaskType.VAULT_RAG:
+            chain.append("vault_rag")
+        elif task.type == RunTaskType.LLM_STREAM:
+            chain.append("llm_stream")
+        elif task.type == RunTaskType.AGENT:
+            kind = (task.agent_kind or "").strip()
+            if kind:
+                chain.append(kind)
+    return chain
+
+
 def _resolve_max_tokens(req: Any) -> int | None:
     """Effective max_tokens for upstream chat/completions (request > env > None)."""
     mt = getattr(req, "max_tokens", None)
@@ -360,6 +377,9 @@ async def execute_chat_run(
         )
     run_failed = False
     slide_project_meta: dict[str, Any] | None = None
+    iqs_snap: dict[str, Any] | None = None
+    accs_snap: dict[str, Any] | None = None
+    coach_endpoint: dict[str, Any] | None = None
 
     api_key = _resolve_api_key(req.endpoint)
     planner_url = _chat_completions_url(req.endpoint.base_url)
@@ -373,14 +393,64 @@ async def execute_chat_run(
 
         run_principal = require_for_request(req)
 
+        from oaao_orchestrator.evaluation.iqs import score_iqs  # noqa: PLC0415
+        from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+
+        coach_endpoint = req.uiqe if isinstance(req.uiqe, dict) else None
+        user_msg_for_iqs = _last_user_message(messages_for_llm)
+        iqs_result = await score_iqs(
+            user_message=user_msg_for_iqs,
+            conversation_history=messages_for_llm,
+            coach_endpoint=coach_endpoint,
+        )
+        iqs_snap = {
+            "iqs_score": round(float(iqs_result.score), 4),
+            "iqs_action": iqs_result.action,
+            "iqs_dimensions": iqs_result.dimensions,
+            "iqs_skipped": bool(iqs_result.skipped),
+            "iqs_source": iqs_result.source,
+        }
+
         await run.append(
             StreamEnvelope(
                 phase=PHASE_SYSTEM,
                 kind="status",
                 text="llm_request_start",
-                payload={"purpose_id": req.purpose_id, "chat_profile_id": req.chat_profile.id},
+                payload={
+                    "purpose_id": req.purpose_id,
+                    "chat_profile_id": req.chat_profile.id,
+                    **iqs_snap,
+                },
             )
         )
+
+        if iqs_result.action in ("clarify", "hard_clarify") and not iqs_result.skipped:
+            clarify_lines = list(iqs_result.clarification_questions or [])
+            clarify_text = "\n".join(f"- {q}" for q in clarify_lines) if clarify_lines else ""
+            if clarify_text:
+                streamed_parts.append(clarify_text)
+                out_chars += len(clarify_text)
+            await run.append(
+                StreamEnvelope(
+                    phase=PHASE_SYSTEM,
+                    kind="status",
+                    text="iqs_clarify",
+                    payload={
+                        **iqs_snap,
+                        "clarification_questions": clarify_lines,
+                    },
+                )
+            )
+            if clarify_text:
+                await run.append(
+                    StreamEnvelope(
+                        phase=PHASE_LLM,
+                        kind="delta",
+                        text=clarify_text,
+                        payload={"iqs_action": iqs_result.action},
+                    )
+                )
+            return
 
         pipeline_snap = merge_vault_chat_sources_into_snapshot(
             build_minimal_pipeline_snapshot(),
@@ -388,12 +458,48 @@ async def execute_chat_run(
             [r.model_dump() for r in (req.vault_source_refs or [])],
         )
 
-        plan = await build_run_plan(
-            req,
-            chat_completions_url=planner_url,
-            api_key=api_key,
-            model=planner_model,
-        )
+        if iqs_result.action in ("pass", "assume_defaults"):
+            from oaao_orchestrator.crystallization.plan import build_plan_from_tool_chain  # noqa: PLC0415
+            from oaao_orchestrator.crystallization.recall import recall_skill  # noqa: PLC0415
+
+            skill_hit = await recall_skill(
+                user_msg_for_iqs,
+                embedding_cfg=req.embedding if isinstance(req.embedding, dict) else None,
+            )
+            if skill_hit is not None:
+                iqs_snap["crystallized_skill_recall"] = {
+                    "skill_id": skill_hit.skill.id,
+                    "similarity": round(float(skill_hit.similarity), 4),
+                    "tool_chain": list(skill_hit.skill.tool_chain),
+                }
+                plan = build_plan_from_tool_chain(skill_hit.skill.tool_chain)
+                await run.append(
+                    StreamEnvelope(
+                        phase=PHASE_SYSTEM,
+                        kind=KIND_STATUS,
+                        text="reusing_crystallized_skill",
+                        payload={
+                            "skill_id": skill_hit.skill.id,
+                            "trigger_intent": skill_hit.skill.trigger_intent,
+                            "similarity": round(float(skill_hit.similarity), 4),
+                            "tool_chain": list(skill_hit.skill.tool_chain),
+                        },
+                    )
+                )
+            else:
+                plan = await build_run_plan(
+                    req,
+                    chat_completions_url=planner_url,
+                    api_key=api_key,
+                    model=planner_model,
+                )
+        else:
+            plan = await build_run_plan(
+                req,
+                chat_completions_url=planner_url,
+                api_key=api_key,
+                model=planner_model,
+            )
         task_queue: list[RunTaskSpec] = list(plan.tasks)
         report_after_ids = set(plan.report_after_task_ids)
         report_replan_done = False
@@ -1120,6 +1226,145 @@ async def execute_chat_run(
             metrics_payload["cancelled"] = True
 
         assistant_text = "".join(streamed_parts)
+        if (
+            assistant_text.strip()
+            and not run.cancelled
+            and not run_failed
+            and iqs_snap is not None
+            and iqs_snap.get("iqs_action") not in ("clarify", "hard_clarify")
+        ):
+            from oaao_orchestrator.evaluation.accs import score_accs  # noqa: PLC0415
+            from oaao_orchestrator.evaluation.reflection import run_reflection_loop  # noqa: PLC0415
+            from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+
+            user_msg_for_accs = _last_user_message(messages_for_llm)
+            evidence: list[Any] = []
+            if pipeline_snap and isinstance(pipeline_snap.get("vault_rag"), dict):
+                raw_ev = pipeline_snap["vault_rag"].get("passages") or []
+                if isinstance(raw_ev, list):
+                    evidence = raw_ev
+
+            accs_result = await score_accs(
+                user_message=user_msg_for_accs,
+                llm_output=assistant_text,
+                evidence=evidence,
+                coach_endpoint=coach_endpoint,
+            )
+            accs_snap = {
+                "accs_score": round(float(accs_result.score), 4),
+                "accs_action": accs_result.action,
+                "accs_factors": accs_result.factors,
+                "accs_skipped": bool(accs_result.skipped),
+                "accs_degraded": bool(accs_result.degraded),
+                "crystallization_candidate": bool(accs_result.crystallization_candidate),
+                "accs_source": accs_result.source,
+            }
+            if accs_result.action == "reflect" and not accs_result.skipped:
+                from oaao_orchestrator.app import _chat_completions_url  # noqa: PLC0415
+                from oaao_orchestrator.planner_llm import llm_chat_completion_text  # noqa: PLC0415
+
+                async def _regenerate_reflection(critique: str, _accs: Any) -> str | None:
+                    regen_msgs: list[dict[str, str]] = []
+                    for row in messages_for_llm:
+                        if not isinstance(row, dict):
+                            continue
+                        role = str(row.get("role") or "user")
+                        content = row.get("content")
+                        if isinstance(content, str) and content.strip():
+                            regen_msgs.append({"role": role, "content": content.strip()})
+                    regen_msgs.append({"role": "assistant", "content": assistant_text})
+                    regen_msgs.append({"role": "user", "content": critique})
+                    return await llm_chat_completion_text(
+                        url=_chat_completions_url(req.endpoint.base_url),
+                        api_key=api_key,
+                        model=req.endpoint.model,
+                        messages=regen_msgs,
+                        temperature=min(0.5, float(req.temperature)),
+                        timeout_s=120.0,
+                    )
+
+                reflection_runs = await run_reflection_loop(
+                    user_message=user_msg_for_accs,
+                    first_output=assistant_text,
+                    evidence=evidence,
+                    max_rounds=1,
+                    coach_endpoint=coach_endpoint,
+                    initial_accs=accs_result,
+                    regenerate=_regenerate_reflection,
+                )
+                if reflection_runs:
+                    accs_snap["reflection_runs"] = len(reflection_runs)
+                    accs_snap["reflection_triggered"] = True
+                    accs_snap["reflection_round"] = 1
+                    revised = str(reflection_runs[0].get("output") or "").strip()
+                    rescored = reflection_runs[0].get("reflection_rescored")
+                    if isinstance(rescored, dict):
+                        accs_snap["accs_score"] = round(float(rescored.get("score", accs_snap["accs_score"])), 4)
+                        accs_snap["accs_action"] = str(rescored.get("action") or accs_snap["accs_action"])
+                        factors = rescored.get("factors")
+                        if isinstance(factors, dict):
+                            accs_snap["accs_factors"] = factors
+                        accs_snap["accs_degraded"] = bool(rescored.get("degraded"))
+                    if reflection_runs[0].get("degraded"):
+                        accs_snap["accs_degraded"] = True
+                        accs_snap["degraded"] = True
+                    if revised:
+                        await run.append(
+                            StreamEnvelope(
+                                phase=PHASE_SYSTEM,
+                                kind=KIND_STATUS,
+                                text="reflection_triggered",
+                                payload={
+                                    "reflection_round": 1,
+                                    "initial_accs_score": reflection_runs[0].get("initial_score"),
+                                    "final_accs_score": reflection_runs[0].get("final_score"),
+                                },
+                            )
+                        )
+                        await run.append(
+                            StreamEnvelope(
+                                phase=PHASE_LLM,
+                                kind="delta",
+                                text=revised,
+                                payload={"reflection_round": 1, "replace_prior": True},
+                            )
+                        )
+                        streamed_parts.clear()
+                        streamed_parts.append(revised)
+                        out_chars = len(revised)
+                        assistant_text = revised
+
+            if (
+                accs_snap.get("crystallization_candidate")
+                and not accs_snap.get("accs_degraded")
+                and not accs_snap.get("accs_skipped")
+            ):
+                from oaao_orchestrator.crystallization.sealer import try_seal_skill  # noqa: PLC0415
+
+                tool_chain = _tool_chain_from_plan(plan)
+                sealed = await try_seal_skill(
+                    run_id=run_id,
+                    accs_score=float(accs_snap.get("accs_score") or 0.0),
+                    tool_chain=tool_chain,
+                    planner_output={"tasks": [t.id for t in plan.tasks]} if plan else {},
+                    final_answer=assistant_text,
+                    user_message=user_msg_for_accs,
+                    flags={
+                        "degraded": bool(accs_snap.get("degraded") or accs_snap.get("accs_degraded")),
+                        "iqs_skipped": bool(iqs_snap.get("iqs_skipped")),
+                        "accs_skipped": bool(accs_snap.get("accs_skipped")),
+                    },
+                    embedding_cfg=req.embedding if isinstance(req.embedding, dict) else None,
+                )
+                if sealed is not None:
+                    accs_snap["crystallized_skill_id"] = sealed.id
+                    accs_snap["crystallized_trigger_intent"] = sealed.trigger_intent
+
+        if iqs_snap is not None:
+            metrics_payload.update(iqs_snap)
+        if accs_snap is not None:
+            metrics_payload.update(accs_snap)
+
         if run_principal is not None and assistant_text.strip():
             from oaao_orchestrator.chat_persist import persist_assistant_message  # noqa: PLC0415
             from oaao_orchestrator.chat_internal_sync import sync_adjunct_via_php  # noqa: PLC0415
