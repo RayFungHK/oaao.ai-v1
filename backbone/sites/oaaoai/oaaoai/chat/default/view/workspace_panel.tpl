@@ -10,17 +10,17 @@
                 title="Hover here for share, archive, and delete"
                 data-i18n-attr:title="workspace.thread_toolbar_hover_hint">
                 <button type="button" data-oaao-chat="share-thread"
-                class="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border-none bg-[var(--grid-panel-bright)] fg-[var(--grid-ink-muted)] cursor-pointer hover:bg-[var(--grid-panel)] hover:fg-[var(--grid-ink)] transition-colors font-inherit"
+                class="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border border-transparent bg-transparent fg-[var(--grid-ink-muted)] cursor-pointer font-inherit"
                 aria-label="Share chat" title="Share chat">
                     <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon block shrink-0 w-[18px] h-[18px] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></svg>
                 </button>
                 <button type="button" data-oaao-chat="archive-thread"
-                class="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border-none bg-[var(--grid-panel-bright)] fg-[var(--grid-ink-muted)] cursor-pointer hover:bg-[var(--grid-panel)] hover:fg-[var(--grid-ink)] transition-colors font-inherit"
+                class="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border border-transparent bg-transparent fg-[var(--grid-ink-muted)] cursor-pointer font-inherit"
                 aria-label="Archive chat" title="Archive chat">
                     <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon block shrink-0 w-[18px] h-[18px] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
                 </button>
                 <button type="button" data-oaao-chat="delete-thread"
-                class="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border-none bg-[var(--grid-panel-bright)] fg-[var(--grid-caption)] cursor-pointer hover:bg-[var(--grid-line)]/35 hover:text-red-600 transition-colors font-inherit"
+                class="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border border-transparent bg-transparent fg-[var(--grid-caption)] cursor-pointer font-inherit"
                 aria-label="Delete chat" title="Delete chat">
                     <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon block shrink-0 w-[18px] h-[18px] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
                 </button>

@@ -1082,3 +1082,74 @@ button.oaao-vault-menu-active {
     opacity: 1;
     pointer-events: auto;
 }
+
+/* ── JIT fallbacks (JS-mounted panels — px-3.5 / fg-white often not emitted) ───── */
+
+.oaao-app .fg-white,
+.dialog-overlay .fg-white {
+    color: #fff;
+}
+
+.oaao-app .px-3\.5,
+.dialog-overlay .px-3\.5 {
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
+}
+
+.oaao-app .py-1\.5,
+.dialog-overlay .py-1\.5 {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+}
+
+.oaao-app .px-4,
+.dialog-overlay .px-4 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.oaao-app .py-2,
+.dialog-overlay .py-2 {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+/* Settings / preferences card footers — plain CSS so contrast + padding are reliable. */
+.oaao-settings-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    padding: 0.375rem 0.875rem;
+    min-height: 2rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    transition:
+        opacity 150ms ease,
+        background-color 150ms ease,
+        border-color 150ms ease;
+}
+
+.oaao-settings-action-btn--primary {
+    color: #fff;
+    background-color: var(--grid-accent);
+    border-color: transparent;
+}
+
+.oaao-settings-action-btn--primary:hover {
+    opacity: 0.9;
+}
+
+.oaao-settings-action-btn--secondary {
+    color: var(--grid-ink);
+    background-color: var(--grid-panel-bright);
+    border-color: var(--grid-line);
+}
+
+.oaao-settings-action-btn--secondary:hover {
+    background-color: color-mix(in srgb, var(--grid-line) 25%, var(--grid-panel-bright));
+}

@@ -254,9 +254,9 @@ export function settingsActionButton(text, variant = 'secondary') {
 
         variant === 'primary'
 
-            ? 'rounded-[8px] px-3.5 py-1.5 text-[0.8125rem] fw-medium fg-white bg-[var(--grid-accent)] border-0 cursor-pointer font-inherit hover:opacity-90'
+            ? 'oaao-settings-action-btn oaao-settings-action-btn--primary'
 
-            : 'rounded-[8px] px-3.5 py-1.5 text-[0.8125rem] fw-medium fg-[var(--grid-ink)] bg-[var(--grid-panel-bright)] border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25';
+            : 'oaao-settings-action-btn oaao-settings-action-btn--secondary';
 
 
 

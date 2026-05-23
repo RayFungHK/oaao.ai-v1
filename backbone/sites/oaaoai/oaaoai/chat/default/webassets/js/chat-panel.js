@@ -1562,7 +1562,7 @@ function loadChatComposerDialogCtor() {
 }
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260523-composer-border-gap-v';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260523-composer-pointer-toolbar-v';
 
 /** Open conversation overflow panel (fixed layer); cleared on sidebar re-render. */
 let openConvoMenuPanel = null;
@@ -1866,9 +1866,10 @@ function injectPipelineInlineStyles() {
 .oaao-chat-task-panel .oaao-task-list-inner{border:none;border-radius:0;box-shadow:none;min-height:0;max-height:none;overflow-y:auto;padding:10px 14px 14px}
 .oaao-chat-task-panel .oaao-task-list-header{display:none}
 .oaao-app .oaao-chat-composer-region--thread-float{background:transparent}
-.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{background:transparent}
-.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width{position:relative;padding-top:2.5rem;background:transparent}
-.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width::before{content:'';position:absolute;left:0;right:0;top:0;height:2.5rem;pointer-events:none;background:linear-gradient(to bottom,transparent 0%,color-mix(in srgb,var(--grid-paper,#fafafa) 55%,transparent) 65%,var(--grid-paper,#fafafa) 100%)}
+.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{pointer-events:none;background:transparent}
+.oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-refs'],.oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-card-wrap'],.oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-extra-toolbar-wrap'],.oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer{pointer-events:auto}
+.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width{position:relative;padding-top:1.25rem;background:transparent}
+.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width::before{content:'';position:absolute;left:0;right:0;top:0;height:1.25rem;pointer-events:none;background:linear-gradient(to bottom,transparent 0%,color-mix(in srgb,var(--grid-paper,#fafafa) 45%,transparent) 100%)}
 .oaao-app .oaao-chat-composer-shell--thread [data-oaao-chat='composer-card-wrap']{position:relative;z-index:2;margin-top:0;border:1px solid color-mix(in srgb,var(--grid-ink,#111) 12%,transparent)!important;box-shadow:0 12px 32px rgba(0,0,0,.02)!important}
 .oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer{background:var(--grid-paper,#fafafa)}
 .oaao-app [data-oaao-chat='composer-extra-toolbar-wrap']{background:var(--grid-panel,#f5f5f5);border-top:1px solid var(--grid-line,rgba(0,0,0,.06))}
@@ -1915,8 +1916,8 @@ function injectPipelineInlineStyles() {
 .oaao-chat-convo-menu-item--danger{color:#dc2626}
 .oaao-chat-convo-menu-item--danger:hover{background:color-mix(in srgb,#dc2626 12%,transparent)}
 .oaao-chat-convo-menu-sep{height:1px;margin:.25rem 0;background:var(--grid-line)}
-.oaao-app .oaao-chat-thread-toolbar-row{position:sticky;top:0;z-index:25;align-self:flex-end;background:var(--grid-paper,#fafafa)}
-.oaao-app .oaao-chat-thread-toolbar-hint{display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:9999px;color:var(--grid-ink-muted,#666);background:var(--grid-panel-bright,#fff);border:1px solid var(--grid-line,rgba(0,0,0,.12))}
+.oaao-app .oaao-chat-thread-toolbar-row{position:sticky;top:0;z-index:25;align-self:flex-end;background:transparent}
+.oaao-app .oaao-chat-thread-toolbar-hint{display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:9999px;color:var(--grid-ink-muted,#666);background:transparent;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 70%,transparent)}
 .oaao-chat-run-status{display:inline-flex;align-items:center;gap:.5rem;padding:.15rem 0 .35rem;font-size:.875rem;color:var(--grid-ink-muted,#666)}
 .oaao-chat-run-status-dot{width:8px;height:8px;border-radius:50%;background:var(--grid-accent,#2563eb);animation:oaao-run-pulse 1.15s ease-in-out infinite}
 .oaao-chat-run-status-label{font-weight:500;color:var(--grid-ink,#111)}

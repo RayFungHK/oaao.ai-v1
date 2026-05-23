@@ -144,6 +144,14 @@ def _clarification_questions(user_message: str, dimensions: dict[str, float], ac
     if action not in ("clarify", "hard_clarify"):
         return []
 
+    if (user_message or "").strip() in _VAGUE_ONLY:
+        if action == "hard_clarify":
+            return [
+                "收到。請問你想讓我幫你做哪一件事？",
+                "請用一句話描述目標，以及期望的輸出形式。",
+            ]
+        return ["收到。請問你想讓我幫你做哪一件事？請簡單描述目標或期望結果。"]
+
     weakest = min(dimensions, key=dimensions.get)
     questions: list[str] = []
 
@@ -165,9 +173,6 @@ def _clarification_questions(user_message: str, dimensions: dict[str, float], ac
         questions = questions[:4]
     else:
         questions = questions[:2]
-
-    if (user_message or "").strip() in _VAGUE_ONLY:
-        questions.insert(0, "收到。請問你想讓我幫你做哪一件事？")
 
     return questions
 

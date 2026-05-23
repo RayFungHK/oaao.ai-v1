@@ -426,7 +426,14 @@ async def execute_chat_run(
 
         if iqs_result.action in ("clarify", "hard_clarify") and not iqs_result.skipped:
             clarify_lines = list(iqs_result.clarification_questions or [])
-            clarify_text = "\n".join(f"- {q}" for q in clarify_lines) if clarify_lines else ""
+            if len(clarify_lines) == 1:
+                clarify_text = clarify_lines[0]
+            elif clarify_lines:
+                clarify_text = "\n\n".join(
+                    f"{i}. {q}" for i, q in enumerate(clarify_lines, start=1)
+                )
+            else:
+                clarify_text = ""
             if clarify_text:
                 streamed_parts.append(clarify_text)
                 out_chars += len(clarify_text)
