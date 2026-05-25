@@ -225,6 +225,41 @@ async def _run_evolution_post_stream(
             iqs_persisted,
             accs_result.score,
         )
+        from oaao_orchestrator.evaluation.evolution_store import (  # noqa: PLC0415
+            record_evolution_run,
+            record_low_score_case,
+        )
+
+        iqs_score = float(iqs_snap.get("iqs_score") or 0) if isinstance(iqs_snap, dict) else 0.0
+        await record_evolution_run(
+            {
+                "run_id": run_id,
+                "conversation_id": meta.get("conversation_id"),
+                "iqs_score": iqs_score,
+                "accs_score": float(accs_result.score),
+                "purpose_id": meta.get("purpose_id"),
+                "tool_chain": _tool_chain_from_plan(plan),
+            }
+        )
+        if iqs_score and iqs_score < 0.5:
+            await record_low_score_case(
+                {
+                    "run_id": run_id,
+                    "kind": "iqs",
+                    "iqs_score": iqs_score,
+                    "iqs_action": iqs_snap.get("iqs_action") if isinstance(iqs_snap, dict) else None,
+                    "tool_chain": _tool_chain_from_plan(plan),
+                }
+            )
+        if accs_result.score < 0.65:
+            await record_low_score_case(
+                {
+                    "run_id": run_id,
+                    "kind": "accs",
+                    "accs_score": float(accs_result.score),
+                    "tool_chain": _tool_chain_from_plan(plan),
+                }
+            )
     except Exception:
         logger.exception(
             "evolution post_stream failed conversation_id=%s assistant_message_id=%s",

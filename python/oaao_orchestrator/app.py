@@ -179,6 +179,14 @@ class ChatRunRequest(BaseModel):
         default_factory=list,
         description="Micro skills catalog — bound_template, conversation, … from PHP MicroSkillCatalog.",
     )
+    tool_servers: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Registered OpenAPI tool servers from PHP tool_server.register.",
+    )
+    openai_tools: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Pre-resolved OpenAI tools[] merged at LLM stream time.",
+    )
     run_principal: str | None = Field(
         default=None,
         description="HMAC-signed run identity from PHP send — validates user/conversation/message for the whole run.",
@@ -461,6 +469,28 @@ async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
 @app.get("/health")
 async def health() -> dict[str, bool | str]:
     return {"ok": True, "service": "oaao_orchestrator"}
+
+
+@app.post("/v1/admin/evolution/daily_report")
+async def evolution_daily_report(
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.daily_report import run_daily_report  # noqa: PLC0415
+
+    return await run_daily_report()
+
+
+@app.post("/v1/admin/evolution/weekly_apply")
+async def evolution_weekly_apply(
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.daily_report import run_weekly_auto_apply  # noqa: PLC0415
+
+    return await run_weekly_auto_apply()
 
 
 @app.post("/v1/runs/chat")

@@ -27,7 +27,7 @@ async def _bump_usage_count(skill_id: str) -> None:
         _MEMORY[skill_id] = skill
 
 
-async def _qdrant_search(query_vec: list[float], *, limit: int = 1) -> list[tuple[float, str]]:
+async def _qdrant_search(query_vec: list[float], *, limit: int = 1) -> list[tuple[float, str, dict[str, Any]]]:
     base = os.environ.get("OAAO_QDRANT_URL", "").strip().rstrip("/")
     if not base or not query_vec:
         return []
@@ -47,7 +47,7 @@ async def _qdrant_search(query_vec: list[float], *, limit: int = 1) -> list[tupl
         logger.warning("qdrant skill search failed", exc_info=True)
         return []
 
-    out: list[tuple[float, str]] = []
+    out: list[tuple[float, str, dict[str, Any]]] = []
     for row in data.get("result") or []:
         if not isinstance(row, dict):
             continue
@@ -55,7 +55,7 @@ async def _qdrant_search(query_vec: list[float], *, limit: int = 1) -> list[tupl
         payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
         sid = str(payload.get("id") or row.get("id") or "").strip()
         if sid:
-            out.append((score, sid))
+            out.append((score, sid, payload))
     return out
 
 
@@ -85,18 +85,21 @@ async def recall_skill(
         await _bump_usage_count(skill.id)
         return RecallHit(skill=skill, similarity=sim)
 
-    for qsim, sid in await _qdrant_search(query_vec):
+    for qsim, sid, payload in await _qdrant_search(query_vec):
         if qsim < SIM_THRESHOLD:
             continue
         hit = _MEMORY.get(sid)
         if hit is None:
+            chain_raw = payload.get("tool_chain") if isinstance(payload, dict) else None
+            chain = [str(x) for x in chain_raw] if isinstance(chain_raw, list) else []
             hit = CrystallizedSkill(
                 id=sid,
-                trigger_intent=(user_message or "")[:80],
+                trigger_intent=str(payload.get("trigger_intent") or (user_message or "")[:80]),
                 intent_embedding=query_vec,
-                tool_chain=[],
-                success_score=0.0,
+                tool_chain=chain,
+                success_score=float(payload.get("success_score") or 0.0) if isinstance(payload, dict) else 0.0,
             )
+            _MEMORY[sid] = hit
         await _bump_usage_count(sid)
         return RecallHit(skill=hit, similarity=qsim)
 

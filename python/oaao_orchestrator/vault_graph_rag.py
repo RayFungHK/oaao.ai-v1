@@ -77,6 +77,26 @@ def _inject_system(messages: list[dict[str, Any]], content: str) -> None:
         messages.insert(0, {"role": "system", "content": content})
 
 
+def last_user_query(messages: list[dict[str, Any]]) -> str:
+    """Public API — last user message text (HR-1)."""
+    return _last_user_query(messages)
+
+
+def inject_system_message(messages: list[dict[str, Any]], content: str) -> None:
+    """Public API — prepend/merge system grounding block."""
+    _inject_system(messages, content)
+
+
+def query_wants_meeting_record(query: str) -> bool:
+    """Public API — whether query targets meeting / transcript records."""
+    return _query_wants_meeting_record(query)
+
+
+def grounding_record_zero_hits_text() -> str:
+    """Public API — system prompt when record search returned zero hits."""
+    return _GROUNDING_RECORD_ZERO_HITS
+
+
 def _hostport_looks_http_default(hostport: str) -> bool:
     """Bare URL hostport without scheme: assume http on loopback / LAN-style hosts, https otherwise (matches orchestrator ingress)."""
     h = hostport.strip().lower()

@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from oaao_orchestrator.agents import get_agent_registry
+from oaao_orchestrator.safety.agent_timeout import run_agent_with_timeout
 from oaao_orchestrator.chat_attachments import process_chat_attachments
 from oaao_orchestrator.chat_attachments_dispose import dispose_chat_attachments
 from oaao_orchestrator.pipeline import RunContext
@@ -280,7 +281,12 @@ def _inject_compose_vault_awareness(
 ) -> None:
     """Discourage 'cannot access private vault' when this turn scoped or searched knowledge base."""
     from oaao_orchestrator.slide_project.teaching_intent import text_signals_vault_grounding  # noqa: PLC0415
-    from oaao_orchestrator.vault_graph_rag import _inject_system, _last_user_query  # noqa: PLC0415
+    from oaao_orchestrator.vault_graph_rag import (
+        grounding_record_zero_hits_text,
+        inject_system_message,
+        last_user_query,
+        query_wants_meeting_record,
+    )
 
     scoped = bool(
         getattr(req, "vault_auto_rag", False)
@@ -289,14 +295,13 @@ def _inject_compose_vault_awareness(
         or getattr(req, "vault_retrieval_profiles", None)
         or getattr(req, "vault_scope_documents", None)
     )
-    from oaao_orchestrator.vault_graph_rag import _query_wants_meeting_record  # noqa: PLC0415
 
-    query = _last_user_query(messages)
+    query = last_user_query(messages)
     handbook_turn = bool(query and text_signals_vault_grounding(query))
-    record_turn = bool(query and _query_wants_meeting_record(query))
+    record_turn = bool(query and query_wants_meeting_record(query))
 
     if passage_count > 0 and record_turn:
-        _inject_system(
+        inject_system_message(
             messages,
             "Knowledge-base excerpts are in the system message above (--- Vault excerpts ---). "
             "Answer from those excerpts, citing source labels and dates when shown. "
@@ -310,12 +315,10 @@ def _inject_compose_vault_awareness(
         return
 
     if record_turn and vault_ran:
-        from oaao_orchestrator.vault_graph_rag import _GROUNDING_RECORD_ZERO_HITS  # noqa: PLC0415
-
-        _inject_system(messages, _GROUNDING_RECORD_ZERO_HITS)
+        inject_system_message(messages, grounding_record_zero_hits_text())
         return
 
-    _inject_system(
+    inject_system_message(
         messages,
         "This turn scoped or ran a knowledge-base (Vault) search. "
         "Do **not** tell the user you cannot access their private vault, knowledge base, or uploaded documents "
@@ -414,6 +417,27 @@ async def execute_chat_run(
 
     if not isinstance(req, ChatRunRequest):
         raise TypeError("req must be ChatRunRequest")
+
+    from oaao_orchestrator.tools.registry import ToolServerSpec, register_tool_server  # noqa: PLC0415
+
+    for row in getattr(req, "tool_servers", None) or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("id") or "").strip()
+        base = str(row.get("base_url") or "").strip()
+        if sid and base:
+            purposes = row.get("allowed_purposes")
+            allowed = [str(p) for p in purposes] if isinstance(purposes, list) else ["chat"]
+            spec = row.get("openapi_spec")
+            register_tool_server(
+                ToolServerSpec(
+                    id=sid,
+                    base_url=base.rstrip("/"),
+                    openapi_url=str(row.get("openapi_url") or "/openapi.json"),
+                    allowed_purposes=allowed,
+                    openapi_spec=spec if isinstance(spec, dict) else None,
+                )
+            )
 
     run = registry.get(run_id)
     if run is None:
@@ -655,6 +679,10 @@ async def execute_chat_run(
         else:
             plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
 
+        from oaao_orchestrator.planner_modes import apply_mode_expansion  # noqa: PLC0415
+
+        plan = apply_mode_expansion(plan, mode_id=str(getattr(req, "mode_id", "") or "default"))
+
         task_queue: list[RunTaskSpec] = list(plan.tasks)
         report_after_ids = set(plan.report_after_task_ids)
         report_replan_done = False
@@ -802,7 +830,8 @@ async def execute_chat_run(
                             run_ctx.extra["pipeline_snap_base"] = (
                                 dict(pipeline_snap) if isinstance(pipeline_snap, dict) else {}
                             )
-                            agent_result = await get_agent_registry().run(
+                            agent_result = await run_agent_with_timeout(
+                                get_agent_registry().run,
                                 run=run,
                                 run_task=page_task,
                                 ctx=run_ctx,
@@ -904,7 +933,8 @@ async def execute_chat_run(
                     )
                     rag_failed = False
                     try:
-                        rag_agent_result = await get_agent_registry().run(
+                        rag_agent_result = await run_agent_with_timeout(
+                            get_agent_registry().run,
                             run=run,
                             run_task=run_task,
                             ctx=run_ctx,
@@ -1049,7 +1079,8 @@ async def execute_chat_run(
                     run_ctx.extra["pipeline_snap_base"] = (
                         dict(pipeline_snap) if isinstance(pipeline_snap, dict) else {}
                     )
-                    agent_result = await get_agent_registry().run(
+                    agent_result = await run_agent_with_timeout(
+                        get_agent_registry().run,
                         run=run,
                         run_task=run_task,
                         ctx=run_ctx,
@@ -1148,6 +1179,14 @@ async def execute_chat_run(
                     max_tokens = _resolve_max_tokens(req)
                     if max_tokens is not None:
                         body["max_tokens"] = max_tokens
+                    from oaao_orchestrator.tools.registry import merge_openai_tools  # noqa: PLC0415
+
+                    merged_tools = merge_openai_tools(
+                        getattr(req, "openai_tools", None) or [],
+                        purpose_id=str(getattr(req, "purpose_id", "") or "chat"),
+                    )
+                    if merged_tools:
+                        body["tools"] = merged_tools
                     _apply_upstream_sampling(body)
                     if os.environ.get("OAAO_CHAT_STREAM_INCLUDE_USAGE", "1").strip().lower() not in (
                         "0",
@@ -1462,6 +1501,32 @@ async def execute_chat_run(
         if run_error_detail:
             metrics_payload["run_error"] = run_error_detail
 
+        if iqs_snap is not None:
+            metrics_payload.update(iqs_snap)
+
+        if not run.cancelled and not run_failed and streamed_parts:
+            try:
+                from oaao_orchestrator.evaluation.inline_reflection import maybe_reflect_and_revise  # noqa: PLC0415
+                from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+
+                coach_ep = req.uiqe if isinstance(req.uiqe, dict) else None
+                _rev_text, reflection_meta = await maybe_reflect_and_revise(
+                    run=run,
+                    user_message=_last_user_message(messages_for_llm),
+                    assistant_text="".join(streamed_parts),
+                    streamed_parts=streamed_parts,
+                    messages_for_llm=messages_for_llm,
+                    pipeline_snap=pipeline_snap if isinstance(pipeline_snap, dict) else None,
+                    coach_endpoint=coach_ep,
+                    llm_url=_chat_completions_url(req.endpoint.base_url),
+                    api_key=_resolve_api_key(req.endpoint.api_key_env),
+                    model=req.endpoint.model,
+                )
+                if reflection_meta:
+                    metrics_payload.update(reflection_meta)
+            except Exception:
+                logger.exception("inline_reflection_failed run_id=%s", run_id)
+
         assistant_text = "".join(streamed_parts)
         persist_text = assistant_text.strip()
         if not persist_text and run_principal is not None and not run.cancelled:
@@ -1474,9 +1539,6 @@ async def execute_chat_run(
                 )
             else:
                 persist_text = "No reply text was generated for this turn."
-
-        if iqs_snap is not None:
-            metrics_payload.update(iqs_snap)
 
         if not run.cancelled:
             try:

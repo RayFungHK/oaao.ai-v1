@@ -611,6 +611,10 @@ return function (): void {
                     $slideDesignerApi,
                 );
             }
+            $endpointsApi = $this->api('endpoints');
+            if ($endpointsApi && method_exists($endpointsApi, 'getToolServerRegistry')) {
+                $payload['tool_servers'] = $endpointsApi->getToolServerRegistry();
+            }
             $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
             if ($splitPdo instanceof \PDO && $conversationId > 0) {
                 if ($activeMaterialId !== '') {

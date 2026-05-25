@@ -81,28 +81,9 @@ def planner_enabled(req: object | None = None) -> bool:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    m = _JSON_BLOCK_RE.search(raw)
-    if m:
-        raw = m.group(1).strip()
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start >= 0 and end > start:
-        try:
-            parsed = json.loads(raw[start : end + 1])
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            return None
-    return None
+    from oaao_orchestrator.json_utils import extract_json_object  # noqa: PLC0415
+
+    return extract_json_object(text)
 
 
 def _planner_system_prompt(

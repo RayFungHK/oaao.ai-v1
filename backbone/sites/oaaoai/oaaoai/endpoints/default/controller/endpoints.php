@@ -134,6 +134,18 @@ return new class extends Controller {
         return PurposeAllocationRegister::allSorted();
     }
 
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getToolServerRegistry(): array
+    {
+        $this->ensureFeatureRegistries();
+
+        require_once __DIR__ . '/../library/ToolServerRegister.php';
+
+        return \oaaoai\endpoints\ToolServerRegister::allSorted();
+    }
+
     protected function oaao_endpoints_canonical_db(): ?Database
     {
         $auth = $this->api('auth');
@@ -318,6 +330,7 @@ return new class extends Controller {
         $agent->addAPICommand([
             'registerPurposeAllocationSlot'       => 'registerPurposeAllocationSlot',
             'getPurposeAllocationSlots'           => 'getPurposeAllocationSlots',
+            'getToolServerRegistry'               => 'getToolServerRegistry',
             'ensureFeatureRegistries'             => 'ensureFeatureRegistries',
             'resolveOrchestratorAsrPayload'       => 'resolveOrchestratorAsrPayload',
             'resolveOrchestratorEmbeddingPayload' => 'resolveOrchestratorEmbeddingPayload',
@@ -334,6 +347,7 @@ return new class extends Controller {
         $plannerAgentListener = 'event/planner_agent_register_listener';
         $microSkillProviderListener = 'event/micro_skill_provider_register_listener';
         $vaultDocumentHookListener = 'event/vault_document_hook_register_listener';
+        $toolServerListener = 'event/tool_server_register_listener';
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
         $agent->listen([
             'oaaoai/chat:purpose_allocation.register'      => $purposeAllocationListener,
@@ -359,6 +373,9 @@ return new class extends Controller {
             'oaaoai/vault:vault_document_hook.register'    => $vaultDocumentHookListener,
             'oaaoai/rag:vault_document_hook.register'      => $vaultDocumentHookListener,
             'oaaoai/endpoints:vault_document_hook.register' => $vaultDocumentHookListener,
+            'oaaoai/chat:tool_server.register'           => $toolServerListener,
+            'oaaoai/rag:tool_server.register'            => $toolServerListener,
+            'oaaoai/endpoints:tool_server.register'      => $toolServerListener,
         ]);
 
         // Settings nav rows for endpoints / purposes: {@code panel_js_module} is {@code /webassets/core/default/js/oaao-endpoints-settings-panel.js} (registered in {@code oaaoai/core}) so {@code index.tpl} embeds {@code oaao-settings-registry} before SPA bootstrap.
