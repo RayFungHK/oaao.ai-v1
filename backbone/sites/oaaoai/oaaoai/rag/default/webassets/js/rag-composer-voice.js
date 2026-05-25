@@ -1,7 +1,7 @@
 /**
  * Chat composer — voice input via ASR proxy ({@code cp.rag.voice_input}).
  */
-import { mountComposerDropupAbove, renderComposerDropupEmpty, renderComposerDropupOptions } from '../../../chat/default/js/composer-dropup.js';
+import { mountComposerDropupAbove, renderComposerDropupEmpty, renderComposerDropupOptions } from '../../../core/default/js/composer-dropup.js';
 
 const STORAGE_KEY = 'oaao_chat_composer_audio_input';
 
@@ -58,7 +58,6 @@ export function mountRagComposerVoice(host, ctx) {
     btn.innerHTML =
         '<svg xmlns="http://www.w3.org/2000/svg" class="rz-icon block shrink-0 w-[18px] h-[18px] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    root.append(btn);
     host.append(root);
 
     const menuLabel = t('live_meeting.audio_input.label', 'Audio input');
