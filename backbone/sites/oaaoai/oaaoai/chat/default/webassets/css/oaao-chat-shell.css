@@ -2919,19 +2919,26 @@
     max-width: 14rem;
 }
 
-/* Composer footer dropup — chevron above icon, menu opens upward (planner mode, mic device). */
+/* Composer footer dropup — chevron centered above icon; menu opens upward. */
 .oaao-app .oaao-chat-composer-dropup-root {
     position: relative;
     display: inline-flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-end;
+    vertical-align: bottom;
+}
+
+.oaao-app .oaao-chat-composer-dropup-icon-slot {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .oaao-app .oaao-chat-composer-dropup-arrow {
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 2px);
+    bottom: calc(100% + 3px);
     transform: translateX(-50%);
     display: inline-flex;
     align-items: center;
@@ -2943,7 +2950,7 @@
     border-radius: 999px;
     background: var(--grid-panel-bright, #fff);
     color: var(--grid-ink-muted, #666);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
     cursor: pointer;
     opacity: 0;
     pointer-events: none;
@@ -2951,7 +2958,7 @@
         opacity 140ms ease,
         color 140ms ease,
         background 140ms ease;
-    z-index: 2;
+    z-index: 3;
 }
 
 .oaao-app .oaao-chat-composer-dropup-root:hover .oaao-chat-composer-dropup-arrow,
@@ -2968,9 +2975,10 @@
 
 .oaao-app .oaao-chat-composer-dropup-anchor {
     position: absolute;
-    right: 0;
-    bottom: calc(100% + 1.125rem);
-    z-index: 60;
+    left: 50%;
+    bottom: calc(100% + 1.35rem);
+    transform: translateX(-50%);
+    z-index: 70;
     min-width: 10.5rem;
     max-width: min(18rem, calc(100vw - 2rem));
 }
@@ -2984,8 +2992,9 @@
     border-radius: 10px;
     border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.12));
     background: var(--grid-panel-bright, #fff);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
     overflow: hidden;
+    color: var(--grid-ink, #111);
 }
 
 .oaao-app .oaao-chat-composer-dropup-heading {
@@ -3008,9 +3017,59 @@
     padding: 0.25rem;
 }
 
+.oaao-app .oaao-chat-composer-dropup-option {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    padding: 0.375rem 0.5rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--grid-ink, #111);
+    font: inherit;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+    text-align: left;
+    cursor: pointer;
+}
+
+.oaao-app .oaao-chat-composer-dropup-option:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 35%, transparent);
+}
+
 .oaao-app .oaao-chat-composer-dropup-option--selected {
     background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 45%, transparent);
-    font-weight: 500;
+    font-weight: 600;
+}
+
+.oaao-app .oaao-chat-composer-dropup-option-tick {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 0.875rem;
+    height: 0.875rem;
+    align-items: center;
+    justify-content: center;
+}
+
+.oaao-app .oaao-chat-composer-dropup-option-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+}
+
+.oaao-app .oaao-chat-composer-dropup-empty {
+    margin: 0;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--grid-ink-muted, #666);
+}
+
+.oaao-app .oaao-chat-composer-dropup-root.is-open {
+    z-index: 30;
 }
 
 .oaao-app [data-oaao-chat='composer-feature-toggles']:has(.oaao-chat-composer-dropup-root.is-open),
@@ -3022,7 +3081,7 @@
 
 @media (hover: none) {
     .oaao-app .oaao-chat-composer-dropup-arrow {
-        opacity: 0.72;
+        opacity: 0.78;
         pointer-events: auto;
     }
 }

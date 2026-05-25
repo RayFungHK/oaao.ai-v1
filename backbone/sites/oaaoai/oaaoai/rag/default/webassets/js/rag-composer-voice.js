@@ -1,7 +1,7 @@
 /**
  * Chat composer — voice input via ASR proxy ({@code cp.rag.voice_input}).
  */
-import { mountComposerDropupAbove, renderComposerDropupOptions } from '../../../chat/default/js/composer-dropup.js';
+import { mountComposerDropupAbove, renderComposerDropupEmpty, renderComposerDropupOptions } from '../../../chat/default/js/composer-dropup.js';
 
 const STORAGE_KEY = 'oaao_chat_composer_audio_input';
 
@@ -47,7 +47,7 @@ export function mountRagComposerVoice(host, ctx) {
         'inline-flex items-center justify-center w-8 h-8 p-0 [border:1px_solid_var(--grid-line)] rounded-full bg-transparent fg-[var(--grid-ink-muted)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)] cursor-pointer font-inherit shrink-0';
 
     const root = document.createElement('div');
-    root.className = 'inline-flex shrink-0';
+    root.className = 'shrink-0';
     root.dataset.oaaoComposerVoice = '1';
 
     const btn = document.createElement('button');
@@ -135,14 +135,13 @@ export function mountRagComposerVoice(host, ctx) {
         /** @type {Array<{ id: string, label: string }>} */
         const rows = [{ id: '', label: t('live_meeting.audio_input.default', 'System default') }, ...deviceRows];
         if (deviceRows.length === 0 && micPermissionDenied) {
-            dropup.list.textContent = '';
-            const empty = document.createElement('p');
-            empty.className = 'm-0 px-2 py-1.5 text-[0.8125rem] fg-[var(--grid-ink-muted)]';
-            empty.textContent = t(
-                'live_meeting.audio_input.permission_denied',
-                'Microphone access denied — allow mic in browser settings.',
+            renderComposerDropupEmpty(
+                dropup.list,
+                t(
+                    'live_meeting.audio_input.permission_denied',
+                    'Microphone access denied — allow mic in browser settings.',
+                ),
             );
-            dropup.list.append(empty);
             return;
         }
         renderComposerDropupOptions(
