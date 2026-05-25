@@ -247,7 +247,7 @@ return function (): void {
     };
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env. */
-    $oaaoShellEsmRev = '20260525-composer-dropup-v22';
+    $oaaoShellEsmRev = '20260525-composer-dropup-v29';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)

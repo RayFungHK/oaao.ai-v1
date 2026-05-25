@@ -1,4 +1,4 @@
-/** @deprecated Use `./oaao-composer-dropup.js` — kept for legacy URLs. */
+/** @deprecated Use `./oaao-composer-dropup.js` — kept for legacy cached imports. */
 export {
     mountComposerDropupAbove,
     renderComposerDropupEmpty,

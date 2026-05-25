@@ -96,15 +96,15 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="flex items-center justify-between gap-2 px-3 pb-1 flex-wrap">
-                            <div class="flex flex-wrap items-center gap-2 min-w-0">
+                        <div class="flex items-end justify-between gap-2 px-3 pb-1 flex-wrap">
+                            <div class="flex flex-wrap items-end gap-2 min-w-0">
                                 <!-- {@code composer_zone: composer_left} — {@see chat-panel.js mountChatComposerRegistrySlots}. -->
-                                <div data-oaao-chat="composer-feature-toggles" class="inline-flex flex-wrap items-center gap-1.5 shrink-0"></div>
-                                <div data-oaao-chat="composer-registry-slots-left" class="flex flex-wrap items-center gap-2 min-w-0"></div>
+                                <div data-oaao-chat="composer-feature-toggles" class="inline-flex flex-wrap items-end gap-1.5 shrink-0"></div>
+                                <div data-oaao-chat="composer-registry-slots-left" class="flex flex-wrap items-end gap-2 min-w-0"></div>
                             </div>
-                            <div class="flex flex-wrap items-center gap-2 shrink-0 ml-auto justify-end">
+                            <div class="flex flex-wrap items-end gap-2 shrink-0 ml-auto justify-end">
                                 <!-- {@code composer_zone: composer_actions} -->
-                                <div data-oaao-chat="composer-registry-slots-actions" class="flex flex-wrap items-center gap-2 shrink-0"></div>
+                                <div data-oaao-chat="composer-registry-slots-actions" class="flex flex-wrap items-end gap-2 shrink-0"></div>
                                 <button type="submit" data-oaao-chat="send"
                                     class="inline-flex items-center justify-center w-8 h-8 p-0 border-0 rounded-full bg-[#2d2d2d] fg-[#fff] cursor-pointer hover:opacity-[0.88] disabled:opacity-50 disabled:pointer-events-none shrink-0"
                                     aria-label="Send" data-i18n-aria="chat.send_message">

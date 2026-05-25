@@ -2,4 +2,4 @@ export {
     mountComposerDropupAbove,
     renderComposerDropupEmpty,
     renderComposerDropupOptions,
-} from '../../../core/default/js/composer-dropup.js';
+} from '../../../core/default/js/oaao-composer-dropup.js';
