@@ -23,7 +23,8 @@ use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
  *             "attachment_ids"?: number[] — ephemeral conversation attachments (this turn only),
  *             "active_material_id"?: string — continue a slide deck ({@code slide-{project_id}}),
  *             "reuse_grounding_message_id"?: int — retry/regenerate: load material container from this assistant turn,
- *             "slide_template_id"?: string — published custom template for a new deck }
+ *             "slide_template_id"?: string — published custom template for a new deck,
+ *             "planner_mode_id"?: "default"|"tot"|"ddtree" — thread planner mode (persisted on new chats) }
  */
 return function (): void {
     [$splitDb, $user, $pdo] = $this->oaao_chat_require_user();
@@ -48,6 +49,14 @@ return function (): void {
     $content = trim((string) ($input['content'] ?? ''));
     $conversationId = $input['conversation_id'] ?? null;
     $conversationId = ($conversationId === null || $conversationId === '') ? null : (int) $conversationId;
+
+    $inputPlannerMode = '';
+    if (isset($input['planner_mode_id'])) {
+        $pmIn = strtolower(trim((string) $input['planner_mode_id']));
+        if (\in_array($pmIn, ['default', 'tot', 'ddtree'], true)) {
+            $inputPlannerMode = $pmIn;
+        }
+    }
 
     $chatEndpointRaw = $input['chat_endpoint_id'] ?? null;
     $chatEndpointId = ($chatEndpointRaw === null || $chatEndpointRaw === '') ? 0 : (int) $chatEndpointRaw;
@@ -343,6 +352,9 @@ return function (): void {
                 } catch (\JsonException) {
                 }
             }
+            if ($inputPlannerMode !== '') {
+                $plannerModeId = $inputPlannerMode;
+            }
         } else {
             $title = 'New chat';
             if ($hasPublishedSlideTemplate && $slideTemplateLabel !== '') {
@@ -367,6 +379,46 @@ return function (): void {
 
                 return;
             }
+            if ($inputPlannerMode !== '') {
+                $plannerModeId = $inputPlannerMode;
+            }
+        }
+
+        if ($conversationId > 0 && $inputPlannerMode !== '' && $inputPlannerMode !== 'default') {
+            $params = [];
+            $paramsRow = $splitDb->prepare()
+                ->select('params_json')
+                ->from('conversation')
+                ->where('id=?,user_id=?')
+                ->assign(['id' => $conversationId, 'user_id' => $uid])
+                ->limit(1)
+                ->query()
+                ->fetch();
+            if (\is_array($paramsRow)) {
+                $paramsRawPersist = trim((string) ($paramsRow['params_json'] ?? ''));
+                if ($paramsRawPersist !== '') {
+                    try {
+                        $paramsDecPersist = json_decode($paramsRawPersist, true, 512, JSON_THROW_ON_ERROR);
+                        if (\is_array($paramsDecPersist)) {
+                            $params = $paramsDecPersist;
+                        }
+                    } catch (\JsonException) {
+                    }
+                }
+            }
+            if ($conversationModeId === 'desk') {
+                $params['mode'] = 'desk';
+            }
+            $params['planner_mode_id'] = $plannerModeId;
+            $splitDb->update('conversation', ['params_json', 'updated_at'])
+                ->where('id=?,user_id=?')
+                ->assign([
+                    'params_json'  => json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                    'id'           => $conversationId,
+                    'user_id'      => $uid,
+                ])
+                ->query();
         }
 
         $nowMsg = date('Y-m-d H:i:s');

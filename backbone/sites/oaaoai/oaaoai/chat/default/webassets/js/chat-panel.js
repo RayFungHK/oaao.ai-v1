@@ -489,6 +489,74 @@ function mountChatComposerFeatureToggles(host, signal) {
     syncComposerPlannerStepsVisibility(document);
 }
 
+/**
+ * Planner mode (default / tot / ddtree) — always visible in composer footer.
+ * @param {HTMLElement} host
+ * @param {AbortSignal} signal
+ */
+function mountChatComposerPlannerModeSelect(host, signal) {
+    const wrap = document.createElement('label');
+    wrap.className =
+        'oaao-chat-planner-mode-composer inline-flex items-center gap-1.5 shrink-0 text-[0.6875rem] fg-[var(--grid-caption)]';
+    wrap.dataset.oaaoChat = 'planner-mode-wrap';
+    const span = document.createElement('span');
+    span.textContent = oaaoChatT('chat.planner_mode.label', 'Planner');
+    const sel = document.createElement('select');
+    sel.dataset.oaaoChat = 'planner-mode-select';
+    sel.className =
+        'oaao-chat-planner-mode-select rounded-[6px] border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] px-1.5 py-0.5 text-[0.6875rem] fg-[var(--grid-ink)] cursor-pointer font-inherit max-w-[5.5rem]';
+    sel.setAttribute('aria-label', oaaoChatT('chat.planner_mode.label', 'Planner mode'));
+    for (const [value, label] of [
+        ['default', 'Default'],
+        ['tot', 'ToT'],
+        ['ddtree', 'DDTree'],
+    ]) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        sel.append(opt);
+    }
+    sel.addEventListener(
+        'change',
+        () => {
+            const mode = normalizePlannerModeId(sel.value);
+            const cid = Number(activeConversationId) || 0;
+            if (cid > 0) {
+                persistPlannerMode(cid, mode);
+            } else {
+                try {
+                    sessionStorage.setItem(OAAO_PLANNER_MODE_PENDING_KEY, mode);
+                } catch {
+                    /* ignore */
+                }
+            }
+        },
+        { signal },
+    );
+    wrap.append(span, sel);
+    host.append(wrap);
+    chatComposerPlannerModeSelectEl = sel;
+    syncChatComposerPlannerModeSelect();
+}
+
+/** Sync composer planner dropdown with active conversation. */
+function syncChatComposerPlannerModeSelect() {
+    const sel = chatComposerPlannerModeSelectEl;
+    if (!(sel instanceof HTMLSelectElement)) return;
+    const cid = Number(activeConversationId) || 0;
+    let mode = 'default';
+    if (cid > 0) {
+        mode = readStoredPlannerMode(cid);
+    } else {
+        try {
+            mode = normalizePlannerModeId(sessionStorage.getItem(OAAO_PLANNER_MODE_PENDING_KEY));
+        } catch {
+            mode = 'default';
+        }
+    }
+    if (sel.value !== mode) sel.value = mode;
+}
+
 function mountVaultAutoRagToggle(host, signal) {
     chatComposerVaultAutoRag = readVaultAutoRagPreference();
 
@@ -5412,9 +5480,13 @@ function createComposerCloseIconSvg() {
  */
 const OAAO_CONV_MODE_STORAGE_PREFIX = 'oaao_conversation_mode_';
 const OAAO_PLANNER_MODE_STORAGE_PREFIX = 'oaao_planner_mode_';
+const OAAO_PLANNER_MODE_PENDING_KEY = 'oaao_planner_mode_pending';
 
 /** @type {Map<number, 'default' | 'tot' | 'ddtree'>} */
 const plannerModeByConversationId = new Map();
+
+/** @type {HTMLSelectElement | null} */
+let chatComposerPlannerModeSelectEl = null;
 
 /** @type {Set<number>} */
 const deskModeConversationIds = new Set();
@@ -5548,6 +5620,27 @@ function readStoredPlannerMode(conversationId) {
     if (cached) return cached;
     try {
         return normalizePlannerModeId(sessionStorage.getItem(`${OAAO_PLANNER_MODE_STORAGE_PREFIX}${cid}`));
+    } catch {
+        return 'default';
+    }
+}
+
+/**
+ * Planner mode for the next send — active conversation storage or pre-thread pending pick.
+ * @param {number | null | undefined} conversationId
+ * @returns {'default' | 'tot' | 'ddtree'}
+ */
+function readComposerPlannerModeForSend(conversationId) {
+    const cid = Number(conversationId) || 0;
+    if (cid > 0) {
+        const sel = chatComposerPlannerModeSelectEl;
+        if (sel instanceof HTMLSelectElement) {
+            return normalizePlannerModeId(sel.value);
+        }
+        return readStoredPlannerMode(cid);
+    }
+    try {
+        return normalizePlannerModeId(sessionStorage.getItem(OAAO_PLANNER_MODE_PENDING_KEY));
     } catch {
         return 'default';
     }
@@ -10152,7 +10245,6 @@ export async function mountShellPanel(mount) {
     const inputEl = mount.querySelector('[data-oaao-chat="input"]');
     const sendBtn = mount.querySelector('[data-oaao-chat="send"]');
     const threadToolbarEl = mount.querySelector('[data-oaao-chat="thread-toolbar"]');
-    const plannerModeSelectEl = mount.querySelector('[data-oaao-chat="planner-mode-select"]');
     const shareThreadBtn = mount.querySelector('[data-oaao-chat="share-thread"]');
     const archiveThreadBtn = mount.querySelector('[data-oaao-chat="archive-thread"]');
     const deleteThreadBtn = mount.querySelector('[data-oaao-chat="delete-thread"]');
@@ -10284,6 +10376,7 @@ export async function mountShellPanel(mount) {
     const composerFeatureToggles = mount.querySelector('[data-oaao-chat="composer-feature-toggles"]');
     if (composerFeatureToggles instanceof HTMLElement) {
         mountChatComposerFeatureToggles(composerFeatureToggles, signal);
+        mountChatComposerPlannerModeSelect(composerFeatureToggles, signal);
     }
 
     /** @param {string} msg */
@@ -10420,32 +10513,13 @@ export async function mountShellPanel(mount) {
             threadToolbarEl.style.removeProperty('background-color');
             threadToolbarEl.style.removeProperty('background-image');
         }
-        if (plannerModeSelectEl instanceof HTMLSelectElement) {
-            const cid = Number(activeConversationId) || 0;
-            const mode = cid > 0 ? readStoredPlannerMode(cid) : 'default';
-            if (plannerModeSelectEl.value !== mode) {
-                plannerModeSelectEl.value = mode;
-            }
-            plannerModeSelectEl.disabled = !(open && cid > 0);
-        }
+        syncChatComposerPlannerModeSelect();
         if (!open || !archiveThreadBtn) return;
         const row = cachedConversations.find((r) => Number(r.id) === activeConversationId);
         const archived = row ? Number(row.archived) === 1 : false;
         const label = archived ? 'Unarchive chat' : 'Archive chat';
         archiveThreadBtn.setAttribute('aria-label', label);
         archiveThreadBtn.title = label;
-    }
-
-    if (plannerModeSelectEl instanceof HTMLSelectElement) {
-        plannerModeSelectEl.addEventListener(
-            'change',
-            () => {
-                const cid = Number(activeConversationId) || 0;
-                if (cid < 1) return;
-                persistPlannerMode(cid, normalizePlannerModeId(plannerModeSelectEl.value));
-            },
-            { signal },
-        );
     }
 
     async function postMessageFeedback(conversationId, messageId, feedbackLike) {
@@ -10941,6 +11015,26 @@ export async function mountShellPanel(mount) {
                             showActivityLog();
                             appendActivityLine('[system] Reply truncated at token limit');
                         }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
+                        isStreamConversationVisible() &&
+                        (text.startsWith('planner_mode_') ||
+                            text === 'plan_build_start' ||
+                            text === 'task_plan' ||
+                            text === 'reusing_crystallized_skill')
+                    ) {
+                        showActivityLog();
+                        const payload =
+                            envelope.payload && typeof envelope.payload === 'object'
+                                ? /** @type {Record<string, unknown>} */ (envelope.payload)
+                                : null;
+                        const extra =
+                            payload && Object.keys(payload).length > 0
+                                ? ` — ${JSON.stringify(payload)}`
+                                : '';
+                        appendActivityLine(`[${phase}] ${text}${extra}`);
                     }
                     if (
                         streamingMsgId &&
@@ -12235,6 +12329,7 @@ export async function mountShellPanel(mount) {
                     vaultSendExtra.slide_template_id = templateId;
                 }
 
+                const plannerModeForSend = readComposerPlannerModeForSend(activeConversationId);
                 const { res, data, raw, parseError } = await chatFetchJson(chatApiUrl('send'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -12242,6 +12337,7 @@ export async function mountShellPanel(mount) {
                         conversation_id: activeConversationId,
                         content: body,
                         chat_endpoint_id: getWorkspaceChatEndpointIdForSend(),
+                        planner_mode_id: plannerModeForSend,
                         ...vaultSendExtra,
                         ...(activeConversationId && activeConversationId > 0
                             ? chatScopeBodyFieldsForConversation(activeConversationId)
@@ -12269,6 +12365,15 @@ export async function mountShellPanel(mount) {
                 );
                 if (nextCid > 0) {
                     oaaoFreshRunByConv.add(nextCid);
+                    rememberPlannerModeLocal(nextCid, plannerModeForSend);
+                    if (plannerModeForSend !== 'default') {
+                        try {
+                            sessionStorage.removeItem(OAAO_PLANNER_MODE_PENDING_KEY);
+                        } catch {
+                            /* ignore */
+                        }
+                    }
+                    syncChatComposerPlannerModeSelect();
                 }
                 if (templateId && nextCid > 0) {
                     enterDeskModeForSlideDesigner(nextCid);

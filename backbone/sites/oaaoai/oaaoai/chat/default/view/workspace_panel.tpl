@@ -24,16 +24,6 @@
                 aria-label="Delete chat" title="Delete chat">
                     <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon block shrink-0 w-[18px] h-[18px] pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
                 </button>
-                <label class="oaao-chat-planner-mode-label inline-flex items-center gap-1.5 shrink-0 text-[0.72rem] fg-[var(--grid-caption)] ml-1">
-                    <span data-i18n="chat.planner_mode.label">Planner</span>
-                    <select data-oaao-chat="planner-mode-select"
-                        class="oaao-chat-planner-mode-select rounded-[6px] border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] px-1.5 py-0.5 text-[0.72rem] fg-[var(--grid-ink)] cursor-pointer font-inherit"
-                        aria-label="Planner mode">
-                        <option value="default">Default</option>
-                        <option value="tot">ToT</option>
-                        <option value="ddtree">DDTree</option>
-                    </select>
-                </label>
                 <span class="oaao-chat-thread-toolbar-hint" aria-hidden="true">
                     <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon block shrink-0 w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>

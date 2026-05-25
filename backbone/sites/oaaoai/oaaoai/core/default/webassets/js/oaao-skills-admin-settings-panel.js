@@ -29,6 +29,7 @@ const LABELS = {
         cron_weekly: 'Run weekly auto-apply now',
         cron_ok: 'Cron job completed.',
         cron_fail: 'Cron job failed.',
+        evolution_section: 'Evolution & crystallization',
         crystal_stats: 'Crystallized skills (in-memory)',
         crystal_count: 'Skills loaded',
         crystal_usage: 'Total recall usage',
@@ -73,7 +74,8 @@ const LABELS = {
         cron_weekly: '立即執行 weekly auto-apply',
         cron_ok: 'Cron 工作已完成。',
         cron_fail: 'Cron 工作失敗。',
-        crystal_stats: 'Crystallized skills（記憶體）',
+        evolution_section: 'Evolution & crystallization',
+        crystal_stats: '結晶化 skills（記憶體）',
         crystal_count: '已載入 skills',
         crystal_usage: 'Recall 使用次數',
         iqs_actions: 'IQS action 分布（近期 runs）',
@@ -150,6 +152,21 @@ function renderPanel(data, handlers) {
     intro.textContent = label('intro');
     root.appendChild(intro);
 
+    const evoSection = document.createElement('section');
+    sty(evoSection, {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        padding: '14px 16px',
+        borderRadius: '12px',
+        border: `1px solid ${UI.line}`,
+        background: 'rgba(0,0,0,0.02)',
+    });
+    const evoTitle = document.createElement('h2');
+    sty(evoTitle, { fontSize: '14px', fontWeight: '600', margin: '0', color: UI.ink });
+    evoTitle.textContent = label('evolution_section');
+    evoSection.appendChild(evoTitle);
+
     const counts = data.micro_skill_counts && typeof data.micro_skill_counts === 'object' ? data.micro_skill_counts : {};
     const countsP = document.createElement('p');
     sty(countsP, { fontSize: '13px', margin: '0' });
@@ -171,17 +188,17 @@ function renderPanel(data, handlers) {
         btn.addEventListener('click', () => handlers.onCron(job));
         cronRow.appendChild(btn);
     }
-    root.appendChild(cronRow);
+    evoSection.appendChild(cronRow);
 
     const hint = document.createElement('p');
     sty(hint, { fontSize: '12px', color: UI.muted, margin: '0' });
     hint.textContent = label('systemd_hint');
-    root.appendChild(hint);
+    evoSection.appendChild(hint);
 
     const reportsHeading = document.createElement('h3');
     sty(reportsHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
     reportsHeading.textContent = label('daily_reports');
-    root.appendChild(reportsHeading);
+    evoSection.appendChild(reportsHeading);
 
     const reportsList = document.createElement('div');
     reportsList.dataset.oaaoEvolutionReports = '1';
@@ -211,33 +228,33 @@ function renderPanel(data, handlers) {
             reportsList.appendChild(card);
         });
     }
-    root.appendChild(reportsList);
+    evoSection.appendChild(reportsList);
 
     const crystal = data.crystallization_stats && typeof data.crystallization_stats === 'object' ? data.crystallization_stats : {};
     const crystalHeading = document.createElement('h3');
     sty(crystalHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
     crystalHeading.textContent = label('crystal_stats');
-    root.appendChild(crystalHeading);
+    evoSection.appendChild(crystalHeading);
     const crystalP = document.createElement('p');
     sty(crystalP, { fontSize: '13px', margin: '0' });
     crystalP.textContent = `${label('crystal_count')}: ${crystal.skill_count ?? 0} · ${label('crystal_usage')}: ${crystal.total_usage ?? 0}`;
-    root.appendChild(crystalP);
+    evoSection.appendChild(crystalP);
 
     const iqsHeading = document.createElement('h3');
     sty(iqsHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
     iqsHeading.textContent = label('iqs_actions');
-    root.appendChild(iqsHeading);
+    evoSection.appendChild(iqsHeading);
     const iqsDist = data.iqs_action_distribution && typeof data.iqs_action_distribution === 'object' ? data.iqs_action_distribution : {};
     const iqsP = document.createElement('p');
     sty(iqsP, { fontSize: '13px', margin: '0', fontFamily: 'monospace' });
     const iqsKeys = Object.keys(iqsDist);
     iqsP.textContent = iqsKeys.length ? iqsKeys.map((k) => `${k}: ${iqsDist[k]}`).join(' · ') : label('iqs_actions_empty');
-    root.appendChild(iqsP);
+    evoSection.appendChild(iqsP);
 
     const patchHeading = document.createElement('h3');
     sty(patchHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
     patchHeading.textContent = label('evolution_patches');
-    root.appendChild(patchHeading);
+    evoSection.appendChild(patchHeading);
     const patchList = document.createElement('div');
     sty(patchList, { display: 'flex', flexDirection: 'column', gap: '8px' });
     const patches = Array.isArray(data.evolution_patches) ? data.evolution_patches : [];
@@ -268,7 +285,8 @@ function renderPanel(data, handlers) {
             patchList.appendChild(card);
         });
     }
-    root.appendChild(patchList);
+    evoSection.appendChild(patchList);
+    root.appendChild(evoSection);
 
     const srvHeading = document.createElement('h3');
     sty(srvHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
