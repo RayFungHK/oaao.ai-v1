@@ -330,6 +330,9 @@ const OAAO_I18N_BASE = {
         'settings.nav.evolution_queue.label': 'Evolution queue',
         'settings.nav.evolution_queue.title': 'Background scoring queue',
         'settings.nav.evolution_queue.sub': 'IQS / ACCS rescore and post-stream worker pools.',
+        'settings.nav.skills_admin.label': 'Skills & tools',
+        'settings.nav.skills_admin.title': 'Skills and tool servers',
+        'settings.nav.skills_admin.sub': 'Micro-skill providers, OpenAPI tool servers, evolution cron.',
         'settings.evolution_queue.loading': 'Loading queue status…',
         'settings.evolution_queue.load_failed': 'Could not load queue status.',
         'settings.evolution_queue.intro':
@@ -930,6 +933,9 @@ const OAAO_I18N_BASE = {
         'settings.nav.evolution_queue.label': 'Evolution 佇列',
         'settings.nav.evolution_queue.title': '背景評分佇列',
         'settings.nav.evolution_queue.sub': 'IQS / ACCS 重算與 post-stream worker 池。',
+        'settings.nav.skills_admin.label': 'Skills 與工具',
+        'settings.nav.skills_admin.title': 'Skills 與 tool servers',
+        'settings.nav.skills_admin.sub': 'Micro-skill providers、OpenAPI tool servers、evolution cron。',
         'settings.evolution_queue.loading': '正在載入佇列狀態…',
         'settings.evolution_queue.load_failed': '無法載入佇列狀態。',
         'settings.evolution_queue.intro':

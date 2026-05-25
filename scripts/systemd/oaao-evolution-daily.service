@@ -1,0 +1,14 @@
+[Unit]
+Description=OAAO evolution daily report (orchestrator sidecar)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/oaao/docker/env
+WorkingDirectory=/opt/oaao
+ExecStart=/opt/oaao/scripts/oaao_evolution_cron.sh daily
+# Adjust paths to your deployment root (repo clone on the host).
+
+[Install]
+WantedBy=multi-user.target

@@ -57,4 +57,9 @@ final class ToolServerRegister
 
         return $rows;
     }
+
+    public static function clearForReload(): void
+    {
+        self::$servers = [];
+    }
 }

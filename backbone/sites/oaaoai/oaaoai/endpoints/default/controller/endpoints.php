@@ -141,7 +141,9 @@ return new class extends Controller {
     {
         $this->ensureFeatureRegistries();
 
-        require_once __DIR__ . '/../library/ToolServerRegister.php';
+        require_once __DIR__ . '/../library/ToolServerStorage.php';
+
+        ToolServerStorage::bootstrapPersisted();
 
         return \oaaoai\endpoints\ToolServerRegister::allSorted();
     }

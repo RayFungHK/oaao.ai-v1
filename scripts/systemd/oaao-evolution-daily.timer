@@ -1,0 +1,11 @@
+[Unit]
+Description=OAAO evolution daily report timer (00:30 UTC)
+Requires=oaao-evolution-daily.service
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

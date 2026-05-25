@@ -798,7 +798,10 @@ return new class extends Controller {
                 'GET materials_zip'        => 'materials_zip',
                 'GET conversation_materials' => 'conversation_materials',
                 'GET skills_list'            => 'skills_list',
+                'GET skills_admin'           => 'skills_admin',
                 'POST skills_save'           => 'skills_save',
+                'POST tool_servers_save'     => 'tool_servers_save',
+                'POST evolution_cron_run'    => 'evolution_cron_run',
                 'POST skills_discover'       => 'skills_discover',
                 'GET routing_purposes'       => 'routing_purposes',
                 'GET routing_profiles'       => 'routing_profiles',
@@ -854,6 +857,22 @@ return new class extends Controller {
                     'label_key'       => 'settings.nav.planner.label',
                     'title_key'       => 'settings.nav.planner.title',
                     'sub_key'         => 'settings.nav.planner.sub',
+                ],
+            );
+
+            $skillsAdminJs = '/webassets/core/default/js/oaao-skills-admin-settings-panel.js';
+            $coreApi->registerSettingsSection(
+                'settings-skills-admin',
+                'Skills & tools',
+                'Skills and tool servers',
+                'Micro-skill providers, OpenAPI tool servers, and evolution cron controls — administrator only.',
+                'puzzle',
+                [
+                    'sort'            => 30,
+                    'panel_js_module' => $skillsAdminJs,
+                    'label_key'       => 'settings.nav.skills_admin.label',
+                    'title_key'       => 'settings.nav.skills_admin.title',
+                    'sub_key'         => 'settings.nav.skills_admin.sub',
                 ],
             );
         }

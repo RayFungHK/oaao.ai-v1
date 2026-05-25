@@ -1,0 +1,11 @@
+[Unit]
+Description=OAAO evolution weekly auto-apply timer (Sunday 00:30 UTC)
+Requires=oaao-evolution-weekly.service
+
+[Timer]
+OnCalendar=Sun *-*-* 00:30:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
