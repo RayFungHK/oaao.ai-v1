@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _MEMORY_RUNS: list[dict[str, Any]] = []
 _MEMORY_LOW_SCORE: list[dict[str, Any]] = []
 _MEMORY_PATCHES: list[dict[str, Any]] = []
+_MEMORY_REPORTS: list[dict[str, Any]] = []
 
 
 async def _arango_cfg() -> dict[str, Any] | None:
@@ -74,5 +75,20 @@ async def record_evolution_patch(row: dict[str, Any]) -> None:
         logger.debug("evolution_patches arango write skipped", exc_info=True)
 
 
+async def record_evolution_report(row: dict[str, Any]) -> None:
+    doc = {**row, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    _MEMORY_REPORTS.append(doc)
+    if len(_MEMORY_REPORTS) > 200:
+        del _MEMORY_REPORTS[:50]
+    try:
+        await _arango_post("evolution_reports", doc)
+    except Exception:
+        logger.debug("evolution_reports arango write skipped", exc_info=True)
+
+
 def list_low_score_cases(*, limit: int = 50) -> list[dict[str, Any]]:
     return list(_MEMORY_LOW_SCORE[-limit:])
+
+
+def list_evolution_reports(*, limit: int = 10) -> list[dict[str, Any]]:
+    return list(reversed(_MEMORY_REPORTS[-limit:]))

@@ -41,10 +41,15 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    from oaao_orchestrator.evaluation.evolution_collections import ensure_evolution_collections  # noqa: PLC0415
     from oaao_orchestrator.post_stream_pool import start_post_stream_pools, stop_post_stream_pools  # noqa: PLC0415
 
     poll_task = asyncio.create_task(vault_job_poll_loop())
     await start_post_stream_pools()
+    try:
+        await ensure_evolution_collections()
+    except Exception:
+        logger.debug("ensure_evolution_collections skipped", exc_info=True)
     yield
     await stop_post_stream_pools()
     poll_task.cancel()
@@ -102,6 +107,10 @@ class ChatRunRequest(BaseModel):
     user_id: str | None = None
     purpose_id: str = "chat"
     mode_id: str = "default"
+    planner_mode_id: str = Field(
+        default="default",
+        description="Planner expansion mode — default | tot | ddtree (distinct from desk/default UI mode_id).",
+    )
     messages: list[dict[str, Any]] = Field(default_factory=list)
     temperature: float = 0.7
     max_tokens: int | None = Field(
@@ -478,8 +487,38 @@ async def evolution_daily_report(
     if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
         raise HTTPException(status_code=403, detail="bad_internal_token")
     from oaao_orchestrator.evaluation.daily_report import run_daily_report  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.evolution_collections import ensure_evolution_collections  # noqa: PLC0415
 
+    await ensure_evolution_collections()
     return await run_daily_report()
+
+
+@app.get("/v1/admin/evolution/reports")
+async def evolution_reports_list(
+    limit: int = Query(default=10, ge=1, le=50),
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.evolution_store import list_evolution_reports  # noqa: PLC0415
+
+    return {"reports": list_evolution_reports(limit=limit)}
+
+
+class ToolServersEnrichRequest(BaseModel):
+    servers: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@app.post("/v1/admin/tools/enrich_openapi")
+async def tools_enrich_openapi(
+    body: ToolServersEnrichRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.tools.openapi_fetch import enrich_servers_with_openapi  # noqa: PLC0415
+
+    return {"servers": enrich_servers_with_openapi(body.servers)}
 
 
 @app.post("/v1/admin/evolution/weekly_apply")

@@ -48,15 +48,23 @@ return function (): void {
                 continue;
             }
             $mode = 'default';
+            $plannerModeId = 'default';
             $paramsRaw = $row['params_json'] ?? null;
             if (\is_string($paramsRaw) && $paramsRaw !== '') {
                 $decoded = json_decode($paramsRaw, true);
-                if (\is_array($decoded) && isset($decoded['mode']) && $decoded['mode'] === 'desk') {
-                    $mode = 'desk';
+                if (\is_array($decoded)) {
+                    if (isset($decoded['mode']) && $decoded['mode'] === 'desk') {
+                        $mode = 'desk';
+                    }
+                    $pm = strtolower(trim((string) ($decoded['planner_mode_id'] ?? '')));
+                    if (\in_array($pm, ['default', 'tot', 'ddtree'], true)) {
+                        $plannerModeId = $pm;
+                    }
                 }
             }
             unset($row['params_json']);
             $row['mode'] = $mode;
+            $row['planner_mode_id'] = $plannerModeId;
             $conversations[] = $row;
         }
         echo json_encode([

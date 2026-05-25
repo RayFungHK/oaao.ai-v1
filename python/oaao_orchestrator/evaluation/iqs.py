@@ -118,6 +118,27 @@ def _action_for_score(score: float) -> str:
     return "hard_clarify"
 
 
+def _iqs_skipped_on_breaker(
+    *,
+    user_message: str,
+    conversation_history: list[Any],
+    inline: bool,
+) -> IQSResult:
+    """When inline coach breaker is open — skip scoring, never block the user."""
+    return _finalize_iqs_result(
+        IQSResult(
+            score=0.0,
+            dimensions={name: 0.0 for name in DIMENSION_WEIGHTS},
+            action="pass",
+            skipped=True,
+            source="skipped",
+        ),
+        user_message=user_message,
+        conversation_history=conversation_history,
+        inline=inline,
+    )
+
+
 def _finalize_iqs_result(
     result: IQSResult,
     *,
@@ -281,23 +302,19 @@ async def score_iqs(
             call_timeout=coach_timeout + 2.0,
         )
         if breaker.state == "open":
-            fallback = await _score_iqs_heuristic(
+            return _iqs_skipped_on_breaker(
                 user_message=user_message,
                 conversation_history=history,
                 inline=inline,
             )
-            fallback.source = "heuristic_breaker_fallback"
-            return fallback
         try:
             return await breaker.call(_coach_call)
         except BreakerOpen:
-            fallback = await _score_iqs_heuristic(
+            return _iqs_skipped_on_breaker(
                 user_message=user_message,
                 conversation_history=history,
                 inline=inline,
             )
-            fallback.source = "heuristic_breaker_fallback"
-            return fallback
         except BreakerTimeout:
             fallback = await _score_iqs_heuristic(
                 user_message=user_message,
@@ -308,13 +325,11 @@ async def score_iqs(
             return fallback
         except CoachCallError:
             if breaker.state == "open":
-                fallback = await _score_iqs_heuristic(
+                return _iqs_skipped_on_breaker(
                     user_message=user_message,
                     conversation_history=history,
                     inline=inline,
                 )
-                fallback.source = "heuristic_breaker_fallback"
-                return fallback
             fallback = await _score_iqs_heuristic(
                 user_message=user_message,
                 conversation_history=history,

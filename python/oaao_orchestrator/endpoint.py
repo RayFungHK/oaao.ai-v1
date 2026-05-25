@@ -58,7 +58,8 @@ def pick_base_url(cfg: dict[str, Any], *, ctx: Any = None) -> str:
         return urls[0]
 
     policy = str(cfg.get("routing_policy") or "round_robin").strip().lower()
-    mode_id = _ctx_attr(ctx, "mode_id", "default")
+    planner_mode = _ctx_attr(ctx, "planner_mode_id", "")
+    mode_id = planner_mode or _ctx_attr(ctx, "mode_id", "default")
     purpose_id = _ctx_attr(ctx, "purpose_id", "chat")
 
     preferred = urls[0]

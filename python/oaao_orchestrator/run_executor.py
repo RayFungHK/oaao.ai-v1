@@ -681,7 +681,10 @@ async def execute_chat_run(
 
         from oaao_orchestrator.planner_modes import apply_mode_expansion  # noqa: PLC0415
 
-        plan = apply_mode_expansion(plan, mode_id=str(getattr(req, "mode_id", "") or "default"))
+        plan = apply_mode_expansion(
+            plan,
+            mode_id=str(getattr(req, "planner_mode_id", None) or "default"),
+        )
 
         task_queue: list[RunTaskSpec] = list(plan.tasks)
         report_after_ids = set(plan.report_after_task_ids)
@@ -733,6 +736,7 @@ async def execute_chat_run(
                 "allowed_agents": allowed_agents,
                 "assistant_message_id": req.assistant_message_id,
                 "workspace_id": req.workspace_id,
+                "planner_mode_id": str(getattr(req, "planner_mode_id", None) or "default"),
                 "llm_url": planner_url,
                 "llm_api_key": api_key,
                 "llm_model": planner_model,

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\endpoints\ToolServerRegister;
 use oaaoai\endpoints\ToolServerStorage;
 
@@ -28,6 +29,11 @@ return function (): void {
         echo json_encode(['success' => false, 'message' => 'Expected servers[] array'], JSON_UNESCAPED_UNICODE);
 
         return;
+    }
+
+    $enriched = ChatOrchestratorApi::postInternalJson('/v1/admin/tools/enrich_openapi', ['servers' => $raw], 60);
+    if (\is_array($enriched) && \is_array($enriched['servers'] ?? null)) {
+        $raw = $enriched['servers'];
     }
 
     $normalized = [];

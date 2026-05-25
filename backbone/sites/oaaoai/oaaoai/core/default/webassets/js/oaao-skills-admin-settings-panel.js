@@ -29,6 +29,10 @@ const LABELS = {
         cron_weekly: 'Run weekly auto-apply now',
         cron_ok: 'Cron job completed.',
         cron_fail: 'Cron job failed.',
+        daily_reports: 'Recent daily reports',
+        daily_reports_empty: 'No reports yet — run daily report or wait for cron.',
+        report_samples: 'Samples',
+        report_status: 'Status',
         systemd_hint: 'Schedule on the host with systemd timers — see scripts/systemd/README.md',
         field_id: 'Server ID',
         field_base: 'Base URL',
@@ -58,6 +62,10 @@ const LABELS = {
         cron_weekly: '立即執行 weekly auto-apply',
         cron_ok: 'Cron 工作已完成。',
         cron_fail: 'Cron 工作失敗。',
+        daily_reports: '近期 daily reports',
+        daily_reports_empty: '尚無 report — 請執行 daily report 或等待 cron。',
+        report_samples: '樣本數',
+        report_status: '狀態',
         systemd_hint: '在 host 上用 systemd timer 排程 — 見 scripts/systemd/README.md',
         field_id: 'Server ID',
         field_base: 'Base URL',
@@ -147,6 +155,41 @@ function renderPanel(data, handlers) {
     sty(hint, { fontSize: '12px', color: UI.muted, margin: '0' });
     hint.textContent = label('systemd_hint');
     root.appendChild(hint);
+
+    const reportsHeading = document.createElement('h3');
+    sty(reportsHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
+    reportsHeading.textContent = label('daily_reports');
+    root.appendChild(reportsHeading);
+
+    const reportsList = document.createElement('div');
+    reportsList.dataset.oaaoEvolutionReports = '1';
+    sty(reportsList, { display: 'flex', flexDirection: 'column', gap: '8px' });
+    const reports = Array.isArray(data.evolution_reports) ? data.evolution_reports : [];
+    if (reports.length === 0) {
+        const empty = document.createElement('p');
+        sty(empty, { fontSize: '13px', color: UI.muted, margin: '0' });
+        empty.textContent = label('daily_reports_empty');
+        reportsList.appendChild(empty);
+    } else {
+        reports.forEach((rep) => {
+            if (!rep || typeof rep !== 'object') return;
+            const card = document.createElement('div');
+            sty(card, { border: `1px solid ${UI.line}`, borderRadius: '8px', padding: '10px 12px', fontSize: '12px' });
+            const id = String(rep.report_id ?? '—');
+            const samples = Number(rep.sample_count ?? 0);
+            const status = String(rep.status ?? '—');
+            card.innerHTML = `<strong>${id}</strong><br>${label('report_samples')}: ${samples} · ${label('report_status')}: ${status}`;
+            const killers = rep.top_iqs_killers;
+            if (Array.isArray(killers) && killers.length > 0) {
+                const sub = document.createElement('pre');
+                sty(sub, { margin: '6px 0 0', fontSize: '11px', whiteSpace: 'pre-wrap', color: UI.muted });
+                sub.textContent = JSON.stringify({ top_iqs_killers: killers, top_accs_agent_kinds: rep.top_accs_agent_kinds ?? [] }, null, 2);
+                card.appendChild(sub);
+            }
+            reportsList.appendChild(card);
+        });
+    }
+    root.appendChild(reportsList);
 
     const srvHeading = document.createElement('h3');
     sty(srvHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
@@ -279,6 +322,16 @@ export async function mountSettingsPanel(host, ctx = {}) {
             return;
         }
         const payload = data.data && typeof data.data === 'object' ? data.data : {};
+        let evolutionReports = [];
+        try {
+            const repRes = await fetchJson(chatApiUrl('evolution_reports'));
+            if (repRes.res.ok && repRes.data.success === true && repRes.data.data && typeof repRes.data.data === 'object') {
+                evolutionReports = Array.isArray(repRes.data.data.reports) ? repRes.data.data.reports : [];
+            }
+        } catch {
+            evolutionReports = [];
+        }
+        payload.evolution_reports = evolutionReports;
         if (editableServers.length === 0) {
             editableServers = (Array.isArray(payload.tool_servers) ? payload.tool_servers : []).map((row) => ({
                 id: String(row.id ?? ''),
@@ -335,7 +388,15 @@ export async function mountSettingsPanel(host, ctx = {}) {
             body: JSON.stringify({ job }),
         });
         statusEl.style.color = res.ok && data.success === true ? UI.ink : UI.caution;
-        statusEl.textContent = res.ok && data.success === true ? label('cron_ok') : label('cron_fail');
+        if (res.ok && data.success === true) {
+            const result = data.data && typeof data.data === 'object' ? data.data.result : null;
+            statusEl.textContent = result && typeof result === 'object'
+                ? `${label('cron_ok')} ${String(result.report_id ?? '')} (${Number(result.sample_count ?? 0)} samples)`
+                : label('cron_ok');
+        } else {
+            statusEl.textContent = label('cron_fail');
+        }
+        await reload();
     }
 
     await reload();

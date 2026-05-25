@@ -8,6 +8,12 @@
     "conversation_id": { "type": ["string", "null"] },
     "purpose_id": { "type": "string", "default": "chat" },
     "mode_id": { "type": "string", "default": "default" },
+    "planner_mode_id": {
+      "type": "string",
+      "enum": ["default", "tot", "ddtree"],
+      "default": "default",
+      "description": "Planner expansion mode — distinct from desk/default UI mode_id."
+    },
     "messages": {
       "type": "array",
       "items": {

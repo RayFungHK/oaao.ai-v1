@@ -5411,6 +5411,10 @@ function createComposerCloseIconSvg() {
  * @param {HTMLElement} mount
  */
 const OAAO_CONV_MODE_STORAGE_PREFIX = 'oaao_conversation_mode_';
+const OAAO_PLANNER_MODE_STORAGE_PREFIX = 'oaao_planner_mode_';
+
+/** @type {Map<number, 'default' | 'tot' | 'ddtree'>} */
+const plannerModeByConversationId = new Map();
 
 /** @type {Set<number>} */
 const deskModeConversationIds = new Set();
@@ -5524,6 +5528,83 @@ function persistConversationDeskMode(conversationId) {
             ...workspaceChatBodyFields(),
         }),
     }).catch(() => {});
+}
+
+/** @param {'default' | 'tot' | 'ddtree'} mode */
+function normalizePlannerModeId(mode) {
+    const m = String(mode ?? '').trim().toLowerCase();
+    if (m === 'tot' || m === 'ddtree') return m;
+    return 'default';
+}
+
+/**
+ * @param {number} conversationId
+ * @returns {'default' | 'tot' | 'ddtree'}
+ */
+function readStoredPlannerMode(conversationId) {
+    const cid = Number(conversationId) || 0;
+    if (cid < 1) return 'default';
+    const cached = plannerModeByConversationId.get(cid);
+    if (cached) return cached;
+    try {
+        return normalizePlannerModeId(sessionStorage.getItem(`${OAAO_PLANNER_MODE_STORAGE_PREFIX}${cid}`));
+    } catch {
+        return 'default';
+    }
+}
+
+/**
+ * @param {number} conversationId
+ * @param {'default' | 'tot' | 'ddtree'} mode
+ */
+function rememberPlannerModeLocal(conversationId, mode) {
+    const cid = Number(conversationId) || 0;
+    if (cid < 1) return;
+    const normalized = normalizePlannerModeId(mode);
+    plannerModeByConversationId.set(cid, normalized);
+    try {
+        sessionStorage.setItem(`${OAAO_PLANNER_MODE_STORAGE_PREFIX}${cid}`, normalized);
+    } catch {
+        /* ignore */
+    }
+    for (const row of cachedConversations) {
+        if (Number(row.id) === cid) {
+            row.planner_mode_id = normalized;
+            break;
+        }
+    }
+}
+
+/**
+ * @param {number} conversationId
+ * @param {'default' | 'tot' | 'ddtree'} mode
+ */
+function persistPlannerMode(conversationId, mode) {
+    const cid = Number(conversationId) || 0;
+    if (cid < 1) return;
+    const normalized = normalizePlannerModeId(mode);
+    rememberPlannerModeLocal(cid, normalized);
+    void chatFetchJson(chatApiUrl('conversation_mode'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            conversation_id: cid,
+            planner_mode_id: normalized,
+            ...workspaceChatBodyFields(),
+        }),
+    }).catch(() => {});
+}
+
+/**
+ * @param {Array<{ id?: number, planner_mode_id?: string }>} rows
+ */
+function syncPlannerModesFromRows(rows) {
+    if (!Array.isArray(rows)) return;
+    for (const row of rows) {
+        const id = Number(row?.id) || 0;
+        if (id < 1) continue;
+        rememberPlannerModeLocal(id, normalizePlannerModeId(row.planner_mode_id));
+    }
 }
 
 /**
@@ -10071,6 +10152,7 @@ export async function mountShellPanel(mount) {
     const inputEl = mount.querySelector('[data-oaao-chat="input"]');
     const sendBtn = mount.querySelector('[data-oaao-chat="send"]');
     const threadToolbarEl = mount.querySelector('[data-oaao-chat="thread-toolbar"]');
+    const plannerModeSelectEl = mount.querySelector('[data-oaao-chat="planner-mode-select"]');
     const shareThreadBtn = mount.querySelector('[data-oaao-chat="share-thread"]');
     const archiveThreadBtn = mount.querySelector('[data-oaao-chat="archive-thread"]');
     const deleteThreadBtn = mount.querySelector('[data-oaao-chat="delete-thread"]');
@@ -10338,12 +10420,32 @@ export async function mountShellPanel(mount) {
             threadToolbarEl.style.removeProperty('background-color');
             threadToolbarEl.style.removeProperty('background-image');
         }
+        if (plannerModeSelectEl instanceof HTMLSelectElement) {
+            const cid = Number(activeConversationId) || 0;
+            const mode = cid > 0 ? readStoredPlannerMode(cid) : 'default';
+            if (plannerModeSelectEl.value !== mode) {
+                plannerModeSelectEl.value = mode;
+            }
+            plannerModeSelectEl.disabled = !(open && cid > 0);
+        }
         if (!open || !archiveThreadBtn) return;
         const row = cachedConversations.find((r) => Number(r.id) === activeConversationId);
         const archived = row ? Number(row.archived) === 1 : false;
         const label = archived ? 'Unarchive chat' : 'Archive chat';
         archiveThreadBtn.setAttribute('aria-label', label);
         archiveThreadBtn.title = label;
+    }
+
+    if (plannerModeSelectEl instanceof HTMLSelectElement) {
+        plannerModeSelectEl.addEventListener(
+            'change',
+            () => {
+                const cid = Number(activeConversationId) || 0;
+                if (cid < 1) return;
+                persistPlannerMode(cid, normalizePlannerModeId(plannerModeSelectEl.value));
+            },
+            { signal },
+        );
     }
 
     async function postMessageFeedback(conversationId, messageId, feedbackLike) {
@@ -10847,10 +10949,15 @@ export async function mountShellPanel(mount) {
                         kind === 'delta' &&
                         text !== ''
                     ) {
+                        const pDelta = envelope.payload;
+                        const replacePrior =
+                            pDelta &&
+                            typeof pDelta === 'object' &&
+                            Boolean(/** @type {Record<string, unknown>} */ (pDelta).replace_prior);
                         if (acc === '' && isStreamConversationVisible()) {
                             showRunStatusForMessage(mount, streamingMsgId, 'Writing…');
                         }
-                        acc += text;
+                        acc = replacePrior ? text : acc + text;
                         if (acc.trim().length > 0 && isStreamConversationVisible()) {
                             hideRunStatusForMessage(mount, streamingMsgId);
                         }
@@ -11296,6 +11403,7 @@ export async function mountShellPanel(mount) {
         }
         syncComposerBusyForActiveView(mount);
         updateChatLayout();
+        syncThreadToolbarStates();
     }
 
     function renderSidebar() {
@@ -11509,6 +11617,7 @@ export async function mountShellPanel(mount) {
                     }
                 }
                 syncConversationModesFromRows(cachedConversations);
+                syncPlannerModesFromRows(cachedConversations);
             }
             if (preferredId === null) {
                 activeConversationId = null;

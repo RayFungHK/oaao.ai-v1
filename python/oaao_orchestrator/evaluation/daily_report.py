@@ -6,7 +6,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from oaao_orchestrator.evaluation.evolution_store import list_low_score_cases, record_evolution_patch
+from oaao_orchestrator.evaluation.evolution_store import (
+    list_low_score_cases,
+    record_evolution_patch,
+    record_evolution_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,7 @@ async def run_daily_report(*, sample_limit: int = 20) -> dict[str, Any]:
             }
         )
     logger.info("daily evolution report id=%s samples=%s", report_id, len(cases))
+    await record_evolution_report(report)
     return report
 
 

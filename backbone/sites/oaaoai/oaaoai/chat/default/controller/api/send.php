@@ -312,6 +312,7 @@ return function (): void {
     $orchReady = $binding !== null && $internalBase !== '';
     $assistantInsertContent = $orchReady ? '' : $assistantStub;
     $conversationModeId = 'default';
+    $plannerModeId = 'default';
 
     try {
         $pdo->beginTransaction();
@@ -330,8 +331,14 @@ return function (): void {
             if ($paramsRaw !== '') {
                 try {
                     $paramsDec = json_decode($paramsRaw, true, 512, JSON_THROW_ON_ERROR);
-                    if (\is_array($paramsDec) && strtolower(trim((string) ($paramsDec['mode'] ?? ''))) === 'desk') {
-                        $conversationModeId = 'desk';
+                    if (\is_array($paramsDec)) {
+                        if (strtolower(trim((string) ($paramsDec['mode'] ?? ''))) === 'desk') {
+                            $conversationModeId = 'desk';
+                        }
+                        $pm = strtolower(trim((string) ($paramsDec['planner_mode_id'] ?? '')));
+                        if (\in_array($pm, ['default', 'tot', 'ddtree'], true)) {
+                            $plannerModeId = $pm;
+                        }
                     }
                 } catch (\JsonException) {
                 }
@@ -509,6 +516,7 @@ return function (): void {
                 'user_id'                => (string) $uid,
                 'purpose_id'             => 'chat',
                 'mode_id'                => $conversationModeId,
+                'planner_mode_id'        => $plannerModeId,
                 'messages'               => $messages,
                 'temperature'            => $binding['temperature'],
                 ...(isset($binding['max_tokens']) && (int) $binding['max_tokens'] > 0

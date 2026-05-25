@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from oaao_orchestrator.tools.openapi_adapter import openapi_to_openai_tools
+from oaao_orchestrator.tools.openapi_fetch import fetch_openapi_spec_sync
 
 
 @dataclass
@@ -22,7 +23,19 @@ class ToolServerSpec:
 _REGISTRY: dict[str, ToolServerSpec] = {}
 
 
+def ensure_openapi_spec(spec: ToolServerSpec) -> dict[str, Any] | None:
+    """Return cached or freshly fetched OpenAPI document for a tool server."""
+    if isinstance(spec.openapi_spec, dict) and spec.openapi_spec.get("paths"):
+        return spec.openapi_spec
+    fetched = fetch_openapi_spec_sync(base_url=spec.base_url, openapi_url=spec.openapi_url)
+    if fetched:
+        spec.openapi_spec = fetched
+        _REGISTRY[spec.id.strip()] = spec
+    return fetched
+
+
 def register_tool_server(spec: ToolServerSpec) -> None:
+    ensure_openapi_spec(spec)
     _REGISTRY[spec.id.strip()] = spec
 
 
@@ -74,8 +87,9 @@ def tools_for_purpose(purpose_id: str) -> list[dict[str, Any]]:
     load_tool_servers_from_env()
     out: list[dict[str, Any]] = []
     for spec in list_tool_servers(purpose_id=purpose_id):
-        if isinstance(spec.openapi_spec, dict):
-            out.extend(openapi_to_openai_tools(spec.openapi_spec))
+        oas = ensure_openapi_spec(spec)
+        if isinstance(oas, dict):
+            out.extend(openapi_to_openai_tools(oas))
     return out
 
 
