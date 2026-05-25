@@ -2931,14 +2931,17 @@
 .oaao-app .oaao-chat-composer-dropup-icon-slot {
     position: relative;
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
+    padding-top: 1.375rem;
+    box-sizing: content-box;
 }
 
 .oaao-app .oaao-chat-composer-dropup-arrow {
     position: absolute;
+    top: 0;
     left: 50%;
-    bottom: calc(100% + 3px);
     transform: translateX(-50%);
     display: inline-flex;
     align-items: center;
@@ -2961,6 +2964,8 @@
     z-index: 3;
 }
 
+.oaao-app .oaao-chat-composer-dropup-icon-slot:hover .oaao-chat-composer-dropup-arrow,
+.oaao-app .oaao-chat-composer-dropup-icon-slot:focus-within .oaao-chat-composer-dropup-arrow,
 .oaao-app .oaao-chat-composer-dropup-root:hover .oaao-chat-composer-dropup-arrow,
 .oaao-app .oaao-chat-composer-dropup-root:focus-within .oaao-chat-composer-dropup-arrow,
 .oaao-app .oaao-chat-composer-dropup-root.is-open .oaao-chat-composer-dropup-arrow {
@@ -2976,11 +2981,14 @@
 .oaao-app .oaao-chat-composer-dropup-anchor {
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 1.35rem);
+    bottom: calc(100% - 0.125rem);
     transform: translateX(-50%);
     z-index: 70;
     min-width: 10.5rem;
     max-width: min(18rem, calc(100vw - 2rem));
+    padding-bottom: 0.5rem;
+    margin-bottom: -0.5rem;
+    box-sizing: content-box;
 }
 
 .oaao-app .oaao-chat-composer-dropup-anchor.hidden,

@@ -9,7 +9,7 @@ const TICK_SVG =
     '<svg xmlns="http://www.w3.org/2000/svg" class="shrink-0 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 
 const DROPUP_STYLE_ID = 'oaao-composer-dropup-inline';
-const DROPUP_STYLE_REV = '20260525-composer-dropup-v20';
+const DROPUP_STYLE_REV = '20260525-composer-dropup-v21';
 
 /** Inline CSS — must not rely on cached {@code oaao-chat-shell.css} or Tailwind JIT. */
 function ensureComposerDropupStyles() {
@@ -22,11 +22,11 @@ function ensureComposerDropupStyles() {
     style.dataset.oaaoRev = DROPUP_STYLE_REV;
     style.textContent = `
 .oaao-chat-composer-dropup-root{position:relative;display:inline-flex;flex-direction:column;align-items:center;vertical-align:bottom}
-.oaao-chat-composer-dropup-icon-slot{position:relative;display:inline-flex;align-items:center;justify-content:center}
-.oaao-chat-composer-dropup-arrow{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:inline-flex;align-items:center;justify-content:center;width:1.125rem;height:1.125rem;padding:0;border:none;border-radius:999px;background:var(--grid-panel-bright,#fff);color:var(--grid-ink-muted,#666);box-shadow:0 1px 4px rgba(0,0,0,.14);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .14s ease,color .14s ease,background .14s ease;z-index:3}
-.oaao-chat-composer-dropup-root:hover .oaao-chat-composer-dropup-arrow,.oaao-chat-composer-dropup-root:focus-within .oaao-chat-composer-dropup-arrow,.oaao-chat-composer-dropup-root.is-open .oaao-chat-composer-dropup-arrow{opacity:1;pointer-events:auto}
+.oaao-chat-composer-dropup-icon-slot{position:relative;display:inline-flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-top:1.375rem;box-sizing:content-box}
+.oaao-chat-composer-dropup-arrow{position:absolute;top:0;left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;justify-content:center;width:1.125rem;height:1.125rem;padding:0;border:none;border-radius:999px;background:var(--grid-panel-bright,#fff);color:var(--grid-ink-muted,#666);box-shadow:0 1px 4px rgba(0,0,0,.14);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .14s ease,color .14s ease,background .14s ease;z-index:3}
+.oaao-chat-composer-dropup-icon-slot:hover .oaao-chat-composer-dropup-arrow,.oaao-chat-composer-dropup-icon-slot:focus-within .oaao-chat-composer-dropup-arrow,.oaao-chat-composer-dropup-root:hover .oaao-chat-composer-dropup-arrow,.oaao-chat-composer-dropup-root:focus-within .oaao-chat-composer-dropup-arrow,.oaao-chat-composer-dropup-root.is-open .oaao-chat-composer-dropup-arrow{opacity:1;pointer-events:auto}
 .oaao-chat-composer-dropup-arrow:hover{color:var(--grid-ink,#111);background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 35%,var(--grid-panel-bright,#fff))}
-.oaao-chat-composer-dropup-anchor{position:absolute;left:50%;bottom:calc(100% + 1.35rem);transform:translateX(-50%);z-index:70;min-width:10.5rem;max-width:min(18rem,calc(100vw - 2rem))}
+.oaao-chat-composer-dropup-anchor{position:absolute;left:50%;bottom:calc(100% - .125rem);transform:translateX(-50%);z-index:70;min-width:10.5rem;max-width:min(18rem,calc(100vw - 2rem));padding-bottom:.5rem;margin-bottom:-.5rem;box-sizing:content-box}
 .oaao-chat-composer-dropup-anchor.hidden,.oaao-chat-composer-dropup-anchor[hidden]{display:none!important}
 .oaao-chat-composer-dropup-panel{border-radius:10px;border:1px solid var(--grid-line,rgba(0,0,0,.12));background:var(--grid-panel-bright,#fff);box-shadow:0 8px 24px rgba(0,0,0,.14);overflow:hidden;color:var(--grid-ink,#111)}
 .oaao-chat-composer-dropup-heading{margin:0;padding:.5rem .625rem .25rem;font-size:.6875rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--grid-caption,#888)}
