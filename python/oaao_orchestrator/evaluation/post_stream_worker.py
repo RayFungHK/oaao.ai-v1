@@ -236,6 +236,7 @@ async def _run_evolution_post_stream(
                 "run_id": run_id,
                 "conversation_id": meta.get("conversation_id"),
                 "iqs_score": iqs_score,
+                "iqs_action": iqs_snap.get("iqs_action") if isinstance(iqs_snap, dict) else None,
                 "accs_score": float(accs_result.score),
                 "purpose_id": meta.get("purpose_id"),
                 "tool_chain": _tool_chain_from_plan(plan),

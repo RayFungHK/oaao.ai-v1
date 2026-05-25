@@ -29,6 +29,17 @@ const LABELS = {
         cron_weekly: 'Run weekly auto-apply now',
         cron_ok: 'Cron job completed.',
         cron_fail: 'Cron job failed.',
+        crystal_stats: 'Crystallized skills (in-memory)',
+        crystal_count: 'Skills loaded',
+        crystal_usage: 'Total recall usage',
+        iqs_actions: 'IQS action distribution (recent runs)',
+        iqs_actions_empty: 'No IQS action data yet.',
+        evolution_patches: 'Evolution patches',
+        patches_empty: 'No patches recorded.',
+        patch_approve: 'Approve',
+        patch_rollback: 'Rollback',
+        patch_ok: 'Patch updated.',
+        patch_fail: 'Patch action failed.',
         daily_reports: 'Recent daily reports',
         daily_reports_empty: 'No reports yet — run daily report or wait for cron.',
         report_samples: 'Samples',
@@ -62,7 +73,18 @@ const LABELS = {
         cron_weekly: '立即執行 weekly auto-apply',
         cron_ok: 'Cron 工作已完成。',
         cron_fail: 'Cron 工作失敗。',
-        daily_reports: '近期 daily reports',
+        crystal_stats: 'Crystallized skills（記憶體）',
+        crystal_count: '已載入 skills',
+        crystal_usage: 'Recall 使用次數',
+        iqs_actions: 'IQS action 分布（近期 runs）',
+        iqs_actions_empty: '尚無 IQS action 資料。',
+        evolution_patches: 'Evolution patches',
+        patches_empty: '尚無 patch 記錄。',
+        patch_approve: '核准',
+        patch_rollback: 'Rollback',
+        patch_ok: 'Patch 已更新。',
+        patch_fail: 'Patch 操作失敗。',
+        daily_reports: 'Recent daily reports',
         daily_reports_empty: '尚無 report — 請執行 daily report 或等待 cron。',
         report_samples: '樣本數',
         report_status: '狀態',
@@ -117,7 +139,7 @@ let editableServers = [];
 
 /**
  * @param {Record<string, unknown>} data
- * @param {{ onSave: () => void, onCron: (job: string) => void }} handlers
+ * @param {{ onSave: () => void, onCron: (job: string) => void, onPatch: (patchId: string, action: string) => void }} handlers
  */
 function renderPanel(data, handlers) {
     const root = document.createElement('div');
@@ -190,6 +212,63 @@ function renderPanel(data, handlers) {
         });
     }
     root.appendChild(reportsList);
+
+    const crystal = data.crystallization_stats && typeof data.crystallization_stats === 'object' ? data.crystallization_stats : {};
+    const crystalHeading = document.createElement('h3');
+    sty(crystalHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
+    crystalHeading.textContent = label('crystal_stats');
+    root.appendChild(crystalHeading);
+    const crystalP = document.createElement('p');
+    sty(crystalP, { fontSize: '13px', margin: '0' });
+    crystalP.textContent = `${label('crystal_count')}: ${crystal.skill_count ?? 0} · ${label('crystal_usage')}: ${crystal.total_usage ?? 0}`;
+    root.appendChild(crystalP);
+
+    const iqsHeading = document.createElement('h3');
+    sty(iqsHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
+    iqsHeading.textContent = label('iqs_actions');
+    root.appendChild(iqsHeading);
+    const iqsDist = data.iqs_action_distribution && typeof data.iqs_action_distribution === 'object' ? data.iqs_action_distribution : {};
+    const iqsP = document.createElement('p');
+    sty(iqsP, { fontSize: '13px', margin: '0', fontFamily: 'monospace' });
+    const iqsKeys = Object.keys(iqsDist);
+    iqsP.textContent = iqsKeys.length ? iqsKeys.map((k) => `${k}: ${iqsDist[k]}`).join(' · ') : label('iqs_actions_empty');
+    root.appendChild(iqsP);
+
+    const patchHeading = document.createElement('h3');
+    sty(patchHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
+    patchHeading.textContent = label('evolution_patches');
+    root.appendChild(patchHeading);
+    const patchList = document.createElement('div');
+    sty(patchList, { display: 'flex', flexDirection: 'column', gap: '8px' });
+    const patches = Array.isArray(data.evolution_patches) ? data.evolution_patches : [];
+    if (patches.length === 0) {
+        const emptyP = document.createElement('p');
+        sty(emptyP, { fontSize: '13px', color: UI.muted, margin: '0' });
+        emptyP.textContent = label('patches_empty');
+        patchList.appendChild(emptyP);
+    } else {
+        patches.forEach((patch) => {
+            if (!patch || typeof patch !== 'object') return;
+            const card = document.createElement('div');
+            sty(card, { border: `1px solid ${UI.line}`, borderRadius: '8px', padding: '10px 12px', fontSize: '12px' });
+            const pid = String(patch.patch_id ?? '—');
+            const status = String(patch.status ?? '—');
+            card.innerHTML = `<strong>${pid}</strong> · ${status}`;
+            const actions = document.createElement('div');
+            sty(actions, { display: 'flex', gap: '8px', marginTop: '8px' });
+            for (const [act, text] of [['approve', 'patch_approve'], ['rollback', 'patch_rollback']]) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = label(text);
+                sty(btn, { fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: `1px solid ${UI.line}`, background: '#fff', cursor: 'pointer' });
+                btn.addEventListener('click', () => handlers.onPatch(pid, act));
+                actions.appendChild(btn);
+            }
+            card.appendChild(actions);
+            patchList.appendChild(card);
+        });
+    }
+    root.appendChild(patchList);
 
     const srvHeading = document.createElement('h3');
     sty(srvHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
@@ -332,6 +411,16 @@ export async function mountSettingsPanel(host, ctx = {}) {
             evolutionReports = [];
         }
         payload.evolution_reports = evolutionReports;
+        try {
+            const patchRes = await fetchJson(chatApiUrl('evolution_patches'));
+            if (patchRes.res.ok && patchRes.data.success === true && patchRes.data.data && typeof patchRes.data.data === 'object') {
+                payload.evolution_patches = Array.isArray(patchRes.data.data.patches) ? patchRes.data.data.patches : [];
+            }
+        } catch {
+            payload.evolution_patches = [];
+        }
+        if (payload.crystallization_stats === undefined) payload.crystallization_stats = {};
+        if (payload.iqs_action_distribution === undefined) payload.iqs_action_distribution = {};
         if (editableServers.length === 0) {
             editableServers = (Array.isArray(payload.tool_servers) ? payload.tool_servers : []).map((row) => ({
                 id: String(row.id ?? ''),
@@ -347,6 +436,7 @@ export async function mountSettingsPanel(host, ctx = {}) {
             renderPanel(payload, {
                 onSave: (persist) => void persistServers(statusEl, wrap, ctx, persist),
                 onCron: (job) => void runCron(statusEl, job),
+                onPatch: (patchId, action) => void runPatchAction(statusEl, wrap, ctx, patchId, action),
             }),
         );
         wrap.querySelector('[data-oaao-skills-body]')?.remove();
@@ -396,6 +486,17 @@ export async function mountSettingsPanel(host, ctx = {}) {
         } else {
             statusEl.textContent = label('cron_fail');
         }
+        await reload();
+    }
+
+    async function runPatchAction(statusEl, wrap, ctx, patchId, action) {
+        const { res, data } = await fetchJson(chatApiUrl('evolution_patches'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ patch_id: patchId, action }),
+        });
+        statusEl.style.color = res.ok && data.success === true ? UI.ink : UI.caution;
+        statusEl.textContent = res.ok && data.success === true ? label('patch_ok') : label('patch_fail');
         await reload();
     }
 

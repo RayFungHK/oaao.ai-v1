@@ -92,3 +92,40 @@ def list_low_score_cases(*, limit: int = 50) -> list[dict[str, Any]]:
 
 def list_evolution_reports(*, limit: int = 10) -> list[dict[str, Any]]:
     return list(reversed(_MEMORY_REPORTS[-limit:]))
+
+
+def list_evolution_runs(*, limit: int = 500) -> list[dict[str, Any]]:
+    return list(_MEMORY_RUNS[-limit:])
+
+
+def list_evolution_patches(*, limit: int = 50) -> list[dict[str, Any]]:
+    return list(reversed(_MEMORY_PATCHES[-limit:]))
+
+
+def get_evolution_patch(patch_id: str) -> dict[str, Any] | None:
+    pid = (patch_id or "").strip()
+    for row in reversed(_MEMORY_PATCHES):
+        if str(row.get("patch_id") or "") == pid:
+            return dict(row)
+    return None
+
+
+def update_evolution_patch(patch_id: str, **fields: Any) -> dict[str, Any] | None:
+    pid = (patch_id or "").strip()
+    for i in range(len(_MEMORY_PATCHES) - 1, -1, -1):
+        if str(_MEMORY_PATCHES[i].get("patch_id") or "") == pid:
+            _MEMORY_PATCHES[i] = {**_MEMORY_PATCHES[i], **fields}
+            return dict(_MEMORY_PATCHES[i])
+    return None
+
+
+def iqs_action_distribution(*, limit: int = 500) -> dict[str, int]:
+    """Aggregate iqs_action counts from recent evolution runs."""
+    counts: dict[str, int] = {}
+    for row in _MEMORY_RUNS[-limit:]:
+        action = str(row.get("iqs_action") or "").strip()
+        if not action:
+            continue
+        counts[action] = counts.get(action, 0) + 1
+    return counts
+

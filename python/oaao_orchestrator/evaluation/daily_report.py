@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from oaao_orchestrator.evaluation.evolution_store import (
+    list_evolution_runs,
     list_low_score_cases,
     record_evolution_patch,
     record_evolution_report,
@@ -31,6 +32,11 @@ async def run_daily_report(*, sample_limit: int = 20) -> dict[str, Any]:
         for kind in row.get("tool_chain") or []:
             k = str(kind)
             accs_by_agent[k] = accs_by_agent.get(k, 0) + 1
+
+    for row in list_evolution_runs(limit=sample_limit * 10):
+        action = str(row.get("iqs_action") or "")
+        if action:
+            iqs_killers[action] = iqs_killers.get(action, 0) + 1
 
     report_id = f"daily-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
     report = {
@@ -74,6 +80,7 @@ async def run_weekly_auto_apply(*, min_repeat: int = 5) -> dict[str, Any]:
             {
                 "patch_id": patch_id,
                 "type": "system_prompt",
+                "status": "applied",
                 "applied_at": datetime.now(timezone.utc).isoformat(),
                 "diff": diff,
                 "source_report_id": report.get("report_id"),

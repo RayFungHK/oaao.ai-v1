@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\chat\MicroSkillsRegister;
 use oaaoai\endpoints\ToolServerRegister;
 use oaaoai\endpoints\ToolServerStorage;
@@ -57,6 +58,16 @@ return function (): void {
             'tool_servers_file'   => ToolServerStorage::configPath(),
             'tool_servers_persisted_count' => \count($persisted),
             'micro_skill_counts'  => $skillCounts,
+            'crystallization_stats' => (function () {
+                $resp = ChatOrchestratorApi::getInternalJson('/v1/admin/crystallization/stats', 15);
+
+                return \is_array($resp) ? $resp : [];
+            })(),
+            'iqs_action_distribution' => (function () {
+                $resp = ChatOrchestratorApi::getInternalJson('/v1/admin/evolution/metrics/iqs_actions', 15);
+
+                return \is_array($resp['distribution'] ?? null) ? $resp['distribution'] : [];
+            })(),
             'env_hints'           => [
                 'OAAO_SEARXNG_URL'          => (string) (getenv('OAAO_SEARXNG_URL') ?: ''),
                 'OAAO_SKILLS_MANIFEST_PATH' => (string) (getenv('OAAO_SKILLS_MANIFEST_PATH') ?: ''),

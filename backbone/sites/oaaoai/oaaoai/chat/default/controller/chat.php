@@ -803,6 +803,8 @@ return new class extends Controller {
                 'POST tool_servers_save'     => 'tool_servers_save',
                 'POST evolution_cron_run'    => 'evolution_cron_run',
                 'GET evolution_reports'      => 'evolution_reports',
+                'GET evolution_patches'      => 'evolution_patches',
+                'POST evolution_patches'     => 'evolution_patches',
                 'POST skills_discover'       => 'skills_discover',
                 'GET routing_purposes'       => 'routing_purposes',
                 'GET routing_profiles'       => 'routing_profiles',

@@ -20,6 +20,7 @@ import secrets
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -50,6 +51,12 @@ async def _lifespan(app: FastAPI):
         await ensure_evolution_collections()
     except Exception:
         logger.debug("ensure_evolution_collections skipped", exc_info=True)
+    try:
+        from oaao_orchestrator.crystallization.bootstrap import bootstrap_crystallized_skills  # noqa: PLC0415
+
+        await bootstrap_crystallized_skills()
+    except Exception:
+        logger.debug("bootstrap_crystallized_skills skipped", exc_info=True)
     yield
     await stop_post_stream_pools()
     poll_task.cancel()
@@ -519,6 +526,82 @@ async def tools_enrich_openapi(
     from oaao_orchestrator.tools.openapi_fetch import enrich_servers_with_openapi  # noqa: PLC0415
 
     return {"servers": enrich_servers_with_openapi(body.servers)}
+
+
+@app.get("/v1/admin/evolution/patches")
+async def evolution_patches_list(
+    limit: int = Query(default=20, ge=1, le=100),
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.evolution_store import list_evolution_patches  # noqa: PLC0415
+
+    return {"patches": list_evolution_patches(limit=limit)}
+
+
+@app.get("/v1/admin/evolution/metrics/iqs_actions")
+async def evolution_iqs_action_metrics(
+    limit: int = Query(default=500, ge=1, le=5000),
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.evolution_store import iqs_action_distribution  # noqa: PLC0415
+
+    dist = iqs_action_distribution(limit=limit)
+    return {"distribution": dist, "total": sum(dist.values())}
+
+
+@app.post("/v1/admin/evolution/patches/{patch_id}/approve")
+async def evolution_patch_approve(
+    patch_id: str,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.evolution_store import get_evolution_patch, update_evolution_patch  # noqa: PLC0415
+
+    row = get_evolution_patch(patch_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="patch_not_found")
+    updated = update_evolution_patch(
+        patch_id,
+        status="applied",
+        approved_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return {"patch": updated}
+
+
+@app.post("/v1/admin/evolution/rollback/{patch_id}")
+async def evolution_patch_rollback(
+    patch_id: str,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.evaluation.evolution_store import get_evolution_patch, update_evolution_patch  # noqa: PLC0415
+
+    row = get_evolution_patch(patch_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="patch_not_found")
+    updated = update_evolution_patch(
+        patch_id,
+        status="rolled_back",
+        rolled_back_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return {"patch": updated, "note": "Status recorded — live prompt store rollback is manual until PHP wiring lands."}
+
+
+@app.get("/v1/admin/crystallization/stats")
+async def crystallization_stats_endpoint(
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.crystallization.bootstrap import crystallization_stats  # noqa: PLC0415
+
+    return crystallization_stats()
 
 
 @app.post("/v1/admin/evolution/weekly_apply")

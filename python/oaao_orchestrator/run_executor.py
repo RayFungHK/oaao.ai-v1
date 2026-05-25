@@ -679,12 +679,28 @@ async def execute_chat_run(
         else:
             plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
 
-        from oaao_orchestrator.planner_modes import apply_mode_expansion  # noqa: PLC0415
+        from oaao_orchestrator.planner_modes import refine_plan_for_mode  # noqa: PLC0415
 
-        plan = apply_mode_expansion(
+        planner_mode_id = str(getattr(req, "planner_mode_id", None) or "default")
+        plan, planner_mode_meta = await refine_plan_for_mode(
             plan,
-            mode_id=str(getattr(req, "planner_mode_id", None) or "default"),
+            req=req,
+            mode_id=planner_mode_id,
+            chat_completions_url=planner_url,
+            api_key=planner_api_key,
+            model=planner_model,
+            allowed_agents=allowed_agents,
         )
+        if planner_mode_meta.get("mode") in ("tot", "ddtree"):
+            iqs_snap["planner_mode_meta"] = planner_mode_meta
+            await run.append(
+                StreamEnvelope(
+                    phase=PHASE_SYSTEM,
+                    kind=KIND_STATUS,
+                    text=f"planner_mode_{planner_mode_meta.get('mode')}",
+                    payload=planner_mode_meta,
+                )
+            )
 
         task_queue: list[RunTaskSpec] = list(plan.tasks)
         report_after_ids = set(plan.report_after_task_ids)
@@ -1210,16 +1226,46 @@ async def execute_chat_run(
                             )
                         )
 
+                    use_tool_loop = bool(merged_tools)
+
+                    async def _emit_llm_delta(piece: str) -> None:
+                        nonlocal t_first_token, out_chars
+                        if t_first_token is None:
+                            t_first_token = time.perf_counter()
+                        streamed_parts.append(piece)
+                        await run.append(
+                            StreamEnvelope(phase=PHASE_LLM, kind="delta", text=piece, payload={})
+                        )
+
                     async with httpx.AsyncClient(timeout=_llm_stream_timeout()) as client:
-                        async with client.stream("POST", url, headers=headers, json=body) as resp:
-                            if resp.status_code < 200 or resp.status_code >= 300:
-                                txt = await resp.aread()
-                                raw = txt.decode("utf-8", errors="replace")[:800]
+                        if use_tool_loop:
+                            from oaao_orchestrator.llm_tool_loop import stream_chat_with_tools  # noqa: PLC0415
+
+                            try:
+                                (
+                                    _tool_text,
+                                    finish_reason,
+                                    tool_out_chars,
+                                    completion_tokens,
+                                    prompt_tokens,
+                                ) = await stream_chat_with_tools(
+                                    client=client,
+                                    url=url,
+                                    headers=headers,
+                                    body=body,
+                                    messages=list(messages_for_llm),
+                                    on_delta=_emit_llm_delta,
+                                    cancelled=lambda: run.cancelled,
+                                )
+                                out_chars += tool_out_chars
+                            except httpx.HTTPStatusError as exc:
+                                status = exc.response.status_code if exc.response is not None else 0
+                                raw = (exc.response.text if exc.response is not None else str(exc))[:800]
                                 await run.append(
                                     StreamEnvelope(
                                         phase=PHASE_SYSTEM,
                                         kind="error",
-                                        text=f"upstream_http_{resp.status_code}",
+                                        text=f"upstream_http_{status}",
                                         payload={"body": _sanitize_client_text(raw, max_len=600)},
                                     )
                                 )
@@ -1240,61 +1286,91 @@ async def execute_chat_run(
                                     duration_ms=llm_ms,
                                 )
                                 return
-
-                            async for line in resp.aiter_lines():
-                                if run.cancelled:
-                                    run_failed = True
-                                    task_failed = True
-                                    break
-                                if not line or not line.startswith("data:"):
-                                    continue
-                                data_s = line[5:].strip()
-                                if data_s == "[DONE]":
-                                    break
-                                try:
-                                    chunk = json.loads(data_s)
-                                except json.JSONDecodeError:
-                                    continue
-                                if isinstance(chunk, dict):
-                                    usage = chunk.get("usage")
-                                    if isinstance(usage, dict):
-                                        ct = usage.get("completion_tokens")
-                                        pt = usage.get("prompt_tokens")
-                                        if isinstance(ct, int):
-                                            completion_tokens = ct
-                                        if isinstance(pt, int):
-                                            prompt_tokens = pt
-                                choices = chunk.get("choices") if isinstance(chunk, dict) else None
-                                if not isinstance(choices, list) or not choices:
-                                    continue
-                                choice0 = choices[0] if isinstance(choices[0], dict) else {}
-                                fr = choice0.get("finish_reason")
-                                if isinstance(fr, str) and fr.strip():
-                                    finish_reason = fr.strip()
-                                delta = choice0.get("delta") if isinstance(choice0, dict) else None
-                                if not isinstance(delta, dict):
-                                    continue
-                                piece = delta.get("content")
-                                if isinstance(piece, list):
-                                    buf: list[str] = []
-                                    for seg in piece:
-                                        if (
-                                            isinstance(seg, dict)
-                                            and seg.get("type") == "text"
-                                            and isinstance(seg.get("text"), str)
-                                        ):
-                                            buf.append(seg["text"])
-                                        elif isinstance(seg, str):
-                                            buf.append(seg)
-                                    piece = "".join(buf) if buf else None
-                                if isinstance(piece, str) and piece != "":
-                                    if t_first_token is None:
-                                        t_first_token = time.perf_counter()
-                                    out_chars += len(piece)
-                                    streamed_parts.append(piece)
+                        else:
+                            async with client.stream("POST", url, headers=headers, json=body) as resp:
+                                if resp.status_code < 200 or resp.status_code >= 300:
+                                    txt = await resp.aread()
+                                    raw = txt.decode("utf-8", errors="replace")[:800]
                                     await run.append(
-                                        StreamEnvelope(phase=PHASE_LLM, kind="delta", text=piece, payload={})
+                                        StreamEnvelope(
+                                            phase=PHASE_SYSTEM,
+                                            kind="error",
+                                            text=f"upstream_http_{resp.status_code}",
+                                            payload={"body": _sanitize_client_text(raw, max_len=600)},
+                                        )
                                     )
+                                    task_failed = True
+                                    run_failed = True
+                                    llm_ms = _finalize_run_task_timing(
+                                        pipeline_timing=pipeline_timing,
+                                        run_task=run_task,
+                                        task_t0=task_t0,
+                                    )
+                                    await emit_run_task_end(
+                                        run,
+                                        plan,
+                                        run_task,
+                                        allowed_agents=allowed_agents,
+                                        pipeline_snap=pipeline_snap,
+                                        failed=True,
+                                        duration_ms=llm_ms,
+                                    )
+                                    return
+
+                                async for line in resp.aiter_lines():
+                                    if run.cancelled:
+                                        run_failed = True
+                                        task_failed = True
+                                        break
+                                    if not line or not line.startswith("data:"):
+                                        continue
+                                    data_s = line[5:].strip()
+                                    if data_s == "[DONE]":
+                                        break
+                                    try:
+                                        chunk = json.loads(data_s)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if isinstance(chunk, dict):
+                                        usage = chunk.get("usage")
+                                        if isinstance(usage, dict):
+                                            ct = usage.get("completion_tokens")
+                                            pt = usage.get("prompt_tokens")
+                                            if isinstance(ct, int):
+                                                completion_tokens = ct
+                                            if isinstance(pt, int):
+                                                prompt_tokens = pt
+                                    choices = chunk.get("choices") if isinstance(chunk, dict) else None
+                                    if not isinstance(choices, list) or not choices:
+                                        continue
+                                    choice0 = choices[0] if isinstance(choices[0], dict) else {}
+                                    fr = choice0.get("finish_reason")
+                                    if isinstance(fr, str) and fr.strip():
+                                        finish_reason = fr.strip()
+                                    delta = choice0.get("delta") if isinstance(choice0, dict) else None
+                                    if not isinstance(delta, dict):
+                                        continue
+                                    piece = delta.get("content")
+                                    if isinstance(piece, list):
+                                        buf: list[str] = []
+                                        for seg in piece:
+                                            if (
+                                                isinstance(seg, dict)
+                                                and seg.get("type") == "text"
+                                                and isinstance(seg.get("text"), str)
+                                            ):
+                                                buf.append(seg["text"])
+                                            elif isinstance(seg, str):
+                                                buf.append(seg)
+                                        piece = "".join(buf) if buf else None
+                                    if isinstance(piece, str) and piece != "":
+                                        if t_first_token is None:
+                                            t_first_token = time.perf_counter()
+                                        out_chars += len(piece)
+                                        streamed_parts.append(piece)
+                                        await run.append(
+                                            StreamEnvelope(phase=PHASE_LLM, kind="delta", text=piece, payload={})
+                                        )
 
                     if finish_reason == "length":
                         await run.append(
