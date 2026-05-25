@@ -8,12 +8,13 @@ from typing import Any
 
 import httpx
 
+from oaao_orchestrator.evaluation.scorer_version import ACCS_SCORER_VERSION, IQS_SCORER_VERSION
 from oaao_orchestrator.php_boundary import assert_php_http_allowed, php_chat_api_base
 from oaao_orchestrator.post_stream_schemas import AccsScoreResult, IqsScoreResult
 
 logger = logging.getLogger(__name__)
 
-SCORER_VERSION = "post_stream_v1"
+SCORER_VERSION = f"{IQS_SCORER_VERSION}+{ACCS_SCORER_VERSION}"
 
 
 def _shared_secret() -> str:
@@ -36,7 +37,7 @@ async def upsert_turn_score(
         "conversation_id": int(cid) if cid.isdigit() else cid,
         "assistant_message_id": int(mid) if mid.isdigit() else mid,
         "plugin": plugin_id,
-        "scorer_version": SCORER_VERSION,
+        "scorer_version": IQS_SCORER_VERSION if plugin_id == "iqs" else ACCS_SCORER_VERSION,
     }
     if isinstance(score, IqsScoreResult):
         body.update(
@@ -73,6 +74,25 @@ async def upsert_turn_score(
             logger.warning(
                 "turn_score_upsert HTTP %s plugin=%s conversation_id=%s body=%s",
                 r.status_code,
+                plugin_id,
+                cid,
+                r.text[:300],
+            )
+            return False
+        try:
+            payload = r.json()
+        except ValueError:
+            logger.warning(
+                "turn_score_upsert non-JSON HTTP %s plugin=%s conversation_id=%s body=%s",
+                r.status_code,
+                plugin_id,
+                cid,
+                r.text[:300],
+            )
+            return False
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            logger.warning(
+                "turn_score_upsert rejected plugin=%s conversation_id=%s body=%s",
                 plugin_id,
                 cid,
                 r.text[:300],

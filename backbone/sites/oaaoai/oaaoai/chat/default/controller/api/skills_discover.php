@@ -2,8 +2,7 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__, 2) . '/library/MicroSkillCatalog.php';
-
+use oaaoai\chat\ChatOrchestratorBootstrap;
 use oaaoai\chat\MicroSkillCatalog;
 
 /**
@@ -66,8 +65,7 @@ return function (): void {
     $canonDb = $auth->getDB();
     $binding = null;
     if ($canonDb instanceof \Razy\Database) {
-        require_once dirname(__DIR__, 2) . '/library/ChatOrchestratorBootstrap.php';
-        $binding = \oaaoai\chat\ChatOrchestratorBootstrap::resolveDefaultBinding($canonDb);
+        $binding = ChatOrchestratorBootstrap::resolveDefaultBinding($canonDb);
     }
     if ($binding === null) {
         http_response_code(503);

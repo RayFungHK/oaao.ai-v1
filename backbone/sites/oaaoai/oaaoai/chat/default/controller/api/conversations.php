@@ -35,31 +35,13 @@ return function (): void {
     }
 
     try {
-        // Split SQLite adjunct — newest activity first ({@code >} = DESC in Razy order DSL).
         $includeArchived = isset($_GET['include_archived']) && (string) $_GET['include_archived'] === '1';
-        if ($includeArchived) {
-            $raw = $splitDb->prepare()
-                ->select('id, title, workspace_id, created_at, updated_at, archived, params_json')
-                ->from('conversation')
-                ->where('user_id=?,workspace_id=?')
-                ->assign(['user_id' => $uid, 'workspace_id' => $wid])
-                ->order('>updated_at,>created_at')
-                ->limit(200)
-                ->query()
-                ->fetchAll();
-        } else {
-            $raw = $splitDb->prepare()
-                ->select('id, title, workspace_id, created_at, updated_at, archived, params_json')
-                ->from('conversation')
-                ->where('user_id=?,workspace_id=?,archived=?')
-                ->assign(['user_id' => $uid, 'workspace_id' => $wid, 'archived' => 0])
-                ->order('>updated_at,>created_at')
-                ->limit(200)
-                ->query()
-                ->fetchAll();
-        }
-        /** @var list<array<string, mixed>> $rows */
-        $rows = \is_array($raw) ? $raw : [];
+        $rows = \oaaoai\chat\ChatConversationScope::listForUser(
+            $splitDb,
+            $uid,
+            $wid,
+            $includeArchived,
+        );
         $conversations = [];
         foreach ($rows as $row) {
             if (! \is_array($row)) {

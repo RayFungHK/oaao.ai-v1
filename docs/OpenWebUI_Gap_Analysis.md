@@ -234,7 +234,8 @@ Open WebUI 沒有「系統自己改自己 prompt」的能力；我們 Phase 11 D
 | **P0** | 模型切換 UI 暴露 | mode 下拉 | Phase 9 | chat header 加 mode_id × purpose_id 選單（後端契約已備） |
 | **P1** | Functions UI（上傳 / 灰度） | Functions | Phase 9 + Phase 11 | Skills Manager + evolution_patches |
 | **P1** | Web Search Tool | Web Search | Phase 10 | `tools/web_search.py` + SearXNG |
-| **P1** | TTS（語音輸出） | TTS | Phase 10 | 評估 piper / xtts |
+| **P1** | TTS（語音輸出） | TTS | Phase 10 | [Supertonic 3 purpose + Provider API](../backbone/sites/oaaoai/oaaoai/docs/backlog/multimodal-tts-provider-api.md) §2 |
+| **P2** | 圖/視頻生成與理解 | Multimodal | Phase 10+ | [Lance purpose + Provider API](../backbone/sites/oaaoai/oaaoai/docs/backlog/multimodal-tts-provider-api.md) §3 |
 | **P2** | LiteLLM-compat shim（接外部模型） | 多 backend | Phase 10 | OpenAI-compatible proxy 層 |
 | **P2** | SSO / OIDC | Auth | Phase 11 | Razy auth 模組擴充 |
 | **P2** | PWA / Mobile | Mobile | Phase 12 | 配合 RazyUI |

@@ -72,6 +72,32 @@ final class ChatVaultScope
     }
 
     /**
+     * Vault ids eligible for chat RAG — workspace vaults plus the user's personal vaults.
+     *
+     * Personal uploads (e.g. Regulatory Handbook in a personal vault) remain searchable while the
+     * user chats inside a workspace shell ({@see vaultIdsForUserWorkspace} is workspace-only when {@code $wid} is set).
+     *
+     * @return list<int>
+     */
+    public static function vaultIdsForRetrieval(Database $db, int $uid, ?int $wid, ?object $authApi = null): array
+    {
+        $scope = self::vaultIdsForUserWorkspace($db, $uid, $wid, $authApi);
+        if ($wid === null) {
+            return $scope;
+        }
+
+        $personal = self::vaultIdsForUserWorkspace($db, $uid, null, $authApi);
+        if ($personal === []) {
+            return $scope;
+        }
+
+        $merged = array_values(array_unique(array_merge($scope, $personal), SORT_NUMERIC));
+        sort($merged);
+
+        return $merged;
+    }
+
+    /**
      * Keep only vaults that have at least one {@code embed_status=embedded} document (Auto Source RAG).
      *
      * @param list<int> $vaultIds
@@ -139,7 +165,7 @@ final class ChatVaultScope
 
         $vaultIds = self::filterVaultIdsWithEmbeddedDocuments(
             $db,
-            self::vaultIdsForUserWorkspace($db, $uid, $wid),
+            self::vaultIdsForRetrieval($db, $uid, $wid),
         );
         if ($vaultIds === []) {
             return [];
@@ -235,7 +261,7 @@ final class ChatVaultScope
 
         $vaultIds = self::filterVaultIdsWithEmbeddedDocuments(
             $db,
-            self::vaultIdsForUserWorkspace($db, $uid, $wid),
+            self::vaultIdsForRetrieval($db, $uid, $wid),
         );
         if ($vaultIds === []) {
             return [];

@@ -380,6 +380,23 @@ return new class extends Controller {
             ]
         );
 
+        $evoQueueJs = '/webassets/core/default/js/oaao-evolution-queue-settings-panel.js';
+
+        SettingsRegister::add(
+            'settings-evolution-queue',
+            'Evolution queue',
+            'Background scoring queue',
+            'IQS / ACCS rescore jobs and post-stream worker pools — live status from the orchestrator.',
+            'layers',
+            [
+                'sort'            => 29,
+                'panel_js_module' => $evoQueueJs,
+                'label_key'       => 'settings.nav.evolution_queue.label',
+                'title_key'       => 'settings.nav.evolution_queue.title',
+                'sub_key'         => 'settings.nav.evolution_queue.sub',
+            ]
+        );
+
         /**
          * Preferences dialog — seed Dashboard + Settings here (same rationale as Settings rows).
          * Shell JS lives under {@code core} webassets so every install resolves {@code panel_js_module} without {@code oaaoai/user} load-order drift.

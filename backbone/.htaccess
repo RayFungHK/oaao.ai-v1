@@ -1,5 +1,8 @@
 RewriteEngine on
 
+# OAAO_ORCHESTRATOR_SIDECAR — Apache ProxyPass handles /sidecar (not PHP).
+RewriteRule ^sidecar(/.*)?$ - [L]
+
 # Detect base directory for subdirectory installs
 RewriteCond $0#%{REQUEST_URI} ^([^#]*)#(.*)\1$
 RewriteRule ^.*$ - [E=BASE:%2]

@@ -264,6 +264,30 @@ return new class extends Controller {
     /**
      * @return array<string, mixed>|null
      */
+    public function resolveOrchestratorPlannerPayload(): ?array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return null;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $planBind = $repo->resolvePlanningBinding();
+        if ($planBind === null) {
+            return null;
+        }
+        $chat = $this->api('chat');
+
+        return UiqePurposeConfig::jobPayloadFromBinding(
+            $planBind,
+            $chat
+                ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
+                : static fn (string $ref): ?string => null,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     public function resolveOrchestratorPolishPayload(): ?array
     {
         $db = $this->oaao_endpoints_canonical_db();
@@ -302,6 +326,7 @@ return new class extends Controller {
             'resolveRunPlannerMode'               => 'resolveRunPlannerMode',
             'resolveOrchestratorPolishPayload'    => 'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload'      => 'resolveOrchestratorUiqePayload',
+            'resolveOrchestratorPlannerPayload'   => 'resolveOrchestratorPlannerPayload',
         ]);
 
         $purposeAllocationListener = 'event/purpose_allocation_register_listener';
@@ -378,6 +403,7 @@ return new class extends Controller {
             'resolveRunPlannerMode',
             'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload',
+            'resolveOrchestratorPlannerPayload',
         ], true);
     }
 };

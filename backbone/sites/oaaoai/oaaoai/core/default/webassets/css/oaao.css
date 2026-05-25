@@ -304,6 +304,192 @@ body {
     box-sizing: border-box;
 }
 
+/*
+ * Chat composer — 48rem column + rounded card ({@code data-oaao-chat} attrs; always in global bundle).
+ * Do not rely on JIT {@code max-w-[48rem]} / {@code rounded-[22px]} / {@code items-center} or chat-shell lazy load.
+ */
+.oaao-app [data-oaao-chat='composer-region']:not(.oaao-chat-composer-region--thread-float) {
+    align-items: center;
+}
+
+.oaao-app [data-oaao-chat='composer-dock'] {
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    align-self: center;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.oaao-app [data-oaao-chat='composer-region']:not(.oaao-chat-composer-region--thread-float) > [data-oaao-chat='composer-dock'] {
+    padding-left: max(1.125rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.125rem, env(safe-area-inset-right, 0px));
+}
+
+@media (min-width: 640px) {
+    .oaao-app [data-oaao-chat='composer-region']:not(.oaao-chat-composer-region--thread-float) > [data-oaao-chat='composer-dock'] {
+        padding-left: max(2rem, env(safe-area-inset-left, 0px));
+        padding-right: max(2rem, env(safe-area-inset-right, 0px));
+    }
+}
+
+.oaao-app [data-oaao-chat='composer-card-wrap'] {
+    border-radius: 22px;
+    overflow: hidden;
+    box-sizing: border-box;
+    background: var(--grid-panel-bright, #fff);
+    border: none;
+    box-shadow:
+        0 12px 32px rgba(0, 0, 0, 0.02),
+        inset 0 0 0 1px color-mix(in srgb, var(--grid-ink, #111) 12%, transparent);
+}
+
+.oaao-app [data-oaao-chat='prompt-grid'] {
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    align-self: center;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    padding-left: max(1.125rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.125rem, env(safe-area-inset-right, 0px));
+}
+
+@media (min-width: 640px) {
+    .oaao-app [data-oaao-chat='prompt-grid'] {
+        padding-left: max(2rem, env(safe-area-inset-left, 0px));
+        padding-right: max(2rem, env(safe-area-inset-right, 0px));
+    }
+}
+
+/* Evolution queue settings panel — plain classes (no JIT arbitrary Tailwind). */
+.oaao-evolution-queue-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-width: 0;
+    max-width: 42rem;
+    width: 100%;
+}
+
+.oaao-evolution-queue-panel__intro {
+    font-size: 0.8125rem;
+    color: var(--grid-ink-muted, #666);
+    line-height: 1.45;
+    margin: 0;
+}
+
+.oaao-evolution-queue-panel__warn {
+    font-size: 0.8125rem;
+    color: var(--grid-caution, #b45309);
+    margin: 0 0 0.25rem;
+}
+
+.oaao-evolution-queue-panel__section-title {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--grid-caption, #888);
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+.oaao-evolution-queue-panel__updated {
+    font-size: 0.6875rem;
+    color: var(--grid-caption, #888);
+    margin: 0;
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+}
+
+.oaao-evolution-queue-status-card {
+    border-radius: 10px;
+    border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+    background: var(--grid-paper, #fafafa);
+    overflow: hidden;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.oaao-evolution-queue-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    min-height: 2.75rem;
+    padding: 0.875rem 1.25rem;
+    box-sizing: border-box;
+}
+
+.oaao-evolution-queue-status-row + .oaao-evolution-queue-status-row {
+    border-top: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+}
+
+.oaao-evolution-queue-status-row__label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--grid-ink, #111);
+    line-height: 1.4;
+    min-width: 0;
+}
+
+.oaao-evolution-queue-status-row__value {
+    font-size: 0.8125rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--grid-ink, #111);
+    flex-shrink: 0;
+    text-align: right;
+    line-height: 1.4;
+}
+
+.oaao-evolution-queue-table-wrap {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+    background: var(--grid-paper, #fafafa);
+}
+
+.oaao-evolution-queue-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.8125rem;
+}
+
+.oaao-evolution-queue-table thead tr {
+    border-bottom: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+    background: color-mix(in srgb, var(--grid-ink, #111) 4%, transparent);
+}
+
+.oaao-evolution-queue-table th {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--grid-caption, #888);
+}
+
+.oaao-evolution-queue-table td {
+    padding: 0.5rem 0.75rem;
+    vertical-align: top;
+}
+
+.oaao-evolution-queue-table tbody tr + tr {
+    border-top: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+}
+
+.oaao-evolution-queue-table__mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+}
+
+.oaao-evolution-queue-table__muted {
+    color: var(--grid-ink-muted, #666);
+    font-size: 0.75rem;
+}
+
 /* Wider column for multi-card grids (Agents catalog, etc.). */
 .oaao-app #workspace-view.oaao-workspace-layout--gallery .oaao-gallery-page-column--cards {
     max-width: 72rem;

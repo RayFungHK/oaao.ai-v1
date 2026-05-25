@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatConversationMaterial;
+use oaaoai\chat\ChatConversationTitle;
+use oaaoai\chat\ChatRunPrincipal;
+
 /**
  * POST /chat/api/assistant_internal_sync — orchestrator adjunct sync (materials / slide registry).
  *
@@ -38,8 +42,7 @@ return function (): void {
 
     $token = isset($input['run_principal']) && \is_string($input['run_principal']) ? trim($input['run_principal']) : '';
     if ($token !== '') {
-        require_once dirname(__DIR__, 2) . '/library/ChatRunPrincipal.php';
-        $principal = \oaaoai\chat\ChatRunPrincipal::verify($token);
+        $principal = ChatRunPrincipal::verify($token);
         if ($principal === null
             || (int) $principal['user_id'] !== $uid
             || (int) $principal['conversation_id'] !== $cid
@@ -142,8 +145,7 @@ return function (): void {
         }
 
         try {
-            require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
-            \oaaoai\chat\ChatConversationMaterial::syncFromMessageMeta(
+            ChatConversationMaterial::syncFromMessageMeta(
                 $pdo,
                 $cid,
                 $mid,
@@ -152,6 +154,13 @@ return function (): void {
         } catch (\Throwable $e) {
             $syncWarnings[] = 'materials_sync';
             error_log('assistant_internal_sync materials_sync: ' . $e->getMessage());
+        }
+
+        try {
+            ChatConversationTitle::maybeUpdateFromMeta($splitDb, $cid, $uid, $meta);
+        } catch (\Throwable $e) {
+            $syncWarnings[] = 'conversation_title';
+            error_log('assistant_internal_sync conversation_title: ' . $e->getMessage());
         }
 
         $out = ['success' => true];

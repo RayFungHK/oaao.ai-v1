@@ -72,6 +72,55 @@ function workspaceChatQueryParams() {
     return w != null ? { workspace_id: String(w) } : {};
 }
 
+/** @type {Map<number, number | null>} */
+const conversationWorkspaceById = new Map();
+
+/**
+ * @param {number} conversationId
+ * @param {unknown} workspaceId
+ */
+function rememberConversationWorkspace(conversationId, workspaceId) {
+    const cid = Math.floor(Number(conversationId));
+    if (!Number.isFinite(cid) || cid < 1) return;
+    const w = workspaceId == null || workspaceId === '' ? null : Math.floor(Number(workspaceId));
+    conversationWorkspaceById.set(cid, w != null && Number.isFinite(w) && w > 0 ? w : null);
+}
+
+/**
+ * Scope for thread APIs — prefer the conversation row's workspace over the shell default.
+ *
+ * @param {number} conversationId
+ */
+function chatScopeParamsForConversation(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    if (!Number.isFinite(cid) || cid < 1) {
+        return workspaceChatQueryParams();
+    }
+    const cached = cachedConversations.find((r) => Number(r.id) === cid);
+    const cachedWid =
+        cached?.workspace_id != null && Number(cached.workspace_id) > 0
+            ? Math.floor(Number(cached.workspace_id))
+            : null;
+    const remembered = conversationWorkspaceById.has(cid) ? conversationWorkspaceById.get(cid) : undefined;
+    const rowWid = cachedWid ?? (remembered !== undefined ? remembered : null);
+    if (rowWid != null && rowWid > 0) {
+        return { workspace_id: String(rowWid) };
+    }
+
+    // Personal thread (workspace_id IS NULL) — never send shell workspace_id on GET APIs.
+    return {};
+}
+
+/** POST JSON scope fields for a specific conversation (mirrors {@link chatScopeParamsForConversation}). */
+function chatScopeBodyFieldsForConversation(conversationId) {
+    const params = chatScopeParamsForConversation(conversationId);
+    const body = {};
+    if (params.workspace_id != null && String(params.workspace_id).trim() !== '') {
+        body.workspace_id = Number(params.workspace_id);
+    }
+    return body;
+}
+
 /** POST JSON fields for scoped chat APIs (empty object when personal). */
 function workspaceChatBodyFields() {
     const w = getOaaoActiveWorkspaceIdForChat();
@@ -987,15 +1036,26 @@ function syncComposerExtraToolbarVisibility(mount) {
 /** @type {Map<string, Promise<Record<string, unknown> | null>>} */
 const composerSlotModuleByUrl = new Map();
 
+function oaaoAppendShellEsmV(url) {
+    const u = String(url ?? '').trim();
+    const v = (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim() ?? '';
+    if (!u || !v) return u;
+    const join = u.includes('?') ? '&' : '?';
+
+    return `${u}${join}v=${encodeURIComponent(v)}`;
+}
+
 /**
  * @param {string} esmUrl
  */
 function loadComposerSlotModule(esmUrl) {
-    const key = esmUrl.trim();
-    if (!key) return Promise.resolve(null);
+    const base = esmUrl.trim();
+    if (!base) return Promise.resolve(null);
+    const v = (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim() ?? '';
+    const key = v ? `${base}?v=${v}` : base;
     let pending = composerSlotModuleByUrl.get(key);
     if (!pending) {
-        const url = oaaoPrefixedSitePath(key.startsWith('/') ? key : `/${key}`);
+        const url = oaaoAppendShellEsmV(oaaoPrefixedSitePath(base.startsWith('/') ? base : `/${base}`));
         pending = import(/* webpackIgnore: true */ url).catch(() => null);
         composerSlotModuleByUrl.set(key, pending);
     }
@@ -1455,10 +1515,119 @@ function oaaoLightweightMarkdownToHtml(md) {
  * @param {HTMLElement} bubble
  * @param {string} md
  */
+function readAssistantBubblePlainText(bubble) {
+    if (!(bubble instanceof HTMLElement)) return '';
+    return String(bubble.innerText || bubble.textContent || '').trim();
+}
+
+/** @param {HTMLElement | null | undefined} bubble */
+function assistantBubbleHasVisibleContent(bubble) {
+    return readAssistantBubblePlainText(/** @type {HTMLElement} */ (bubble)).length > 0;
+}
+
+/**
+ * @param {HTMLElement | Document} mount
+ * @param {HTMLElement | null | undefined} msgsHost
+ * @param {number | null | undefined} streamingMsgId
+ */
+function resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId) {
+    const mid = coercePositiveInt(streamingMsgId);
+    if (!mid) return null;
+    return (
+        getAssistantBubbleForMessage(mount, mid) ??
+        (msgsHost instanceof HTMLElement
+            ? msgsHost.querySelector(`[data-oaao-msg-id="${mid}"][data-oaao-msg-role="assistant"]`)
+            : null)
+    );
+}
+
+/**
+ * @param {number} conversationId
+ * @param {number} assistantMessageId
+ * @param {HTMLElement} bubble
+ */
+async function hydrateAssistantBubbleFromServer(conversationId, assistantMessageId, bubble) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        const { res, data } = await chatFetchJson(chatMessagesApiUrl(conversationId));
+        if (res.ok && data?.success && Array.isArray(data.messages)) {
+            const row = data.messages.find((m) => coercePositiveInt(m?.id) === assistantMessageId);
+            const content = String(row?.content ?? '').trim();
+            if (content) {
+                applyAssistantMarkdown(bubble, content);
+                return content;
+            }
+        }
+        if (attempt < 3) {
+            await new Promise((resolve) => {
+                setTimeout(resolve, 280 * (attempt + 1));
+            });
+        }
+    }
+    return '';
+}
+
+/** @type {Promise<{ citationMapsFromPipeline?: Function, hydrateInlineCitationPills?: Function }> | null} */
+let inlineCitationsModPromise = null;
+
+/** @type {WeakMap<HTMLElement, { vault: Map<number, Record<string, unknown>>, attachment: Map<string, Record<string, unknown>> }>} */
+const inlineCitationMapsByOuter = new WeakMap();
+
+/** @type {string | null} */
+let inlineCitationsModRev = null;
+
+function loadInlineCitationsMod() {
+    const rev = OAAO_CHAT_SHELL_ASSET_REV;
+    if (!inlineCitationsModPromise || inlineCitationsModRev !== rev) {
+        inlineCitationsModRev = rev;
+        const url = oaaoPrefixedSitePath(
+            `/webassets/rag/default/js/inline-citations.js?v=${encodeURIComponent(rev)}`,
+        );
+        inlineCitationsModPromise = import(/* webpackIgnore: true */ url).catch(() => ({}));
+    }
+    return inlineCitationsModPromise;
+}
+
+/**
+ * @param {HTMLElement} outer
+ * @param {Record<string, unknown> | null} pipeline
+ * @returns {Promise<{ vault: Map<number, Record<string, unknown>>, attachment: Map<string, Record<string, unknown>> } | null>}
+ */
+async function stashInlineCitationMaps(outer, pipeline) {
+    if (!(outer instanceof HTMLElement) || !pipeline) return null;
+    const mod = await loadInlineCitationsMod();
+    if (typeof mod.citationMapsFromPipeline !== 'function') return null;
+    const maps = mod.citationMapsFromPipeline(pipeline);
+    if (maps.vault.size || maps.attachment.size) {
+        inlineCitationMapsByOuter.set(outer, maps);
+    } else {
+        inlineCitationMapsByOuter.delete(outer);
+    }
+    return maps;
+}
+
+/**
+ * @param {HTMLElement} bubble
+ */
+async function hydrateInlineCitesForBubble(bubble) {
+    if (!(bubble instanceof HTMLElement)) return;
+    const outer = bubble.closest('.oaao-chat-assistant-row');
+    if (!(outer instanceof HTMLElement)) return;
+    let maps = inlineCitationMapsByOuter.get(outer);
+    if (!maps || (!maps.vault.size && !maps.attachment.size)) return;
+    const mod = await loadInlineCitationsMod();
+    if (typeof mod.hydrateInlineCitationPills === 'function' && bubble.isConnected) {
+        mod.hydrateInlineCitationPills(bubble, maps);
+    }
+}
+
+/**
+ * @param {HTMLElement} bubble
+ * @param {string} md
+ */
 function applyAssistantMarkdown(bubble, md) {
     const text = String(md ?? '');
     if (!text.trim()) {
-        bubble.textContent = '';
+        // Stream end must not wipe plain-text deltas when parse input is momentarily empty.
         bubble.classList.remove('oaao-md-bubble');
         return;
     }
@@ -1475,6 +1644,7 @@ function applyAssistantMarkdown(bubble, md) {
         bubble.classList.add('oaao-md-bubble');
         bubble.style.whiteSpace = '';
         bubble.innerHTML = html;
+        void hydrateInlineCitesForBubble(bubble);
         if (assistantTextNeedsMathRender(text)) {
             hydrateChatMarkdownMath(bubble);
         }
@@ -1562,7 +1732,18 @@ function loadChatComposerDialogCtor() {
 }
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260523-composer-pointer-toolbar-v';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260525-stream-ask-v18';
+
+/** Initial / incremental message page size ({@code GET messages}) — loaded from {@code chat_preferences}. */
+let chatHistoryPageSize = 5;
+
+/** @type {Map<number, Map<number, Record<string, unknown>>>} */
+const turnScoreCacheByConversation = new Map();
+
+/** @type {Map<number, { hasOlder: boolean, oldestId: number | null, loadingOlder: boolean }>} */
+const messagePageStateByConversation = new Map();
+
+let messageHistoryScrollBound = false;
 
 /** Open conversation overflow panel (fixed layer); cleared on sidebar re-render. */
 let openConvoMenuPanel = null;
@@ -1783,7 +1964,29 @@ function injectPipelineInlineStyles() {
     style.textContent = `
 .oaao-chat-pipeline-details>summary{list-style:none}
 .oaao-chat-pipeline-details>summary::-webkit-details-marker{display:none}
-.oaao-chat-pipeline-details>summary::marker{content:''}
+.oaao-inline-cite{display:inline-flex;align-items:center;justify-content:center;vertical-align:super;margin:0 .1em;padding:0;border:none;background:transparent;font:inherit;cursor:pointer;white-space:nowrap;line-height:1;text-decoration:none}
+.oaao-inline-cite__inner{display:inline-flex;align-items:baseline;gap:0;padding:.1em .38em;border-radius:4px;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 88%,transparent);background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 14%,var(--grid-panel-bright,#fff));box-shadow:none;font-size:.65em;font-weight:500;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--grid-ink-muted,#666);transition:background .12s ease,border-color .12s ease,color .12s ease}
+.oaao-inline-cite-fallback .oaao-inline-cite{vertical-align:middle;margin:0}
+.oaao-inline-cite-fallback .oaao-inline-cite__inner{align-items:center;justify-content:center;min-width:auto;min-height:1.35rem;padding:.15rem .45rem;font-size:.6875rem;line-height:1;letter-spacing:0;border-radius:5px}
+.oaao-inline-cite__num{color:var(--grid-ink,#111);font-weight:600}
+.oaao-inline-cite--vault .oaao-inline-cite__inner{color:var(--grid-ink-muted,#666)}
+.oaao-inline-cite--attachment .oaao-inline-cite__inner{border-color:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 88%,transparent);background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 14%,var(--grid-panel-bright,#fff));color:var(--grid-ink-muted,#666)}
+.oaao-inline-cite--attachment .oaao-inline-cite__prefix,.oaao-inline-cite--attachment .oaao-inline-cite__num{color:var(--grid-ink,#111);font-weight:600}
+.oaao-inline-cite:hover .oaao-inline-cite__inner,.oaao-inline-cite:focus-visible .oaao-inline-cite__inner{border-color:color-mix(in srgb,var(--grid-ink-muted,#666) 28%,var(--grid-line));background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 24%,var(--grid-panel-bright,#fff));color:var(--grid-ink,#111);box-shadow:none}
+.oaao-inline-cite-fallback{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem;margin-top:.45rem;padding:.45rem .65rem;border-radius:10px;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 88%,transparent);background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 12%,var(--grid-panel-bright,#fff));width:100%;min-width:0;box-sizing:border-box}
+.oaao-inline-cite-fallback__label{display:inline-flex;align-items:center;gap:.3rem;font-size:.6875rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--grid-caption,#666);flex-shrink:0}
+.oaao-inline-cite-fallback__label::before{content:'';width:.45rem;height:.45rem;border-radius:50%;background:var(--grid-caption,#888);opacity:.45}
+.oaao-inline-cite-popover{position:fixed;min-width:14rem;max-width:min(24rem,92vw);border-radius:14px;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 88%,transparent);background:var(--grid-panel-bright,#fff);color:var(--grid-ink,#111);box-shadow:0 14px 36px rgba(0,0,0,.14),0 2px 8px rgba(0,0,0,.06);pointer-events:auto;overflow:hidden;font-family:ui-sans-serif,system-ui,sans-serif;opacity:0;transform:translateY(4px);transition:opacity .16s ease,transform .16s ease}
+.oaao-inline-cite-popover.oaao-inline-cite-popover--visible{opacity:1;transform:translateY(0)}
+@keyframes oaao-cite-pop-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.oaao-inline-cite-popover__header{display:flex;align-items:flex-start;gap:.55rem;padding:.55rem .65rem;border-bottom:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 70%,transparent);background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 16%,var(--grid-panel-bright,#fff))}
+.oaao-inline-cite-popover__icon{display:inline-flex;align-items:center;justify-content:center;width:1.65rem;height:1.65rem;border-radius:8px;flex-shrink:0;font-size:.625rem;font-weight:700;letter-spacing:.02em;color:var(--grid-accent,#2563eb);background:color-mix(in srgb,var(--grid-accent,#2563eb) 14%,var(--grid-panel-bright,#fff));border:1px solid color-mix(in srgb,var(--grid-accent,#2563eb) 28%,var(--grid-line))}
+.oaao-inline-cite-popover__headtext{min-width:0;flex:1}
+.oaao-inline-cite-popover__title{font-size:.75rem;font-weight:600;line-height:1.35;color:var(--grid-ink,#111);word-break:break-word}
+.oaao-inline-cite-popover__subtitle{margin-top:.12rem;font-size:.6875rem;line-height:1.35;color:var(--grid-ink-muted,#666);word-break:break-word}
+.oaao-inline-cite-popover__body{padding:.55rem .65rem .65rem;font-size:.75rem;line-height:1.5;color:var(--grid-ink,#111);max-height:10rem;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.oaao-md-pre{overflow-x:auto;max-width:100%;margin:.35rem 0;padding:.65rem .75rem;border-radius:10px;background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 22%,var(--grid-panel-bright,#fff));border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 65%,transparent)}
+.oaao-md-pre code{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8125rem;line-height:1.45;white-space:pre-wrap;word-break:break-word}
 .oaao-chat-pipeline-details[open]>summary .oaao-chat-pipeline-details-chevron{transform:rotate(180deg)}
 .oaao-chat-pipeline-details-summary{display:flex;align-items:center;gap:.4rem;width:100%}
 .oaao-chat-pipeline-details-chevron{margin-left:auto;font-size:1rem}
@@ -1793,6 +1996,27 @@ function injectPipelineInlineStyles() {
 .oaao-chat-template-slug-pill{height:24px;max-height:24px;line-height:1;box-shadow:none;padding-left:3.5px;padding-right:3.5px;border-radius:.5rem;border-width:.5px;border-color:rgba(0,0,0,.15);background:transparent}
 .oaao-chat-template-slug-pill:hover{background:rgba(12,12,13,.04)}
 .oaao-chat-template-slug-pill .oaao-chat-template-slug-thumb,.oaao-chat-template-slug-pill img{width:11px;height:11px;border-radius:2px}
+[data-oaao-chat='composer-attachment-stack']{display:flex;flex-direction:column;gap:.5rem;width:100%;min-width:0;margin-bottom:.5rem}
+[data-oaao-chat='composer-attachment-stack'].hidden{display:none!important}
+.oaao-chat-attachment-card{position:relative;display:flex;flex-direction:row;align-items:center;gap:.65rem;width:100%;min-width:0;max-width:min(100%,20rem);padding:.55rem 2rem .55rem .65rem;border-radius:12px;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 88%,transparent);background:var(--grid-panel-bright,#fff);box-shadow:0 1px 2px rgba(0,0,0,.04);box-sizing:border-box}
+[data-oaao-chat='composer-attachment-stack'] .oaao-chat-attachment-card,[data-oaao-chat='composer-input-shell'] .oaao-chat-attachment-card{max-width:100%}
+[data-oaao-composer-busy='send'] [data-oaao-chat='composer-input-shell'],[data-oaao-composer-busy='stream'] [data-oaao-chat='composer-input-shell']{opacity:.52;pointer-events:none;transition:opacity .15s ease}
+[data-oaao-composer-busy='send'] [data-oaao-chat='composer-inner']{opacity:.78;transition:opacity .15s ease}
+[data-oaao-composer-busy='send'] [data-oaao-chat='composer-feature-toggles'] button,[data-oaao-composer-busy='send'] [data-oaao-chat='composer-registry-slots-left'] button,[data-oaao-composer-busy='send'] [data-oaao-chat='composer-registry-slots-actions'] button,[data-oaao-composer-busy='send'] [data-oaao-chat='composer-registry-extra-toolbar'] button{opacity:.45;pointer-events:none}
+button[data-oaao-chat='send'][data-oaao-composer-sending='1']{opacity:.85;cursor:wait}
+button[data-oaao-chat='send'][data-oaao-composer-sending='1']>[data-oaao-chat-icon='send']{opacity:0}
+button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after{content:'';position:absolute;left:50%;top:50%;width:1rem;height:1rem;margin:-.5rem 0 0 -.5rem;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:oaao-composer-send-spin .65s linear infinite;pointer-events:none}
+@keyframes oaao-composer-send-spin{to{transform:rotate(360deg)}}
+.oaao-chat-user-msg-attachments .oaao-chat-attachment-card{align-self:flex-end}
+.oaao-chat-attachment-card-icon{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;flex-shrink:0;border-radius:8px;background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 28%,transparent);color:var(--grid-ink-muted,#666)}
+.oaao-chat-attachment-card-icon svg{width:18px;height:18px;display:block}
+.oaao-chat-attachment-card-body{flex:1;min-width:0}
+.oaao-chat-attachment-card-name{font-size:.8125rem;line-height:1.25;font-weight:500;color:var(--grid-ink,#111);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oaao-chat-attachment-card-kind{margin-top:.1rem;font-size:.6875rem;line-height:1.2;color:var(--grid-caption,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oaao-chat-attachment-card-dismiss{position:absolute;top:.35rem;right:.35rem;display:inline-flex;align-items:center;justify-content:center;width:1.25rem;height:1.25rem;padding:0;border:none;border-radius:999px;background:transparent;color:var(--grid-caption,#888);cursor:pointer;line-height:0}
+.oaao-chat-attachment-card-dismiss:hover{background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 35%,transparent);color:var(--grid-ink,#111)}
+.oaao-chat-attachment-card-dismiss svg{width:14px;height:14px;display:block}
+.oaao-chat-user-msg-attachments{display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;width:100%;max-width:min(100%,20rem);min-width:0}
 .oaao-chat-pipeline-steps{display:flex;flex-direction:column;font-size:.8125rem;line-height:1.45}
 .oaao-chat-pipeline-step{display:grid;grid-template-columns:1.35rem minmax(0,1fr);column-gap:.65rem;padding-bottom:1.1rem;position:relative}
 .oaao-chat-pipeline-step:not(:last-child)::after{content:'';position:absolute;left:.65rem;top:1.45rem;bottom:.15rem;border-left:2px dotted color-mix(in srgb,var(--grid-line) 85%,transparent)}
@@ -1857,6 +2081,8 @@ function injectPipelineInlineStyles() {
 .oaao-task-agent-rail{display:flex;flex-direction:column;gap:8px;margin:0;padding:10px 14px 14px;box-sizing:border-box}
 .oaao-task-agent-rail.hidden{display:none!important}
 .oaao-task-list-row-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.oaao-task-duration-badge{font-size:11px;color:var(--grid-ink-muted,#888);font-variant-numeric:tabular-nums;align-self:flex-start}
+.oaao-chat-inline-step-copy .oaao-task-duration-badge{margin-top:2px}
 .oaao-task-list-row-agent{display:inline-flex;align-items:center;gap:5px;max-width:100%;font-size:11px;color:var(--grid-ink-muted,#666)}
 .oaao-task-list-row--active .oaao-task-list-row-agent{color:var(--grid-accent,#2563eb)}
 .oaao-task-list-row-agent-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;border-radius:4px;background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 40%,var(--grid-panel-bright,#fff))}
@@ -1865,13 +2091,22 @@ function injectPipelineInlineStyles() {
 .oaao-chat-task-panel .oaao-task-list-strip{border:none;background:transparent;flex:1 1 auto;min-height:0;overflow:hidden}
 .oaao-chat-task-panel .oaao-task-list-inner{border:none;border-radius:0;box-shadow:none;min-height:0;max-height:none;overflow-y:auto;padding:10px 14px 14px}
 .oaao-chat-task-panel .oaao-task-list-header{display:none}
-.oaao-app .oaao-chat-composer-region--thread-float{background:transparent}
-.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{pointer-events:none;background:transparent}
+.oaao-app [data-oaao-chat='composer-region']:not(.oaao-chat-composer-region--thread-float){align-items:center}
+.oaao-app [data-oaao-chat='composer-dock']{width:100%;max-width:48rem;margin-inline:auto;align-self:center;flex-shrink:0;box-sizing:border-box}
+.oaao-app [data-oaao-chat='composer-card-wrap']{border-radius:22px;overflow:hidden;box-sizing:border-box;background:#fff;border:1px solid rgba(0,0,0,.12);box-shadow:0 12px 32px rgba(0,0,0,.06)}
+.oaao-app .oaao-chat-composer-region--thread-float{position:relative;flex:0 0 auto;z-index:10;margin-top:-1.25rem;padding-top:1.25rem;pointer-events:none;width:100%;max-width:100%;padding-right:var(--oaao-thread-scrollbar-inset,0px);box-sizing:border-box;background:transparent}
+.oaao-app .oaao-chat-composer-region--thread-float::before{content:'';position:absolute;left:0;right:var(--oaao-thread-scrollbar-inset,0px);top:0;bottom:0;pointer-events:none;z-index:0;background:linear-gradient(to bottom,transparent 0%,var(--grid-paper,#fafafa) 1.25rem,var(--grid-paper,#fafafa) 100%)}
+.oaao-app .oaao-chat-composer-region--thread-float>*{position:relative;z-index:1}
+.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{pointer-events:auto;background:transparent;width:100%;max-width:48rem;margin-left:auto;margin-right:auto;padding-left:max(1.125rem,env(safe-area-inset-left,0px));padding-right:max(1.125rem,env(safe-area-inset-right,0px));box-sizing:border-box}
+@media (min-width:640px){.oaao-app .oaao-chat-composer-region--thread-float>[data-oaao-chat='composer-dock']{padding-left:max(2rem,env(safe-area-inset-left,0px));padding-right:max(2rem,env(safe-area-inset-right,0px))}}
 .oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-refs'],.oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-card-wrap'],.oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-extra-toolbar-wrap'],.oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer{pointer-events:auto}
-.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width{position:relative;padding-top:1.25rem;background:transparent}
-.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width::before{content:'';position:absolute;left:0;right:0;top:0;height:1.25rem;pointer-events:none;background:linear-gradient(to bottom,transparent 0%,color-mix(in srgb,var(--grid-paper,#fafafa) 45%,transparent) 100%)}
-.oaao-app .oaao-chat-composer-shell--thread [data-oaao-chat='composer-card-wrap']{position:relative;z-index:2;margin-top:0;border:1px solid color-mix(in srgb,var(--grid-ink,#111) 12%,transparent)!important;box-shadow:0 12px 32px rgba(0,0,0,.02)!important}
-.oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer{background:var(--grid-paper,#fafafa)}
+.oaao-app [data-oaao-chat='composer-shell'].oaao-chat-composer-shell--thread{padding-left:0!important;padding-right:0!important;width:100%;max-width:100%;justify-content:stretch}
+.oaao-app [data-oaao-chat='composer-shell']:not(.oaao-chat-composer-shell--thread){display:flex;justify-content:stretch;padding-left:0;padding-right:0;padding-bottom:.5rem}
+.oaao-app [data-oaao-chat='composer-shell']:not(.oaao-chat-composer-shell--thread)>.oaao-chat-composer-inner-width{width:100%;max-width:100%;margin-left:0;margin-right:0}
+.oaao-app .oaao-chat-composer-region:not(.oaao-chat-composer-region--thread-float)>[data-oaao-chat='composer-dock']{width:100%;max-width:48rem;margin-left:auto;margin-right:auto;padding-left:max(1.125rem,env(safe-area-inset-left,0px));padding-right:max(1.125rem,env(safe-area-inset-right,0px));box-sizing:border-box}
+@media (min-width:640px){.oaao-app .oaao-chat-composer-region:not(.oaao-chat-composer-region--thread-float)>[data-oaao-chat='composer-dock']{padding-left:max(2rem,env(safe-area-inset-left,0px));padding-right:max(2rem,env(safe-area-inset-right,0px))}}
+.oaao-app .oaao-chat-composer-shell--thread>.oaao-chat-composer-inner-width{padding-top:0;max-width:100%;width:100%}
+.oaao-app .oaao-chat-composer-shell--thread [data-oaao-chat='composer-card-wrap'],.oaao-app [data-oaao-chat='composer-card-wrap'].oaao-chat-composer--floating{margin-top:0}
 .oaao-app [data-oaao-chat='composer-extra-toolbar-wrap']{background:var(--grid-panel,#f5f5f5);border-top:1px solid var(--grid-line,rgba(0,0,0,.06))}
 .oaao-chat-inline-task-steps{margin:0 0 .65rem;font-size:.8125rem;line-height:1.5;color:var(--grid-ink-muted,#666)}
 .oaao-chat-inline-task-steps-inner{display:flex;flex-direction:column;gap:.65rem}
@@ -1916,13 +2151,32 @@ function injectPipelineInlineStyles() {
 .oaao-chat-convo-menu-item--danger{color:#dc2626}
 .oaao-chat-convo-menu-item--danger:hover{background:color-mix(in srgb,#dc2626 12%,transparent)}
 .oaao-chat-convo-menu-sep{height:1px;margin:.25rem 0;background:var(--grid-line)}
-.oaao-app .oaao-chat-thread-toolbar-row{position:sticky;top:0;z-index:25;align-self:flex-end;background:transparent}
-.oaao-app .oaao-chat-thread-toolbar-hint{display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:9999px;color:var(--grid-ink-muted,#666);background:transparent;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 70%,transparent)}
 .oaao-chat-run-status{display:inline-flex;align-items:center;gap:.5rem;padding:.15rem 0 .35rem;font-size:.875rem;color:var(--grid-ink-muted,#666)}
 .oaao-chat-run-status-dot{width:8px;height:8px;border-radius:50%;background:var(--grid-accent,#2563eb);animation:oaao-run-pulse 1.15s ease-in-out infinite}
 .oaao-chat-run-status-label{font-weight:500;color:var(--grid-ink,#111)}
 @keyframes oaao-run-pulse{0%,100%{opacity:.35;transform:scale(.88)}50%{opacity:1;transform:scale(1)}}
-@media (hover:hover){.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden) [data-oaao-chat=share-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden) [data-oaao-chat=archive-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden) [data-oaao-chat=delete-thread]{width:0;min-width:0;opacity:0;overflow:hidden;pointer-events:none;padding:0;border-width:0}.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):hover [data-oaao-chat=share-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):hover [data-oaao-chat=archive-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):hover [data-oaao-chat=delete-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):focus-within [data-oaao-chat=share-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):focus-within [data-oaao-chat=archive-thread],.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):focus-within [data-oaao-chat=delete-thread]{width:2.25rem;min-width:2.25rem;opacity:1;pointer-events:auto}.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):hover .oaao-chat-thread-toolbar-hint,.oaao-app .oaao-chat-thread-toolbar-row:not(.hidden):focus-within .oaao-chat-thread-toolbar-hint{display:none}}
+.oaao-chat-turn-score-pills{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;margin:.15rem 0 .35rem;width:100%}
+.oaao-chat-turn-score-pill{position:relative;display:inline-flex;align-items:center;padding:.12rem .55rem;border-radius:9999px;font-size:.6875rem;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.35;border:1px solid transparent;cursor:default;user-select:none}
+.oaao-chat-turn-score-pill--iqs{color:color-mix(in srgb,var(--grid-accent,#2563eb) 88%,var(--grid-ink,#111));background:color-mix(in srgb,var(--grid-accent,#2563eb) 10%,transparent);border-color:color-mix(in srgb,var(--grid-accent,#2563eb) 28%,transparent)}
+.oaao-chat-turn-score-pill--accs{color:color-mix(in srgb,#059669 88%,var(--grid-ink,#111));background:color-mix(in srgb,#059669 10%,transparent);border-color:color-mix(in srgb,#059669 28%,transparent)}
+.oaao-chat-turn-score-pill--pending{opacity:.55}
+.oaao-chat-turn-score-pill--has-tip{cursor:help}
+.oaao-chat-turn-score-card{position:fixed;min-width:11.5rem;max-width:min(16rem,88vw);padding:0;border-radius:12px;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 88%,transparent);background:var(--grid-panel-bright,#fff);color:var(--grid-ink,#111);box-shadow:0 12px 32px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.05);pointer-events:none;font-family:ui-sans-serif,system-ui,sans-serif;overflow:hidden;animation:oaao-cite-pop-in .14s ease-out;z-index:9100}
+.oaao-chat-turn-score-card__head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.45rem .6rem;border-bottom:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 72%,transparent)}
+.oaao-chat-turn-score-card--iqs .oaao-chat-turn-score-card__head{background:color-mix(in srgb,var(--grid-accent,#2563eb) 8%,var(--grid-panel-bright,#fff))}
+.oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__head{background:color-mix(in srgb,#059669 8%,var(--grid-panel-bright,#fff))}
+.oaao-chat-turn-score-card__title{font-size:.6875rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.oaao-chat-turn-score-card--iqs .oaao-chat-turn-score-card__title{color:color-mix(in srgb,var(--grid-accent,#2563eb) 88%,var(--grid-ink,#111))}
+.oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__title{color:color-mix(in srgb,#059669 88%,var(--grid-ink,#111))}
+.oaao-chat-turn-score-card__score{font-size:.8125rem;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.oaao-chat-turn-score-card__dims{display:flex;flex-direction:column;gap:.42rem;padding:.5rem .6rem .58rem}
+.oaao-chat-turn-score-card__dim{display:grid;grid-template-columns:minmax(0,1fr) minmax(3.2rem,auto);grid-template-rows:auto 5px;column-gap:.45rem;row-gap:.22rem;align-items:start}
+.oaao-chat-turn-score-card__dim-label{grid-column:1;grid-row:1;font-size:.6875rem;color:var(--grid-ink-muted,#666);line-height:1.2}
+.oaao-chat-turn-score-card__dim-val{grid-column:2;grid-row:1 / span 2;align-self:center;font-size:.6875rem;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-align:right;color:var(--grid-ink,#111)}
+.oaao-chat-turn-score-card__dim-bar{grid-column:1;grid-row:2;height:5px;min-height:5px;max-height:5px;align-self:stretch;border-radius:999px;background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 55%,transparent);overflow:hidden;line-height:0}
+.oaao-chat-turn-score-card__dim-fill{display:block;height:5px;min-height:5px;border-radius:inherit;background:var(--grid-accent,#2563eb);opacity:.85}
+.oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__dim-fill{background:#059669}
+.oaao-chat-turn-score-floater{position:absolute;min-width:9rem;max-width:min(16rem,70vw);padding:.4rem .55rem;border-radius:8px;border:1px solid var(--grid-line,rgba(0,0,0,.12));background:var(--grid-panel-bright,#fff);color:var(--grid-ink,#111);font-size:.6875rem;font-weight:500;line-height:1.45;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.08);pointer-events:none;font-family:ui-sans-serif,system-ui,sans-serif}
 `;
     document.head.append(style);
 }
@@ -2126,6 +2380,41 @@ function buildOaaoTaskRowAgentChip(agentKind) {
 
 /**
  * @param {OaaoTaskItemState} row
+ * @returns {HTMLSpanElement | null}
+ */
+function buildOaaoTaskDurationBadge(row) {
+    const st = oaaoEffectiveTaskRowStatus(row);
+    if (st !== 'done' && st !== 'failed' && st !== 'skipped') return null;
+    const dur = formatOaaoDurationMs(row.duration_ms);
+    if (!dur) return null;
+    const badge = document.createElement('span');
+    badge.className = 'oaao-task-duration-badge';
+    badge.textContent = dur;
+    badge.title = oaaoChatT('chat.task.duration_hint', 'Step duration');
+    return badge;
+}
+
+/**
+ * @param {HTMLElement} copyCol
+ * @param {OaaoTaskItemState} row
+ */
+function syncOaaoTaskDurationBadge(copyCol, row) {
+    if (!(copyCol instanceof HTMLElement)) return;
+    let badge = copyCol.querySelector('.oaao-task-duration-badge');
+    const next = buildOaaoTaskDurationBadge(row);
+    if (!next) {
+        badge?.remove();
+        return;
+    }
+    if (badge instanceof HTMLElement) {
+        badge.textContent = next.textContent;
+        return;
+    }
+    copyCol.append(next);
+}
+
+/**
+ * @param {OaaoTaskItemState} row
  * @returns {HTMLSpanElement}
  */
 function buildOaaoTaskRowCopyColumn(row) {
@@ -2137,6 +2426,8 @@ function buildOaaoTaskRowCopyColumn(row) {
     col.append(text);
     const chip = buildOaaoTaskRowAgentChip(row.agent_kind);
     if (chip) col.append(chip);
+    const durBadge = buildOaaoTaskDurationBadge(row);
+    if (durBadge) col.append(durBadge);
     return col;
 }
 
@@ -2366,6 +2657,10 @@ function applyOaaoAgentAskDecisionLocally(conversationId, taskId, decision) {
         document;
     persistOaaoTaskListStrip(root, conversationId);
     renderOaaoTaskListForConversation(root, conversationId, state);
+    if (conversationId === activeConversationId) {
+        const mount = root instanceof HTMLElement ? root : document.querySelector('[data-module="oaao-chat"]');
+        if (mount instanceof HTMLElement) syncComposerBusyForActiveView(mount);
+    }
 }
 
 function oaaoResolveAgentAskTaskId(taskId, conversationId, agentKind = '') {
@@ -2469,12 +2764,22 @@ function buildOaaoAgentAskBar(row, conversationId) {
             unlockButtons();
             toastOaao(
                 result.message ||
-                    oaaoChatT('chat.agent_ask.failed', 'Could not apply agent decision'),
+                    oaaoChatT(
+                        'chat.agent_ask.failed',
+                        'Could not apply agent decision — try again (server may have timed out).',
+                    ),
             );
             return;
         }
         applyOaaoAgentAskDecisionLocally(conversationId, taskId, decision);
         wrap.remove();
+        streamPausedForAgentAskByConversation.delete(conversationId);
+        if (!streamHandlesByConversation.has(conversationId)) {
+            resumeAssistantStreamAfterAgentAsk(conversationId);
+        } else if (conversationId === activeConversationId) {
+            const mount = document.querySelector('[data-module="oaao-chat"]');
+            if (mount instanceof HTMLElement) syncComposerBusyForActiveView(mount);
+        }
     };
 
     proceedBtn.addEventListener('click', () => {
@@ -3267,6 +3572,37 @@ function oaaoSlideWorkersParentIdForRunTask(runTaskId) {
     return m ? `${m[1]}-slides` : null;
 }
 
+/** Hide planned slide workers until slide_designer ask is answered — avoids "stuck mid-build" look. */
+function oaaoSlideDesignerAskPending(state) {
+    if (!state?.items?.size) return false;
+    for (const item of state.items.values()) {
+        if (String(item.status ?? '') !== 'awaiting_ask' || !item.ask) continue;
+        if (isSlideDesignerAgentKind(item.agent_kind ?? item.ask.agent_kind)) return true;
+    }
+    return false;
+}
+
+/** @param {OaaoTaskListState} state */
+function oaaoTaskRowsForDisplay(state) {
+    const rows = [...state.items.values()];
+    if (!oaaoSlideDesignerAskPending(state)) return rows;
+    return rows.filter((row) => !row.slide_workers);
+}
+
+/**
+ * @param {number | null | undefined} conversationId
+ */
+function conversationHasPendingAgentAsk(conversationId) {
+    const cid = conversationId != null ? Math.floor(Number(conversationId)) : 0;
+    if (!Number.isFinite(cid) || cid < 1) return false;
+    const state = getOaaoTaskListStateForConversation(cid);
+    if (!state?.items?.size) return false;
+    for (const item of state.items.values()) {
+        if (String(item.status ?? '') === 'awaiting_ask' && item.ask) return true;
+    }
+    return false;
+}
+
 /**
  * @param {Array<{ status?: string }>} agentTasks
  */
@@ -3464,6 +3800,8 @@ function buildOaaoInlineStepBlock(row, conversationId = 0) {
     title.className = 'oaao-chat-inline-step-title';
     title.textContent = String(row.title ?? '—');
     copy.append(title);
+    const durBadge = buildOaaoTaskDurationBadge(row);
+    if (durBadge) copy.append(durBadge);
     main.append(copy);
     block.append(main);
 
@@ -3589,6 +3927,10 @@ function patchOaaoInlineStepBlock(block, row, conversationId = 0) {
     if (title instanceof HTMLElement) {
         title.textContent = String(row.title ?? '—');
     }
+    const copyCol = block.querySelector('.oaao-chat-inline-step-copy');
+    if (copyCol instanceof HTMLElement) {
+        syncOaaoTaskDurationBadge(copyCol, row);
+    }
 
     let askEl = block.querySelector('[data-oaao-agent-ask="1"]');
     const askBar = buildOaaoAgentAskBar(row, conversationId);
@@ -3637,7 +3979,7 @@ function patchOaaoInlineStepBlock(block, row, conversationId = 0) {
  * @param {OaaoTaskListState} state
  */
 function patchOaaoInlineTaskStepsFromState(host, state) {
-    const rows = [...state.items.values()];
+    const rows = oaaoTaskRowsForDisplay(state);
     if (!rows.length) {
         host.replaceChildren();
         host.hidden = true;
@@ -3687,7 +4029,7 @@ function patchOaaoInlineTaskStepsFromState(host, state) {
  * @param {OaaoTaskListState} state
  */
 function renderOaaoInlineTaskStepsFromState(host, state) {
-    const rows = [...state.items.values()];
+    const rows = oaaoTaskRowsForDisplay(state);
     if (!rows.length) {
         host.replaceChildren();
         host.hidden = true;
@@ -3763,7 +4105,7 @@ function oaaoChatT(key, fallback) {
 }
 
 /**
- * @typedef {{ id: string, title: string, status: string, agent_kind?: string, parallel_ok?: boolean, slide_index?: number, slide_workers?: boolean, sub_open?: boolean, ask?: { run_id: string, task_id: string, message: string, title: string, proceed_label: string, skip_label: string, agent_kind: string }, agent_tasks?: Array<{ id: string, title: string, status: string, preview?: Record<string, unknown> }> }} OaaoTaskItemState
+ * @typedef {{ id: string, title: string, status: string, agent_kind?: string, parallel_ok?: boolean, slide_index?: number, slide_workers?: boolean, sub_open?: boolean, duration_ms?: number, ask?: { run_id: string, task_id: string, message: string, title: string, proceed_label: string, skip_label: string, agent_kind: string }, agent_tasks?: Array<{ id: string, title: string, status: string, preview?: Record<string, unknown>, duration_ms?: number }> }} OaaoTaskItemState
  * @typedef {{ items: Map<string, OaaoTaskItemState>, abilities: Array<{ name?: string, description?: string }>, allowed_agents: string[], collapsed: boolean, panelView: 'steps' | 'agents' }} OaaoTaskListState
  */
 
@@ -4627,6 +4969,12 @@ function mergeOaaoTaskListPayload(payload, prev) {
             ...(pendingAsk ? { ask: pendingAsk } : {}),
             ...(prior?.sub_open !== undefined ? { sub_open: prior.sub_open } : {}),
         };
+        const rawDur = raw.duration_ms != null ? Number(raw.duration_ms) : NaN;
+        if (Number.isFinite(rawDur) && rawDur >= 0) {
+            row.duration_ms = rawDur;
+        } else if (prior?.duration_ms != null && Number.isFinite(Number(prior.duration_ms))) {
+            row.duration_ms = Number(prior.duration_ms);
+        }
         finalizeAgentSubtasksWhenParentTerminal(row);
         ordered.set(id, row);
     }
@@ -4758,7 +5106,7 @@ function renderOaaoTaskListStripFromState(host, state) {
         return;
     }
 
-    const rows = [...state.items.values()];
+    const rows = oaaoTaskRowsForDisplay(state);
     if (!rows.length) {
         host.innerHTML = '';
         host.setAttribute('hidden', '');
@@ -5399,6 +5747,7 @@ function syncChatComposerChips(mount) {
     syncComposerSlideDeckMode(mount);
     renderChatComposerActiveTemplateChip(mount);
     renderChatComposerActiveMaterialChip(mount);
+    renderChatComposerAttachmentChips(mount);
 }
 
 /**
@@ -5698,7 +6047,195 @@ function resolveUserMessageDisplayText(contentText, meta, tpl = null) {
     if (hit && isVagueTemplateComposerBody(text, hit.label)) {
         text = '';
     }
+    const attachments = parseMessageAttachmentManifest(meta);
+    if (attachments.length) {
+        const trimmed = text.trim();
+        const genericAttachmentSend =
+            trimmed === 'Please read the attached file(s) and respond helpfully.' ||
+            trimmed === oaaoChatT(
+                'chat.attachment.default_send_prompt',
+                'Please read the attached file(s) and respond helpfully.',
+            );
+        if (genericAttachmentSend) {
+            text = '';
+        }
+    }
     return text;
+}
+
+/**
+ * @param {{ file_name?: string, mime_type?: string, kind?: string }} att
+ * @returns {string}
+ */
+function resolveChatAttachmentKind(att) {
+    const kind = String(att?.kind ?? '').trim().toLowerCase();
+    if (kind && kind !== 'other') return kind;
+    const name = String(att?.file_name ?? '').trim().toLowerCase();
+    const mime = String(att?.mime_type ?? '').trim().toLowerCase();
+    if (name.endsWith('.pdf') || mime.includes('pdf')) return 'pdf';
+    if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/.test(name)) return 'image';
+    if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|flac)$/.test(name)) return 'audio';
+    if (
+        mime.startsWith('text/') ||
+        mime.includes('json') ||
+        /\.(txt|md|markdown|json|csv|log|xml|html?|yaml|yml|toml|ini|env)$/.test(name)
+    ) {
+        return 'text';
+    }
+    return 'other';
+}
+
+/**
+ * @param {string} kind
+ * @returns {string}
+ */
+function chatAttachmentKindIconClass(kind) {
+    const k = String(kind ?? '').toLowerCase();
+    if (k === 'pdf') return 'ri-file-pdf-line';
+    if (k === 'text') return 'ri-file-text-line';
+    if (k === 'image') return 'ri-image-line';
+    if (k === 'audio') return 'ri-mic-line';
+    return 'ri-attachment-2';
+}
+
+/**
+ * @param {string} kind
+ * @returns {string}
+ */
+function chatAttachmentKindLabel(kind) {
+    const k = String(kind ?? '').toLowerCase();
+    if (k === 'text') return oaaoChatT('chat.attachment.kind.text', 'Plain Text');
+    if (k === 'pdf') return oaaoChatT('chat.attachment.kind.pdf', 'PDF');
+    if (k === 'image') return oaaoChatT('chat.attachment.kind.image', 'Image');
+    if (k === 'audio') return oaaoChatT('chat.attachment.kind.audio', 'Audio');
+    return oaaoChatT('chat.attachment.kind.file', 'File');
+}
+
+/**
+ * @param {{ file_name: string, mime_type?: string, kind?: string, byte_size?: number, disposed?: boolean }} att
+ * @param {(() => void) | null} [onRemove]
+ * @param {{ readOnly?: boolean, variant?: 'composer' | 'history' }} [opts]
+ */
+function createAttachmentCardNode(att, onRemove, opts = {}) {
+    const readOnly = opts.readOnly === true;
+    const label = String(att.file_name ?? 'attachment').trim() || 'attachment';
+    const kind = resolveChatAttachmentKind(att);
+    const disposed = att.disposed !== false;
+    const kindLabel = chatAttachmentKindLabel(kind);
+
+    const card = document.createElement('div');
+    card.className = 'oaao-chat-attachment-card';
+    card.setAttribute('role', 'group');
+    card.title = disposed
+        ? `${label} (${oaaoChatT('chat.attachment.disposed_hint', 'processed for this turn only')})`
+        : label;
+
+    const iconBox = document.createElement('span');
+    iconBox.className = 'oaao-chat-attachment-card-icon';
+    iconBox.setAttribute('aria-hidden', 'true');
+    iconBox.append(buildChatAttachmentKindIconSvg(kind, 'w-[18px] h-[18px]'));
+
+    const body = document.createElement('div');
+    body.className = 'oaao-chat-attachment-card-body min-w-0';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'oaao-chat-attachment-card-name truncate';
+    nameEl.textContent = label;
+
+    const kindEl = document.createElement('div');
+    kindEl.className = 'oaao-chat-attachment-card-kind truncate';
+    kindEl.textContent = kindLabel;
+
+    body.append(nameEl, kindEl);
+    card.append(iconBox, body);
+
+    if (!readOnly && typeof onRemove === 'function') {
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'oaao-chat-attachment-card-dismiss';
+        dismiss.setAttribute('aria-label', oaaoChatT('chat.attachment.remove', 'Remove attachment'));
+        dismiss.append(createComposerCloseIconSvg());
+        dismiss.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            onRemove();
+        });
+        card.append(dismiss);
+    }
+
+    return card;
+}
+
+/**
+ * @param {HTMLElement} mount
+ */
+function renderChatComposerAttachmentChips(mount) {
+    const host = mount.querySelector('[data-oaao-chat="composer-attachment-stack"]');
+    if (!(host instanceof HTMLElement)) return;
+    host.replaceChildren();
+    if (!chatComposerAttachments.length) {
+        host.classList.add('hidden');
+        return;
+    }
+    host.classList.remove('hidden');
+    for (const att of chatComposerAttachments) {
+        host.append(
+            createAttachmentCardNode(att, () => {
+                chatComposerAttachments = chatComposerAttachments.filter((row) => row.id !== att.id);
+                renderChatComposerAttachmentChips(mount);
+                if (typeof mount.__oaaoUpdateChatLayout === 'function') {
+                    mount.__oaaoUpdateChatLayout();
+                }
+            }),
+        );
+    }
+}
+
+/**
+ * @param {unknown} meta
+ * @returns {Array<{ file_name: string, mime_type: string, kind: string, byte_size: number, disposed: boolean }>}
+ */
+function parseMessageAttachmentManifest(meta) {
+    if (!meta || typeof meta !== 'object') return [];
+    const raw = /** @type {Record<string, unknown>} */ (meta).attachments;
+    if (!Array.isArray(raw)) return [];
+    /** @type {Array<{ file_name: string, mime_type: string, kind: string, byte_size: number, disposed: boolean }>} */
+    const out = [];
+    for (const row of raw) {
+        if (typeof row === 'number' && row > 0) {
+            out.push({
+                file_name: `Attachment #${row}`,
+                mime_type: '',
+                kind: 'other',
+                byte_size: 0,
+                disposed: true,
+            });
+            continue;
+        }
+        if (!row || typeof row !== 'object') continue;
+        const o = /** @type {Record<string, unknown>} */ (row);
+        out.push({
+            file_name: String(o.file_name ?? 'attachment'),
+            mime_type: String(o.mime_type ?? ''),
+            kind: String(o.kind ?? 'other'),
+            byte_size: Number(o.byte_size ?? 0),
+            disposed: o.disposed !== false,
+        });
+    }
+    return out;
+}
+
+/**
+ * @param {Array<{ file_name: string, mime_type?: string, kind?: string, byte_size?: number, disposed?: boolean }>} attachments
+ */
+function createUserMessageAttachmentCardsBlock(attachments) {
+    const block = document.createElement('div');
+    block.className =
+        'oaao-chat-user-msg-attachments flex flex-col items-end gap-2 w-full max-w-[min(100%,20rem)] min-w-0';
+    for (const att of attachments) {
+        block.append(createAttachmentCardNode(att, null, { readOnly: true, variant: 'history' }));
+    }
+    return block;
 }
 
 /**
@@ -5744,12 +6281,13 @@ function formatUserMessageCopyText(contentText, meta) {
     if (tpl && isVagueTemplateComposerBody(text, tpl.label)) {
         text = '';
     }
-    if (tpl && text) {
-        return `${tpl.label}\n${text}`;
-    }
-    if (tpl) {
-        return tpl.label;
-    }
+    const attachments = parseMessageAttachmentManifest(meta);
+    const attLines = attachments.map((a) => a.file_name).filter(Boolean);
+    const parts = [];
+    if (tpl) parts.push(tpl.label);
+    if (attLines.length) parts.push(attLines.join(', '));
+    if (text) parts.push(text);
+    if (parts.length) return parts.join('\n');
     return text || contentText;
 }
 
@@ -5952,6 +6490,36 @@ function applyStreamTaskPipelineEnvelope(root, data, conversationId) {
 
     let state = getOaaoTaskListStateForConversation(conversationId);
 
+    const runTiming = payload.run_timing;
+    if (runTiming && typeof runTiming === 'object') {
+        const rto = /** @type {Record<string, unknown>} */ (runTiming);
+        const rid = String(rto.run_task_id ?? '').trim();
+        const dm = Number(rto.duration_ms);
+        if (rid && Number.isFinite(dm) && dm >= 0) {
+            const workerParentId = oaaoSlideWorkersParentIdForRunTask(rid);
+            if (workerParentId) {
+                const parent = state.items.get(workerParentId);
+                if (parent) {
+                    upsertOaaoAgentTaskOnItem(
+                        parent,
+                        { id: rid, title: rid, status: String(rto.status ?? 'done'), duration_ms: dm },
+                        { workerRowId: rid },
+                    );
+                    state.items.set(workerParentId, parent);
+                }
+            } else {
+                const item = state.items.get(rid) || {
+                    id: rid,
+                    title: String(rid),
+                    status: 'pending',
+                    agent_tasks: [],
+                };
+                item.duration_ms = dm;
+                state.items.set(rid, item);
+            }
+        }
+    }
+
     const rt = payload.run_task;
     if (rt && typeof rt === 'object') {
         const rto = /** @type {Record<string, unknown>} */ (rt);
@@ -5995,6 +6563,10 @@ function applyStreamTaskPipelineEnvelope(root, data, conversationId) {
                 if (rto.title) item.title = String(rto.title);
                 if (rto.status) item.status = mergeOaaoTaskItemStatus(item.status, String(rto.status));
                 if (rto.agent_kind) item.agent_kind = String(rto.agent_kind);
+                if (rto.duration_ms != null) {
+                    const dm = Number(rto.duration_ms);
+                    if (Number.isFinite(dm) && dm >= 0) item.duration_ms = dm;
+                }
                 finalizeAgentSubtasksWhenParentTerminal(item);
                 state.items.set(rid, item);
             }
@@ -6161,6 +6733,14 @@ function applyStreamTaskPipelineEnvelope(root, data, conversationId) {
         if (pid) {
             void reconcileSlideWorkerTasksForConversation(root, conversationId, pid);
         }
+    }
+
+    if (conversationId > 0 && conversationId === activeConversationId) {
+        const mount =
+            root instanceof HTMLElement
+                ? root.closest('[data-module="oaao-chat"]') ?? root
+                : document.querySelector('[data-module="oaao-chat"]');
+        if (mount instanceof HTMLElement) syncComposerBusyForActiveView(mount);
     }
 }
 
@@ -6601,6 +7181,51 @@ function resolvePipelineBlockZone(block) {
  * @param {unknown} blocks
  * @returns {{ before: Record<string, unknown>[], after: Record<string, unknown>[] }}
  */
+/**
+ * Ephemeral composer uploads — shown on the user bubble, not as assistant tail citations.
+ *
+ * @param {Record<string, unknown>} block
+ */
+function isEphemeralChatAttachmentCitationBlock(block) {
+    const type = String(block.type ?? '').trim();
+    if (type !== 'rag_citations') return false;
+    const props =
+        block.props && typeof block.props === 'object' ? /** @type {Record<string, unknown>} */ (block.props) : {};
+    const refs = Array.isArray(props.references) ? props.references : [];
+    if (!refs.length) return false;
+
+    return refs.every((raw) => {
+        const row = raw && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {};
+        const vaultId = Number(row.vault_id ?? 0);
+        const documentId = Number(row.document_id ?? 0);
+
+        return vaultId === 0 && documentId === 0;
+    });
+}
+
+/** Metadata-only blocks for inline citation pills — not rendered as pipeline chrome. */
+function isInlineCitationMetadataBlock(block) {
+    const type = String(block.type ?? '').trim();
+    if (type === 'attachment_citations') return true;
+    const zone = String(block.zone ?? '').trim().toLowerCase();
+    return zone === 'inline';
+}
+
+/** Numbered inline cites use popover pills — skip the redundant REFERENCES list. */
+function isRedundantRagCitationsAfterBlock(block) {
+    const type = String(block.type ?? '').trim();
+    if (type !== 'rag_citations') return false;
+    const props =
+        block.props && typeof block.props === 'object' ? /** @type {Record<string, unknown>} */ (block.props) : {};
+    if (props.inline === true) return true;
+    const refs = Array.isArray(props.references) ? props.references : [];
+    return refs.some((raw) => {
+        const row = raw && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {};
+        const idx = Number(row.cite_index ?? 0);
+        return Number.isFinite(idx) && idx > 0;
+    });
+}
+
 function partitionPipelineBlocks(blocks) {
     /** @type {Record<string, unknown>[]} */
     const before = [];
@@ -6609,8 +7234,11 @@ function partitionPipelineBlocks(blocks) {
     if (!Array.isArray(blocks)) return { before, after };
     for (const raw of blocks) {
         const b = raw && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {};
+        if (isEphemeralChatAttachmentCitationBlock(b)) continue;
+        if (isInlineCitationMetadataBlock(b)) continue;
+        if (isRedundantRagCitationsAfterBlock(b)) continue;
         if (resolvePipelineBlockZone(b) === 'after') after.push(b);
-        else before.push(b);
+        else if (resolvePipelineBlockZone(b) === 'before') before.push(b);
     }
 
     return { before, after };
@@ -6885,22 +7513,29 @@ async function syncAssistantMessageBlocks(outer, bubbleRef, pipeline, conversati
     }
 
     const fp = pipelineSnapshotFingerprint(pipeline);
-    if (!force && oaaoPipelineChromeKeyByOuter.get(outer) === fp) {
-        return;
+    const skipChrome = !force && oaaoPipelineChromeKeyByOuter.get(outer) === fp;
+
+    if (!skipChrome) {
+        oaaoPipelineChromeKeyByOuter.set(outer, fp);
+
+        const allBlocks = Array.isArray(pipeline.blocks) ? pipeline.blocks : [];
+        const { before, after } = partitionPipelineBlocks(allBlocks);
+        const chromePipeline = { ...pipeline, blocks: before };
+
+        if (pipelineChromeIsRenderable(chromePipeline)) {
+            await syncAssistantPipelineChrome(outer, bubbleRef, chromePipeline, conversationId);
+        } else {
+            removePipelineChrome(outer);
+        }
+
+        await syncAssistantAfterBlocks(outer, bubbleRef, after, conversationId);
     }
-    oaaoPipelineChromeKeyByOuter.set(outer, fp);
 
-    const allBlocks = Array.isArray(pipeline.blocks) ? pipeline.blocks : [];
-    const { before, after } = partitionPipelineBlocks(allBlocks);
-    const chromePipeline = { ...pipeline, blocks: before };
-
-    if (pipelineChromeIsRenderable(chromePipeline)) {
-        await syncAssistantPipelineChrome(outer, bubbleRef, chromePipeline, conversationId);
-    } else {
-        removePipelineChrome(outer);
+    // Always refresh citation maps — chrome fingerprint may match while maps were never stashed.
+    await stashInlineCitationMaps(outer, pipeline);
+    if (bubbleRef instanceof HTMLElement) {
+        await hydrateInlineCitesForBubble(bubbleRef);
     }
-
-    await syncAssistantAfterBlocks(outer, bubbleRef, after, conversationId);
 }
 
 /**
@@ -7076,166 +7711,741 @@ function formatAssistantRunMetaLine(meta) {
         if (meta.tokens_estimated === true) t += '*';
         parts.push(t);
     }
+    const pt = meta.pipeline_timing;
+    if (pt && typeof pt === 'object') {
+        const think = formatOaaoDurationMs(/** @type {Record<string, unknown>} */ (pt).thinking_ms);
+        if (think) parts.push(`think ${think}`);
+    }
     return parts.join(' · ');
 }
 
 /**
- * Post-stream quality line (IQS / ACCS) when {@link loadTurnScoresForConversation} attached {@code turn_score}.
+ * Visible assistant body when DB/stream content is empty but the run finished.
+ *
+ * @param {string} contentText
+ * @param {Record<string, unknown> | null | undefined} meta
+ */
+function resolveAssistantDisplayText(contentText, meta) {
+    const trimmed = String(contentText ?? '').trim();
+    if (trimmed) return contentText;
+    if (!meta || typeof meta !== 'object') return '';
+    const rs = String(meta.run_status ?? '').toLowerCase();
+    const dm = Number(meta.duration_ms);
+    const finished = rs === 'complete' || (Number.isFinite(dm) && dm > 0);
+    if (!finished) return '';
+    if (typeof meta.run_error === 'string' && meta.run_error.trim()) {
+        return meta.run_error.trim();
+    }
+    if (meta.run_failed === true) {
+        return oaaoChatT(
+            'chat.assistant.empty_failed',
+            'The assistant run ended without a reply. Check Settings → Endpoints or the Activity log, then retry.',
+        );
+    }
+    return oaaoChatT(
+        'chat.assistant.empty_complete',
+        'This reply finished without visible text. Retry or check the LLM endpoint if it keeps happening.',
+    );
+}
+
+/** Human labels for IQS / ACCS dimension keys in score pill tooltips. */
+const OAAO_TURN_SCORE_DIM_LABELS = {
+    clarity: 'Clarity',
+    specificity: 'Specificity',
+    actionability: 'Actionability',
+    context_completeness: 'Context',
+    alignment: 'Alignment',
+    accuracy: 'Accuracy',
+    hallucination_penalty: 'Hallucination',
+};
+
+/** @type {HTMLElement | null} */
+let oaaoTurnScoreFloaterEl = null;
+/** @type {HTMLElement | null} */
+let oaaoTurnScoreFloaterAnchor = null;
+/** @type {boolean} */
+let oaaoTurnScoreFloaterScrollBound = false;
+/** @type {WeakMap<HTMLElement, AbortController>} */
+const oaaoTurnScoreFloaterAcs = new WeakMap();
+
+/**
+ * @param {HTMLElement} el
+ */
+function oaaoZIndexAcquire(el) {
+    const z = globalThis.razyui?.zIndex;
+    if (z && typeof z.acquire === 'function') {
+        return z.acquire(el);
+    }
+    el.style.zIndex = '9000';
+    return 9000;
+}
+
+/**
+ * @param {HTMLElement} el
+ */
+function oaaoZIndexRelease(el) {
+    const z = globalThis.razyui?.zIndex;
+    if (z && typeof z.release === 'function') {
+        z.release(el);
+    }
+}
+
+function hideTurnScoreFloater() {
+    if (!oaaoTurnScoreFloaterEl) return;
+    oaaoZIndexRelease(oaaoTurnScoreFloaterEl);
+    oaaoTurnScoreFloaterEl.remove();
+    oaaoTurnScoreFloaterEl = null;
+    oaaoTurnScoreFloaterAnchor = null;
+}
+
+/**
+ * Dimension breakdown card for IQS / ACCS pills (portal — escapes overflow-hidden).
+ *
+ * @param {HTMLElement} anchor
+ * @param {'iqs' | 'accs'} kind
+ * @param {number} score
+ * @param {Record<string, unknown> | null | undefined} dims
+ */
+function showTurnScoreDimCard(anchor, kind, score, dims) {
+    if (!(anchor instanceof HTMLElement)) return;
+    if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
+        showTurnScoreFloater(anchor, formatTurnScoreDimTooltip(dims), 'oaao-chat-turn-score-floater');
+        return;
+    }
+
+    hideTurnScoreFloater();
+
+    const card = document.createElement('div');
+    card.className = `oaao-chat-turn-score-card oaao-chat-turn-score-card--${kind}`;
+    card.setAttribute('role', 'tooltip');
+
+    const head = document.createElement('div');
+    head.className = 'oaao-chat-turn-score-card__head';
+
+    const title = document.createElement('div');
+    title.className = 'oaao-chat-turn-score-card__title';
+    title.textContent = kind === 'iqs' ? 'IQS' : 'ACCS';
+
+    const scoreEl = document.createElement('div');
+    scoreEl.className = 'oaao-chat-turn-score-card__score';
+    scoreEl.textContent = Number.isFinite(score) ? score.toFixed(2) : '—';
+
+    head.append(title, scoreEl);
+
+    const body = document.createElement('div');
+    body.className = 'oaao-chat-turn-score-card__dims';
+
+    for (const [key, raw] of Object.entries(dims)) {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) continue;
+        const row = document.createElement('div');
+        row.className = 'oaao-chat-turn-score-card__dim';
+
+        const label = document.createElement('div');
+        label.className = 'oaao-chat-turn-score-card__dim-label';
+        label.textContent = OAAO_TURN_SCORE_DIM_LABELS[key] || key.replace(/_/g, ' ');
+
+        const val = document.createElement('div');
+        val.className = 'oaao-chat-turn-score-card__dim-val';
+        val.textContent = n.toFixed(2);
+
+        const bar = document.createElement('div');
+        bar.className = 'oaao-chat-turn-score-card__dim-bar';
+        const fill = document.createElement('span');
+        fill.className = 'oaao-chat-turn-score-card__dim-fill';
+        const pct = key === 'hallucination_penalty' ? (1 - n) * 100 : n * 100;
+        fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        bar.append(fill);
+
+        row.append(label, bar, val);
+        body.append(row);
+    }
+
+    if (!body.childElementCount) {
+        showTurnScoreFloater(anchor, formatTurnScoreDimTooltip(dims), 'oaao-chat-turn-score-floater');
+        return;
+    }
+
+    card.append(head, body);
+    card.style.position = 'fixed';
+    document.body.appendChild(card);
+    oaaoZIndexAcquire(card);
+
+    const rect = anchor.getBoundingClientRect();
+    const fr = card.getBoundingClientRect();
+    const margin = 10;
+    let top = rect.top - fr.height - 8;
+    let left = rect.left + rect.width / 2 - fr.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - fr.width - margin));
+    if (top < margin) top = rect.bottom + 8;
+    card.style.top = `${top}px`;
+    card.style.left = `${left}px`;
+
+    oaaoTurnScoreFloaterEl = card;
+    oaaoTurnScoreFloaterAnchor = anchor;
+}
+
+/**
+ * Portal tooltip to {@code document.body} — escapes {@code overflow-x-hidden} on {@code .oaao-chat-messages}.
+ *
+ * @param {HTMLElement} anchor
+ * @param {string} text
+ * @param {string} [className]
+ */
+function showTurnScoreFloater(anchor, text, className = 'oaao-chat-turn-score-floater') {
+    const tip = String(text || '').trim();
+    if (!tip) {
+        hideTurnScoreFloater();
+        return;
+    }
+    hideTurnScoreFloater();
+    const floater = document.createElement('div');
+    floater.className = className;
+    floater.setAttribute('role', 'tooltip');
+    floater.textContent = tip;
+    document.body.appendChild(floater);
+    oaaoZIndexAcquire(floater);
+    const rect = anchor.getBoundingClientRect();
+    const fr = floater.getBoundingClientRect();
+    const margin = 8;
+    let top = rect.top + window.scrollY - fr.height - 6;
+    let left = rect.left + window.scrollX + rect.width / 2 - fr.width / 2;
+    const maxLeft = window.scrollX + document.documentElement.clientWidth - fr.width - margin;
+    left = Math.max(window.scrollX + margin, Math.min(left, maxLeft));
+    if (top < window.scrollY + margin) {
+        top = rect.bottom + window.scrollY + 6;
+    }
+    floater.style.top = `${top}px`;
+    floater.style.left = `${left}px`;
+    oaaoTurnScoreFloaterEl = floater;
+    oaaoTurnScoreFloaterAnchor = anchor;
+}
+
+/**
+ * @param {HTMLElement} pill
+ * @returns {Record<string, number> | null}
+ */
+function readTurnScoreDimsFromPill(pill) {
+    if (!(pill instanceof HTMLElement)) return null;
+    try {
+        const raw = pill.dataset.oaaoTurnScoreDims;
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                /** @type {Record<string, number>} */
+                const out = {};
+                for (const [key, val] of Object.entries(/** @type {Record<string, unknown>} */ (parsed))) {
+                    const n = Number(val);
+                    if (Number.isFinite(n)) out[key] = n;
+                }
+                if (Object.keys(out).length) return out;
+            }
+        }
+    } catch {
+        /* fall through */
+    }
+    const tip = String(pill.dataset.oaaoTurnScoreTip || '').trim();
+    if (!tip) return null;
+    /** @type {Record<string, number>} */
+    const fromTip = {};
+    for (const line of tip.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let matchedKey = '';
+        for (const [key, label] of Object.entries(OAAO_TURN_SCORE_DIM_LABELS)) {
+            if (trimmed.startsWith(`${label} `)) {
+                matchedKey = key;
+                break;
+            }
+        }
+        const m = /^(.+?)\s+(-?\d+(?:\.\d+)?)$/.exec(trimmed);
+        if (!m) continue;
+        const n = Number(m[2]);
+        if (!Number.isFinite(n)) continue;
+        const key = matchedKey || m[1].trim().toLowerCase().replace(/\s+/g, '_');
+        fromTip[key] = n;
+    }
+    return Object.keys(fromTip).length ? fromTip : null;
+}
+
+/**
+ * @param {HTMLElement} pill
+ */
+function showTurnScorePillTooltip(pill) {
+    if (!(pill instanceof HTMLElement)) return;
+    const kind = pill.dataset.oaaoTurnScoreKind === 'accs' ? 'accs' : 'iqs';
+    const score = Number(pill.dataset.oaaoTurnScoreValue);
+    const dims = readTurnScoreDimsFromPill(pill);
+    if (dims && Object.keys(dims).length) {
+        showTurnScoreDimCard(pill, kind, Number.isFinite(score) ? score : NaN, dims);
+        return;
+    }
+    const text = pill.dataset.oaaoTurnScoreTip || '';
+    if (text) showTurnScoreFloater(pill, text);
+}
+
+/**
+ * @param {HTMLElement} pill
+ */
+function ensureTurnScorePillFloater(pill) {
+    if (!(pill instanceof HTMLElement)) return;
+    oaaoTurnScoreFloaterAcs.get(pill)?.abort();
+    const ac = new AbortController();
+    oaaoTurnScoreFloaterAcs.set(pill, ac);
+    const show = () => showTurnScorePillTooltip(pill);
+    const hide = () => {
+        if (oaaoTurnScoreFloaterAnchor === pill) hideTurnScoreFloater();
+    };
+    pill.addEventListener('mouseenter', show, { signal: ac.signal });
+    pill.addEventListener('mouseleave', hide, { signal: ac.signal });
+    pill.addEventListener('focusin', show, { signal: ac.signal });
+    pill.addEventListener('focusout', hide, { signal: ac.signal });
+}
+
+/** @type {WeakSet<HTMLElement>} */
+const oaaoRunMetaInfoFloaterBound = new WeakSet();
+
+function createRunMetaLoggingLink() {
+    const unit = document.createElement('span');
+    unit.dataset.oaaoChat = 'assistant-summary-logging';
+    unit.className = 'oaao-chat-assistant-summary-logging';
+
+    const sep = document.createElement('span');
+    sep.className = 'oaao-chat-assistant-summary-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = ' · ';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.oaaoChat = 'run-meta-info';
+    btn.className = 'oaao-chat-run-meta-info';
+    btn.textContent = oaaoChatT('chat.run_meta.logging', 'Logging');
+    btn.setAttribute('aria-label', oaaoChatT('chat.run_meta.logging_tip', 'Pipeline timing log'));
+    btn.setAttribute('aria-expanded', 'false');
+
+    unit.append(sep, btn);
+    return unit;
+}
+
+/**
+ * @param {HTMLElement} unit
+ */
+function ensureRunMetaInfoFloater(unit) {
+    const btn = unit.querySelector('[data-oaao-chat="run-meta-info"]');
+    if (!(btn instanceof HTMLElement) || oaaoRunMetaInfoFloaterBound.has(btn)) return;
+    oaaoRunMetaInfoFloaterBound.add(btn);
+    const show = () => {
+        const text = btn.dataset.oaaoRunMetaTip || '';
+        if (!text) return;
+        showTurnScoreFloater(btn, text, 'oaao-chat-run-meta-floater');
+        btn.setAttribute('aria-expanded', 'true');
+    };
+    const hide = () => {
+        if (oaaoTurnScoreFloaterAnchor === btn) hideTurnScoreFloater();
+        btn.setAttribute('aria-expanded', 'false');
+    };
+    btn.addEventListener('mouseenter', show);
+    btn.addEventListener('mouseleave', hide);
+    btn.addEventListener('focusin', show);
+    btn.addEventListener('focusout', hide);
+    btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (oaaoTurnScoreFloaterAnchor === btn) hide();
+        else show();
+    });
+}
+
+function bindTurnScoreFloaterDismissOnScroll() {
+    if (oaaoTurnScoreFloaterScrollBound) return;
+    oaaoTurnScoreFloaterScrollBound = true;
+    document.addEventListener(
+        'scroll',
+        () => {
+            if (oaaoTurnScoreFloaterEl) hideTurnScoreFloater();
+        },
+        true,
+    );
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} row
+ */
+function turnScorePendingFromRow(row) {
+    if (!row || typeof row !== 'object') {
+        return { pendingIqs: true, pendingAccs: turnScoreAccsExpected(null, null) };
+    }
+    const iqs = Number(row.iqs);
+    const accs = Number(row.accs);
+    const pendingIqs = Boolean(row.needs_iqs_rescore) || !(Number.isFinite(iqs) && iqs > 0);
+    const accsExpected = turnScoreAccsExpected(row, null);
+    const pendingAccs =
+        accsExpected && (Boolean(row.needs_accs_rescore) || !(Number.isFinite(accs) && accs > 0));
+    return { pendingIqs, pendingAccs };
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} dims
+ */
+function formatTurnScoreDimTooltip(dims) {
+    if (!dims || typeof dims !== 'object' || Array.isArray(dims)) {
+        return '';
+    }
+    return Object.entries(/** @type {Record<string, unknown>} */ (dims))
+        .map(([key, raw]) => {
+            const n = Number(raw);
+            const val = Number.isFinite(n) ? n.toFixed(2) : String(raw ?? '').trim();
+            const label = OAAO_TURN_SCORE_DIM_LABELS[key] || key.replace(/_/g, ' ');
+            return `${label} ${val}`;
+        })
+        .join('\n');
+}
+
+/** ACCS is skipped for clarify / hard_clarify turns — do not show a pending ACCS pill. */
+function turnScoreAccsExpected(turnScore, runMeta) {
+    const fromMeta =
+        runMeta && typeof runMeta === 'object'
+            ? String(runMeta.iqs_action || '').toLowerCase()
+            : '';
+    if (fromMeta === 'clarify' || fromMeta === 'hard_clarify') return false;
+    const reasons =
+        turnScore && typeof turnScore === 'object' ? /** @type {Record<string, unknown>} */ (turnScore).iqs_reasons : null;
+    if (reasons && typeof reasons === 'object' && !Array.isArray(reasons)) {
+        const action = String(/** @type {Record<string, unknown>} */ (reasons).action || '').toLowerCase();
+        if (action === 'clarify' || action === 'hard_clarify') return false;
+    }
+    return true;
+}
+
+/**
+ * @param {HTMLElement} wrap
+ * @param {'iqs' | 'accs'} kind
+ * @param {number | null} score
+ * @param {Record<string, unknown> | null | undefined} dims
+ * @param {{ pending?: boolean }} [opts]
+ */
+function renderTurnScorePill(wrap, kind, score, dims, opts = {}) {
+    const label = kind === 'iqs' ? 'IQS' : 'ACCS';
+    const pending = Boolean(opts.pending);
+    const hasScore = score !== null && Number.isFinite(score) && score > 0;
+    let pill = wrap.querySelector(`[data-oaao-turn-score-pill="${kind}"]`);
+    if (!hasScore && !pending) {
+        pill?.remove();
+        return;
+    }
+    if (!(pill instanceof HTMLElement)) {
+        pill = document.createElement('span');
+        pill.dataset.oaaoTurnScorePill = kind;
+        pill.className = `oaao-chat-turn-score-pill oaao-chat-turn-score-pill--${kind}`;
+        pill.setAttribute('role', 'note');
+        pill.append(document.createElement('span'));
+        wrap.append(pill);
+    }
+    const labelEl = pill.querySelector(':scope > span:first-child');
+    if (labelEl instanceof HTMLElement) {
+        labelEl.textContent = pending && !hasScore ? `${label} …` : `${label} ${score.toFixed(2)}`;
+    }
+    pill.classList.toggle('oaao-chat-turn-score-pill--pending', pending && !hasScore);
+    pill.classList.remove('oaao-chat-turn-score-pill--stale');
+    if (pending && !hasScore) {
+        pill.dataset.oaaoTurnScoreTip = '';
+        pill.classList.remove('oaao-chat-turn-score-pill--has-tip');
+        pill.tabIndex = -1;
+        pill.setAttribute('aria-label', `${label} scoring in progress`);
+        return;
+    }
+    const tip = formatTurnScoreDimTooltip(dims);
+    pill.dataset.oaaoTurnScoreTip = tip;
+    pill.dataset.oaaoTurnScoreKind = kind;
+    pill.dataset.oaaoTurnScoreValue = String(score);
+    try {
+        const dimObj =
+            dims && typeof dims === 'object' && !Array.isArray(dims)
+                ? /** @type {Record<string, unknown>} */ (dims)
+                : {};
+        pill.dataset.oaaoTurnScoreDims = JSON.stringify(dimObj);
+    } catch {
+        delete pill.dataset.oaaoTurnScoreDims;
+    }
+    pill.classList.toggle('oaao-chat-turn-score-pill--has-tip', Boolean(tip));
+    pill.tabIndex = tip ? 0 : -1;
+    ensureTurnScorePillFloater(pill);
+    bindTurnScoreFloaterDismissOnScroll();
+    const aria = tip ? `${label} ${score.toFixed(2)}: ${tip.replace(/\n/g, ', ')}` : `${label} ${score.toFixed(2)}`;
+    pill.setAttribute('aria-label', aria);
+}
+
+/**
+ * IQS / ACCS pills — show pending state while background scoring runs.
  *
  * @param {Record<string, unknown> | null | undefined} turnScore
  */
-function formatAssistantTurnScoreLine(turnScore, { pending = false } = {}) {
-    if (!turnScore || typeof turnScore !== 'object') {
-        return pending ? 'Scoring…' : '';
-    }
-    const parts = [];
+function applyAssistantTurnScoreToRow(outer, turnScore) {
+    if (!outer || !turnScore || typeof turnScore !== 'object') return;
+    const { pendingIqs, pendingAccs } = turnScorePendingFromRow(turnScore);
     const iqs = Number(turnScore.iqs);
     const accs = Number(turnScore.accs);
-    if (Number.isFinite(iqs) && iqs > 0) {
-        parts.push(`IQS ${iqs.toFixed(2)}`);
-    }
-    if (Number.isFinite(accs) && accs > 0) {
-        parts.push(`ACCS ${accs.toFixed(2)}`);
-    }
-    if (parts.length === 0) {
-        return pending ? 'Scoring…' : '';
-    }
-    if (pending && parts.length < 2) {
-        parts.push('…');
-    }
-    return parts.join(' · ');
-}
-
-/**
- * @param {unknown} reasons
- * @param {unknown} dims
- * @param {string} label
- */
-function appendTurnScoreTooltipSection(lines, label, reasons, dims) {
-    if (Array.isArray(reasons) && reasons.length > 0) {
-        const text = reasons.map((r) => String(r).trim()).filter(Boolean).join('; ');
-        if (text) lines.push(`${label}: ${text}`);
-    } else if (reasons && typeof reasons === 'object') {
-        const text = Object.entries(/** @type {Record<string, unknown>} */ (reasons))
-            .map(([k, v]) => `${k}: ${String(v).trim()}`)
-            .filter((s) => s.length > 3)
-            .join('; ');
-        if (text) lines.push(`${label}: ${text}`);
-    }
-    if (dims && typeof dims === 'object' && !Array.isArray(dims)) {
-        const text = Object.entries(/** @type {Record<string, unknown>} */ (dims))
-            .map(([k, v]) => `${k}=${v}`)
-            .join(', ');
-        if (text) lines.push(`${label} dims: ${text}`);
-    }
-}
-
-/**
- * @param {Record<string, unknown> | null | undefined} turnScore
- */
-function formatAssistantTurnScoreTooltip(turnScore) {
-    if (!turnScore || typeof turnScore !== 'object') return '';
-    const lines = [];
-    appendTurnScoreTooltipSection(lines, 'IQS', turnScore.iqs_reasons, turnScore.iqs_dims);
-    appendTurnScoreTooltipSection(lines, 'ACCS', turnScore.accs_reasons, turnScore.accs_dims);
-    return lines.join('\n');
-}
-
-/**
- * @param {HTMLElement} outer
- * @param {Record<string, unknown> | null | undefined} turnScore
- */
-function applyAssistantTurnScoreToRow(outer, turnScore, { pending = false } = {}) {
-    if (!outer) return;
-    const line = formatAssistantTurnScoreLine(turnScore, { pending });
-    let el = outer.querySelector('[data-oaao-chat="turn-score"]');
-    if (!line) {
-        el?.remove();
+    const iqsReady = Number.isFinite(iqs) && iqs > 0 && !pendingIqs;
+    const accsExpected = turnScoreAccsExpected(turnScore, null);
+    const accsReady = accsExpected && Number.isFinite(accs) && accs > 0 && !pendingAccs;
+    const showIqs = iqsReady || pendingIqs;
+    const showAccs = accsExpected && (accsReady || pendingAccs);
+    if (!showIqs && !showAccs) {
+        outer.querySelector('[data-oaao-chat="turn-score"]')?.remove();
         return;
     }
-    if (!el) {
-        el = document.createElement('div');
-        el.dataset.oaaoChat = 'turn-score';
-        el.className =
-            'text-[0.7rem] leading-snug fg-[var(--grid-caption)] font-mono tabular-nums mt-0.5 mb-0 px-0 py-0 w-full break-words';
-        el.setAttribute('aria-label', 'Turn quality scores');
-        const summary = outer.querySelector('[data-oaao-chat="assistant-summary"]');
-        if (summary) {
-            summary.insertAdjacentElement('afterend', el);
+    let wrap = outer.querySelector('[data-oaao-chat="turn-score"]');
+    if (!(wrap instanceof HTMLElement)) {
+        wrap = document.createElement('div');
+        wrap.dataset.oaaoChat = 'turn-score';
+        wrap.className = 'oaao-chat-turn-score-pills';
+        wrap.setAttribute('aria-label', 'Turn quality scores');
+        const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
+        if (bubble instanceof HTMLElement) {
+            bubble.insertAdjacentElement('afterend', wrap);
         } else {
-            const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
-            if (toolbar) {
-                outer.insertBefore(el, toolbar);
+            const summary =
+                outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
+                outer.querySelector('[data-oaao-chat="assistant-summary"]');
+            if (summary instanceof HTMLElement) {
+                summary.insertAdjacentElement('afterend', wrap);
             } else {
-                outer.append(el);
+                const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
+                if (toolbar instanceof HTMLElement) {
+                    outer.insertBefore(wrap, toolbar);
+                } else {
+                    outer.append(wrap);
+                }
             }
         }
     }
-    el.textContent = line;
-    const tip = formatAssistantTurnScoreTooltip(turnScore);
-    if (tip) {
-        el.title = tip;
-    } else {
-        el.removeAttribute('title');
-    }
-    if (pending) {
-        el.dataset.oaaoTurnScorePending = '1';
-    } else {
-        delete el.dataset.oaaoTurnScorePending;
+    renderTurnScorePill(
+        wrap,
+        'iqs',
+        iqsReady ? iqs : null,
+        iqsReady ? /** @type {Record<string, unknown>} */ (turnScore).iqs_dims : null,
+        { pending: pendingIqs && !iqsReady },
+    );
+    renderTurnScorePill(
+        wrap,
+        'accs',
+        accsReady ? accs : null,
+        accsReady ? /** @type {Record<string, unknown>} */ (turnScore).accs_dims : null,
+        { pending: accsExpected && pendingAccs && !accsReady },
+    );
+    if (!wrap.querySelector('[data-oaao-turn-score-pill]')) {
+        wrap.remove();
     }
 }
 
 /**
- * Poll canonical turn scores after stream end (workers run post-{@code system/end}).
+ * Fire-and-forget background rescore when turns lack or stale IQS/ACCS — pills appear on next open after queue completes.
  *
  * @param {number} conversationId
- * @param {number} assistantMessageId
  */
-async function pollAssistantTurnScoreInPlace(conversationId, assistantMessageId) {
+async function triggerTurnScoresRescoreIfNeeded(conversationId) {
     const cid = Number(conversationId);
-    const mid = coercePositiveInt(assistantMessageId);
-    if (!Number.isFinite(cid) || cid < 1 || mid === null) return;
+    if (!Number.isFinite(cid) || cid < 1) return;
+    const { res, data } = await chatFetchJson(chatApiUrl('turn_scores_rescore'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: cid, ...chatScopeBodyFieldsForConversation(cid) }),
+    });
+    if (!data?.success) {
+        console.warn(
+            '[oaao-chat] turn_scores_rescore failed',
+            cid,
+            data?.message || res.status,
+            data?.orchestrator_detail || '',
+            data?.orchestrator_status || '',
+        );
+        return;
+    }
+    console.info('[oaao-chat] turn_scores_rescore queued', cid, data?.queued ?? 0, data?.already_running ? '(already running)' : '');
+}
 
-    const host = document.querySelector('[data-oaao-chat="messages"]');
-    const maxAttempts = 25;
-    const intervalMs = 2000;
+/** @type {Map<number, ReturnType<typeof setTimeout>>} */
+const turnScorePollTimerByConversation = new Map();
 
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (activeConversationId !== cid) return;
-        if (attempt > 0) {
-            await new Promise((resolve) => {
-                window.setTimeout(resolve, intervalMs);
-            });
-        }
-        const bubble = host?.querySelector(`[data-oaao-msg-id="${mid}"]`);
-        const outer = bubble?.closest('.oaao-chat-assistant-row');
-        if (!(outer instanceof HTMLElement)) return;
+const TURN_SCORE_POLL_INTERVAL_MS = 2500;
+const TURN_SCORE_POLL_MAX_ATTEMPTS = 120;
 
-        const map = await loadTurnScoresForConversation(cid);
-        const row = map.get(mid);
-        const iqs = row ? Number(row.iqs) : 0;
-        const accs = row ? Number(row.accs) : 0;
-        const complete =
-            Number.isFinite(iqs) && iqs > 0 && Number.isFinite(accs) && accs > 0;
-        applyAssistantTurnScoreToRow(outer, row ?? null, { pending: !complete });
-        if (complete) return;
+/**
+ * @param {number} conversationId
+ */
+function cancelTurnScorePoll(conversationId) {
+    const cid = Number(conversationId);
+    const timer = turnScorePollTimerByConversation.get(cid);
+    if (timer) {
+        clearTimeout(timer);
+        turnScorePollTimerByConversation.delete(cid);
     }
 }
 
 /**
  * @param {number} conversationId
- * @returns {Promise<Map<number, Record<string, unknown>>>}
+ */
+function cancelTurnScorePollsExcept(conversationId) {
+    const keep = Number(conversationId);
+    for (const cid of [...turnScorePollTimerByConversation.keys()]) {
+        if (cid !== keep) cancelTurnScorePoll(cid);
+    }
+}
+
+/**
+ * @param {Record<string, unknown>} row
+ */
+function turnScoreRowIsReady(row) {
+    const { pendingIqs, pendingAccs } = turnScorePendingFromRow(row);
+    const accsExpected = turnScoreAccsExpected(row, null);
+    return !pendingIqs && (!accsExpected || !pendingAccs);
+}
+
+/**
+ * @param {number} conversationId
+ * @param {HTMLElement | Document} mount
+ */
+function applyTurnScoresFromCacheToDom(conversationId, mount) {
+    const map = turnScoreCacheByConversation.get(conversationId);
+    if (!(map instanceof Map) || map.size < 1) return;
+    const root = mount instanceof HTMLElement ? mount : document;
+    for (const [mid, turnScore] of map.entries()) {
+        if (!turnScore || typeof turnScore !== 'object') continue;
+        const bubble = root.querySelector(`[data-oaao-msg-id="${mid}"]`);
+        const outer = bubble?.closest('.oaao-chat-assistant-row');
+        if (outer instanceof HTMLElement) {
+            applyAssistantTurnScoreToRow(outer, turnScore);
+        }
+    }
+    cachedMessageRows = attachTurnScoresToMessageRows(cachedMessageRows, conversationId);
+}
+
+/**
+ * Poll turn_scores after stream end / rescore — apply IQS / ACCS pills in place when ready.
+ *
+ * @param {number} conversationId
+ * @param {HTMLElement | Document} mount
+ * @param {{ assistantMessageId?: number | null, triggerRescore?: boolean }} [opts]
+ */
+function scheduleTurnScorePoll(conversationId, mount, opts = {}) {
+    const cid = Number(conversationId);
+    if (!Number.isFinite(cid) || cid < 1) return;
+    cancelTurnScorePollsExcept(cid);
+    cancelTurnScorePoll(cid);
+
+    const assistantMessageId =
+        opts.assistantMessageId != null && Number(opts.assistantMessageId) > 0
+            ? Math.floor(Number(opts.assistantMessageId))
+            : null;
+    const triggerRescore = opts.triggerRescore !== false;
+    let attempts = 0;
+    let rescoreTriggered = false;
+
+    const tick = async () => {
+        turnScorePollTimerByConversation.delete(cid);
+        if (activeConversationId !== cid) return;
+
+        if (conversationHasOpenRunTasks(cid)) {
+            if (attempts >= TURN_SCORE_POLL_MAX_ATTEMPTS) return;
+            const deferTimer = setTimeout(() => void tick(), TURN_SCORE_POLL_INTERVAL_MS);
+            turnScorePollTimerByConversation.set(cid, deferTimer);
+            return;
+        }
+
+        attempts += 1;
+        const scorePack = await loadTurnScoresForConversation(cid);
+        applyTurnScoresFromCacheToDom(cid, mount);
+
+        if (triggerRescore && !rescoreTriggered && scorePack.rescorePending > 0) {
+            rescoreTriggered = true;
+            void triggerTurnScoresRescoreIfNeeded(cid);
+        } else if (
+            triggerRescore &&
+            rescoreTriggered &&
+            scorePack.rescorePending > 0 &&
+            attempts % 10 === 0
+        ) {
+            void triggerTurnScoresRescoreIfNeeded(cid);
+        }
+
+        let done = false;
+        if (assistantMessageId) {
+            const row = scorePack.map.get(assistantMessageId);
+            done = Boolean(row && turnScoreRowIsReady(row));
+        } else if (scorePack.map.size > 0) {
+            done = [...scorePack.map.values()].every((row) => turnScoreRowIsReady(row));
+        }
+
+        if (done || attempts >= TURN_SCORE_POLL_MAX_ATTEMPTS) {
+            return;
+        }
+
+        const timer = setTimeout(() => void tick(), TURN_SCORE_POLL_INTERVAL_MS);
+        turnScorePollTimerByConversation.set(cid, timer);
+    };
+
+    void tick();
+}
+
+/**
+ * @param {number} conversationId
+ * @param {number | null} [beforeId]
+ */
+function chatMessagesApiUrl(conversationId, beforeId = null) {
+    const params = {
+        conversation_id: String(conversationId),
+        limit: String(chatHistoryPageSize),
+        ...chatScopeParamsForConversation(conversationId),
+    };
+    if (beforeId !== null && beforeId > 0) {
+        params.before_id = String(beforeId);
+    }
+    return chatApiUrl('messages', params);
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} rows
+ * @param {number} conversationId
+ */
+function attachTurnScoresToMessageRows(rows, conversationId) {
+    const map = turnScoreCacheByConversation.get(conversationId);
+    if (!(map instanceof Map) || map.size < 1) {
+        return rows;
+    }
+    return rows.map((m) => {
+        if (!m || typeof m !== 'object') return m;
+        const mid = coercePositiveInt(m.id);
+        const role = String(m.role ?? '').toLowerCase();
+        if (mid !== null && role === 'assistant' && map.has(mid)) {
+            return { ...m, turn_score: map.get(mid) };
+        }
+        return m;
+    });
+}
+
+/**
+ * @param {number} conversationId
+ * @returns {Promise<{ map: Map<number, Record<string, unknown>>, scorerVersions: Record<string, string> | null, rescorePending: number }>}
  */
 async function loadTurnScoresForConversation(conversationId) {
     const map = new Map();
     const cid = Number(conversationId);
-    if (!Number.isFinite(cid) || cid < 1) return map;
-    const { res, data } = await chatFetchJson(
-        chatApiUrl('turn_scores', { conversation_id: String(cid), ...workspaceChatQueryParams() }),
-    );
-    if (!res.ok || !data?.success || !Array.isArray(data.scores)) {
-        return map;
+    if (!Number.isFinite(cid) || cid < 1) {
+        return { map, scorerVersions: null, rescorePending: 0 };
     }
+    const { res, data } = await chatFetchJson(
+        chatApiUrl('turn_scores', { conversation_id: String(cid), ...chatScopeParamsForConversation(cid) }),
+    );
+    if (!data?.success || !Array.isArray(data.scores)) {
+        if (data?.success === false && data?.message) {
+            console.warn('[oaao-chat] turn_scores failed', cid, data.message);
+        }
+        return { map, scorerVersions: null, rescorePending: 0 };
+    }
+    const scorerVersions =
+        data.scorer_versions && typeof data.scorer_versions === 'object'
+            ? /** @type {Record<string, string>} */ (data.scorer_versions)
+            : null;
     for (const raw of data.scores) {
         if (!raw || typeof raw !== 'object') continue;
         const mid = coercePositiveInt(raw.assistant_message_id);
@@ -7243,7 +8453,33 @@ async function loadTurnScoresForConversation(conversationId) {
             map.set(mid, /** @type {Record<string, unknown>} */ (raw));
         }
     }
-    return map;
+    turnScoreCacheByConversation.set(cid, map);
+    return {
+        map,
+        scorerVersions,
+        rescorePending: Number(data.rescore_pending) || 0,
+    };
+}
+
+/**
+ * @param {number} conversationId
+ */
+function resetMessagePageState(conversationId) {
+    messagePageStateByConversation.delete(conversationId);
+}
+
+/**
+ * @param {number} conversationId
+ * @param {Record<string, unknown>} data
+ */
+function applyMessagePageMeta(conversationId, data) {
+    const cid = Number(conversationId);
+    if (!Number.isFinite(cid) || cid < 1) return;
+    messagePageStateByConversation.set(cid, {
+        hasOlder: Boolean(data.has_older),
+        oldestId: coercePositiveInt(data.oldest_message_id),
+        loadingOlder: false,
+    });
 }
 
 /**
@@ -7382,7 +8618,9 @@ function applyAssistantTruncationNoticeToRow(outer) {
         el.className =
             'text-[0.75rem] leading-snug fg-[var(--grid-ink-muted)] mt-1 mb-0 px-0 py-0 w-full break-words';
         el.setAttribute('role', 'note');
-        const summary = outer.querySelector('[data-oaao-chat="assistant-summary"]');
+        const summary =
+            outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
+            outer.querySelector('[data-oaao-chat="assistant-summary"]');
         const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
         if (summary) summary.insertAdjacentElement('beforebegin', el);
         else if (toolbar) outer.insertBefore(el, toolbar);
@@ -7396,20 +8634,60 @@ function applyAssistantRunSummaryToRow(outer, meta) {
     if (!outer || !meta || typeof meta !== 'object') return;
     const line = formatAssistantRunMetaLine(meta);
     if (!line) return;
-    let el = outer.querySelector('[data-oaao-chat="assistant-summary"]');
-    if (!el) {
-        el = document.createElement('div');
-        el.dataset.oaaoChat = 'assistant-summary';
-        el.className =
-            'text-[0.7rem] leading-snug fg-[var(--grid-caption)] font-mono tabular-nums mt-0.5 mb-0 px-0 py-0 w-full break-words';
-        el.setAttribute('aria-label', 'Response metrics');
+
+    let wrap = outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]');
+    if (!(wrap instanceof HTMLElement)) {
+        wrap = document.createElement('div');
+        wrap.dataset.oaaoChat = 'assistant-summary-wrap';
+        wrap.className = 'oaao-chat-assistant-summary-wrap';
+        const textEl = document.createElement('span');
+        textEl.dataset.oaaoChat = 'assistant-summary';
+        textEl.className =
+            'oaao-chat-assistant-summary-text text-[0.7rem] leading-snug fg-[var(--grid-caption)] font-mono tabular-nums';
+        wrap.append(textEl);
+        wrap.setAttribute('aria-label', 'Response metrics');
+        const legacy = outer.querySelector('[data-oaao-chat="assistant-summary"]');
         const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
         const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
-        if (toolbar) outer.insertBefore(el, toolbar);
-        else if (bubble) bubble.insertAdjacentElement('afterend', el);
-        else outer.append(el);
+        if (legacy instanceof HTMLElement && legacy.parentElement !== wrap) {
+            legacy.replaceWith(wrap);
+            wrap.querySelector('[data-oaao-chat="assistant-summary"]')?.remove();
+            wrap.prepend(textEl);
+        } else if (toolbar) {
+            outer.insertBefore(wrap, toolbar);
+        } else if (bubble) {
+            bubble.insertAdjacentElement('afterend', wrap);
+        } else {
+            outer.append(wrap);
+        }
     }
-    el.textContent = line;
+
+    const textEl = wrap.querySelector('[data-oaao-chat="assistant-summary"]');
+    if (textEl instanceof HTMLElement) textEl.textContent = line;
+
+    const pt = meta.pipeline_timing;
+    const tip =
+        pt && typeof pt === 'object'
+            ? formatPipelineTimingTooltip(/** @type {Record<string, unknown>} */ (pt), meta.duration_ms)
+            : '';
+    let loggingUnit = wrap.querySelector('[data-oaao-chat="assistant-summary-logging"]');
+    if (tip) {
+        if (!(loggingUnit instanceof HTMLElement)) {
+            loggingUnit = createRunMetaLoggingLink();
+            ensureRunMetaInfoFloater(loggingUnit);
+        }
+        const infoBtn = loggingUnit.querySelector('[data-oaao-chat="run-meta-info"]');
+        if (infoBtn instanceof HTMLElement) {
+            infoBtn.dataset.oaaoRunMetaTip = tip;
+            infoBtn.hidden = false;
+        }
+        loggingUnit.hidden = false;
+        if (textEl instanceof HTMLElement && textEl.nextElementSibling !== loggingUnit) {
+            textEl.insertAdjacentElement('afterend', loggingUnit);
+        }
+    } else {
+        loggingUnit?.remove();
+    }
 }
 
 /**
@@ -7421,6 +8699,10 @@ function applyAssistantRunSummaryToRow(outer, meta) {
 
 /** @type {Map<number, ChatStreamHandle>} */
 const streamHandlesByConversation = new Map();
+
+/** Pause SSE during agent_ask so PHP workers + session are free for agent_ask POST. */
+/** @type {Map<number, { streamUrl: string, runId: string, lastSeq: number, assistantMessageId: number | null, orchestratorOwnsPersist: boolean }>} */
+const streamPausedForAgentAskByConversation = new Map();
 
 /** Latest run-status label per conversation (re-applied after {@link renderMessages}). */
 /** @type {Map<number, string>} */
@@ -7444,6 +8726,62 @@ function abortAllStreamReaders() {
  *
  * @param {string} runId
  */
+/**
+ * @param {number} conversationId
+ */
+function resumeAssistantStreamAfterAgentAsk(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    if (!Number.isFinite(cid) || cid < 1) return;
+    if (streamHandlesByConversation.has(cid)) {
+        streamPausedForAgentAskByConversation.delete(cid);
+        return;
+    }
+    let ctx = streamPausedForAgentAskByConversation.get(cid);
+    streamPausedForAgentAskByConversation.delete(cid);
+    if (!ctx) {
+        const cur = loadStreamCursor(cid);
+        if (cur?.stream_url && cur.run_id) {
+            ctx = {
+                streamUrl: cur.stream_url,
+                runId: cur.run_id,
+                lastSeq: cur.last_seq || 0,
+                assistantMessageId: coercePositiveInt(cur.assistant_message_id),
+                orchestratorOwnsPersist: true,
+            };
+        }
+    }
+    if (!ctx?.streamUrl || !ctx.runId) return;
+    void consumeAssistantStream(
+        ctx.streamUrl,
+        ctx.runId,
+        cid,
+        ctx.lastSeq || 0,
+        ctx.assistantMessageId,
+        ctx.orchestratorOwnsPersist,
+    );
+}
+
+/**
+ * @param {number} conversationId
+ * @param {{ streamUrl: string, runId: string, lastSeq: number, assistantMessageId: number | null, orchestratorOwnsPersist: boolean }} ctx
+ * @param {AbortController} controller
+ */
+function pauseAssistantStreamForAgentAsk(conversationId, ctx, controller) {
+    const cid = Math.floor(Number(conversationId));
+    if (!Number.isFinite(cid) || cid < 1) return;
+    streamPausedForAgentAskByConversation.set(cid, ctx);
+    try {
+        controller.abort();
+    } catch {
+        /* ignore */
+    }
+    streamHandlesByConversation.delete(cid);
+    const mount = document.querySelector('[data-module="oaao-chat"]');
+    if (mount instanceof HTMLElement && activeConversationId === cid) {
+        syncComposerBusyForActiveView(mount);
+    }
+}
+
 /**
  * @param {string} runId
  * @param {string} taskId
@@ -7492,26 +8830,184 @@ async function requestOrchestratorCancelRun(runId) {
     }
 }
 
+/** Prevents duplicate send while POST / send.php is in flight. */
+let chatComposerSubmitInFlight = false;
+/** Conversation id for in-flight send; {@code null} = landing / new chat. */
+let chatComposerSubmitConvId = null;
+
+/**
+ * @param {number | null | undefined} conversationId
+ * @returns {boolean}
+ */
+function conversationHasActiveStream(conversationId) {
+    const cid = conversationId != null ? Math.floor(Number(conversationId)) : 0;
+    if (cid > 0 && streamHandlesByConversation.has(cid)) return true;
+    return cid > 0 && streamPausedForAgentAskByConversation.has(cid);
+}
+
+/**
+ * Composer busy/stream UI follows the active thread only — background streams on other conversations must not block this view.
+ *
+ * @param {HTMLElement} mount
+ */
+function syncComposerBusyForActiveView(mount) {
+    const cid = activeConversationId;
+    const streamingHere = conversationHasActiveStream(cid);
+    const awaitingAsk = streamingHere && conversationHasPendingAgentAsk(cid);
+    const submittingHere =
+        chatComposerSubmitInFlight &&
+        (chatComposerSubmitConvId === cid ||
+            (chatComposerSubmitConvId === null && (cid === null || cid < 1)));
+    if (streamingHere) {
+        setChatComposerStreamingUi(mount, true, { pausedForAsk: awaitingAsk });
+    } else {
+        setChatComposerStreamingUi(mount, false);
+        if (submittingHere) {
+            setChatComposerBusy(mount, true, 'send');
+        }
+    }
+}
+
+/**
+ * @param {HTMLElement | Document | null | undefined} mount
+ * @returns {boolean}
+ */
+function isChatComposerBusy(mount) {
+    const cid = activeConversationId;
+    const submittingHere =
+        chatComposerSubmitInFlight &&
+        (chatComposerSubmitConvId === cid ||
+            (chatComposerSubmitConvId === null && (cid === null || cid < 1)));
+    if (submittingHere) return true;
+    if (conversationHasActiveStream(cid)) return true;
+    if (!(mount instanceof HTMLElement)) {
+        mount = document.querySelector('[data-module="oaao-chat"]');
+    }
+    if (!(mount instanceof HTMLElement)) return false;
+    const card = mount.querySelector('[data-oaao-chat="composer-card-wrap"]');
+    return card instanceof HTMLElement && card.dataset.oaaoComposerBusy === 'send';
+}
+
+/**
+ * Dim composer + block input while sending or streaming.
+ *
+ * @param {HTMLElement} mount
+ * @param {boolean} busy
+ * @param {'send' | 'stream' | null} [mode]
+ */
+function setChatComposerBusy(mount, busy, mode = null) {
+    const card = mount.querySelector('[data-oaao-chat="composer-card-wrap"]');
+    const input = mount.querySelector('[data-oaao-chat="input"]');
+    const sendBtn = mount.querySelector('[data-oaao-chat="send"]');
+    if (!(card instanceof HTMLElement)) return;
+
+    if (busy && (mode === 'send' || mode === 'stream')) {
+        card.dataset.oaaoComposerBusy = mode;
+        card.setAttribute('aria-busy', 'true');
+    } else {
+        delete card.dataset.oaaoComposerBusy;
+        card.removeAttribute('aria-busy');
+    }
+
+    if (input instanceof HTMLElement) {
+        if (busy) {
+            if (!input.dataset.oaaoComposerWasEditable) {
+                input.dataset.oaaoComposerWasEditable = input.isContentEditable ? '1' : '0';
+            }
+            input.contentEditable = 'false';
+            input.setAttribute('aria-disabled', 'true');
+        } else {
+            const was = input.dataset.oaaoComposerWasEditable;
+            delete input.dataset.oaaoComposerWasEditable;
+            input.contentEditable = was === '0' ? 'false' : 'true';
+            input.removeAttribute('aria-disabled');
+        }
+    }
+
+    const lockToolbar = busy && mode === 'send';
+    for (const btn of mount.querySelectorAll(
+        '[data-oaao-chat="composer-feature-toggles"] button, [data-oaao-chat="composer-registry-slots-left"] button, [data-oaao-chat="composer-registry-slots-actions"] button, [data-oaao-chat="composer-registry-extra-toolbar"] button',
+    )) {
+        if (btn instanceof HTMLButtonElement) {
+            btn.disabled = lockToolbar;
+        }
+    }
+
+    if (sendBtn instanceof HTMLButtonElement) {
+        if (busy && mode === 'send') {
+            sendBtn.disabled = true;
+            sendBtn.dataset.oaaoComposerSending = '1';
+            sendBtn.setAttribute('aria-busy', 'true');
+        } else {
+            delete sendBtn.dataset.oaaoComposerSending;
+            sendBtn.removeAttribute('aria-busy');
+            if (!(busy && mode === 'stream')) {
+                sendBtn.disabled = false;
+            }
+        }
+    }
+}
+
 /**
  * Send ↔ Stop while an assistant stream is active for this mount.
  *
  * @param {HTMLElement} mount
  * @param {boolean} streaming
+ * @param {{ pausedForAsk?: boolean }} [opts]
  */
-function setChatComposerStreamingUi(mount, streaming) {
+function setChatComposerStreamingUi(mount, streaming, opts = {}) {
     const sendBtn = mount.querySelector('[data-oaao-chat="send"]');
     if (!(sendBtn instanceof HTMLButtonElement)) return;
+    const pausedForAsk = Boolean(opts.pausedForAsk);
     if (streaming) {
         sendBtn.dataset.oaaoChatStreaming = '1';
         sendBtn.disabled = false;
-        sendBtn.setAttribute('aria-label', oaaoChatT('chat.stop_generation', 'Stop generating'));
+        sendBtn.setAttribute(
+            'aria-label',
+            pausedForAsk
+                ? oaaoChatT('chat.agent_ask.waiting', 'Waiting for your confirmation…')
+                : oaaoChatT('chat.stop_generation', 'Stop generating'),
+        );
         sendBtn.classList.remove('bg-[#2d2d2d]');
         sendBtn.classList.add('bg-red-6');
+        setChatComposerBusy(mount, !pausedForAsk, pausedForAsk ? 'ask' : 'stream');
     } else {
         delete sendBtn.dataset.oaaoChatStreaming;
         sendBtn.setAttribute('aria-label', oaaoChatT('chat.send_message', 'Send message'));
         sendBtn.classList.add('bg-[#2d2d2d]');
         sendBtn.classList.remove('bg-red-6');
+        setChatComposerBusy(mount, false);
+    }
+}
+
+/**
+ * LLM tokens are done ({@code system/end}) — unlock composer immediately.
+ * ACCS / persist / usage reporting continue in background; score pills poll in place.
+ *
+ * @param {HTMLElement} mount
+ * @param {number} conversationId
+ * @param {number | null} streamingMsgId
+ */
+function releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId) {
+    if (activeConversationId === conversationId) {
+        chatComposerSubmitInFlight = false;
+        chatComposerSubmitConvId = null;
+        syncComposerBusyForActiveView(mount);
+    }
+    streamHandlesByConversation.delete(conversationId);
+    runStatusLabelByConversation.delete(conversationId);
+    if (streamingMsgId && streamingMsgId > 0) {
+        hideRunStatusForMessage(mount, streamingMsgId);
+    }
+    if (
+        conversationId > 0 &&
+        activeConversationId === conversationId &&
+        !conversationHasOpenRunTasks(conversationId)
+    ) {
+        scheduleTurnScorePoll(conversationId, mount, {
+            assistantMessageId: streamingMsgId && streamingMsgId > 0 ? streamingMsgId : null,
+            triggerRescore: true,
+        });
     }
 }
 
@@ -7590,6 +9086,25 @@ function clearStreamCursor(conversationId) {
 
 /** @type {ReadonlySet<string>} */
 const OAAO_RUN_OPEN_TASK_STATUSES = new Set(['pending', 'active', 'running', 'awaiting_ask']);
+
+/**
+ * Pipeline still running — defer IQS/ACCS poll/rescore until tasks settle.
+ *
+ * @param {number | null | undefined} conversationId
+ * @returns {boolean}
+ */
+function conversationHasOpenRunTasks(conversationId) {
+    const cid = conversationId != null ? Math.floor(Number(conversationId)) : 0;
+    if (!Number.isFinite(cid) || cid < 1) return false;
+    if (conversationHasActiveStream(cid)) return true;
+    const state = getOaaoTaskListStateForConversation(cid);
+    if (!state?.items?.size) return false;
+    for (const item of state.items.values()) {
+        const st = String(item.status ?? '').toLowerCase();
+        if (OAAO_RUN_OPEN_TASK_STATUSES.has(st)) return true;
+    }
+    return false;
+}
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -7849,6 +9364,62 @@ function truncateRunStatusLabel(s, max = 56) {
     return `${t.slice(0, Math.max(0, max - 1))}…`;
 }
 
+/** @param {number | string | null | undefined} ms */
+function formatOaaoDurationMs(ms) {
+    const n = typeof ms === 'number' && Number.isFinite(ms) ? ms : Number.parseInt(String(ms ?? '').trim(), 10);
+    if (!Number.isFinite(n) || n < 0) return '';
+    if (n >= 10_000) return `${(n / 1000).toFixed(1)}s`;
+    if (n >= 1000) return `${(n / 1000).toFixed(2)}s`;
+    return `${Math.round(n)}ms`;
+}
+
+/** @param {Record<string, unknown> | null | undefined} timing */
+function collectOaaoPipelineTimingLines(timing) {
+    /** @type {string[]} */
+    const lines = [];
+    if (!timing || typeof timing !== 'object') return lines;
+    appendOaaoPipelineTimingActivity(timing, (text) => lines.push(text));
+    return lines;
+}
+
+/**
+ * Multi-line tooltip for run meta info icon.
+ *
+ * @param {Record<string, unknown> | null | undefined} timing
+ * @param {number | string | null | undefined} [durationMs]
+ */
+function formatPipelineTimingTooltip(timing, durationMs) {
+    const lines = collectOaaoPipelineTimingLines(timing);
+    const total = formatOaaoDurationMs(durationMs);
+    if (total) lines.push(`[run] Total wall time — ${total}`);
+    return lines.join('\n');
+}
+
+/** @param {Record<string, unknown> | null | undefined} timing */
+function appendOaaoPipelineTimingActivity(timing, appendLine) {
+    if (!timing || typeof timing !== 'object' || typeof appendLine !== 'function') return;
+    const thinking = formatOaaoDurationMs(timing.thinking_ms);
+    if (thinking) appendLine(`[preflight] Thinking (IQS + plan) — ${thinking}`);
+    const phases = Array.isArray(timing.phases) ? timing.phases : [];
+    for (const raw of phases) {
+        if (!raw || typeof raw !== 'object') continue;
+        const row = /** @type {Record<string, unknown>} */ (raw);
+        const label = String(row.name ?? 'phase');
+        const dur = formatOaaoDurationMs(row.duration_ms);
+        if (!dur) continue;
+        appendLine(`[preflight] ${label} — ${dur}`);
+    }
+    const tasks = Array.isArray(timing.tasks) ? timing.tasks : [];
+    for (const raw of tasks) {
+        if (!raw || typeof raw !== 'object') continue;
+        const row = /** @type {Record<string, unknown>} */ (raw);
+        const title = String(row.title ?? row.id ?? 'task');
+        const dur = formatOaaoDurationMs(row.duration_ms);
+        if (!dur) continue;
+        appendLine(`[task] ${title} — ${dur}`);
+    }
+}
+
 /**
  * Map orchestrator SSE envelope → user-visible run status (Thinking / Planning / Working / …).
  *
@@ -7870,6 +9441,7 @@ function runStatusLabelFromEnvelope(data) {
     if (phase === 'system') {
         if (kind === 'error') return null;
         if (raw === 'llm_request_start') return 'Thinking…';
+        if (raw === 'plan_build_start') return 'Planning…';
         if (raw === 'pipeline_stub') return 'Preparing…';
         if (raw === 'llm_call_skipped') return 'Working…';
         if (raw === 'run_cancelled') return 'Cancelled';
@@ -7925,6 +9497,22 @@ function runStatusLabelFromEnvelope(data) {
     if (phase === 'llm' && kind === 'delta') return 'Writing…';
 
     return null;
+}
+
+/**
+ * Once assistant text is visible, suppress stale run-status chips (e.g. task/end re-showing
+ * {@code Writing…} while ACCS / {@code system/end} is still in flight).
+ *
+ * @param {string | null | undefined} label
+ * @param {string} accText
+ */
+function shouldShowRunStatusWhileStreaming(label, accText) {
+    if (!label || !String(label).trim()) return false;
+    if (!String(accText ?? '').trim()) return true;
+    const l = String(label).trim();
+    if (l === 'Cancelled') return true;
+    if (l.includes('Waiting for your confirmation')) return true;
+    return false;
 }
 
 /**
@@ -8091,6 +9679,76 @@ function oaaoChatStrokeSvgShell(pixelCls) {
     return svg;
 }
 
+/** @param {string} [sizeCls] */
+function buildChatAttachmentClipIconSvg(sizeCls = 'w-[11px] h-[11px]') {
+    const svg = oaaoChatStrokeSvgShell(sizeCls);
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute(
+        'd',
+        'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48',
+    );
+    svg.append(path);
+    return svg;
+}
+
+/**
+ * Inline stroke SVG for attachment pills — chat shell does not load Remix Icon fonts.
+ *
+ * @param {string} kind
+ * @param {string} [sizeCls]
+ */
+function buildChatAttachmentKindIconSvg(kind, sizeCls = 'w-[11px] h-[11px]') {
+    const svg = oaaoChatStrokeSvgShell(sizeCls);
+    const k = String(kind ?? '').toLowerCase();
+    if (k === 'image') {
+        const rect = document.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('width', '18');
+        rect.setAttribute('height', '18');
+        rect.setAttribute('x', '3');
+        rect.setAttribute('y', '3');
+        rect.setAttribute('rx', '2');
+        rect.setAttribute('ry', '2');
+        const circle = document.createElementNS(SVG_NS, 'circle');
+        circle.setAttribute('cx', '9');
+        circle.setAttribute('cy', '9');
+        circle.setAttribute('r', '2');
+        const mount = document.createElementNS(SVG_NS, 'path');
+        mount.setAttribute('d', 'm21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21');
+        svg.append(rect, circle, mount);
+        return svg;
+    }
+    if (k === 'audio') {
+        const mic = document.createElementNS(SVG_NS, 'path');
+        mic.setAttribute('d', 'M12 19v3');
+        const wave = document.createElementNS(SVG_NS, 'path');
+        wave.setAttribute('d', 'M19 10v2a7 7 0 0 1-14 0v-2');
+        const body = document.createElementNS(SVG_NS, 'rect');
+        body.setAttribute('x', '9');
+        body.setAttribute('y', '2');
+        body.setAttribute('width', '6');
+        body.setAttribute('height', '13');
+        body.setAttribute('rx', '3');
+        svg.append(mic, wave, body);
+        return svg;
+    }
+    if (k === 'other') {
+        return buildChatAttachmentClipIconSvg(sizeCls);
+    }
+    const file = document.createElementNS(SVG_NS, 'path');
+    file.setAttribute('d', 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z');
+    const fold = document.createElementNS(SVG_NS, 'path');
+    fold.setAttribute('d', 'M14 2v4h4');
+    svg.append(file, fold);
+    if (k === 'text') {
+        for (const d of ['M10 9H8', 'M16 13H8', 'M16 17H8']) {
+            const line = document.createElementNS(SVG_NS, 'path');
+            line.setAttribute('d', d);
+            svg.append(line);
+        }
+    }
+    return svg;
+}
+
 /** @type {AbortController | null} */
 let panelAbort = null;
 
@@ -8195,12 +9853,19 @@ function buildChatVaultSendExtra() {
     return vaultSendExtra;
 }
 
-/** Ephemeral attachment ids for the current composer turn ({@code cp.rag.attachment}). */
-/** @type {number[]} */
-let chatComposerAttachmentIds = [];
+/** Ephemeral attachments for the current composer turn ({@code cp.rag.attachment}). */
+/** @type {Array<{ id: number, file_name: string, mime_type: string, kind: string, byte_size: number }>} */
+let chatComposerAttachments = [];
 
-/** @type {string[]} */
-let chatComposerAttachmentNames = [];
+/** Landing hero vs in-thread — keep landing while drafting attachments before first send. */
+function shouldUseChatLandingLayout() {
+    if (activeConversationId === null) return true;
+    return (
+        Array.isArray(cachedMessageRows) &&
+        cachedMessageRows.length === 0 &&
+        chatComposerAttachments.length > 0
+    );
+}
 
 /** Active slide deck for continuation ({@code active_material_id} on send). */
 /** @type {{ material_id: string, title: string } | null} */
@@ -8282,6 +9947,30 @@ function chatVaultAutoRagUiString(key) {
     return (isZh ? pack['zh-Hant'] : pack.en) ?? pack.en;
 }
 
+/**
+ * @param {Record<string, unknown>} [payload]
+ */
+function applyChatHistorySettingsFromPayload(payload) {
+    const raw = payload?.history_page_size;
+    const min = Number(payload?.history_page_size_min ?? 3);
+    const max = Number(payload?.history_page_size_max ?? 10);
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    chatHistoryPageSize = Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+/** Load user chat history page size (Preferences → Chat → General). */
+async function loadChatHistorySettings() {
+    try {
+        const { res, data } = await chatFetchJson(chatApiUrl('chat_preferences', workspaceChatQueryParams()));
+        if (res.ok && data?.success && data.data && typeof data.data === 'object') {
+            applyChatHistorySettingsFromPayload(/** @type {Record<string, unknown>} */ (data.data));
+        }
+    } catch {
+        /* keep default */
+    }
+}
+
 function readVaultAutoRagPreference() {
     try {
         const v = localStorage.getItem(CHAT_SCOPE_AUTO_RAG_KEY);
@@ -8305,6 +9994,8 @@ export function teardownShellPanel(options = {}) {
     const preserveConversationSidebar = options.preserveConversationSidebar === true;
 
     abortAllStreamReaders();
+    chatComposerSubmitInFlight = false;
+    chatComposerSubmitConvId = null;
     chatComposerStackObserver?.disconnect();
     chatComposerStackObserver = null;
     chatComposerReserveSyncFn = null;
@@ -8336,17 +10027,30 @@ export async function mountShellPanel(mount) {
 
     chatMd = await loadChatMarkdownHelpers();
     ensureChatShellCss();
+    for (const pill of document.querySelectorAll('[data-oaao-turn-score-pill]')) {
+        if (pill instanceof HTMLElement) ensureTurnScorePillFloater(pill);
+    }
     void preloadOaaoMilestoneCtor();
     teardownShellPanel();
     panelAbort = new AbortController();
     const { signal } = panelAbort;
     chatComposerVaultAutoRag = readVaultAutoRagPreference();
     chatComposerVaultSourceRefs = readStoredVaultChatSourceRefs();
-    chatComposerAttachmentIds = [];
-    chatComposerAttachmentNames = [];
+    chatComposerAttachments = [];
     chatComposerActiveMaterial = null;
     chatComposerActiveSlideTemplate = null;
     chatComposerSlideDeckContext = null;
+    await loadChatHistorySettings();
+    window.addEventListener(
+        'oaao:chat-history-settings-changed',
+        (ev) => {
+            const detail = ev instanceof CustomEvent ? ev.detail : null;
+            if (detail && typeof detail === 'object') {
+                applyChatHistorySettingsFromPayload(/** @type {Record<string, unknown>} */ (detail));
+            }
+        },
+        { signal },
+    );
 
     /** Shell section — {@code oaao-chat-shell.css} pairs {@code .oaao-chat-root--in-thread} with {@code .oaao-chat-root}. */
     const chatRootEl = mount.querySelector('.oaao-chat-root') ?? mount;
@@ -8374,6 +10078,24 @@ export async function mountShellPanel(mount) {
     if (!messagesEl || !formEl || !inputEl || !sendBtn) {
         return;
     }
+
+    void loadInlineCitationsMod().then((mod) => {
+        if (typeof mod.bindInlineCitationHoverRoot !== 'function') return;
+        const citeRoot = threadWrapEl instanceof HTMLElement ? threadWrapEl : messagesEl;
+        mod.bindInlineCitationHoverRoot(citeRoot, (outer) => inlineCitationMapsByOuter.get(outer) ?? null);
+    });
+
+    document.addEventListener(
+        'visibilitychange',
+        () => {
+            if (document.visibilityState !== 'visible') return;
+            const cid = Number(activeConversationId);
+            if (!Number.isFinite(cid) || cid < 1) return;
+            if (conversationHasOpenRunTasks(cid)) return;
+            scheduleTurnScorePoll(cid, mount, { triggerRescore: true });
+        },
+        { signal },
+    );
 
     syncChatComposerChips(mount);
     restoreChatPendingSlideTemplateFromStorage(mount);
@@ -8494,12 +10216,22 @@ export async function mountShellPanel(mount) {
         chatFetchJson,
         chatApiUrl,
         workspaceChatBodyFields,
-        onAttachmentsChange: (ids, name) => {
-            chatComposerAttachmentIds = ids.slice();
-            if (typeof name === 'string' && name.trim()) {
-                chatComposerAttachmentNames.push(name.trim());
+        onAttachmentsChange: (items) => {
+            chatComposerAttachments = Array.isArray(items)
+                ? items.map((row) => ({
+                      id: Number(row.id ?? 0),
+                      file_name: String(row.file_name ?? 'attachment'),
+                      mime_type: String(row.mime_type ?? ''),
+                      kind: String(row.kind ?? 'other'),
+                      byte_size: Number(row.byte_size ?? 0),
+                  }))
+                : [];
+            renderChatComposerAttachmentChips(mount);
+            if (typeof mount.__oaaoUpdateChatLayout === 'function') {
+                mount.__oaaoUpdateChatLayout();
             }
         },
+        getAttachmentItems: () => chatComposerAttachments.slice(),
         onTranscribed: (text) => {
             if (!isChatComposerEditorEl(inputEl)) return;
             appendChatComposerEditorText(inputEl, text);
@@ -8542,9 +10274,6 @@ export async function mountShellPanel(mount) {
         return messagesEl;
     }
 
-    const COMPOSER_STACK_GAP_PX = 20;
-    const COMPOSER_STACK_MIN_PX = 128;
-
     const taskListStripEl = mount.querySelector('[data-oaao-chat="task-list-strip"]');
     bindOaaoTaskPanelChromeOnce(mount);
     mountWorkspaceAgentRail();
@@ -8552,18 +10281,24 @@ export async function mountShellPanel(mount) {
     function syncThreadComposerReserve() {
         if (!(chatRootEl instanceof HTMLElement)) return;
         const inThread = activeConversationId !== null;
+        chatRootEl.style.removeProperty('--oaao-thread-composer-stack');
+        const scrollbarInset =
+            inThread && threadWrapEl instanceof HTMLElement
+                ? Math.max(0, threadWrapEl.offsetWidth - threadWrapEl.clientWidth)
+                : 0;
+        const insetPx = `${scrollbarInset}px`;
+        chatRootEl.style.setProperty('--oaao-thread-scrollbar-inset', insetPx);
+        if (composerRegionEl instanceof HTMLElement) {
+            composerRegionEl.style.setProperty('--oaao-thread-scrollbar-inset', insetPx);
+            if (inThread) {
+                composerRegionEl.style.paddingRight = insetPx;
+            } else {
+                composerRegionEl.style.removeProperty('padding-right');
+            }
+        }
         if (!inThread) {
-            chatRootEl.style.removeProperty('--oaao-thread-composer-stack');
             chatRootEl.classList.remove('oaao-chat-root--task-strip-visible');
             return;
-        }
-        let h = 0;
-        if (composerDockEl instanceof HTMLElement) {
-            h = Math.ceil(composerDockEl.getBoundingClientRect().height);
-        } else if (composerShellEl instanceof HTMLElement) {
-            h = Math.ceil(composerShellEl.getBoundingClientRect().height);
-        } else if (formEl instanceof HTMLElement) {
-            h = Math.ceil(formEl.getBoundingClientRect().height);
         }
         const taskInSidePanel =
             taskListStripEl instanceof HTMLElement &&
@@ -8571,10 +10306,6 @@ export async function mountShellPanel(mount) {
             !taskListStripEl.classList.contains('hidden') &&
             Boolean(taskListStripEl.closest('[data-oaao-chat="task-panel"]'));
         chatRootEl.classList.toggle('oaao-chat-root--task-panel-open', taskInSidePanel);
-        const gap = COMPOSER_STACK_GAP_PX;
-        const minStack = COMPOSER_STACK_MIN_PX;
-        const stack = Math.max(minStack, h + gap);
-        chatRootEl.style.setProperty('--oaao-thread-composer-stack', `${stack}px`);
         const scrollEl = getChatScrollEl();
         if (scrollEl instanceof HTMLElement && messagesPinnedToBottom(scrollEl)) {
             requestAnimationFrame(() => messagesScrollToBottom(scrollEl));
@@ -8589,7 +10320,7 @@ export async function mountShellPanel(mount) {
         chatComposerStackObserver = new ResizeObserver(() => {
             syncThreadComposerReserve();
         });
-        const observeTargets = [composerDockEl, taskListStripEl, composerCardWrapEl].filter(
+        const observeTargets = [composerDockEl, taskListStripEl, composerCardWrapEl, threadWrapEl, messagesEl].filter(
             (el) => el instanceof HTMLElement,
         );
         if (!observeTargets.length) return;
@@ -8600,7 +10331,13 @@ export async function mountShellPanel(mount) {
 
     function syncThreadToolbarStates() {
         const open = activeConversationId !== null && activeConversationId > 0;
-        if (threadToolbarEl) threadToolbarEl.classList.toggle('hidden', !open);
+        if (threadToolbarEl instanceof HTMLElement) {
+            threadToolbarEl.classList.toggle('hidden', !open);
+            /* Single source: {@code oaao-chat-shell.css}; drop stale inline bg from older builds. */
+            threadToolbarEl.style.removeProperty('background');
+            threadToolbarEl.style.removeProperty('background-color');
+            threadToolbarEl.style.removeProperty('background-image');
+        }
         if (!open || !archiveThreadBtn) return;
         const row = cachedConversations.find((r) => Number(r.id) === activeConversationId);
         const archived = row ? Number(row.archived) === 1 : false;
@@ -8643,6 +10380,7 @@ export async function mountShellPanel(mount) {
      */
     async function retryInterruptedAssistantRun(conversationId, assistantMsgId) {
         if (!conversationId || conversationId < 1 || !assistantMsgId || assistantMsgId < 1) return;
+        if (chatComposerSubmitInFlight || isChatComposerBusy(mount)) return;
         const retryOuter = messagesEl
             .querySelector(`[data-oaao-msg-id="${assistantMsgId}"]`)
             ?.closest('.oaao-chat-assistant-row');
@@ -8665,7 +10403,9 @@ export async function mountShellPanel(mount) {
         abortStreamReaderForConversation(conversationId);
         clearOaaoTaskListStrip(mount, true);
         oaaoFreshRunByConv.add(conversationId);
-        sendBtn.disabled = true;
+        chatComposerSubmitConvId = conversationId;
+        chatComposerSubmitInFlight = true;
+        setChatComposerBusy(mount, true, 'send');
         try {
             /** @type {Record<string, unknown>} */
             const vaultSendExtra = buildChatVaultSendExtra();
@@ -8684,7 +10424,9 @@ export async function mountShellPanel(mount) {
                     content: prompt,
                     chat_endpoint_id: getWorkspaceChatEndpointIdForSend(),
                     ...vaultSendExtra,
-                    ...workspaceChatBodyFields(),
+                    ...(conversationId && conversationId > 0
+                        ? chatScopeBodyFieldsForConversation(conversationId)
+                        : workspaceChatBodyFields()),
                 }),
             });
             if (!res.ok || data.success !== true) {
@@ -8714,18 +10456,21 @@ export async function mountShellPanel(mount) {
                     last_seq: 0,
                     ...(amid ? { assistant_message_id: amid } : {}),
                 });
-                    void consumeAssistantStream(
-                        su,
-                        rid,
-                        activeConversationId,
-                        0,
-                        amid,
-                        Boolean(data.orchestrator_persist),
-                    );
+                setChatComposerStreamingUi(mount, true);
+                void consumeAssistantStream(
+                    su,
+                    rid,
+                    activeConversationId,
+                    0,
+                    amid,
+                    Boolean(data.orchestrator_persist),
+                );
             }
             toastOaao(oaaoChatT('chat.run_retry.started', 'Retry started'));
         } finally {
-            sendBtn.disabled = false;
+            chatComposerSubmitInFlight = false;
+            chatComposerSubmitConvId = null;
+            syncComposerBusyForActiveView(mount);
         }
     }
 
@@ -8741,7 +10486,26 @@ export async function mountShellPanel(mount) {
         if (streamHandlesByConversation.has(conversationId)) return;
         const amid = coercePositiveInt(cur.assistant_message_id);
         const alive = await probeOrchestratorRunAlive(cur.stream_url, cur.run_id);
-        if (alive) return;
+        if (alive) {
+            if (amid) {
+                const row = rows.find((m) => coercePositiveInt(m.id) === amid);
+                const meta =
+                    row?.meta && typeof row.meta === 'object'
+                        ? /** @type {Record<string, unknown>} */ (row.meta)
+                        : null;
+                if (assistantMetaRunIncomplete(meta) || conversationHasOpenRunTasks(conversationId)) {
+                    void consumeAssistantStream(
+                        cur.stream_url,
+                        cur.run_id,
+                        conversationId,
+                        cur.last_seq || 0,
+                        amid,
+                        true,
+                    );
+                }
+            }
+            return;
+        }
         clearStreamCursor(conversationId);
         if (!amid) return;
         const idx = rows.findIndex((m) => coercePositiveInt(m.id) === amid);
@@ -8913,22 +10677,23 @@ export async function mountShellPanel(mount) {
                 cancelAnimationFrame(mdBubbleRaf);
                 mdBubbleRaf = 0;
             }
-            const bubble =
-                getAssistantBubbleForMessage(mount, streamingMsgId ?? 0) ??
-                msgsHost?.querySelector(
-                    `[data-oaao-msg-id="${streamingMsgId}"][data-oaao-msg-role="assistant"]`,
-                );
-            if (!(bubble instanceof HTMLElement) || acc === '') return;
+            const bubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+            let body = String(acc ?? '');
+            if (!body.trim() && bubble instanceof HTMLElement) {
+                body = readAssistantBubblePlainText(bubble);
+            }
+            if (!(bubble instanceof HTMLElement) || !body.trim()) return;
 
-            // During SSE: plain text only — re-parsing markdown every ~48ms rebuilds lists/headings and
-            // causes visible jitter plus mid-token truncation artifacts. Parse once when the run ends.
             if (finalize) {
-                applyAssistantMarkdown(bubble, acc);
+                applyAssistantMarkdown(bubble, body);
+                if (!String(acc ?? '').trim()) {
+                    acc = body;
+                }
                 return;
             }
             bubble.classList.remove('oaao-md-bubble');
             bubble.style.whiteSpace = 'pre-wrap';
-            bubble.textContent = acc;
+            bubble.textContent = body;
         }
 
         function queueMdBubbleRender() {
@@ -9043,7 +10808,7 @@ export async function mountShellPanel(mount) {
                             : String(envelope.kind ?? '').toLowerCase();
                     const text = streamEnvelopeText(envelope);
                     const statusLabel = runStatusLabelFromEnvelope(envelope);
-                    if (statusLabel) {
+                    if (statusLabel && shouldShowRunStatusWhileStreaming(statusLabel, acc)) {
                         runStatusLabel = statusLabel;
                         runStatusLabelByConversation.set(conversationId, runStatusLabel);
                         if (isStreamConversationVisible() && streamingMsgId && streamingMsgId > 0) {
@@ -9102,6 +10867,19 @@ export async function mountShellPanel(mount) {
                         } catch (taskErr) {
                             console.error('oaao task list merge failed', taskErr);
                         }
+                        // SSE stays on /sidecar — do not abort during agent_ask (PHP agent_ask is a short POST).
+                        if (phase === 'task' && kind === 'ask') {
+                            streamPausedForAgentAskByConversation.set(conversationId, {
+                                streamUrl,
+                                runId,
+                                lastSeq: lastStreamSeq,
+                                assistantMessageId: streamingMsgId,
+                                orchestratorOwnsPersist,
+                            });
+                            if (activeConversationId === conversationId) {
+                                syncComposerBusyForActiveView(mount);
+                            }
+                        }
                         if (
                             extractTasksPayloadFromEnvelope(envelope) &&
                             kind !== 'ask' &&
@@ -9110,8 +10888,10 @@ export async function mountShellPanel(mount) {
                             streamingMsgId > 0
                         ) {
                             const planLbl = runStatusLabelByConversation.get(conversationId) || 'Planning…';
-                            runStatusLabelByConversation.set(conversationId, planLbl);
-                            showRunStatusForMessage(mount, streamingMsgId, planLbl);
+                            if (shouldShowRunStatusWhileStreaming(planLbl, acc)) {
+                                runStatusLabelByConversation.set(conversationId, planLbl);
+                                showRunStatusForMessage(mount, streamingMsgId, planLbl);
+                            }
                         }
                     }
                     const pipeLive = normalizePipelinePayloadFromEnvelope(
@@ -9127,7 +10907,11 @@ export async function mountShellPanel(mount) {
                         const fp = pipelineSnapshotFingerprint(pipeLive);
                         if (fp !== pipelineFpApplied) {
                             pipelineFpApplied = fp;
-                            const bubbleLive = msgsHost.querySelector(`[data-oaao-msg-id="${streamingMsgId}"]`);
+                            const bubbleLive = resolveStreamingAssistantBubble(
+                                mount,
+                                msgsHost,
+                                streamingMsgId,
+                            );
                             const outerLive = bubbleLive?.closest('.oaao-chat-assistant-row');
                             if (outerLive && bubbleLive instanceof HTMLElement && outerLive instanceof HTMLElement) {
                                 void syncAssistantMessageBlocks(
@@ -9151,6 +10935,7 @@ export async function mountShellPanel(mount) {
                         typeof data.kind === 'string' ? data.kind.toLowerCase() : String(data.kind ?? '').toLowerCase();
                     if (phaseEnd === 'system' && kindEnd === 'end') {
                         sawRunEnd = true;
+                        streamPausedForAgentAskByConversation.delete(conversationId);
                         const p = data.payload;
                         if (p && typeof p === 'object') {
                             runMeta = { .../** @type {Record<string, unknown>} */ (p) };
@@ -9163,9 +10948,18 @@ export async function mountShellPanel(mount) {
                             streamTruncated = true;
                         }
                         clearStreamCursor(conversationId);
-                        if (isStreamConversationVisible()) hideActivityLog();
-                        if (streamingMsgId && streamingMsgId > 0) {
-                            hideRunStatusForMessage(mount, streamingMsgId);
+                        if (isStreamConversationVisible()) {
+                            clearActivityLog();
+                            hideActivityLog();
+                        }
+                        releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId);
+                        if (isStreamConversationVisible()) {
+                            flushMdBubbleNow({ finalize: true });
+                            if (!orchestratorOwnsPersist && streamingMsgId && streamingMsgId > 0) {
+                                void flushAssistant(
+                                    mergeMaterialsMetaIntoRunMetrics(runMeta, mount, conversationId),
+                                );
+                            }
                         }
                         if (flushTimer) {
                             clearTimeout(flushTimer);
@@ -9176,6 +10970,10 @@ export async function mountShellPanel(mount) {
             };
 
             await readSseStream(reader, onStreamEvent);
+
+            if (streamPausedForAgentAskByConversation.has(conversationId)) {
+                return;
+            }
 
             if (!sawRunEnd && !signal.aborted && lastStreamSeq > sinceSeq) {
                 const tailUrl = new URL(await resolveChatOrchestratorStreamUrl(streamUrl), window.location.href);
@@ -9252,21 +11050,26 @@ export async function mountShellPanel(mount) {
                 }
             }
         } finally {
+            const pausedForAsk = streamPausedForAgentAskByConversation.has(conversationId);
             if (streamHandlesByConversation.get(conversationId) === streamHandle) {
                 streamHandlesByConversation.delete(conversationId);
             }
-            if (signal.aborted && !sawRunEnd) {
+            if (signal.aborted && !sawRunEnd && !pausedForAsk) {
                 markOaaoRunTasksCancelled(mount, conversationId);
                 runMeta = finalizeRunMetaForPatch(runMeta, { cancelled: true });
             }
             if (activeConversationId === conversationId) {
-                setChatComposerStreamingUi(mount, false);
+                syncComposerBusyForActiveView(mount);
             }
             if (streamingMsgId && streamingMsgId > 0) {
                 hideRunStatusForMessage(mount, streamingMsgId);
             }
             runStatusLabelByConversation.delete(conversationId);
             if (isStreamConversationVisible()) {
+                if (sawRunEnd) {
+                    clearActivityLog();
+                    hideActivityLog();
+                }
                 const pinFlush = messagesPinnedToBottom(getChatScrollEl());
                 flushMdBubbleNow({ finalize: true });
                 if (pinFlush) messagesScrollToBottom(getChatScrollEl());
@@ -9280,14 +11083,22 @@ export async function mountShellPanel(mount) {
                 streamingMsgId &&
                 streamingMsgId > 0 &&
                 acc === '' &&
-                systemErrors.length > 0
+                (systemErrors.length > 0 || sawRunEnd)
             ) {
-                acc = systemErrors.join('\n');
-                const bubble = msgsHost?.querySelector(`[data-oaao-msg-id="${streamingMsgId}"]`);
-                if (bubble) {
-                    bubble.classList.remove('oaao-md-bubble');
-                    bubble.style.whiteSpace = 'pre-wrap';
-                    bubble.textContent = acc;
+                acc =
+                    systemErrors.length > 0
+                        ? systemErrors.join('\n')
+                        : resolveAssistantDisplayText('', runMeta);
+                const bubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+                if (bubble instanceof HTMLElement && acc) {
+                    applyAssistantMarkdown(bubble, acc);
+                }
+            } else if (!acc.trim() && sawRunEnd) {
+                const fallback = resolveAssistantDisplayText('', runMeta);
+                if (fallback) acc = fallback;
+                const bubbleFb = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+                if (bubbleFb instanceof HTMLElement && acc.trim()) {
+                    applyAssistantMarkdown(bubbleFb, acc);
                 }
             }
             await flushAssistant(mergeMaterialsMetaIntoRunMetrics(runMeta, mount, conversationId));
@@ -9321,9 +11132,13 @@ export async function mountShellPanel(mount) {
             if (!isStreamConversationVisible()) {
                 return;
             }
-            if (streamingMsgId && streamingMsgId > 0 && acc !== '' && msgsHost) {
-                const bubble = msgsHost.querySelector(`[data-oaao-msg-id="${streamingMsgId}"]`);
+            if (streamingMsgId && streamingMsgId > 0 && msgsHost) {
+                const bubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
                 const outer = bubble?.closest('.oaao-chat-assistant-row');
+                if (!acc.trim() && bubble instanceof HTMLElement) {
+                    const fromDom = readAssistantBubblePlainText(bubble);
+                    if (fromDom) acc = fromDom;
+                }
                 if (bubble instanceof HTMLElement && outer instanceof HTMLElement) {
                     if (runMeta && typeof runMeta === 'object') {
                         applyAssistantIdentityHeader(outer, runMeta);
@@ -9337,15 +11152,30 @@ export async function mountShellPanel(mount) {
                                 force: true,
                             });
                         }
+                        if (runMeta.conversation_title && isStreamConversationVisible()) {
+                            applyConversationTitleToCache(
+                                conversationId,
+                                runMeta.conversation_title,
+                            );
+                            void refreshConversations(conversationId, { silent: true });
+                        }
                     }
-                } else {
+                    if (acc.trim()) {
+                        applyAssistantMarkdown(bubble, acc);
+                        await hydrateInlineCitesForBubble(bubble);
+                    } else if (sawRunEnd && !assistantBubbleHasVisibleContent(bubble)) {
+                        const fromServer = await hydrateAssistantBubbleFromServer(
+                            conversationId,
+                            streamingMsgId,
+                            bubble,
+                        );
+                        if (fromServer) acc = fromServer;
+                    }
+                } else if (sawRunEnd) {
                     await loadMessages(conversationId, 'auto');
                 }
-            } else {
+            } else if (sawRunEnd && streamingMsgId && streamingMsgId > 0) {
                 await loadMessages(conversationId, 'auto');
-            }
-            if (streamingMsgId && streamingMsgId > 0) {
-                void pollAssistantTurnScoreInPlace(conversationId, streamingMsgId);
             }
         }
     }
@@ -9364,8 +11194,37 @@ export async function mountShellPanel(mount) {
         );
     }
 
+    function syncComposerChromeStyles() {
+        if (composerDockEl instanceof HTMLElement) {
+            composerDockEl.style.width = '100%';
+            composerDockEl.style.maxWidth = '48rem';
+            composerDockEl.style.marginInline = 'auto';
+            composerDockEl.style.alignSelf = 'center';
+            composerDockEl.style.boxSizing = 'border-box';
+        }
+        if (composerRegionEl instanceof HTMLElement) {
+            const landingNow = activeConversationId === null;
+            composerRegionEl.style.alignItems = landingNow ? 'center' : '';
+        }
+        if (composerCardWrapEl instanceof HTMLElement) {
+            composerCardWrapEl.style.borderRadius = '22px';
+            composerCardWrapEl.style.overflow = 'hidden';
+            composerCardWrapEl.style.background = '#fff';
+            composerCardWrapEl.style.border = '1px solid rgba(0,0,0,0.12)';
+            composerCardWrapEl.style.boxShadow = '0 12px 32px rgba(0,0,0,0.06)';
+            composerCardWrapEl.style.boxSizing = 'border-box';
+        }
+        if (promptGridEl instanceof HTMLElement) {
+            promptGridEl.style.width = '100%';
+            promptGridEl.style.maxWidth = '48rem';
+            promptGridEl.style.marginInline = 'auto';
+            promptGridEl.style.alignSelf = 'center';
+            promptGridEl.style.boxSizing = 'border-box';
+        }
+    }
+
     function updateChatLayout() {
-        const landing = activeConversationId === null;
+        const landing = shouldUseChatLandingLayout();
         /* Native `hidden` keeps landing-only blocks out of layout/a11y tree even when Tailwind `.hidden` is absent from compiled CSS. */
         if (whenEmptyEl) {
             whenEmptyEl.hidden = !landing;
@@ -9381,9 +11240,12 @@ export async function mountShellPanel(mount) {
         }
 
         if (composerRegionEl) {
-            /* Landing: scrollable column; thread: absolute floating dock over scroll ({@see oaao-chat-shell.css}). */
+            /* Landing: scrollable column; thread: flex dock under {@code thread-wrap} ({@see oaao-chat-shell.css}). */
             composerRegionEl.classList.toggle('flex-1', landing);
-            composerRegionEl.classList.remove('shrink-0');
+            composerRegionEl.classList.toggle('min-h-0', landing);
+            composerRegionEl.classList.toggle('overflow-y-auto', landing);
+            composerRegionEl.classList.toggle('items-center', landing);
+            composerRegionEl.classList.toggle('shrink-0', !landing);
             composerRegionEl.classList.remove(
                 'border-t-[1px]',
                 'border-solid',
@@ -9396,7 +11258,7 @@ export async function mountShellPanel(mount) {
                 'pt-1',
                 'pb-0',
             );
-            composerRegionEl.classList.toggle('relative', landing);
+            composerRegionEl.classList.toggle('relative', true);
             composerRegionEl.classList.toggle('oaao-chat-composer-region--thread-float', !landing);
         }
         if (composerCardWrapEl) {
@@ -9406,10 +11268,12 @@ export async function mountShellPanel(mount) {
             composerShellEl.classList.toggle('oaao-chat-composer-shell--thread', !landing);
         }
         chatRootEl.classList.toggle('oaao-chat-root--in-thread', !landing);
+        syncComposerChromeStyles();
         syncThreadToolbarStates();
         syncThreadComposerReserve();
         requestAnimationFrame(() => syncThreadComposerReserve());
     }
+    mount.__oaaoUpdateChatLayout = updateChatLayout;
 
     /**
      * Open or close the active thread and mirror {@code conversation_id} in the URL.
@@ -9430,6 +11294,7 @@ export async function mountShellPanel(mount) {
         if (next) {
             await resumeStreamIfAny(next);
         }
+        syncComposerBusyForActiveView(mount);
         updateChatLayout();
     }
 
@@ -9594,11 +11459,29 @@ export async function mountShellPanel(mount) {
     }
 
     /**
-     * @param {number | null | undefined} [preferredId] — `null` clears selection; omit to keep current if still listed.
+     * @param {number} conversationId
+     * @param {unknown} title
      */
-    async function refreshConversations(preferredId = undefined) {
+    function applyConversationTitleToCache(conversationId, title) {
+        const t = String(title ?? '').trim();
+        const cid = Math.floor(Number(conversationId));
+        if (!t || !Number.isFinite(cid) || cid < 1) return;
+        for (const row of cachedConversations) {
+            if (Number(row.id) === cid) {
+                row.title = t;
+                return;
+            }
+        }
+    }
+
+    /**
+     * @param {number | null | undefined} [preferredId] — `null` clears selection; omit to keep current if still listed.
+     * @param {{ silent?: boolean }} [opts] — skip sidebar loading overlay (background title refresh during stream).
+     */
+    async function refreshConversations(preferredId = undefined, opts = {}) {
+        const silent = opts.silent === true;
         const listHost = document.getElementById('workspace-conversation-list');
-        if (listHost) {
+        if (listHost && !silent) {
             oaaoMountLoadingLogo(listHost, { block: true, label: 'Loading chats…' });
         }
         try {
@@ -9619,6 +11502,12 @@ export async function mountShellPanel(mount) {
             }
             if (res.ok && data.success && Array.isArray(data.conversations)) {
                 cachedConversations = data.conversations;
+                for (const row of cachedConversations) {
+                    const id = Number(row.id);
+                    if (Number.isFinite(id) && id > 0) {
+                        rememberConversationWorkspace(id, row.workspace_id);
+                    }
+                }
                 syncConversationModesFromRows(cachedConversations);
             }
             if (preferredId === null) {
@@ -9643,12 +11532,16 @@ export async function mountShellPanel(mount) {
 
     /**
      * @param {Array<{ id?: number, role?: string, content?: string, feedback?: string }>} rows
-     * @param {'auto' | 'bottom'} scrollMode
+     * @param {'auto' | 'bottom' | 'preserve'} scrollMode
      */
     function renderMessages(rows, scrollMode = 'auto') {
         const cid = activeConversationId;
+        const preserveScroll = scrollMode === 'preserve';
+        const scrollEl = getChatScrollEl();
+        const prevHeight = preserveScroll && scrollEl instanceof HTMLElement ? scrollEl.scrollHeight : 0;
+        const prevTop = preserveScroll && scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
         const pinnedBefore =
-            scrollMode === 'auto' && cid != null && cid > 0 ? messagesPinnedToBottom(getChatScrollEl()) : false;
+            scrollMode === 'auto' && cid != null && cid > 0 ? messagesPinnedToBottom(scrollEl) : false;
         messagesEl.textContent = '';
         if (!cid || cid < 1) {
             const hint = document.createElement('p');
@@ -9660,6 +11553,10 @@ export async function mountShellPanel(mount) {
         }
 
         if (!Array.isArray(rows) || rows.length === 0) {
+            if (shouldUseChatLandingLayout()) {
+                getChatScrollEl().scrollTop = 0;
+                return;
+            }
             const hint = document.createElement('p');
             hint.className = 'text-sm fg-[var(--grid-ink-muted)]';
             hint.textContent = 'No messages yet — send something below.';
@@ -9746,9 +11643,11 @@ export async function mountShellPanel(mount) {
             bubble.dataset.oaaoMsgRole = role;
 
             if (role === 'assistant') {
-                const trimmed = contentText.trim();
-                if (trimmed) {
-                    applyAssistantMarkdown(bubble, contentText);
+                const metaForDisplay =
+                    m.meta && typeof m.meta === 'object' ? /** @type {Record<string, unknown>} */ (m.meta) : null;
+                const displayAssistant = resolveAssistantDisplayText(contentText, metaForDisplay);
+                if (displayAssistant.trim()) {
+                    applyAssistantMarkdown(bubble, displayAssistant);
                 } else {
                     bubble.textContent = '';
                     bubble.classList.remove('oaao-md-bubble');
@@ -9769,6 +11668,7 @@ export async function mountShellPanel(mount) {
             if (role === 'user') {
                 const tpl = resolveSlideTemplateFromMessage(contentText, m.meta);
                 const displayText = resolveUserMessageDisplayText(contentText, m.meta, tpl);
+                const attachments = parseMessageAttachmentManifest(m.meta);
 
                 const stack = document.createElement('div');
                 stack.className =
@@ -9776,6 +11676,9 @@ export async function mountShellPanel(mount) {
 
                 if (tpl) {
                     stack.append(createUserMessageTemplateRefsRow(tpl));
+                }
+                if (attachments.length) {
+                    stack.append(createUserMessageAttachmentCardsBlock(attachments));
                 }
 
                 const row = document.createElement('div');
@@ -9884,7 +11787,9 @@ export async function mountShellPanel(mount) {
                 metaRaw && typeof metaRaw === 'object' ? /** @type {Record<string, unknown>} */ (metaRaw) : null,
             );
             if (pipeStored) {
-                void syncAssistantMessageBlocks(outer, bubble, pipeStored, cid ?? 0);
+                void syncAssistantMessageBlocks(outer, bubble, pipeStored, cid ?? 0).then(() =>
+                    hydrateInlineCitesForBubble(bubble),
+                );
             }
             if (metaRaw && typeof metaRaw === 'object') {
                 applyAssistantRunSummaryToRow(outer, /** @type {Record<string, unknown>} */ (metaRaw));
@@ -9909,11 +11814,64 @@ export async function mountShellPanel(mount) {
         });
         if (scrollMode === 'bottom' || (scrollMode === 'auto' && pinnedBefore)) {
             messagesScrollToBottom(getChatScrollEl());
+        } else if (preserveScroll && scrollEl instanceof HTMLElement) {
+            scrollEl.scrollTop = prevTop + (scrollEl.scrollHeight - prevHeight);
         }
     }
 
     /**
-     * @param {'auto' | 'bottom'} [scrollMode]
+     * @param {number} conversationId
+     */
+    async function prependOlderMessages(conversationId) {
+        const cid = Number(conversationId);
+        if (!Number.isFinite(cid) || cid < 1 || activeConversationId !== cid) return;
+        const state = messagePageStateByConversation.get(cid);
+        if (!state?.hasOlder || state.loadingOlder || state.oldestId === null) return;
+        state.loadingOlder = true;
+        messagePageStateByConversation.set(cid, state);
+        try {
+            const { res, data } = await chatFetchJson(chatMessagesApiUrl(cid, state.oldestId));
+            if (!res.ok || !data?.success || !Array.isArray(data.messages) || data.messages.length < 1) {
+                state.hasOlder = false;
+                return;
+            }
+            const olderRows = attachTurnScoresToMessageRows(
+                /** @type {Array<Record<string, unknown>>} */ (data.messages),
+                cid,
+            );
+            cachedMessageRows = [...olderRows, ...cachedMessageRows];
+            applyMessagePageMeta(cid, data);
+            renderMessages(cachedMessageRows, 'preserve');
+            bindOaaoTaskListStripToConversation(mount, cid, cachedMessageRows);
+        } finally {
+            const latest = messagePageStateByConversation.get(cid);
+            if (latest) {
+                latest.loadingOlder = false;
+                messagePageStateByConversation.set(cid, latest);
+            }
+        }
+    }
+
+    function bindMessageHistoryScrollLoad() {
+        if (messageHistoryScrollBound) return;
+        messageHistoryScrollBound = true;
+        const onScroll = () => {
+            const cid = activeConversationId;
+            if (!cid || cid < 1) return;
+            const scrollEl = getChatScrollEl();
+            if (!(scrollEl instanceof HTMLElement) || scrollEl.scrollTop > 96) return;
+            void prependOlderMessages(cid);
+        };
+        if (threadWrapEl instanceof HTMLElement) {
+            threadWrapEl.addEventListener('scroll', onScroll, { passive: true, signal });
+        }
+        if (messagesEl instanceof HTMLElement) {
+            messagesEl.addEventListener('scroll', onScroll, { passive: true, signal });
+        }
+    }
+
+    /**
+     * @param {'auto' | 'bottom' | 'preserve'} [scrollMode]
      */
     async function loadMessages(conversationId, scrollMode = 'auto') {
         if (!conversationId || conversationId < 1) {
@@ -9925,13 +11883,14 @@ export async function mountShellPanel(mount) {
 
             return;
         }
+        resetMessagePageState(conversationId);
+        turnScoreCacheByConversation.delete(conversationId);
+        cancelTurnScorePoll(conversationId);
         if (messagesEl instanceof HTMLElement) {
             oaaoMountLoadingLogo(messagesEl, { fill: true, label: 'Loading messages…' });
         }
-        const [msgPack, scoreMap] = await Promise.all([
-            chatFetchJson(
-                chatApiUrl('messages', { conversation_id: String(conversationId), ...workspaceChatQueryParams() }),
-            ),
+        const [msgPack, scorePack] = await Promise.all([
+            chatFetchJson(chatMessagesApiUrl(conversationId)),
             loadTurnScoresForConversation(conversationId),
         ]);
         const { res, data } = msgPack;
@@ -9941,15 +11900,11 @@ export async function mountShellPanel(mount) {
 
             return;
         }
-        const rows = (data.messages || []).map((m) => {
-            if (!m || typeof m !== 'object') return m;
-            const mid = coercePositiveInt(m.id);
-            const role = String(m.role ?? '').toLowerCase();
-            if (mid !== null && role === 'assistant' && scoreMap.has(mid)) {
-                return { ...m, turn_score: scoreMap.get(mid) };
-            }
-            return m;
-        });
+        applyMessagePageMeta(conversationId, data);
+        const rows = attachTurnScoresToMessageRows(
+            /** @type {Array<Record<string, unknown>>} */ (data.messages || []),
+            conversationId,
+        );
         cachedMessageRows = rows;
         renderMessages(rows, scrollMode);
         bindOaaoTaskListStripToConversation(mount, conversationId, rows);
@@ -9958,12 +11913,25 @@ export async function mountShellPanel(mount) {
         syncChatComposerChips(mount);
         syncComposerPlannerStepsVisibility(mount);
         await reconcileInterruptedRunsAfterLoad(conversationId, rows);
+        const needsScorePoll =
+            !conversationHasOpenRunTasks(conversationId) &&
+            (scorePack.rescorePending > 0 ||
+                [...scorePack.map.values()].some((row) => !turnScoreRowIsReady(row)));
+        if (needsScorePoll) {
+            scheduleTurnScorePoll(conversationId, mount, {
+                triggerRescore: scorePack.rescorePending > 0,
+            });
+        }
         if (streamHandlesByConversation.has(conversationId)) {
             const lbl = runStatusLabelByConversation.get(conversationId) || 'Working…';
             const cur = loadStreamCursor(conversationId);
             const mid = coercePositiveInt(cur?.assistant_message_id);
             if (mid) {
-                showRunStatusForMessage(mount, mid, lbl);
+                const bubble = getAssistantBubbleForMessage(mount, mid);
+                const accText = bubble instanceof HTMLElement ? bubble.textContent ?? '' : '';
+                if (shouldShowRunStatusWhileStreaming(lbl, accText)) {
+                    showRunStatusForMessage(mount, mid, lbl);
+                }
             }
         }
     }
@@ -10051,6 +12019,7 @@ export async function mountShellPanel(mount) {
         chip.addEventListener(
             'click',
             () => {
+                if (isChatComposerBusy(mount)) return;
                 const t = (chip.textContent ?? '').trim();
                 if (t && isChatComposerEditorEl(inputEl)) {
                     setChatComposerEditorPlainText(inputEl, t, { keepTemplate: true });
@@ -10068,11 +12037,21 @@ export async function mountShellPanel(mount) {
             if (sendBtn instanceof HTMLButtonElement && sendBtn.dataset.oaaoChatStreaming === '1') {
                 const cid = activeConversationId;
                 if (cid && cid > 0) {
-                    abortStreamReaderForConversation(cid);
+                    const paused = streamPausedForAgentAskByConversation.get(cid);
+                    if (paused?.runId) {
+                        void requestOrchestratorCancelRun(paused.runId);
+                        streamPausedForAgentAskByConversation.delete(cid);
+                        markOaaoRunTasksCancelled(mount, cid);
+                    } else {
+                        abortStreamReaderForConversation(cid);
+                    }
                 }
-                setChatComposerStreamingUi(mount, false);
+                chatComposerSubmitInFlight = false;
+                chatComposerSubmitConvId = null;
+                syncComposerBusyForActiveView(mount);
                 return;
             }
+            if (chatComposerSubmitInFlight || isChatComposerBusy(mount)) return;
             if (!isChatComposerEditorEl(inputEl)) return;
             const composerPayload = getChatComposerEditorPayload(inputEl);
             let body = composerPayload.text;
@@ -10105,7 +12084,13 @@ export async function mountShellPanel(mount) {
                     thumb_url: composerPayload.thumb_url || chatComposerActiveSlideTemplate?.thumb_url,
                 };
             }
-            if (!body && !templateId) return;
+            if (!body && !templateId && chatComposerAttachments.length === 0) return;
+            if (!body && !templateId && chatComposerAttachments.length > 0) {
+                body = oaaoChatT(
+                    'chat.attachment.default_send_prompt',
+                    'Please read the attached file(s) and respond helpfully.',
+                );
+            }
             const tplLabel = chatComposerActiveSlideTemplate?.label ?? composerPayload.label ?? '';
             if (templateId && isVagueTemplateComposerBody(body, tplLabel)) {
                 body = oaaoChatT(
@@ -10122,16 +12107,17 @@ export async function mountShellPanel(mount) {
             if (activeConversationId && activeConversationId > 0) {
                 oaaoFreshRunByConv.add(activeConversationId);
             }
-            setChatComposerStreamingUi(mount, true);
-            sendBtn.disabled = false;
+            chatComposerSubmitConvId = activeConversationId;
+            chatComposerSubmitInFlight = true;
+            setChatComposerBusy(mount, true, 'send');
             try {
                 /** @type {Record<string, unknown>} */
                 const vaultSendExtra = buildChatVaultSendExtra();
                 if (chatComposerWebSearchEnabled) {
                     vaultSendExtra.enable_web_search = true;
                 }
-                if (chatComposerAttachmentIds.length > 0) {
-                    vaultSendExtra.attachment_ids = chatComposerAttachmentIds.slice();
+                if (chatComposerAttachments.length > 0) {
+                    vaultSendExtra.attachment_ids = chatComposerAttachments.map((row) => row.id);
                 }
                 if (chatComposerActiveMaterial?.material_id) {
                     vaultSendExtra.active_material_id = chatComposerActiveMaterial.material_id;
@@ -10148,7 +12134,9 @@ export async function mountShellPanel(mount) {
                         content: body,
                         chat_endpoint_id: getWorkspaceChatEndpointIdForSend(),
                         ...vaultSendExtra,
-                        ...workspaceChatBodyFields(),
+                        ...(activeConversationId && activeConversationId > 0
+                            ? chatScopeBodyFieldsForConversation(activeConversationId)
+                            : workspaceChatBodyFields()),
                     }),
                 });
                 if (!res.ok || data.success !== true) {
@@ -10163,6 +12151,13 @@ export async function mountShellPanel(mount) {
                 const cid = Number(data.conversation_id);
                 const prevCid = activeConversationId;
                 const nextCid = cid > 0 ? cid : prevCid;
+                if (typeof data.conversation_title === 'string' && data.conversation_title.trim()) {
+                    applyConversationTitleToCache(nextCid, data.conversation_title);
+                }
+                rememberConversationWorkspace(
+                    nextCid,
+                    data.workspace_id != null ? data.workspace_id : getOaaoActiveWorkspaceIdForChat(),
+                );
                 if (nextCid > 0) {
                     oaaoFreshRunByConv.add(nextCid);
                 }
@@ -10174,8 +12169,7 @@ export async function mountShellPanel(mount) {
                     stripOnSend.dataset.oaaoTaskListConv = String(nextCid);
                 }
                 clearChatComposerEditor(inputEl);
-                chatComposerAttachmentIds = [];
-                chatComposerAttachmentNames = [];
+                chatComposerAttachments = [];
                 chatComposerActiveMaterial = null;
                 chatComposerActiveSlideTemplate = null;
                 try {
@@ -10184,10 +12178,6 @@ export async function mountShellPanel(mount) {
                     /* ignore */
                 }
                 syncChatComposerChips(mount);
-                mount.querySelectorAll('[data-oaao-chat="attachment-chips"]').forEach((el) => {
-                    el.replaceChildren();
-                    el.classList.add('hidden');
-                });
                 await refreshConversations(nextCid);
                 await openConversation(nextCid, { replaceUrl: nextCid === prevCid });
                 const rid = typeof data.run_id === 'string' ? data.run_id.trim() : '';
@@ -10201,6 +12191,7 @@ export async function mountShellPanel(mount) {
                         last_seq: 0,
                         ...(assistantMid ? { assistant_message_id: assistantMid } : {}),
                     });
+                    setChatComposerStreamingUi(mount, true);
                     void consumeAssistantStream(
                         su,
                         rid,
@@ -10211,9 +12202,9 @@ export async function mountShellPanel(mount) {
                     );
                 }
             } finally {
-                if (!(sendBtn instanceof HTMLButtonElement && sendBtn.dataset.oaaoChatStreaming === '1')) {
-                    setChatComposerStreamingUi(mount, false);
-                }
+                chatComposerSubmitInFlight = false;
+                chatComposerSubmitConvId = null;
+                syncComposerBusyForActiveView(mount);
             }
         },
         { signal },
@@ -10309,6 +12300,7 @@ export async function mountShellPanel(mount) {
     );
 
     setupComposerStackObserver();
+    bindMessageHistoryScrollLoad();
     await tryResolveShareFromUrl();
     if (!activeConversationId) {
         activeConversationId = readChatConversationIdFromUrl();

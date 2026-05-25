@@ -178,16 +178,56 @@ return function (): void {
                     $du->execute([$lastErr ?? 'failed', $docId]);
                 }
             } elseif ($statusIn === 'completed' && $isDocumentEmbed) {
+                $chunkCount = 0;
+                $usageRaw = $body['usage'] ?? null;
+                if (\is_array($usageRaw) && isset($usageRaw['chunks'])) {
+                    $chunkCount = max(0, (int) $usageRaw['chunks']);
+                }
                 $du = $pdo->prepare(
                     'UPDATE oaao_vault_document SET
                         embed_status = \'embedded\',
                         embed_error = NULL,
                         embedded_at = CURRENT_TIMESTAMP,
+                        embedded_chunks = CASE WHEN ? > 0 THEN ? ELSE embedded_chunks END,
                         last_job_at = CURRENT_TIMESTAMP,
                         updated_at = CURRENT_TIMESTAMP
                      WHERE id = ?',
                 );
-                $du->execute([$docId]);
+                $du->execute([$chunkCount, $chunkCount, $docId]);
+                if ($vaultId > 0) {
+                    $qCol = '';
+                    $pj = isset($job['payload_json']) && \is_string($job['payload_json']) ? $job['payload_json'] : '';
+                    if ($pj !== '') {
+                        try {
+                            /** @var mixed $payloadDec */
+                            $payloadDec = json_decode($pj, true, 512, JSON_THROW_ON_ERROR);
+                            if (\is_array($payloadDec)) {
+                                $qCol = trim((string) ($payloadDec['qdrant_collection'] ?? ''));
+                                if ($qCol === '') {
+                                    $gr = $payloadDec['graphrag'] ?? null;
+                                    if (\is_array($gr)) {
+                                        $qd = $gr['qdrant'] ?? null;
+                                        if (\is_array($qd)) {
+                                            $qCol = trim((string) ($qd['collection'] ?? ''));
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (\JsonException) {
+                            $qCol = '';
+                        }
+                    }
+                    if ($qCol !== '') {
+                        $db->update('vault', ['qdrant_collection', 'updated_at'])
+                            ->where('id=:id')
+                            ->assign([
+                                'qdrant_collection' => substr($qCol, 0, 200),
+                                'updated_at'        => date('Y-m-d H:i:s'),
+                                'id'                => $vaultId,
+                            ])
+                            ->query();
+                    }
+                }
                 $deferGraphIndex = ['doc_id' => $docId, 'vault_id' => $vaultId];
             } elseif ($statusIn === 'completed' && $isGraphIndex) {
                 $du = $pdo->prepare(

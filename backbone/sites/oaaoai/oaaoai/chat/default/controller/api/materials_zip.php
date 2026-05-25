@@ -64,7 +64,6 @@ return function (): void {
             }
         }
 
-        require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
         $rows = ChatConversationMaterial::listForZipExport($pdo, $cid, $mid);
 
         if (! class_exists(\ZipArchive::class)) {

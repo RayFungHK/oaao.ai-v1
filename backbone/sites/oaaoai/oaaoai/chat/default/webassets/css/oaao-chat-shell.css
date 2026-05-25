@@ -376,8 +376,12 @@
     flex: 1 1 auto;
     min-height: 0;
     box-sizing: border-box;
-    padding-bottom: var(--oaao-thread-composer-stack, 9rem);
+    padding-bottom: 0;
     scrollbar-gutter: stable;
+}
+
+.oaao-app .oaao-chat-root.oaao-chat-root--in-thread .oaao-chat-messages {
+    padding-bottom: 1.25rem;
 }
 
 .oaao-app .oaao-chat-main-column {
@@ -1090,6 +1094,392 @@
     display: none !important;
 }
 
+/* IQS / ACCS score pills — post-stream metrics on assistant rows */
+.oaao-app .oaao-chat-turn-score-pills {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.15rem 0 0.35rem;
+    width: 100%;
+}
+
+.oaao-app .oaao-chat-turn-score-pill {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.35;
+    letter-spacing: 0.01em;
+    border: 1px solid transparent;
+    cursor: default;
+    user-select: none;
+}
+
+.oaao-app .oaao-chat-turn-score-pill--iqs {
+    color: color-mix(in srgb, var(--grid-accent, #2563eb) 88%, var(--grid-ink, #111));
+    background: color-mix(in srgb, var(--grid-accent, #2563eb) 10%, transparent);
+    border-color: color-mix(in srgb, var(--grid-accent, #2563eb) 28%, transparent);
+}
+
+.oaao-app .oaao-chat-turn-score-pill--accs {
+    color: color-mix(in srgb, #059669 88%, var(--grid-ink, #111));
+    background: color-mix(in srgb, #059669 10%, transparent);
+    border-color: color-mix(in srgb, #059669 28%, transparent);
+}
+
+.oaao-app .oaao-chat-turn-score-pill--pending {
+    opacity: 0.55;
+}
+
+.oaao-app .oaao-chat-turn-score-pill--stale {
+    opacity: 0.72;
+    border-style: dashed;
+}
+
+.oaao-app .oaao-chat-turn-score-pill--has-tip {
+    cursor: help;
+}
+
+/* Portaled by {@code chat-panel.js} — not clipped by {@code .oaao-chat-messages} overflow. */
+.oaao-chat-turn-score-floater {
+    position: absolute;
+    min-width: 9rem;
+    max-width: min(16rem, 70vw);
+    padding: 0.4rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.12));
+    background: var(--grid-panel-bright, #fff);
+    color: var(--grid-ink, #111);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: pre-line;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    pointer-events: none;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* IQS / ACCS dimension breakdown card — portaled to body ({@see chat-panel.js showTurnScoreDimCard}). */
+.oaao-chat-turn-score-card {
+    position: fixed;
+    min-width: 11.5rem;
+    max-width: min(16rem, 88vw);
+    padding: 0;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 88%, transparent);
+    background: var(--grid-panel-bright, #fff);
+    color: var(--grid-ink, #111);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05);
+    pointer-events: none;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    overflow: hidden;
+    animation: oaao-cite-pop-in 0.14s ease-out;
+    z-index: 9100;
+}
+
+.oaao-chat-turn-score-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 72%, transparent);
+}
+
+.oaao-chat-turn-score-card--iqs .oaao-chat-turn-score-card__head {
+    background: color-mix(in srgb, var(--grid-accent, #2563eb) 8%, var(--grid-panel-bright, #fff));
+}
+
+.oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__head {
+    background: color-mix(in srgb, #059669 8%, var(--grid-panel-bright, #fff));
+}
+
+.oaao-chat-turn-score-card__title {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.oaao-chat-turn-score-card--iqs .oaao-chat-turn-score-card__title {
+    color: color-mix(in srgb, var(--grid-accent, #2563eb) 88%, var(--grid-ink, #111));
+}
+
+.oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__title {
+    color: color-mix(in srgb, #059669 88%, var(--grid-ink, #111));
+}
+
+.oaao-chat-turn-score-card__score {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.oaao-chat-turn-score-card__dims {
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
+    padding: 0.5rem 0.6rem 0.58rem;
+}
+
+.oaao-chat-turn-score-card__dim {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(3.2rem, auto);
+    grid-template-rows: auto 5px;
+    column-gap: 0.45rem;
+    row-gap: 0.22rem;
+    align-items: start;
+}
+
+.oaao-chat-turn-score-card__dim-label {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 0.6875rem;
+    color: var(--grid-ink-muted, #666);
+    line-height: 1.2;
+}
+
+.oaao-chat-turn-score-card__dim-val {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    text-align: right;
+    color: var(--grid-ink, #111);
+}
+
+.oaao-chat-turn-score-card__dim-bar {
+    grid-column: 1;
+    grid-row: 2;
+    height: 5px;
+    min-height: 5px;
+    max-height: 5px;
+    align-self: stretch;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 55%, transparent);
+    overflow: hidden;
+    line-height: 0;
+}
+
+.oaao-chat-turn-score-card__dim-fill {
+    display: block;
+    height: 5px;
+    min-height: 5px;
+    border-radius: inherit;
+    background: var(--grid-accent, #2563eb);
+    opacity: 0.85;
+}
+
+.oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__dim-fill {
+    background: #059669;
+}
+
+@keyframes oaao-cite-pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Inline citation pills — vault [1] / attachment [A1] ({@see inline-citations.js}). */
+.oaao-inline-cite {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: super;
+    margin: 0 0.1em;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.oaao-inline-cite__inner {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0;
+    padding: 0.1em 0.38em;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 88%, transparent);
+    background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 14%, var(--grid-panel-bright, #fff));
+    box-shadow: none;
+    font-size: 0.65em;
+    font-weight: 500;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--grid-ink-muted, #666);
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.oaao-inline-cite-fallback .oaao-inline-cite {
+    vertical-align: middle;
+    margin: 0;
+}
+
+.oaao-inline-cite-fallback .oaao-inline-cite__inner {
+    align-items: center;
+    justify-content: center;
+    min-width: auto;
+    min-height: 1.35rem;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0;
+    border-radius: 5px;
+}
+
+.oaao-inline-cite__num {
+    color: var(--grid-ink, #111);
+    font-weight: 600;
+}
+
+.oaao-inline-cite--vault .oaao-inline-cite__inner {
+    color: var(--grid-ink-muted, #666);
+}
+
+.oaao-inline-cite--attachment .oaao-inline-cite__inner {
+    border-color: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 88%, transparent);
+    background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 14%, var(--grid-panel-bright, #fff));
+    color: var(--grid-ink-muted, #666);
+}
+
+.oaao-inline-cite--attachment .oaao-inline-cite__prefix,
+.oaao-inline-cite--attachment .oaao-inline-cite__num {
+    color: var(--grid-ink, #111);
+    font-weight: 600;
+}
+
+.oaao-inline-cite:hover .oaao-inline-cite__inner,
+.oaao-inline-cite:focus-visible .oaao-inline-cite__inner {
+    border-color: color-mix(in srgb, var(--grid-ink-muted, #666) 28%, var(--grid-line));
+    background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 24%, var(--grid-panel-bright, #fff));
+    color: var(--grid-ink, #111);
+}
+
+.oaao-inline-cite--attachment:hover .oaao-inline-cite__inner,
+.oaao-inline-cite--attachment:focus-visible .oaao-inline-cite__inner {
+    border-color: color-mix(in srgb, var(--grid-ink-muted, #666) 28%, var(--grid-line));
+    box-shadow: none;
+}
+
+.oaao-inline-cite-fallback {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+    margin-top: 0.45rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 88%, transparent);
+    background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.12)) 12%, var(--grid-panel-bright, #fff));
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.oaao-inline-cite-fallback__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--grid-caption, #666);
+    flex-shrink: 0;
+}
+
+.oaao-inline-cite-fallback__label::before {
+    content: '';
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: var(--grid-caption, #888);
+    opacity: 0.45;
+}
+
+.oaao-app .oaao-chat-assistant-summary-wrap {
+    display: inline;
+    max-width: 100%;
+    margin-top: 0.125rem;
+    white-space: nowrap;
+}
+
+.oaao-app .oaao-chat-assistant-summary-text {
+    min-width: 0;
+}
+
+.oaao-app .oaao-chat-assistant-summary-logging {
+    display: inline;
+    white-space: nowrap;
+}
+
+.oaao-app .oaao-chat-assistant-summary-sep {
+    font-size: 0.7rem;
+    line-height: 1.375;
+    color: var(--grid-caption, #6b7280);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+}
+
+.oaao-app .oaao-chat-run-meta-info {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 0.7rem;
+    line-height: 1.375;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--grid-caption, #6b7280);
+    cursor: pointer;
+    text-decoration: underline dotted transparent;
+    transition: color 0.12s ease, text-decoration-color 0.12s ease;
+}
+
+.oaao-app .oaao-chat-run-meta-info:hover,
+.oaao-app .oaao-chat-run-meta-info:focus-visible {
+    color: var(--grid-ink-muted, #4b5563);
+    text-decoration-color: currentColor;
+    outline: none;
+}
+
+.oaao-chat-run-meta-floater {
+    position: absolute;
+    min-width: 12rem;
+    max-width: min(22rem, 85vw);
+    padding: 0.45rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.12));
+    background: var(--grid-panel-bright, #fff);
+    color: var(--grid-ink, #111);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: pre-line;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    pointer-events: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .oaao-app .oaao-chat-task-panel-header {
     flex: 0 0 auto;
     z-index: 2;
@@ -1366,28 +1756,181 @@
     max-width: min(100%, 18rem);
 }
 
+.oaao-chat-attachment-card,
+.oaao-app .oaao-chat-attachment-card {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.65rem;
+    width: 100%;
+    min-width: 0;
+    max-width: min(100%, 20rem);
+    padding: 0.55rem 2rem 0.55rem 0.65rem;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--grid-line) 88%, transparent);
+    background: var(--grid-panel-bright, #fff);
+    box-shadow: var(--oaao-surface-shadow, 0 1px 2px rgba(0, 0, 0, 0.04));
+    box-sizing: border-box;
+}
+
+[data-oaao-chat='composer-attachment-stack'] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.oaao-chat-composer-attachment-stack .oaao-chat-attachment-card,
+.oaao-app .oaao-chat-composer-attachment-stack .oaao-chat-attachment-card {
+    max-width: 100%;
+}
+
+.oaao-chat-attachment-card-icon,
+.oaao-app .oaao-chat-attachment-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--grid-line) 28%, transparent);
+    color: var(--grid-ink-muted);
+}
+
+.oaao-chat-attachment-card-body,
+.oaao-app .oaao-chat-attachment-card-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.oaao-chat-attachment-card-name,
+.oaao-app .oaao-chat-attachment-card-name {
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    font-weight: 500;
+    color: var(--grid-ink);
+}
+
+.oaao-chat-attachment-card-kind,
+.oaao-app .oaao-chat-attachment-card-kind {
+    margin-top: 0.1rem;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    color: var(--grid-caption);
+}
+
+.oaao-chat-attachment-card-dismiss,
+.oaao-app .oaao-chat-attachment-card-dismiss {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--grid-caption);
+    cursor: pointer;
+}
+
+.oaao-chat-attachment-card-dismiss:hover,
+.oaao-app .oaao-chat-attachment-card-dismiss:hover {
+    background: color-mix(in srgb, var(--grid-line) 35%, transparent);
+    color: var(--grid-ink);
+}
+
 .oaao-app .oaao-chat-composer-refs .oaao-chat-template-slug {
     max-width: min(100%, 20rem);
 }
 
+.oaao-app [data-oaao-chat='composer-dock'] {
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    align-self: center;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+
+.oaao-app [data-oaao-chat='composer-card-wrap'] {
+    border-radius: 22px;
+    overflow: hidden;
+    box-sizing: border-box;
+    background: var(--grid-panel-bright, #fff);
+    border: none;
+    box-shadow:
+        0 12px 32px rgba(0, 0, 0, 0.02),
+        inset 0 0 0 1px color-mix(in srgb, var(--grid-ink, #111) 12%, transparent);
+}
+
+/*
+ * In-thread composer — flex dock below {@code thread-wrap} (not absolute overlay).
+ * Negative margin pulls the fade band over the last lines; scrollbar stays full height.
+ */
 .oaao-app .oaao-chat-composer-region--thread-float {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10;
+    position: relative;
     flex: 0 0 auto;
+    z-index: 10;
     min-height: 0;
     overflow: visible;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-right: var(--oaao-thread-scrollbar-inset, 0px);
+    margin-top: -1.25rem;
+    padding-top: 1.25rem;
     pointer-events: none;
     background: transparent;
+}
+
+.oaao-app .oaao-chat-composer-region--thread-float::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: var(--oaao-thread-scrollbar-inset, 0px);
+    top: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        var(--grid-paper, #fafafa) 1.25rem,
+        var(--grid-paper, #fafafa) 100%
+    );
+}
+
+.oaao-app .oaao-chat-composer-region--thread-float > * {
+    position: relative;
+    z-index: 1;
 }
 
 .oaao-app .oaao-chat-composer-region--thread-float > [data-oaao-chat='composer-dock'] {
     position: relative;
     z-index: 1;
-    pointer-events: none;
+    width: 100%;
+    max-width: 48rem;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: max(1.125rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.125rem, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
+    pointer-events: auto;
     background: transparent;
+}
+
+@media (min-width: 640px) {
+    .oaao-app .oaao-chat-composer-region--thread-float > [data-oaao-chat='composer-dock'] {
+        padding-left: max(2rem, env(safe-area-inset-left, 0px));
+        padding-right: max(2rem, env(safe-area-inset-right, 0px));
+    }
 }
 
 .oaao-app .oaao-chat-composer-region--thread-float [data-oaao-chat='composer-refs'],
@@ -1398,43 +1941,45 @@
 }
 
 .oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer {
-    background: var(--grid-paper, #fafafa);
+    background: transparent;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: max(1.125rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.125rem, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+    .oaao-app .oaao-chat-composer-region--thread-float .oaao-chat-composer-disclaimer {
+        padding-left: max(2rem, env(safe-area-inset-left, 0px));
+        padding-right: max(2rem, env(safe-area-inset-right, 0px));
+    }
 }
 
 .oaao-app .oaao-chat-composer-shell--thread > .oaao-chat-composer-inner-width {
     position: relative;
     width: 100%;
-    max-width: 48rem;
-    padding-top: 1.25rem;
+    max-width: 100%;
+    padding-top: 0;
     background: transparent;
 }
 
-/* Fade lives in the padding band above the card — pointer-events none so thread scroll works underneath. */
-.oaao-app .oaao-chat-composer-shell--thread > .oaao-chat-composer-inner-width::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 1.25rem;
-    pointer-events: none;
-    background: linear-gradient(
-        to bottom,
-        transparent 0%,
-        color-mix(in srgb, var(--grid-paper, #fafafa) 45%, transparent) 100%
-    );
-}
-
-.oaao-app .oaao-chat-composer-shell--thread [data-oaao-chat='composer-card-wrap'] {
+.oaao-app .oaao-chat-composer-shell--thread [data-oaao-chat='composer-card-wrap'],
+.oaao-app [data-oaao-chat='composer-card-wrap'].oaao-chat-composer--floating {
     position: relative;
     z-index: 2;
     margin-top: 0;
-    border: 1px solid color-mix(in srgb, var(--grid-ink, #111) 12%, transparent) !important;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.02) !important;
 }
 
 .oaao-app .oaao-chat-composer-shell--thread {
-    justify-content: center;
+    justify-content: stretch;
+    width: 100%;
+    max-width: 100%;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 0;
 }
 
 .oaao-app [data-oaao-chat='composer-extra-toolbar-wrap'] {
@@ -1477,6 +2022,36 @@
 
 .oaao-app button[data-oaao-chat='send'][data-oaao-chat-streaming='1'] > [data-oaao-chat-icon='stop'] {
     display: block;
+}
+
+.oaao-app button[data-oaao-chat='send'][data-oaao-composer-sending='1'] {
+    opacity: 0.85;
+    cursor: wait;
+}
+
+.oaao-app button[data-oaao-chat='send'][data-oaao-composer-sending='1'] > [data-oaao-chat-icon='send'] {
+    opacity: 0;
+}
+
+.oaao-app button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 1rem;
+    height: 1rem;
+    margin: -0.5rem 0 0 -0.5rem;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: oaao-composer-send-spin 0.65s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes oaao-composer-send-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .oaao-app .oaao-chat-root--planner-steps-off [data-oaao-chat='inline-task-steps'] {
@@ -1858,7 +2433,8 @@
     box-sizing: border-box;
     flex-shrink: 0;
     pointer-events: auto;
-    background: transparent;
+    /* Sticky row must stay see-through — do not duplicate bg in chat-panel.js inline CSS. */
+    background: none;
 }
 
 .oaao-app .oaao-chat-thread-toolbar-hint {
@@ -1979,9 +2555,48 @@
     }
 }
 
+.oaao-app [data-oaao-chat='composer-shell']:not(.oaao-chat-composer-shell--thread) {
+    display: flex;
+    justify-content: stretch;
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 0.5rem;
+}
+
+.oaao-app [data-oaao-chat='composer-shell']:not(.oaao-chat-composer-shell--thread) > .oaao-chat-composer-inner-width {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.oaao-app .oaao-chat-composer-region:not(.oaao-chat-composer-region--thread-float) > [data-oaao-chat='composer-dock'] {
+    width: 100%;
+    max-width: 48rem;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: max(1.125rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.125rem, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+    .oaao-app .oaao-chat-composer-region:not(.oaao-chat-composer-region--thread-float) > [data-oaao-chat='composer-dock'] {
+        padding-left: max(2rem, env(safe-area-inset-left, 0px));
+        padding-right: max(2rem, env(safe-area-inset-right, 0px));
+    }
+}
+
+.oaao-app .oaao-chat-composer-region:not(.oaao-chat-composer-region--thread-float) [data-oaao-chat='composer-dock'] {
+    width: 100%;
+    max-width: 48rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .oaao-app [data-oaao-chat='composer-shell'].oaao-chat-composer-shell--thread {
-    padding-left: max(0.875rem, env(safe-area-inset-left, 0px));
-    padding-right: max(0.875rem, env(safe-area-inset-right, 0px));
+    padding-left: 0 !important;
+    padding-right: 0 !important;
     background: unset;
 }
 

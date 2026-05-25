@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,8 @@ from oaao_orchestrator.post_stream_llm import call_uiqe_chat, uiqe_endpoint_read
 
 logger = logging.getLogger(__name__)
 
-COACH_CALL_TIMEOUT_S = 8.0
+_DEFAULT_POST_COACH_TIMEOUT_S = 90.0
+_DEFAULT_INLINE_COACH_TIMEOUT_S = 4.0
 
 _PROMPT_REFS = {
     "iqs": "materials/prompts/evolution/iqs_coach.md",
@@ -27,6 +29,49 @@ class CoachCallError(Exception):
     def __init__(self, detail: str) -> None:
         self.detail = detail
         super().__init__(detail)
+
+
+def coach_call_timeout_s(*, inline: bool = False) -> float:
+    """Post-stream E4B coach may run 30–90s on large models; inline uses a short budget."""
+    if inline:
+        raw = os.environ.get("OAAO_IQS_INLINE_COACH_TIMEOUT_S", "").strip()
+        if not raw:
+            raw = str(_DEFAULT_INLINE_COACH_TIMEOUT_S)
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            return _DEFAULT_INLINE_COACH_TIMEOUT_S
+    raw = os.environ.get("OAAO_COACH_CALL_TIMEOUT_S", "").strip()
+    if not raw:
+        raw = str(_DEFAULT_POST_COACH_TIMEOUT_S)
+    try:
+        return max(5.0, float(raw))
+    except ValueError:
+        return _DEFAULT_POST_COACH_TIMEOUT_S
+
+
+def inline_iqs_coach_disabled() -> bool:
+    """Explicit opt-out only — inline chat uses E4B coach when ``uiqe`` endpoint is configured."""
+    return os.environ.get("OAAO_IQS_INLINE_COACH", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def inline_iqs_coach_enabled() -> bool:
+    return not inline_iqs_coach_disabled()
+
+
+def inline_iqs_clarify_enabled() -> bool:
+    """When false (default), inline IQS records scores only — never blocks the main LLM."""
+    return os.environ.get("OAAO_IQS_INLINE_CLARIFY", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def coach_endpoint_ready(endpoint: dict[str, Any] | None) -> bool:
@@ -126,8 +171,12 @@ async def call_coach_json(
     endpoint: dict[str, Any],
     prompt: str,
     temperature: float = 0.1,
+    timeout_s: float | None = None,
+    inline: bool = False,
 ) -> dict[str, Any]:
     import asyncio
+
+    limit = timeout_s if timeout_s is not None else coach_call_timeout_s(inline=inline)
 
     async def _post() -> tuple[dict[str, Any] | None, str | None]:
         async with httpx.AsyncClient() as client:
@@ -139,7 +188,7 @@ async def call_coach_json(
             )
 
     try:
-        parsed, err = await asyncio.wait_for(_post(), timeout=COACH_CALL_TIMEOUT_S)
+        parsed, err = await asyncio.wait_for(_post(), timeout=limit)
     except asyncio.TimeoutError as exc:
         raise CoachCallError("coach_timeout") from exc
 

@@ -42,8 +42,12 @@ final class OrchestratorSidecarClient
 
         if ($code < 200 || $code >= 300) {
             $j['ok'] = false;
+            $j['http_status'] = $code;
             if (! isset($j['detail']) && isset($j['message'])) {
                 $j['detail'] = (string) $j['message'];
+            }
+            if (isset($j['detail']) && \is_array($j['detail'])) {
+                $j['detail'] = json_encode($j['detail'], JSON_UNESCAPED_UNICODE) ?: 'orchestrator_error';
             }
             if (! isset($j['detail'])) {
                 $j['detail'] = 'orchestrator_error';
@@ -51,6 +55,8 @@ final class OrchestratorSidecarClient
 
             return $j;
         }
+
+        $j['http_status'] = $code;
 
         return $j;
     }

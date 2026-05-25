@@ -7,8 +7,8 @@ namespace oaaoai\chat;
 /**
  * Browser-reachable orchestrator base URL — rewrites loopback env defaults for LAN/mobile clients.
  *
- * On HTTPS pages, direct {@code http://host:8103} stream URLs are blocked (mixed content). Use
- * {@see streamProxyPath()} via {@see forClientStream()} instead.
+ * Streaming (SSE) must **not** go through PHP. On HTTPS pages, {@see forClientStream()} returns a
+ * same-origin Apache {@see sidecarPath()} reverse proxy to the Python sidecar ({@code /v1/stream}).
  */
 final class OrchestratorPublicBase
 {
@@ -39,33 +39,58 @@ final class OrchestratorPublicBase
     }
 
     /**
-     * Same-origin SSE proxy path (no orchestrator path suffix).
+     * Same-origin Apache reverse-proxy prefix → orchestrator (not PHP).
      */
-    public static function streamProxyPath(): string
+    public static function sidecarPath(): string
     {
-        $raw = getenv('OAAO_ORCHESTRATOR_STREAM_PROXY_PATH');
+        $raw = getenv('OAAO_ORCHESTRATOR_SIDECAR_PATH');
         if (\is_string($raw) && trim($raw) !== '') {
-            return '/' . ltrim(trim($raw), '/');
+            return '/' . ltrim(rtrim(trim($raw), '/'), '/');
+        }
+        $legacy = getenv('OAAO_ORCHESTRATOR_STREAM_PROXY_PATH');
+        if (\is_string($legacy) && trim($legacy) !== '' && ! str_contains($legacy, 'orchestrator_stream')) {
+            return '/' . ltrim(rtrim(trim($legacy), '/'), '/');
         }
 
+        return '/sidecar';
+    }
+
+    /**
+     * @deprecated Legacy PHP SSE proxy — do not use for new installs.
+     */
+    public static function legacyPhpStreamProxyPath(): string
+    {
         return '/chat/api/orchestrator_stream';
     }
 
     /**
-     * When true, {@see buildStreamUrl()} emits the proxy path (no {@code /v1/stream} suffix).
+     * @deprecated Use {@see sidecarPath()}.
      */
-    public static function usesStreamProxy(string $base): bool
+    public static function streamProxyPath(): string
+    {
+        return self::sidecarPath();
+    }
+
+    public static function usesLegacyPhpStreamProxy(string $base): bool
     {
         $base = rtrim(trim($base), '/');
         if ($base === '') {
             return false;
         }
 
-        return str_ends_with($base, self::streamProxyPath());
+        return str_ends_with($base, self::legacyPhpStreamProxyPath());
     }
 
     /**
-     * Base URL for browser SSE — HTTPS pages get same-origin proxy; HTTP keeps direct sidecar URL.
+     * @deprecated Use {@see usesLegacyPhpStreamProxy()}.
+     */
+    public static function usesStreamProxy(string $base): bool
+    {
+        return self::usesLegacyPhpStreamProxy($base);
+    }
+
+    /**
+     * Base URL for browser SSE — HTTPS + mixed content → same-origin {@see sidecarPath()}.
      */
     public static function forClientStream(string $directPublicBase): string
     {
@@ -80,19 +105,27 @@ final class OrchestratorPublicBase
             return $direct;
         }
 
-        return self::sameOriginStreamBase();
+        return self::sameOriginSidecarBase();
     }
 
+    /**
+     * @deprecated Use {@see sameOriginSidecarBase()}.
+     */
     public static function sameOriginStreamBase(): string
+    {
+        return self::sameOriginSidecarBase();
+    }
+
+    public static function sameOriginSidecarBase(): string
     {
         $scheme = self::isClientHttps() ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
         $host = \is_string($host) ? trim($host) : '';
         if ($host === '') {
-            return self::streamProxyPath();
+            return self::sidecarPath();
         }
 
-        return $scheme . '://' . $host . self::streamProxyPath();
+        return $scheme . '://' . $host . self::sidecarPath();
     }
 
     /**
@@ -105,7 +138,7 @@ final class OrchestratorPublicBase
             return '';
         }
         $qs = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
-        if (self::usesStreamProxy($base)) {
+        if (self::usesLegacyPhpStreamProxy($base)) {
             return $base . ($qs !== '' ? '?' . $qs : '');
         }
 

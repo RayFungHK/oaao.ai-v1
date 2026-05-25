@@ -1,7 +1,17 @@
 <?php
 
-use oaaoai\chat\ChatVaultScope;
+use oaaoai\chat\ChatAttachmentManifest;
 use oaaoai\chat\ChatAttachmentStorage;
+use oaaoai\chat\ChatConversationMaterial;
+use oaaoai\chat\ChatConversationScope;
+use oaaoai\chat\ChatConversationTitle;
+use oaaoai\chat\ChatHistorySettings;
+use oaaoai\chat\ChatRunPrincipal;
+use oaaoai\chat\ChatTeachingIntent;
+use oaaoai\chat\ChatVaultScope;
+use oaaoai\chat\MicroSkillCatalog;
+use oaaoai\chat\PlannerAgentRegister;
+use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 
 /**
  * POST /chat/api/send — append user message + assistant row; when orchestrator + binding exist, start Python stream run.
@@ -135,6 +145,8 @@ return function (): void {
     if ($content === '') {
         if ($slideTemplateId !== '') {
             $content = 'Create a slide presentation using the selected template.';
+        } elseif ($attachmentIds !== []) {
+            $content = 'Please read the attached file(s) and respond helpfully.';
         } else {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Message cannot be empty']);
@@ -170,13 +182,12 @@ return function (): void {
 
     $orchestratorUserContent = $content;
     if ($hasPublishedSlideTemplate) {
-        require_once dirname(__DIR__, 2) . '/library/ChatTeachingIntent.php';
-        $orchestratorUserContent = \oaaoai\chat\ChatTeachingIntent::enrichUserMessageForTemplate(
+        $orchestratorUserContent = ChatTeachingIntent::enrichUserMessageForTemplate(
             $content,
             $slideTemplateId,
             $slideTemplateLabel,
         );
-        $content = \oaaoai\chat\ChatTeachingIntent::displayUserMessageForTemplate(
+        $content = ChatTeachingIntent::displayUserMessageForTemplate(
             $content,
             $slideTemplateId,
             $slideTemplateLabel,
@@ -191,9 +202,8 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 2) . '/library/ChatTeachingIntent.php';
     $expandVaultForGrounding = $vaultAutoRag
-        || \oaaoai\chat\ChatTeachingIntent::impliesVaultGrounding($orchestratorUserContent);
+        || ChatTeachingIntent::impliesVaultGrounding($orchestratorUserContent);
     if (
         $expandVaultForGrounding
         && $vaultSourceRefs === []
@@ -206,7 +216,7 @@ return function (): void {
             $wid,
             $orchestratorUserContent,
         );
-        if (\oaaoai\chat\ChatTeachingIntent::impliesPersonalRecordVaultLookup($orchestratorUserContent)) {
+        if (ChatTeachingIntent::impliesPersonalRecordVaultLookup($orchestratorUserContent)) {
             $audioRefs = ChatVaultScope::embeddedAudioRefsForRecordLookup(
                 $canonDb,
                 $uid,
@@ -244,12 +254,20 @@ return function (): void {
             $vaultSourceIds = array_values(array_unique($vaultSourceIds, SORT_NUMERIC));
         } else {
             $authApi = $this->api('auth');
-            $candidates = ChatVaultScope::vaultIdsForUserWorkspace($canonDb, $uid, $wid, $authApi);
+            $candidates = ChatVaultScope::vaultIdsForRetrieval($canonDb, $uid, $wid, $authApi);
             $vaultSourceIds = ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($canonDb, $candidates);
             if (\count($vaultSourceIds) > 24) {
                 $vaultSourceIds = \array_slice($vaultSourceIds, 0, 24);
             }
         }
+    }
+
+    if (
+        $expandVaultForGrounding
+        && $vaultSourceIds === []
+        && $canonDb instanceof \Razy\Database
+    ) {
+        $vaultSourceIds = $this->embeddedVaultIdsForUserWorkspace($uid, $wid);
     }
 
     if ($chatEndpointId > 0) {
@@ -298,16 +316,10 @@ return function (): void {
     try {
         $pdo->beginTransaction();
 
+        $conversationCreated = false;
         if ($conversationId !== null && $conversationId > 0) {
-            $own = $splitDb->prepare()
-                ->select('id, params_json')
-                ->from('conversation')
-                ->where('id=?,user_id=?,workspace_id=?')
-                ->assign(['id' => $conversationId, 'user_id' => $uid, 'workspace_id' => $wid])
-                ->limit(1)
-                ->query()
-                ->fetch();
-            if (! \is_array($own) || ! isset($own['id'])) {
+            $own = ChatConversationScope::findForUser($splitDb, $uid, (int) $conversationId, $wid, 'id, params_json');
+            if ($own === null) {
                 $pdo->rollBack();
                 http_response_code(404);
                 echo json_encode(['success' => false, 'message' => 'Conversation not found']);
@@ -325,12 +337,9 @@ return function (): void {
                 }
             }
         } else {
-            $title = mb_substr(preg_replace('/\s+/u', ' ', $content), 0, 80);
-            if ($title === '' && $hasPublishedSlideTemplate && $slideTemplateLabel !== '') {
+            $title = 'New chat';
+            if ($hasPublishedSlideTemplate && $slideTemplateLabel !== '') {
                 $title = mb_substr($slideTemplateLabel, 0, 80);
-            }
-            if ($title === '') {
-                $title = 'New chat';
             }
             $nowConv = date('Y-m-d H:i:s');
             $splitDb->insert('conversation', ['user_id', 'workspace_id', 'title', 'created_at', 'updated_at'])
@@ -343,6 +352,7 @@ return function (): void {
                 ])
                 ->query();
             $conversationId = (int) $splitDb->lastID();
+            $conversationCreated = true;
             if ($conversationId < 1) {
                 $pdo->rollBack();
                 http_response_code(500);
@@ -356,14 +366,46 @@ return function (): void {
         $userMeta = null;
         /** @var array<string, mixed> $userMetaArr */
         $userMetaArr = [];
+        /** @var list<array<string, mixed>> $attRows */
+        $attRows = [];
         if ($attachmentIds !== []) {
-            $userMetaArr['attachments'] = $attachmentIds;
+            require_once __DIR__ . '/_ensure_conversation_attachment_schema.php';
+            oaao_chat_ensure_conversation_attachment_schema($pdo);
+            ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
+            $attRows = ChatAttachmentStorage::loadRowsForIds($splitDb, (int) $conversationId, $uid, $attachmentIds);
+            $userMetaArr['attachments'] = ChatAttachmentManifest::manifestFromRows($attRows, false);
         }
-            if ($hasPublishedSlideTemplate) {
-                $userMetaArr['slide_template_id'] = $slideTemplateId;
-                $userMetaArr['slide_template_label'] = $slideTemplateLabel;
-                $userMetaArr['slide_template_ui'] = true;
+
+        $conversationTitleOut = null;
+        $titleRow = $splitDb->prepare()
+            ->select('title')
+            ->from('conversation')
+            ->where('id=?,user_id=?')
+            ->assign(['id' => $conversationId, 'user_id' => $uid])
+            ->limit(1)
+            ->query()
+            ->fetch();
+        $curTitle = \is_array($titleRow) ? ChatConversationTitle::normalize((string) ($titleRow['title'] ?? '')) : '';
+        if (ChatConversationTitle::isPlaceholder($curTitle)) {
+            $provisional = ChatConversationTitle::provisionalFromSend($orchestratorUserContent, $attRows);
+            if ($provisional !== '') {
+                $splitDb->update('conversation', ['title', 'updated_at'])
+                    ->where('id=?,user_id=?')
+                    ->assign([
+                        'title'      => $provisional,
+                        'updated_at' => $nowMsg,
+                        'id'         => $conversationId,
+                        'user_id'    => $uid,
+                    ])
+                    ->query();
+                $conversationTitleOut = $provisional;
             }
+        }
+        if ($hasPublishedSlideTemplate) {
+            $userMetaArr['slide_template_id'] = $slideTemplateId;
+            $userMetaArr['slide_template_label'] = $slideTemplateLabel;
+            $userMetaArr['slide_template_ui'] = true;
+        }
         if ($userMetaArr !== []) {
             try {
                 $userMeta = json_encode($userMetaArr, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -420,33 +462,14 @@ return function (): void {
                 : $internalBase;
             $publicBase = \oaaoai\chat\OrchestratorPublicBase::forClientStream($publicBase);
 
-            $histRaw = $splitDb->prepare()
-                ->select('role, content')
-                ->from('message')
-                ->where('conversation_id=?')
-                ->assign(['conversation_id' => $conversationId])
-                ->order('+id')
-                ->limit(120)
-                ->query()
-                ->fetchAll();
-            /** @var list<array{role: string, content: string}> $rows */
-            $rows = \is_array($histRaw) ? $histRaw : [];
-
-            $messages = [];
-            foreach ($rows as $r) {
-                if (! \is_array($r)) {
-                    continue;
-                }
-                $role = strtolower(trim((string) ($r['role'] ?? '')));
-                if (! \in_array($role, ['system', 'user', 'assistant'], true)) {
-                    continue;
-                }
-                $c = (string) ($r['content'] ?? '');
-                if ($c === '' && $role === 'assistant') {
-                    continue;
-                }
-                $messages[] = ['role' => $role, 'content' => $c];
-            }
+            /** Server-side prompt memory — never trust browser-loaded thread cache. */
+            $canonPdoForPrompt = $this->oaao_chat_canonical_pdo();
+            $messages = ChatHistorySettings::buildPromptMessagesFromDb(
+                $splitDb,
+                $conversationId,
+                null,
+                $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
+            );
 
             if ($hasPublishedSlideTemplate && $orchestratorUserContent !== '') {
                 for ($mi = \count($messages) - 1; $mi >= 0; $mi--) {
@@ -534,8 +557,7 @@ return function (): void {
             if ($endpointsApi) {
                 $allowedAgents = $endpointsApi->resolveAllowedAgents();
             } else {
-                require_once dirname(__DIR__, 2) . '/library/ChatAllowedAgentsPurposeConfig.php';
-                $allowedAgents = \oaaoai\chat\ChatAllowedAgentsPurposeConfig::defaultAllowed();
+                $allowedAgents = ChatAllowedAgentsPurposeConfig::defaultAllowed();
             }
             if (! $enableWebSearch) {
                 $allowedAgents = array_values(array_filter(
@@ -543,16 +565,14 @@ return function (): void {
                     static fn (string $kind): bool => strtolower(trim($kind)) !== 'web_search',
                 ));
             }
-            require_once dirname(__DIR__, 2) . '/library/ChatTeachingIntent.php';
-            $allowedAgents = \oaaoai\chat\ChatTeachingIntent::ensureSlideDesignerAllowed(
+            $allowedAgents = ChatTeachingIntent::ensureSlideDesignerAllowed(
                 $allowedAgents,
                 $orchestratorUserContent,
                 $hasPublishedSlideTemplate,
             );
             $payload['allowed_agents'] = $allowedAgents;
             $payload['enable_web_search'] = $enableWebSearch;
-            require_once dirname(__DIR__, 2) . '/library/PlannerAgentRegister.php';
-            $payload['agent_catalog'] = \oaaoai\chat\PlannerAgentRegister::catalogForAllowed(
+            $payload['agent_catalog'] = PlannerAgentRegister::catalogForAllowed(
                 $payload['allowed_agents'],
             );
 
@@ -566,8 +586,10 @@ return function (): void {
             if ($wid !== null) {
                 $payload['workspace_id'] = $wid;
             }
+            if ($conversationCreated) {
+                $payload['is_new_conversation'] = true;
+            }
 
-            require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
             $slideExtras = [];
             if ($hasPublishedSlideTemplate) {
                 $slideExtras['template_id'] = $slideTemplateId;
@@ -578,8 +600,7 @@ return function (): void {
                 : ['storage_root' => ''];
             $splitPdo = $splitDb->getDBAdapter();
             if ($splitPdo instanceof \PDO) {
-                require_once dirname(__DIR__, 2) . '/library/MicroSkillCatalog.php';
-                $payload['skills_catalog'] = \oaaoai\chat\MicroSkillCatalog::forPlanner(
+                $payload['skills_catalog'] = MicroSkillCatalog::forPlanner(
                     $splitPdo,
                     $user,
                     $authApi,
@@ -594,7 +615,7 @@ return function (): void {
             if ($splitPdo instanceof \PDO && $conversationId > 0) {
                 if ($activeMaterialId !== '') {
                     $slideDesignerPayload['active_material_id'] = $activeMaterialId;
-                    $resolved = \oaaoai\chat\ChatConversationMaterial::resolveSlideProjectMaterial(
+                    $resolved = ChatConversationMaterial::resolveSlideProjectMaterial(
                         $splitPdo,
                         $conversationId,
                         $uid,
@@ -607,7 +628,7 @@ return function (): void {
                     }
                 }
 
-                $payload['conversation_materials'] = \oaaoai\chat\ChatConversationMaterial::catalogForPlanner(
+                $payload['conversation_materials'] = ChatConversationMaterial::catalogForPlanner(
                     $splitPdo,
                     $conversationId,
                     $uid,
@@ -615,7 +636,7 @@ return function (): void {
                     $slideDesignerApi,
                 );
                 $reuseGroundingMid = (int) ($input['reuse_grounding_message_id'] ?? 0);
-                $grounding = \oaaoai\chat\ChatConversationMaterial::groundingContextForOrchestrator(
+                $grounding = ChatConversationMaterial::groundingContextForOrchestrator(
                     $splitPdo,
                     $conversationId,
                     $uid,
@@ -651,7 +672,7 @@ return function (): void {
             }
 
             if ($attachmentIds !== []) {
-                require_once __DIR__ . '/../library/ChatAttachmentStorage.php';
+                ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
                 /** @var list<array<string, mixed>> $chatAttachments */
                 $chatAttachments = [];
                 foreach ($attachmentIds as $aid) {
@@ -685,6 +706,13 @@ return function (): void {
             }
 
             if ($canonDb instanceof \Razy\Database) {
+                $canonPdoForVault = $canonDb->getDBAdapter();
+                if ($canonPdoForVault instanceof \PDO) {
+                    $coreApiForVault = $this->api('core');
+                    if ($coreApiForVault) {
+                        $coreApiForVault->bootstrapTenantContext($canonPdoForVault);
+                    }
+                }
                 if ($vaultSourceIds !== []) {
                     $payload['vault_retrieval_profiles'] = $this->vaultRetrievalProfilesForVaultIds(
                         $uid,
@@ -729,6 +757,10 @@ return function (): void {
                     if ($uiqe !== null) {
                         $payload['uiqe'] = $uiqe;
                     }
+                    $planner = $endpointsApi->resolveOrchestratorPlannerPayload();
+                    if ($planner !== null) {
+                        $payload['planner'] = $planner;
+                    }
                 }
                 if ($wid !== null && $wid > 0) {
                     $vaultApi = $this->api('vault');
@@ -741,9 +773,8 @@ return function (): void {
                 }
             }
 
-            require_once dirname(__DIR__, 2) . '/library/ChatRunPrincipal.php';
             $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
-            $payload['run_principal'] = \oaaoai\chat\ChatRunPrincipal::issue(
+            $payload['run_principal'] = ChatRunPrincipal::issue(
                 $uid,
                 $conversationId,
                 $asstMsgId,
@@ -785,6 +816,12 @@ return function (): void {
             'stream_token'          => $streamToken,
             'orchestrator_persist'  => $orchReady && $runId !== null,
         ];
+        if (\is_string($conversationTitleOut) && $conversationTitleOut !== '') {
+            $responsePayload['conversation_title'] = $conversationTitleOut;
+        }
+        if ($wid !== null && $wid > 0) {
+            $responsePayload['workspace_id'] = $wid;
+        }
         try {
             $json = json_encode($responsePayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
         } catch (\JsonException) {

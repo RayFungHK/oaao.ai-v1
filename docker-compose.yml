@@ -87,6 +87,7 @@ services:
       OAAO_DOCKER: '1'
       OAAO_ORCHESTRATOR_INTERNAL_URL: ${OAAO_ORCHESTRATOR_INTERNAL_URL:-http://orchestrator:8103}
       OAAO_ORCHESTRATOR_PUBLIC_BASE: ${OAAO_ORCHESTRATOR_PUBLIC_BASE:-http://localhost:${OAAO_SIDECAR_PORT:-8103}}
+      OAAO_ORCHESTRATOR_SIDECAR_PATH: ${OAAO_ORCHESTRATOR_SIDECAR_PATH:-/sidecar}
       OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
       # Host routing (OAAO_APEX_DOMAIN, OAAO_CUSTOMER_HOSTS, OAAO_PLATFORM_*): set in docker/env — do not override here with empty defaults.
       OAAO_VAULT_STORAGE: ${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}

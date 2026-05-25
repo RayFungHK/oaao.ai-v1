@@ -1,5 +1,7 @@
 <?php
 
+use Oaaoai\Core\NotificationRepository;
+
 /**
  * POST /chat/api/workspace_member_invite — owner invites by email (immediate membership if user exists, else pending invitation + token link).
  *
@@ -127,7 +129,6 @@ return function (): void {
 
             require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_notification_schema.php';
             oaao_auth_ensure_notification_schema($pdo);
-            require_once dirname(__DIR__, 4) . '/core/default/library/NotificationRepository.php';
             /** @var array<string, mixed>|false $wsRow */
             $wsRow = $db->prepare()
                 ->select('name')
@@ -138,7 +139,7 @@ return function (): void {
                 ->query()
                 ->fetch();
             $wsName = \is_array($wsRow) && isset($wsRow['name']) ? (string) $wsRow['name'] : 'Workspace';
-            $notifRepo = new \Oaaoai\Core\NotificationRepository($pdo);
+            $notifRepo = new NotificationRepository($pdo);
             $notifRepo->create(
                 $targetUid,
                 'invitation',

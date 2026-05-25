@@ -2,9 +2,6 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__, 2) . '/library/MicroSkillCatalog.php';
-require_once dirname(__DIR__, 2) . '/library/MicroSkillsRegister.php';
-
 use oaaoai\chat\MicroSkillCatalog;
 use oaaoai\chat\MicroSkillsRegister;
 

@@ -250,15 +250,25 @@ async def emit_run_task_end(
     allowed_agents: list[str] | None = None,
     pipeline_snap: dict[str, Any] | None = None,
     failed: bool = False,
+    duration_ms: int | None = None,
 ) -> None:
+    timing_ms = duration_ms if duration_ms is not None else run_task.duration_ms
+    payload = _task_payload(
+        plan, run_task, allowed_agents=allowed_agents, pipeline_snap=pipeline_snap
+    )
+    if timing_ms is not None and int(timing_ms) >= 0:
+        payload["run_timing"] = {
+            "run_task_id": run_task.id,
+            "duration_ms": int(timing_ms),
+            "type": str(run_task.type),
+            "status": str(run_task.status),
+        }
     await run.append(
         StreamEnvelope(
             phase=PHASE_TASK,
             kind=KIND_END,
             step_id=run_task.id,
             text=run_task.title if not failed else f"{run_task.title} (failed)",
-            payload=_task_payload(
-                plan, run_task, allowed_agents=allowed_agents, pipeline_snap=pipeline_snap
-            ),
+            payload=payload,
         )
     )

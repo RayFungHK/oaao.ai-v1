@@ -55,3 +55,15 @@ def test_fast_plan_fourier_without_vault_is_compose_only() -> None:
     )
     plan = build_fast_chat_plan(req)
     assert [t.type for t in plan.tasks] == [RunTaskType.LLM_STREAM]
+
+
+def test_attachments_use_fast_plan_not_llm_planner() -> None:
+    req = SimpleNamespace(
+        enable_web_search=False,
+        chat_attachments=[{"id": 1, "file_name": "prompt.txt"}],
+        slide_designer=None,
+        messages=[{"role": "user", "content": "這是什麼?"}],
+    )
+    assert needs_multi_agent_turn(req) is False
+    plan = build_fast_chat_plan(req)
+    assert [t.type for t in plan.tasks] == [RunTaskType.ATTACHMENTS, RunTaskType.LLM_STREAM]

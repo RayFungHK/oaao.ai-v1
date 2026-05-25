@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatConversationMaterial;
+use oaaoai\chat\ChatConversationTitle;
+
 /**
  * POST /chat/api/assistant_patch — persist streamed assistant body (ownership-checked).
  *
@@ -118,6 +121,20 @@ return function (): void {
             ->query();
 
         if (\is_array($input['meta'] ?? null)) {
+            try {
+                ChatConversationTitle::maybeUpdateFromMeta(
+                    $splitDb,
+                    $cid,
+                    $uid,
+                    /** @var array<string, mixed> */ ($input['meta']),
+                );
+            } catch (\Throwable $e) {
+                $syncWarnings[] = 'conversation_title';
+                error_log('assistant_patch conversation_title: ' . $e->getMessage());
+            }
+        }
+
+        if (\is_array($input['meta'] ?? null)) {
             $metaForMaterials = $input['meta'];
             try {
                 $slideApi = $this->api('slide_designer');
@@ -137,8 +154,7 @@ return function (): void {
             }
 
             try {
-                require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
-                \oaaoai\chat\ChatConversationMaterial::syncFromMessageMeta(
+                ChatConversationMaterial::syncFromMessageMeta(
                     $pdo,
                     $cid,
                     $mid,

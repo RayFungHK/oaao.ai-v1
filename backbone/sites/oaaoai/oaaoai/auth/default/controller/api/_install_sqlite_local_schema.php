@@ -115,6 +115,9 @@ function oaao_auth_install_sqlite_local_schema(\PDO $pdo): void
     require_once dirname(__DIR__, 4) . '/chat/default/controller/api/_ensure_conversation_material_schema.php';
     oaao_chat_ensure_conversation_material_schema($pdo);
 
+    require_once dirname(__DIR__, 4) . '/chat/default/controller/api/_ensure_conversation_attachment_schema.php';
+    oaao_chat_ensure_conversation_attachment_schema($pdo);
+
     require_once dirname(__DIR__, 4) . '/slide-designer/default/controller/api/_ensure_slide_project_schema.php';
     oaao_slide_designer_ensure_schema($pdo);
 

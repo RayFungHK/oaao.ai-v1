@@ -298,7 +298,8 @@ class SlideDesignerAgent:
                 vault_grounding=vault_grounding,
             )
 
-            slide_title = str(spec.get("title") or "").strip()
+            params0 = run_task.params if isinstance(run_task.params, dict) else {}
+            slide_title = str(params0.get("slide_title") or params0.get("title") or "").strip()
             if not slide_title and isinstance(page_entry, dict):
                 slide_title = str(page_entry.get("title") or "").strip()
             total = slide_count or int((run_task.params or {}).get("slide_count") or 0) or idx

@@ -127,7 +127,7 @@ async def _score_accs_coach(
         evidence=evidence,
     )
     try:
-        raw = await call_coach_json(endpoint=coach_endpoint, prompt=prompt)
+        raw = await call_coach_json(endpoint=coach_endpoint, prompt=prompt, inline=False)
         factors = parse_accs_coach_response(raw)
     except CoachCallError:
         raise
@@ -155,10 +155,21 @@ async def score_accs(
     coach_endpoint: dict[str, Any] | None = None,
 ) -> ACCSResult:
     """Score assistant output; on breaker open → skip and ship."""
-    from oaao_orchestrator.evaluation.coach_client import CoachCallError, coach_endpoint_ready  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
+        CoachCallError,
+        coach_call_timeout_s,
+        coach_endpoint_ready,
+    )
+    from oaao_orchestrator.safety.circuit_breaker import BreakerOpen, BreakerTimeout  # noqa: PLC0415
 
     ev = list(evidence or [])
-    breaker = get_breaker("accs", failure_threshold=3, reset_timeout=600.0, call_timeout=8.0)
+    coach_timeout = coach_call_timeout_s(inline=False)
+    breaker = get_breaker(
+        "accs",
+        failure_threshold=3,
+        reset_timeout=600.0,
+        call_timeout=coach_timeout + 10.0,
+    )
 
     if breaker.state == "open":
         return ACCSResult(
@@ -188,6 +199,14 @@ async def score_accs(
                 skipped=True,
                 source="skipped",
             )
+        except BreakerTimeout:
+            fallback = await _score_accs_heuristic(
+                user_message=user_message,
+                llm_output=llm_output,
+                evidence=ev,
+            )
+            fallback.source = "heuristic_timeout_fallback"
+            return fallback
         except CoachCallError:
             if breaker.state == "open":
                 return ACCSResult(

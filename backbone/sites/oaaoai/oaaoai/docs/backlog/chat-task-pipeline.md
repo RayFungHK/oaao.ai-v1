@@ -46,7 +46,7 @@
 | `vault_rag` | 檢索知識庫 | embed query → Qdrant → merge citations block |
 | `sandbox_code` | 撰寫並執行程式 | write file → run in sandbox → read stdout → patch |
 | `slides` | 製作簡報 | outline LLM → per-slide content → export PPTX artifact |
-| `image_gen` | 生成示意圖 | prompt refine → image API → attach artifact |
+| `image_gen` | 生成示意圖 | prompt refine → multimodal API (`t2i`) → attach artifact — 見 [multimodal-tts-provider-api.md](./multimodal-tts-provider-api.md) §3 Lance |
 | `web_search` | 搜尋網路 | Tavily/search → snippet merge |
 | `mcp_tool` | 呼叫整合工具 | MCP discover → invoke → normalize result |
 

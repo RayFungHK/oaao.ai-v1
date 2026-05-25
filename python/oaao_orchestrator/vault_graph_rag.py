@@ -30,6 +30,7 @@ class VaultRagCitation:
     speaker_id: int | None = None
     speaker_label: str = ""
     excerpt: str = ""
+    cite_index: int | None = None
 
 
 @dataclass
@@ -443,6 +444,52 @@ async def _record_passages_via_scope_scroll(
     return all_picks
 
 
+async def _handbook_passages_via_vault_scroll(
+    profiles: list[dict[str, Any]],
+    *,
+    per_vault_limit: int,
+    min_score: float,
+    seen: set[str],
+    default_qdrant: str,
+) -> list[_PassagePick]:
+    """Whole-vault scroll when vector search returns 0 hits but embedded chunks exist (handbook PDFs)."""
+    all_picks: list[_PassagePick] = []
+    for profile in profiles:
+        vid = int(profile.get("vault_id") or 0)
+        if vid < 1:
+            continue
+        qurl = (profile.get("qdrant_url") or "").strip() or default_qdrant
+        qcol = (profile.get("qdrant_collection") or "").strip()
+        if not qcol:
+            continue
+        qkey_env = profile.get("qdrant_api_key_env")
+        qkey = _resolve_secret(qkey_env) if qkey_env else None
+        hits = await _qdrant_scroll(
+            base_url=qurl,
+            collection=qcol,
+            vault_id=vid,
+            api_key=qkey,
+            limit=max(16, per_vault_limit * 5),
+            document_ids=None,
+            segment_scope=None,
+        )
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for h in hits:
+            if not isinstance(h, dict):
+                continue
+            ranked.append((float(h.get("score") or 0.55), h))
+        vault_picks, _ = _select_passages_for_vault(
+            ranked,
+            vault_id=vid,
+            per_vault_limit=per_vault_limit,
+            min_score=max(0.08, min_score * 0.45),
+            seen=seen,
+            query_wants_record=False,
+        )
+        all_picks.extend(vault_picks)
+    return all_picks
+
+
 async def _qdrant_search(
     *,
     base_url: str,
@@ -584,6 +631,58 @@ def _format_passage_block(vid: int, did: int | None, seg_type: str | None, txt: 
         label += f" · {type_label}"
     label += "]"
     return f"{label}\n{txt}"
+
+
+def _format_numbered_passage_block(cite_index: int, pick: _PassagePick, body: str) -> str:
+    """Numbered excerpt for LLM grounding — index aligns with inline [n] markers."""
+    fn = (pick.file_name or "").strip() or f"document {pick.document_id}"
+    type_label = _passage_type_label(pick.segment_type)
+    header = f"[{cite_index}] {fn}"
+    if type_label:
+        header += f" · {type_label}"
+    if pick.speaker_label:
+        header += f" · {pick.speaker_label}"
+    if pick.begin_ms is not None and pick.begin_ms >= 0:
+        total_sec = max(0, int(pick.begin_ms // 1000))
+        m, s = divmod(total_sec, 60)
+        h, m = divmod(m, 60)
+        ts = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+        header += f" @ {ts}"
+    text = (body or pick.excerpt or "").strip()
+    return f"{header}\n{text}" if text else header
+
+
+def _citation_from_pick(
+    *,
+    cite_index: int,
+    pick: _PassagePick,
+    ref_names: dict[tuple[int, int], str],
+    catalog_entries: dict[tuple[int, int], dict[str, str]],
+) -> VaultRagCitation | None:
+    if pick.document_id < 1:
+        return None
+    key = (pick.vault_id, pick.document_id)
+    cat = catalog_entries.get(key) or {}
+    resolved = (pick.file_name or ref_names.get(key) or cat.get("file_name") or "").strip()
+    seg_types = [pick.segment_type] if pick.segment_type else []
+    body = pick.passage.split("\n", 1)[-1].strip() if pick.passage else ""
+    excerpt = (pick.excerpt or body or "")[:360]
+    return VaultRagCitation(
+        vault_id=pick.vault_id,
+        document_id=pick.document_id,
+        file_name=resolved,
+        vault_name=str(cat.get("vault_name") or "").strip(),
+        path=str(cat.get("path") or "").strip(),
+        segment_types=seg_types,
+        chunk_index=pick.chunk_index,
+        segment_index=pick.segment_index,
+        begin_ms=pick.begin_ms,
+        end_ms=pick.end_ms,
+        speaker_id=pick.speaker_id,
+        speaker_label=pick.speaker_label,
+        excerpt=excerpt,
+        cite_index=cite_index,
+    )
 
 
 @dataclass
@@ -1045,6 +1144,20 @@ _GROUNDING_TRANSCRIPT_SUMMARY = (
     "**ASR transcript** lines from the same source when both appear."
 )
 
+_GROUNDING_INLINE_CITATIONS = (
+    "When a sentence draws on a retrieved excerpt below, place its citation marker(s) at the "
+    "end of that sentence using the exact bracket indices shown (e.g. [1], [2]). "
+    "Use only indices that appear in the excerpts. Do not invent citation numbers."
+)
+
+_GROUNDING_HANDBOOK = (
+    "Handbook / volume excerpts below include **chapter and rule body text** from the embedded PDF. "
+    "Treat numbered passages with Article/Rule/Chapter body as authoritative — build outlines and slides from them. "
+    "Do **not** tell the user the vault file is 'TOC only' or 'directory only' when substantive chapter excerpts are present. "
+    "Ignore index/table-of-contents lines when chapter body passages exist for the same volume."
+)
+
+
 _GROUNDING_RECORD_ZERO_HITS = (
     "Vault search ran but no on-topic passages were retrieved for this question. "
     "State that indexed sources did not surface a matching passage. "
@@ -1057,10 +1170,16 @@ def _vault_rag_grounding_preamble(
     *,
     has_transcript_summary: bool,
     wants_record: bool = False,
+    inline_citations: bool = False,
+    handbook_turn: bool = False,
 ) -> str:
     parts = [_GROUNDING_RECORD if wants_record else _GROUNDING_DEFAULT]
+    if handbook_turn:
+        parts.append(_GROUNDING_HANDBOOK)
     if has_transcript_summary:
         parts.append(_GROUNDING_TRANSCRIPT_SUMMARY)
+    if inline_citations:
+        parts.append(_GROUNDING_INLINE_CITATIONS)
     return "\n\n".join(parts)
 
 
@@ -1105,6 +1224,87 @@ def _embedding_query_for_handbook_lookup(query: str) -> str:
     if not extras:
         return q
     return f"{q}\n\n{' '.join(extras)}"
+
+
+def _handbook_chunk_is_toc_or_cover(body: str) -> bool:
+    """Index / volume-list pages match 'Vol 3' in the query but are not teachable body text."""
+    raw = (body or "").strip()
+    low = raw.lower()
+    if "table of contents" in low:
+        return True
+    if "volume title version" in low and "vol 1" in low:
+        return True
+    if low.count("vol ") >= 3 and len(low) < 900:
+        return True
+    # TOC leader lines: "CHAPTER 1 .............. 1" or "Annual fees .......... 33"
+    if re.search(r"chapter\s+\d+[\s\.]{6,}\d", low):
+        return True
+    dot_line_count = len(re.findall(r"\.{6,}\s*\d+\s*$", raw, re.M))
+    if dot_line_count >= 2:
+        return True
+    if dot_line_count >= 1 and len(raw) < 700 and "article" not in low:
+        return True
+    # Roman-numeral index pages (fees / section lists)
+    if re.match(r"^[ivxlc]+\b", low) and re.search(r"\.{4,}\s*\d+", raw):
+        return True
+    # Mostly leader dots, little regulatory prose
+    if raw.count(".") > max(40, len(raw) // 6):
+        if not re.search(r"\b(shall|must|article|regulation|criteria|registered person)\b", low):
+            return True
+    return False
+
+
+def _handbook_pick_body_text(pick: _PassagePick) -> str:
+    return (pick.passage.split("\n", 1)[-1] if pick.passage else "").strip()
+
+
+def _handbook_grounding_picks(query: str, picks: list[_PassagePick], *, limit: int) -> list[_PassagePick]:
+    """
+    Handbook / Vol turns: prefer chapter/rule body chunks; drop TOC when enough body text exists.
+    """
+    if not picks:
+        return []
+    body_picks: list[_PassagePick] = []
+    toc_picks: list[_PassagePick] = []
+    for pick in picks:
+        if _handbook_chunk_is_toc_or_cover(_handbook_pick_body_text(pick)):
+            toc_picks.append(pick)
+        else:
+            body_picks.append(pick)
+
+    vol3 = bool(re.search(r"vol\.?\s*3", query, re.I)) or "vol3" in query.replace(" ", "").lower()
+    pool = body_picks if len(body_picks) >= max(4, limit // 4) else picks
+    ranked: list[tuple[float, int, _PassagePick]] = []
+    for i, pick in enumerate(pool):
+        body = _handbook_pick_body_text(pick).lower()
+        score = 1000.0 - float(i)
+        if pick in toc_picks:
+            score -= 500.0
+        if vol3 and isinstance(pick.chunk_index, int) and pick.chunk_index >= 120:
+            score += 80.0
+        if re.search(r"\barticle\s+\d+", body):
+            score += 55.0
+        if re.search(r"chapter\s+\d+", body) and "...." not in body[:120]:
+            score += 40.0
+        if "registered person" in body:
+            score += 25.0
+        if re.search(r"\b\d+\.\d+\b", body):
+            score += 15.0
+        ranked.append((score, i, pick))
+    ranked.sort(key=lambda row: (-row[0], row[1]))
+    out: list[_PassagePick] = []
+    seen: set[str] = set()
+    for _, _, pick in ranked:
+        fp = f"{pick.document_id}:{pick.chunk_index}:{pick.passage[:72]}"
+        if fp in seen:
+            continue
+        seen.add(fp)
+        if pick in toc_picks and len(out) >= max(4, limit // 2):
+            continue
+        out.append(pick)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _file_name_from_payload(pl: dict[str, Any]) -> str:
@@ -1417,8 +1617,9 @@ async def augment_chat_messages_for_vault_rag(
         min_score = max(0.12, min_score * 0.45)
     elif handbook_turn:
         min_score = max(0.10, min_score * 0.55)
+    handbook_pick_limit = max(16, per_vault_limit * 3) if handbook_turn else per_vault_limit
     graph_limit = int(rag_cfg["graph_limit"])
-    fetch_limit = max(per_vault_limit, min(24, per_vault_limit * 3))
+    fetch_limit = max(handbook_pick_limit, min(32, handbook_pick_limit * 2))
     below_score = 0
     gk_had_off_topic = False
     used_scope_scroll = False
@@ -1505,7 +1706,7 @@ async def augment_chat_messages_for_vault_rag(
             vault_picks, vault_below = _select_passages_for_vault(
                 ranked,
                 vault_id=vid,
-                per_vault_limit=per_vault_limit,
+                per_vault_limit=handbook_pick_limit if handbook_turn else per_vault_limit,
                 min_score=min_score,
                 seen=seen,
                 query_wants_record=wants_record,
@@ -1514,7 +1715,7 @@ async def augment_chat_messages_for_vault_rag(
             for pick in vault_picks:
                 all_picks.append(pick)
 
-    if not all_picks and wants_record and scope_by_vault:
+    if not all_picks and scope_by_vault and (wants_record or handbook_turn):
         scroll_picks = await _record_passages_via_scope_scroll(
             profiles,
             scope_by_vault,
@@ -1528,32 +1729,64 @@ async def augment_chat_messages_for_vault_rag(
             used_scope_scroll = True
             out.profile_hits = max(out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1)
 
+    if not all_picks and handbook_turn:
+        vault_scroll = await _handbook_passages_via_vault_scroll(
+            profiles,
+            per_vault_limit=per_vault_limit,
+            min_score=min_score,
+            seen=seen,
+            default_qdrant=default_qdrant,
+        )
+        if vault_scroll:
+            all_picks = vault_scroll
+            used_scope_scroll = True
+            out.profile_hits = max(out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1)
+
     if all_picks:
-        relevant = [p for p in all_picks if _passage_relevant_to_query(query, p.passage)]
-        if relevant:
-            all_picks = relevant
-        elif handbook_turn:
-            # Handbook / Vol questions: trust vector rank when lexical overlap is weak (e.g. "Volume III" vs "Vol.3").
-            all_picks = all_picks[:12]
-        elif wants_record:
-            summaries = [p for p in all_picks if p.segment_type == "transcript_summary"]
-            if summaries:
-                all_picks = summaries
-            elif all_picks:
-                all_picks = sorted(all_picks, key=lambda p: len(p.passage), reverse=True)[:4]
-        elif wants_gk:
-            gk_had_off_topic = True
-            all_picks = []
+        if handbook_turn:
+            all_picks = _handbook_grounding_picks(query, all_picks, limit=handbook_pick_limit)
+        else:
+            relevant = [p for p in all_picks if _passage_relevant_to_query(query, p.passage)]
+            if relevant:
+                all_picks = relevant
+            elif wants_record:
+                summaries = [p for p in all_picks if p.segment_type == "transcript_summary"]
+                if summaries:
+                    all_picks = summaries
+                elif all_picks:
+                    all_picks = sorted(all_picks, key=lambda p: len(p.passage), reverse=True)[:4]
+            elif wants_gk:
+                gk_had_off_topic = True
+                all_picks = []
 
     all_picks = _narrow_grounding_picks(query, all_picks)
 
     has_transcript_summary = any(p.segment_type == "transcript_summary" for p in all_picks)
-    citation_picks = _picks_for_citations(query, all_picks, wants_gk=wants_gk)
+    cite_pool = (
+        [p for p in all_picks if not _handbook_chunk_is_toc_or_cover(_handbook_pick_body_text(p))]
+        if handbook_turn
+        else all_picks
+    )
+    citation_picks = _picks_for_citations(query, cite_pool or all_picks, wants_gk=wants_gk)
 
-    for pick in all_picks:
-        passages.append(pick.passage)
+    grounding_picks = all_picks[:32]
+    passages = []
+    for pick in grounding_picks:
         if pick.document_id > 0:
             doc_ids_hit.add(pick.document_id)
+
+    numbered_citation_refs: list[VaultRagCitation] = []
+    for idx, pick in enumerate(grounding_picks, start=1):
+        body = pick.passage.split("\n", 1)[-1].strip() if pick.passage else ""
+        passages.append(_format_numbered_passage_block(idx, pick, body))
+        numbered = _citation_from_pick(
+            cite_index=idx,
+            pick=pick,
+            ref_names=ref_names,
+            catalog_entries=catalog_entries,
+        )
+        if numbered is not None:
+            numbered_citation_refs.append(numbered)
 
     for pick in citation_picks:
         _append_citation(
@@ -1570,6 +1803,8 @@ async def augment_chat_messages_for_vault_rag(
                 ref_names=ref_names,
                 catalog_entries=catalog_entries,
             )
+    if numbered_citation_refs:
+        citation_refs = numbered_citation_refs
 
     graph_lines: list[str] = []
     for profile in profiles:
@@ -1604,6 +1839,8 @@ async def augment_chat_messages_for_vault_rag(
             _vault_rag_grounding_preamble(
                 has_transcript_summary=has_transcript_summary,
                 wants_record=wants_record,
+                inline_citations=bool(numbered_citation_refs),
+                handbook_turn=handbook_turn,
             )
             + "\n\n--- Vault excerpts (use for your answer) ---\n\n"
             + block,
@@ -1618,6 +1855,7 @@ async def augment_chat_messages_for_vault_rag(
         out.citation_refs = sorted(
             citation_refs,
             key=lambda c: (
+                c.cite_index if c.cite_index is not None else 9999,
                 c.vault_id,
                 c.file_name.lower() or f"doc-{c.document_id}",
                 c.document_id,
@@ -1706,8 +1944,10 @@ def build_pipeline_snapshot_for_rag(outcome: VaultRagOutcome, base: dict[str, An
                 "zone": "after",
                 "title": "References",
                 "props": {
+                    "inline": True,
                     "references": [
                         {
+                            "cite_index": c.cite_index,
                             "vault_id": c.vault_id,
                             "document_id": c.document_id,
                             "file_name": c.file_name,

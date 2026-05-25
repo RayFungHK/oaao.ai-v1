@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\TurnScorerVersion;
+
 /**
  * POST /chat/api/turn_score_upsert — merge IQS / ACCS into {@code oaao_turn_score} (orchestrator internal).
  */
@@ -39,17 +41,13 @@ return function (): void {
 
         return;
     }
+    if (method_exists($auth, 'ensureAdjunctSqliteLoaded')) {
+        $auth->ensureAdjunctSqliteLoaded();
+    }
     $canonDb = $auth->getDB();
     if (! $canonDb instanceof \Razy\Database) {
         http_response_code(503);
         echo json_encode(['success' => false, 'message' => 'Canonical database unavailable'], JSON_UNESCAPED_UNICODE);
-
-        return;
-    }
-    $pdo = $canonDb->getPDO();
-    if (! $pdo instanceof \PDO) {
-        http_response_code(503);
-        echo json_encode(['success' => false, 'message' => 'Database unavailable'], JSON_UNESCAPED_UNICODE);
 
         return;
     }
@@ -70,19 +68,19 @@ return function (): void {
         return;
     }
 
-    $scorerVersion = trim((string) ($input['scorer_version'] ?? 'post_stream_v1'));
+    $scorerVersion = trim((string) ($input['scorer_version'] ?? TurnScorerVersion::IQS));
     if ($scorerVersion === '') {
-        $scorerVersion = 'post_stream_v1';
+        $scorerVersion = TurnScorerVersion::IQS;
     }
     $scoredAt = microtime(true);
 
     $existing = $canonDb->prepare()
-        ->select('iqs, accs, iqs_dims_json, accs_dims_json, iqs_reasons_json, accs_reasons_json')
+        ->select('iqs, accs, iqs_dims_json, accs_dims_json, iqs_reasons_json, accs_reasons_json, scorer_version')
         ->from('turn_score')
-        ->where('conversation_id=? AND turn_index=?')
-        ->lazy(['conversation_id' => $cid, 'turn_index' => $turnIndex])
+        ->where('conversation_id=?,turn_index=?')
+        ->assign(['conversation_id' => $cid, 'turn_index' => $turnIndex])
         ->query()
-        ->fetch(\PDO::FETCH_ASSOC);
+        ->fetch();
 
     $iqs = 0.0;
     $accs = 0.0;
@@ -115,8 +113,20 @@ return function (): void {
     }
 
     try {
+        $existingVersion = \is_array($existing) ? (string) ($existing['scorer_version'] ?? '') : '';
+        $scorerVersion = TurnScorerVersion::merge($existingVersion, $plugin, $scorerVersion);
         if (\is_array($existing)) {
-            $canonDb->update('turn_score')
+            $canonDb->update('turn_score', [
+                'iqs',
+                'accs',
+                'iqs_dims_json',
+                'accs_dims_json',
+                'iqs_reasons_json',
+                'accs_reasons_json',
+                'scorer_version',
+                'scored_at',
+            ])
+                ->where('conversation_id=?,turn_index=?')
                 ->assign([
                     'iqs'               => $iqs,
                     'accs'              => $accs,
@@ -129,10 +139,22 @@ return function (): void {
                     'conversation_id'   => $cid,
                     'turn_index'        => $turnIndex,
                 ])
-                ->where('conversation_id=? AND turn_index=?')
                 ->query();
         } else {
-            $canonDb->insert('turn_score')
+            $canonDb->insert('turn_score', [
+                'conversation_id',
+                'turn_index',
+                'iqs',
+                'accs',
+                'iqs_dims_json',
+                'accs_dims_json',
+                'iqs_reasons_json',
+                'accs_reasons_json',
+                'scorer_version',
+                'scored_at',
+                'complete',
+                'topic_shift',
+            ])
                 ->assign([
                     'conversation_id'   => $cid,
                     'turn_index'        => $turnIndex,

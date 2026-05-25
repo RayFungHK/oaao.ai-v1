@@ -2,15 +2,12 @@
 
 namespace Module\oaao\chat;
 
-require_once __DIR__ . '/../library/ChatPipelineRegister.php';
-require_once __DIR__ . '/../library/PlannerAgentRegister.php';
-require_once __DIR__ . '/../library/ChatOrchestratorApi.php';
-require_once __DIR__ . '/../library/ChatVaultScope.php';
-
 use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\chat\ChatPipelineRegister;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\PlannerAgentRegister;
+use oaaoai\vault\VaultQdrantCollectionResolver;
+use oaaoai\vault\VaultRetrievalProfiles;
 use Razy\Database;
 use Razy\Agent;
 use Razy\Controller;
@@ -125,6 +122,20 @@ return new class extends Controller {
         }
 
         return [$splitDb, $user, $splitDb->getDBAdapter()];
+    }
+
+    /**
+     * Canonical auth PDO ({@code oaao_user}, …) — not split adjunct SQLite used for chat threads.
+     */
+    protected function oaao_chat_canonical_pdo(): ?\PDO
+    {
+        $auth = $this->api('auth');
+        if (! $auth) {
+            return null;
+        }
+        $pdo = $auth->getDB()?->getDBAdapter();
+
+        return $pdo instanceof \PDO ? $pdo : null;
     }
 
     /**
@@ -287,13 +298,15 @@ return new class extends Controller {
         $exists = $splitDb->prepare()
             ->select('id')
             ->from('message')
-            ->where('id=?,conversation_id=?,role=assistant')
-            ->lazy([
+            ->where('id=?,conversation_id=?,role=?')
+            ->assign([
                 'id'              => $assistantMessageId,
                 'conversation_id' => $conversationId,
+                'role'            => 'assistant',
             ])
+            ->limit(1)
             ->query()
-            ->fetch(\PDO::FETCH_ASSOC);
+            ->fetch();
         if (! \is_array($exists)) {
             return 0;
         }
@@ -301,13 +314,14 @@ return new class extends Controller {
         $row = $splitDb->prepare()
             ->select('COUNT(*) AS turn_index')
             ->from('message')
-            ->where('conversation_id=?,role=assistant,id<=?')
-            ->lazy([
+            ->where('conversation_id=?,role=?,id<=?')
+            ->assign([
                 'conversation_id' => $conversationId,
+                'role'            => 'assistant',
                 'id'              => $assistantMessageId,
             ])
             ->query()
-            ->fetch(\PDO::FETCH_ASSOC);
+            ->fetch();
         if (! \is_array($row)) {
             return 0;
         }
@@ -526,7 +540,7 @@ return new class extends Controller {
             return [];
         }
         $auth = $this->api('auth');
-        $ids = ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId, $auth);
+        $ids = ChatVaultScope::vaultIdsForRetrieval($db, $uid, $workspaceId, $auth);
 
         return ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($db, $ids);
     }
@@ -560,7 +574,7 @@ return new class extends Controller {
         }
 
         $auth = $this->api('auth');
-        $allowed = array_fill_keys(ChatVaultScope::vaultIdsForUserWorkspace($db, $uid, $workspaceId, $auth), true);
+        $allowed = array_fill_keys(ChatVaultScope::vaultIdsForRetrieval($db, $uid, $workspaceId, $auth), true);
         /** @var list<int> $filtered */
         $filtered = [];
         foreach ($clean as $vid) {
@@ -572,9 +586,21 @@ return new class extends Controller {
             return [];
         }
 
-        $vault = $this->api('vault');
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO) {
+            $core = $this->api('core');
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+                $slug = trim((string) $core->tenantContextSlug());
+                if ($slug !== '') {
+                    VaultQdrantCollectionResolver::setTenantSlug($slug);
+                }
+            }
+        }
 
-        return $vault ? $vault->buildRetrievalProfilesFromVaultIds($filtered) : [];
+        $infer = fn (string $ref): ?string => $this->inferOrchestratorApiKeyEnv($ref);
+
+        return VaultRetrievalProfiles::fromVaultIds($db, $filtered, $infer);
     }
 
     /**
@@ -711,22 +737,6 @@ return new class extends Controller {
                 ['tenant', 'workspace', 'personal'],
                 20,
             );
-
-            $coreApi->registerPreferencesSection(
-                'pref-chat',
-                'Chat',
-                'Chat preferences',
-                'Composer and thread defaults — workspace or personal.',
-                'message-circle-more',
-                [
-                    'sort'       => 35,
-                    'levels'     => ['workspace', 'personal'],
-                    'panel_html' => '<div class="oaao-sdlg-section-title mb-sm">Composer</div>'
-                        . '<p class="oaao-sdlg-section-desc mb-md">Bindings follow the active workspace when set; otherwise personal defaults apply.</p>'
-                        . '<p class="text-sm fg-[var(--grid-ink-muted)] max-w-[28rem] leading-relaxed">'
-                        . 'Orchestrator-backed toggles land here when modules expose them.</p>',
-                ],
-            );
         }
 
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
@@ -760,12 +770,17 @@ return new class extends Controller {
             'api' => [
                 'GET conversations'           => 'conversations',
                 'GET messages'               => 'messages',
+                'GET chat_preferences'       => 'chat_preferences',
+                'POST chat_preferences'      => 'chat_preferences',
                 'GET turn_scores'            => 'turn_scores',
+                'GET evolution_queue_status' => 'evolution_queue_status',
+                'POST turn_scores_rescore'   => 'turn_scores_rescore',
                 'GET resolve_share'          => 'resolve_share',
                 'POST send'                  => 'send',
                 'POST cancel_run'            => 'cancel_run',
                 'POST agent_ask'             => 'agent_ask',
                 'POST attachment_upload'     => 'attachment_upload',
+                'POST attachments_dispose'   => 'attachments_dispose',
                 'POST asr_transcribe'        => 'asr_transcribe',
                 'GET workspace_glossary'     => 'workspace_glossary',
                 'POST workspace_glossary'    => 'workspace_glossary',
@@ -810,6 +825,22 @@ return new class extends Controller {
     {
         $coreApi = $this->api('core');
         if ($coreApi) {
+            $generalJs = '/webassets/chat/default/js/oaao-chat-admin-general-panel.js';
+            $coreApi->registerSettingsSection(
+                'settings-chat-general',
+                'Chat',
+                'General',
+                'Tenant-wide thread page size (3–10) and LLM context cap — administrator only.',
+                'message-circle-more',
+                [
+                    'sort'            => 27,
+                    'panel_js_module' => $generalJs,
+                    'label_key'       => 'settings.nav.chat_general.label',
+                    'title_key'       => 'settings.nav.chat_general.title',
+                    'sub_key'         => 'settings.nav.chat_general.sub',
+                ],
+            );
+
             $plannerJs = '/webassets/chat/default/js/oaao-chat-planner-settings-panel.js';
             $coreApi->registerSettingsSection(
                 'settings-chat-planner',

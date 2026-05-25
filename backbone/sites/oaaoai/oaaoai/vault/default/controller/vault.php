@@ -2,6 +2,8 @@
 
 namespace Module\oaao\vault;
 
+require_once __DIR__ . '/api/_vault_hook_jobs.php';
+
 use oaaoai\chat\ChatOrchestratorBootstrap;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\vault\VaultGlossary;
@@ -228,9 +230,24 @@ return new class extends Controller {
         return $tid;
     }
 
-    protected function oaao_vault_prime_qdrant_tenant_slug(): void
+    protected function oaao_vault_prime_qdrant_tenant_slug(?\PDO $pdo = null): void
     {
-        $slug = $this->oaao_vault_tenant_slug();
+        require_once dirname(__DIR__, 3) . '/core/default/library/TenantHostResolver.php';
+
+        $slug = '';
+        if ($pdo instanceof \PDO) {
+            $slug = \Oaaoai\Core\TenantHostResolver::tenantSlug($pdo);
+        }
+        if ($slug === '') {
+            $slug = $this->oaao_vault_tenant_slug();
+        }
+        if ($slug === '' && $pdo instanceof \PDO) {
+            $core = $this->oaao_vault_core_api();
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+                $slug = $this->oaao_vault_tenant_slug();
+            }
+        }
         if ($slug !== '') {
             VaultQdrantCollectionResolver::setTenantSlug($slug);
         }
@@ -780,9 +797,9 @@ return new class extends Controller {
         $mime = isset($row['mime_type']) ? (string) $row['mime_type'] : '';
         $byteSize = isset($row['byte_size']) && $row['byte_size'] !== null ? (int) $row['byte_size'] : 0;
         $origName = (string) ($row['file_name'] ?? '');
-        $mime = oaao_vault_normalize_upload_mime($mime, $origName);
+        $mime = \oaao_vault_normalize_upload_mime($mime, $origName);
         $storedText = isset($row['source_text']) ? trim((string) $row['source_text']) : '';
-        $isAudio = oaao_vault_is_audio_upload($mime, $origName);
+        $isAudio = \oaao_vault_is_audio_upload($mime, $origName);
 
         // Audio ingest: transcribe first; {@see vault_job_finish} enqueues embed after ASR.
         if ($isAudio && $storedText === '' && \in_array('vh.rag.document_embed', $clean, true)) {
@@ -1884,7 +1901,16 @@ SQL;
         if (! $db instanceof \Razy\Database) {
             return [];
         }
-        $this->oaao_vault_prime_qdrant_tenant_slug();
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO) {
+            $core = $this->oaao_vault_core_api();
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+            }
+            $this->oaao_vault_prime_qdrant_tenant_slug($pdo);
+        } else {
+            $this->oaao_vault_prime_qdrant_tenant_slug();
+        }
         $chat = $this->api('chat');
         $infer = $chat
             ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)

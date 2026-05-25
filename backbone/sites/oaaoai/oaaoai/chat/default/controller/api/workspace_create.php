@@ -1,5 +1,7 @@
 <?php
 
+use Oaaoai\Core\GroupLimitEnforcer;
+
 /**
  * POST /chat/api/workspace_create — create workspace + owner membership (PostgreSQL).
  *
@@ -65,10 +67,8 @@ return function (): void {
     }
 
     try {
-        require_once dirname(__DIR__, 4) . '/core/default/library/GroupLimitEnforcer.php';
-
-        $limits = \Oaaoai\Core\GroupLimitEnforcer::limitsForUser($pdo, $uid);
-        $limitMsg = \Oaaoai\Core\GroupLimitEnforcer::assertCanCreateWorkspace($pdo, $uid, $limits);
+        $limits = GroupLimitEnforcer::limitsForUser($pdo, $uid);
+        $limitMsg = GroupLimitEnforcer::assertCanCreateWorkspace($pdo, $uid, $limits);
         if ($limitMsg !== null) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => $limitMsg]);

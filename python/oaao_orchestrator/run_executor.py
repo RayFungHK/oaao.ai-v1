@@ -17,9 +17,10 @@ import httpx
 
 from oaao_orchestrator.agents import get_agent_registry
 from oaao_orchestrator.chat_attachments import process_chat_attachments
+from oaao_orchestrator.chat_attachments_dispose import dispose_chat_attachments
 from oaao_orchestrator.pipeline import RunContext
 from oaao_orchestrator.pipeline_ui import build_minimal_pipeline_snapshot, merge_vault_chat_sources_into_snapshot
-from oaao_orchestrator.planner import build_run_plan, resolve_allowed_agents
+from oaao_orchestrator.planner import build_run_plan, needs_multi_agent_turn, resolve_allowed_agents
 from oaao_orchestrator.planner_llm import plan_report_result_tasks, planner_enabled
 from oaao_orchestrator.streaming.events import (
     KIND_STATUS,
@@ -130,6 +131,85 @@ def _resolve_max_tokens(req: Any) -> int | None:
         return min(max(1, int(raw)), 128_000)
     except ValueError:
         return None
+
+
+def _apply_upstream_sampling(body: dict[str, Any]) -> None:
+    """Optional OpenAI/vLLM sampling overrides (env) — reduces repetition collapse on large models."""
+    rp = os.environ.get("OAAO_CHAT_REPETITION_PENALTY", "").strip()
+    if rp:
+        try:
+            v = float(rp)
+            if v > 0:
+                body["repetition_penalty"] = v
+        except ValueError:
+            pass
+    for key, env_key, lo, hi in (
+        ("top_p", "OAAO_CHAT_TOP_P", 0.0, 1.0),
+        ("frequency_penalty", "OAAO_CHAT_FREQUENCY_PENALTY", -2.0, 2.0),
+        ("presence_penalty", "OAAO_CHAT_PRESENCE_PENALTY", -2.0, 2.0),
+    ):
+        raw = os.environ.get(env_key, "").strip()
+        if not raw:
+            continue
+        try:
+            body[key] = max(lo, min(hi, float(raw)))
+        except ValueError:
+            continue
+
+
+def _elapsed_ms_since(t0: float) -> int:
+    return max(0, int((time.perf_counter() - t0) * 1000))
+
+
+def _record_pipeline_phase(pipeline_timing: dict[str, Any], name: str, duration_ms: int, **extra: Any) -> None:
+    phases = pipeline_timing.setdefault("phases", [])
+    if not isinstance(phases, list):
+        phases = []
+        pipeline_timing["phases"] = phases
+    row: dict[str, Any] = {"name": name, "duration_ms": int(duration_ms)}
+    row.update(extra)
+    phases.append(row)
+
+
+def _plan_pipeline_source(req: object) -> str:
+    if not needs_multi_agent_turn(req):
+        return "fast_chat"
+    if planner_enabled(req):
+        return "llm_planner"
+    return "deterministic"
+
+
+def _record_pipeline_task(
+    pipeline_timing: dict[str, Any],
+    run_task: RunTaskSpec,
+    duration_ms: int,
+) -> None:
+    tasks = pipeline_timing.setdefault("tasks", [])
+    if not isinstance(tasks, list):
+        tasks = []
+        pipeline_timing["tasks"] = tasks
+    tasks.append(
+        {
+            "id": run_task.id,
+            "title": run_task.title,
+            "type": str(run_task.type),
+            "status": str(run_task.status),
+            "duration_ms": int(duration_ms),
+            "agent_kind": (run_task.agent_kind or "").strip() or None,
+        }
+    )
+
+
+def _finalize_run_task_timing(
+    *,
+    pipeline_timing: dict[str, Any],
+    run_task: RunTaskSpec,
+    task_t0: float,
+) -> int:
+    duration_ms = _elapsed_ms_since(task_t0)
+    run_task.duration_ms = duration_ms
+    _record_pipeline_task(pipeline_timing, run_task, duration_ms)
+    return duration_ms
 
 
 def _llm_stream_timeout() -> httpx.Timeout:
@@ -328,6 +408,7 @@ async def execute_chat_run(
         _hook_before_llm,
         _report_usage_to_php,
         _resolve_api_key,
+        _resolve_planner_llm,
         _sanitize_client_text,
     )
 
@@ -376,14 +457,14 @@ async def execute_chat_run(
             reuse_turn=reuse_grounding_turn,
         )
     run_failed = False
+    run_error_detail: str | None = None
     slide_project_meta: dict[str, Any] | None = None
     iqs_snap: dict[str, Any] | None = None
-    accs_snap: dict[str, Any] | None = None
     coach_endpoint: dict[str, Any] | None = None
+    pipeline_timing: dict[str, Any] = {"phases": [], "tasks": []}
 
+    planner_url, planner_api_key, planner_model = _resolve_planner_llm(req)
     api_key = _resolve_api_key(req.endpoint)
-    planner_url = _chat_completions_url(req.endpoint.base_url)
-    planner_model = req.endpoint.model
     allowed_agents = resolve_allowed_agents(req)
 
     try:
@@ -393,16 +474,94 @@ async def execute_chat_run(
 
         run_principal = require_for_request(req)
 
-        from oaao_orchestrator.evaluation.iqs import score_iqs  # noqa: PLC0415
+        from oaao_orchestrator.evaluation.coach_client import inline_iqs_clarify_enabled  # noqa: PLC0415
+        from oaao_orchestrator.evaluation.iqs import score_iqs, should_bypass_iqs_clarify  # noqa: PLC0415
         from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
 
-        coach_endpoint = req.uiqe if isinstance(req.uiqe, dict) else None
         user_msg_for_iqs = _last_user_message(messages_for_llm)
-        iqs_result = await score_iqs(
-            user_message=user_msg_for_iqs,
-            conversation_history=messages_for_llm,
-            coach_endpoint=coach_endpoint,
-        )
+        coach_endpoint = req.uiqe if isinstance(req.uiqe, dict) else None
+        clarify_gate = inline_iqs_clarify_enabled()
+
+        async def _timed_iqs():
+            t0 = time.perf_counter()
+            res = await score_iqs(
+                user_message=user_msg_for_iqs,
+                conversation_history=messages_for_llm,
+                coach_endpoint=coach_endpoint,
+                inline=True,
+            )
+            return res, _elapsed_ms_since(t0)
+
+        async def _timed_plan() -> tuple[RunPlan, int]:
+            t0 = time.perf_counter()
+            built = await build_run_plan(
+                req,
+                chat_completions_url=planner_url,
+                api_key=planner_api_key,
+                model=planner_model,
+            )
+            return built, _elapsed_ms_since(t0)
+
+        def _record_plan_phase(duration_ms: int, *, source: str | None = None) -> None:
+            _record_pipeline_phase(
+                pipeline_timing,
+                "plan",
+                duration_ms,
+                model=planner_model if planner_enabled(req) else None,
+                source=source or _plan_pipeline_source(req),
+            )
+
+        async def _maybe_recall_crystallized_plan(iqs_result: object, current: RunPlan) -> RunPlan:
+            from oaao_orchestrator.crystallization.plan import build_plan_from_tool_chain  # noqa: PLC0415
+            from oaao_orchestrator.crystallization.recall import recall_skill  # noqa: PLC0415
+
+            if str(getattr(iqs_result, "action", "") or "") not in ("pass", "assume_defaults"):
+                return current
+            t_recall = time.perf_counter()
+            skill_hit = await recall_skill(
+                user_msg_for_iqs,
+                embedding_cfg=req.embedding if isinstance(req.embedding, dict) else None,
+            )
+            _record_pipeline_phase(pipeline_timing, "skill_recall", _elapsed_ms_since(t_recall))
+            if skill_hit is None:
+                return current
+            iqs_snap["crystallized_skill_recall"] = {
+                "skill_id": skill_hit.skill.id,
+                "similarity": round(float(skill_hit.similarity), 4),
+                "tool_chain": list(skill_hit.skill.tool_chain),
+            }
+            _record_plan_phase(0, source="crystallized_skill")
+            await run.append(
+                StreamEnvelope(
+                    phase=PHASE_SYSTEM,
+                    kind=KIND_STATUS,
+                    text="reusing_crystallized_skill",
+                    payload={
+                        "skill_id": skill_hit.skill.id,
+                        "trigger_intent": skill_hit.skill.trigger_intent,
+                        "similarity": round(float(skill_hit.similarity), 4),
+                        "tool_chain": list(skill_hit.skill.tool_chain),
+                    },
+                )
+            )
+            return build_plan_from_tool_chain(skill_hit.skill.tool_chain)
+
+        if clarify_gate:
+            iqs_result, iqs_ms = await _timed_iqs()
+            _record_pipeline_phase(pipeline_timing, "iqs", iqs_ms, source=iqs_result.source)
+        else:
+            await run.append(
+                StreamEnvelope(
+                    phase=PHASE_SYSTEM,
+                    kind=KIND_STATUS,
+                    text="plan_build_start",
+                    payload={},
+                )
+            )
+            (iqs_result, iqs_ms), (plan, plan_ms) = await asyncio.gather(_timed_iqs(), _timed_plan())
+            _record_pipeline_phase(pipeline_timing, "iqs", iqs_ms, source=iqs_result.source)
+            _record_plan_phase(plan_ms)
+
         iqs_snap = {
             "iqs_score": round(float(iqs_result.score), 4),
             "iqs_action": iqs_result.action,
@@ -424,16 +583,20 @@ async def execute_chat_run(
             )
         )
 
-        if iqs_result.action in ("clarify", "hard_clarify") and not iqs_result.skipped:
-            clarify_lines = list(iqs_result.clarification_questions or [])
+        if (
+            clarify_gate
+            and iqs_result.action in ("clarify", "hard_clarify")
+            and not iqs_result.skipped
+            and not should_bypass_iqs_clarify(user_msg_for_iqs, messages_for_llm)
+            and iqs_result.clarification_questions
+        ):
+            clarify_lines = list(iqs_result.clarification_questions)
             if len(clarify_lines) == 1:
                 clarify_text = clarify_lines[0]
-            elif clarify_lines:
+            else:
                 clarify_text = "\n\n".join(
                     f"{i}. {q}" for i, q in enumerate(clarify_lines, start=1)
                 )
-            else:
-                clarify_text = ""
             if clarify_text:
                 streamed_parts.append(clarify_text)
                 out_chars += len(clarify_text)
@@ -465,51 +628,46 @@ async def execute_chat_run(
             [r.model_dump() for r in (req.vault_source_refs or [])],
         )
 
-        if iqs_result.action in ("pass", "assume_defaults"):
-            from oaao_orchestrator.crystallization.plan import build_plan_from_tool_chain  # noqa: PLC0415
-            from oaao_orchestrator.crystallization.recall import recall_skill  # noqa: PLC0415
-
-            skill_hit = await recall_skill(
-                user_msg_for_iqs,
-                embedding_cfg=req.embedding if isinstance(req.embedding, dict) else None,
-            )
-            if skill_hit is not None:
-                iqs_snap["crystallized_skill_recall"] = {
-                    "skill_id": skill_hit.skill.id,
-                    "similarity": round(float(skill_hit.similarity), 4),
-                    "tool_chain": list(skill_hit.skill.tool_chain),
-                }
-                plan = build_plan_from_tool_chain(skill_hit.skill.tool_chain)
+        if clarify_gate:
+            if iqs_result.action in ("pass", "assume_defaults"):
                 await run.append(
                     StreamEnvelope(
                         phase=PHASE_SYSTEM,
                         kind=KIND_STATUS,
-                        text="reusing_crystallized_skill",
-                        payload={
-                            "skill_id": skill_hit.skill.id,
-                            "trigger_intent": skill_hit.skill.trigger_intent,
-                            "similarity": round(float(skill_hit.similarity), 4),
-                            "tool_chain": list(skill_hit.skill.tool_chain),
-                        },
+                        text="plan_build_start",
+                        payload={},
                     )
                 )
+                plan, plan_ms = await _timed_plan()
+                _record_plan_phase(plan_ms)
+                plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
             else:
-                plan = await build_run_plan(
-                    req,
-                    chat_completions_url=planner_url,
-                    api_key=api_key,
-                    model=planner_model,
+                await run.append(
+                    StreamEnvelope(
+                        phase=PHASE_SYSTEM,
+                        kind=KIND_STATUS,
+                        text="plan_build_start",
+                        payload={},
+                    )
                 )
+                plan, plan_ms = await _timed_plan()
+                _record_plan_phase(plan_ms)
         else:
-            plan = await build_run_plan(
-                req,
-                chat_completions_url=planner_url,
-                api_key=api_key,
-                model=planner_model,
-            )
+            plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
+
         task_queue: list[RunTaskSpec] = list(plan.tasks)
         report_after_ids = set(plan.report_after_task_ids)
         report_replan_done = False
+        pipeline_timing["thinking_ms"] = _elapsed_ms_since(t_start)
+
+        await run.append(
+            StreamEnvelope(
+                phase=PHASE_SYSTEM,
+                kind=KIND_STATUS,
+                text="preflight_timing",
+                payload={"pipeline_timing": dict(pipeline_timing)},
+            )
+        )
 
         await emit_task_list_status(
             run, plan, allowed_agents=allowed_agents, pipeline_snap=pipeline_snap, text="task_plan"
@@ -611,14 +769,21 @@ async def execute_chat_run(
 
                 async def _run_slide_page_task(page_task: RunTaskSpec) -> bool:
                     async with sem:
+                        page_t0 = time.perf_counter()
                         if run.cancelled:
                             page_task.status = RunTaskStatus.SKIPPED
+                            page_ms = _finalize_run_task_timing(
+                                pipeline_timing=pipeline_timing,
+                                run_task=page_task,
+                                task_t0=page_t0,
+                            )
                             await emit_run_task_end(
                                 run,
                                 plan,
                                 page_task,
                                 allowed_agents=allowed_agents,
                                 pipeline_snap=pipeline_snap,
+                                duration_ms=page_ms,
                             )
                             return True
                         ensure_run_task_agent_kind(page_task)
@@ -656,6 +821,11 @@ async def execute_chat_run(
                             page_task.status = (
                                 RunTaskStatus.FAILED if failed else RunTaskStatus.DONE
                             )
+                            page_ms = _finalize_run_task_timing(
+                                pipeline_timing=pipeline_timing,
+                                run_task=page_task,
+                                task_t0=page_t0,
+                            )
                             await emit_run_task_end(
                                 run,
                                 plan,
@@ -663,6 +833,7 @@ async def execute_chat_run(
                                 allowed_agents=allowed_agents,
                                 pipeline_snap=pipeline_snap,
                                 failed=failed,
+                                duration_ms=page_ms,
                             )
                         return failed
 
@@ -721,6 +892,7 @@ async def execute_chat_run(
                 run, plan, run_task, allowed_agents=allowed_agents, pipeline_snap=pipeline_snap
             )
 
+            task_t0 = time.perf_counter()
             task_failed = False
             try:
                 if run_task.type == RunTaskType.VAULT_RAG:
@@ -786,6 +958,37 @@ async def execute_chat_run(
                             polish_cfg=req.polish if isinstance(req.polish, dict) else None,
                             glossary=req.glossary if isinstance(req.glossary, dict) else None,
                         )
+                        att_ids: list[int] = []
+                        for att in req.chat_attachments or []:
+                            if not isinstance(att, dict):
+                                continue
+                            raw_id = att.get("id")
+                            try:
+                                aid = int(raw_id) if raw_id is not None else 0
+                            except (TypeError, ValueError):
+                                aid = 0
+                            if aid > 0:
+                                att_ids.append(aid)
+                        if att_ids:
+                            try:
+                                cid = int(req.conversation_id or 0)
+                            except (TypeError, ValueError):
+                                cid = 0
+                            try:
+                                uid = int(req.user_id or 0)
+                            except (TypeError, ValueError):
+                                uid = 0
+                            if cid > 0 and uid > 0:
+                                secret = os.environ.get(
+                                    "OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret"
+                                ).strip()
+                                await dispose_chat_attachments(
+                                    att_client,
+                                    conversation_id=cid,
+                                    user_id=uid,
+                                    attachment_ids=att_ids,
+                                    shared_secret=secret,
+                                )
                     run_ctx.messages = list(messages_for_llm)
                     if attach_pipeline:
                         ms = attach_pipeline.get("milestone")
@@ -945,6 +1148,7 @@ async def execute_chat_run(
                     max_tokens = _resolve_max_tokens(req)
                     if max_tokens is not None:
                         body["max_tokens"] = max_tokens
+                    _apply_upstream_sampling(body)
                     if os.environ.get("OAAO_CHAT_STREAM_INCLUDE_USAGE", "1").strip().lower() not in (
                         "0",
                         "false",
@@ -978,6 +1182,11 @@ async def execute_chat_run(
                                 )
                                 task_failed = True
                                 run_failed = True
+                                llm_ms = _finalize_run_task_timing(
+                                    pipeline_timing=pipeline_timing,
+                                    run_task=run_task,
+                                    task_t0=task_t0,
+                                )
                                 await emit_run_task_end(
                                     run,
                                     plan,
@@ -985,6 +1194,7 @@ async def execute_chat_run(
                                     allowed_agents=allowed_agents,
                                     pipeline_snap=pipeline_snap,
                                     failed=True,
+                                    duration_ms=llm_ms,
                                 )
                                 return
 
@@ -1100,6 +1310,11 @@ async def execute_chat_run(
                         if handoff_snap is not None:
                             pipeline_snap = handoff_snap
                             run_ctx.messages = list(messages_for_llm)
+                task_duration_ms = _finalize_run_task_timing(
+                    pipeline_timing=pipeline_timing,
+                    run_task=run_task,
+                    task_t0=task_t0,
+                )
                 await emit_run_task_end(
                     run,
                     plan,
@@ -1107,6 +1322,7 @@ async def execute_chat_run(
                     allowed_agents=allowed_agents,
                     pipeline_snap=pipeline_snap,
                     failed=task_failed,
+                    duration_ms=task_duration_ms,
                 )
 
                 if run.cancelled:
@@ -1131,7 +1347,7 @@ async def execute_chat_run(
                         req,
                         completed_task=run_task,
                         chat_completions_url=planner_url,
-                        api_key=api_key,
+                        api_key=planner_api_key,
                         model=planner_model,
                         allowed_agents=allowed_agents,
                         remaining_tasks=task_queue,
@@ -1149,6 +1365,11 @@ async def execute_chat_run(
             except Exception:
                 run_task.status = RunTaskStatus.FAILED
                 run_failed = True
+                task_duration_ms = _finalize_run_task_timing(
+                    pipeline_timing=pipeline_timing,
+                    run_task=run_task,
+                    task_t0=task_t0,
+                )
                 await emit_run_task_end(
                     run,
                     plan,
@@ -1156,24 +1377,29 @@ async def execute_chat_run(
                     allowed_agents=allowed_agents,
                     pipeline_snap=pipeline_snap,
                     failed=True,
+                    duration_ms=task_duration_ms,
                 )
                 raise
 
     except Exception as e:  # noqa: BLE001
+        run_failed = True
+        run_error_detail = _sanitize_client_text(str(e))
         req_url = _chat_completions_url(req.endpoint.base_url)
+        err_code = "iqs_failed" if "iqs" in type(e).__name__.lower() or "Breaker" in type(e).__name__ else "llm_stream_failed"
         logger.exception(
-            "llm_stream_failed run_id=%s ref=%s url=%s",
+            "chat_run_failed run_id=%s ref=%s url=%s code=%s",
             run_id,
             req.endpoint.endpoint_ref,
             req_url,
+            err_code,
         )
         await run.append(
             StreamEnvelope(
                 phase=PHASE_SYSTEM,
                 kind="error",
-                text="llm_stream_failed",
+                text=err_code,
                 payload={
-                    "detail": _sanitize_client_text(str(e)),
+                    "detail": run_error_detail,
                     "exc_type": type(e).__name__,
                     "hint": "From inside Docker use this compose stack's service hostname + container port for the LLM (e.g. http://my-llm:1234/v1/...); avoid http://127.0.0.1 unless the model shares that container's namespace. Only when the inference server runs on the workstation use http://host.docker.internal:<host-port>.",
                 },
@@ -1231,163 +1457,48 @@ async def execute_chat_run(
             metrics_payload["finish_reason"] = finish_reason
         if run.cancelled:
             metrics_payload["cancelled"] = True
+        if run_failed:
+            metrics_payload["run_failed"] = True
+        if run_error_detail:
+            metrics_payload["run_error"] = run_error_detail
 
         assistant_text = "".join(streamed_parts)
-        if (
-            assistant_text.strip()
-            and not run.cancelled
-            and not run_failed
-            and iqs_snap is not None
-            and iqs_snap.get("iqs_action") not in ("clarify", "hard_clarify")
-        ):
-            from oaao_orchestrator.evaluation.accs import score_accs  # noqa: PLC0415
-            from oaao_orchestrator.evaluation.reflection import run_reflection_loop  # noqa: PLC0415
-            from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
-
-            user_msg_for_accs = _last_user_message(messages_for_llm)
-            evidence: list[Any] = []
-            if pipeline_snap and isinstance(pipeline_snap.get("vault_rag"), dict):
-                raw_ev = pipeline_snap["vault_rag"].get("passages") or []
-                if isinstance(raw_ev, list):
-                    evidence = raw_ev
-
-            accs_result = await score_accs(
-                user_message=user_msg_for_accs,
-                llm_output=assistant_text,
-                evidence=evidence,
-                coach_endpoint=coach_endpoint,
-            )
-            accs_snap = {
-                "accs_score": round(float(accs_result.score), 4),
-                "accs_action": accs_result.action,
-                "accs_factors": accs_result.factors,
-                "accs_skipped": bool(accs_result.skipped),
-                "accs_degraded": bool(accs_result.degraded),
-                "crystallization_candidate": bool(accs_result.crystallization_candidate),
-                "accs_source": accs_result.source,
-            }
-            if accs_result.action == "reflect" and not accs_result.skipped:
-                from oaao_orchestrator.app import _chat_completions_url  # noqa: PLC0415
-                from oaao_orchestrator.planner_llm import llm_chat_completion_text  # noqa: PLC0415
-
-                async def _regenerate_reflection(critique: str, _accs: Any) -> str | None:
-                    regen_msgs: list[dict[str, str]] = []
-                    for row in messages_for_llm:
-                        if not isinstance(row, dict):
-                            continue
-                        role = str(row.get("role") or "user")
-                        content = row.get("content")
-                        if isinstance(content, str) and content.strip():
-                            regen_msgs.append({"role": role, "content": content.strip()})
-                    regen_msgs.append({"role": "assistant", "content": assistant_text})
-                    regen_msgs.append({"role": "user", "content": critique})
-                    return await llm_chat_completion_text(
-                        url=_chat_completions_url(req.endpoint.base_url),
-                        api_key=api_key,
-                        model=req.endpoint.model,
-                        messages=regen_msgs,
-                        temperature=min(0.5, float(req.temperature)),
-                        timeout_s=120.0,
-                    )
-
-                reflection_runs = await run_reflection_loop(
-                    user_message=user_msg_for_accs,
-                    first_output=assistant_text,
-                    evidence=evidence,
-                    max_rounds=1,
-                    coach_endpoint=coach_endpoint,
-                    initial_accs=accs_result,
-                    regenerate=_regenerate_reflection,
+        persist_text = assistant_text.strip()
+        if not persist_text and run_principal is not None and not run.cancelled:
+            if run_error_detail:
+                persist_text = f"Run failed: {run_error_detail}"
+            elif run_failed:
+                persist_text = (
+                    "The assistant run ended without a reply. "
+                    "Check the LLM endpoint or Activity log, then retry."
                 )
-                if reflection_runs:
-                    accs_snap["reflection_runs"] = len(reflection_runs)
-                    accs_snap["reflection_triggered"] = True
-                    accs_snap["reflection_round"] = 1
-                    revised = str(reflection_runs[0].get("output") or "").strip()
-                    rescored = reflection_runs[0].get("reflection_rescored")
-                    if isinstance(rescored, dict):
-                        accs_snap["accs_score"] = round(float(rescored.get("score", accs_snap["accs_score"])), 4)
-                        accs_snap["accs_action"] = str(rescored.get("action") or accs_snap["accs_action"])
-                        factors = rescored.get("factors")
-                        if isinstance(factors, dict):
-                            accs_snap["accs_factors"] = factors
-                        accs_snap["accs_degraded"] = bool(rescored.get("degraded"))
-                    if reflection_runs[0].get("degraded"):
-                        accs_snap["accs_degraded"] = True
-                        accs_snap["degraded"] = True
-                    if revised:
-                        await run.append(
-                            StreamEnvelope(
-                                phase=PHASE_SYSTEM,
-                                kind=KIND_STATUS,
-                                text="reflection_triggered",
-                                payload={
-                                    "reflection_round": 1,
-                                    "initial_accs_score": reflection_runs[0].get("initial_score"),
-                                    "final_accs_score": reflection_runs[0].get("final_score"),
-                                },
-                            )
-                        )
-                        await run.append(
-                            StreamEnvelope(
-                                phase=PHASE_LLM,
-                                kind="delta",
-                                text=revised,
-                                payload={"reflection_round": 1, "replace_prior": True},
-                            )
-                        )
-                        streamed_parts.clear()
-                        streamed_parts.append(revised)
-                        out_chars = len(revised)
-                        assistant_text = revised
-
-            if (
-                accs_snap.get("crystallization_candidate")
-                and not accs_snap.get("accs_degraded")
-                and not accs_snap.get("accs_skipped")
-            ):
-                from oaao_orchestrator.crystallization.sealer import try_seal_skill  # noqa: PLC0415
-
-                tool_chain = _tool_chain_from_plan(plan)
-                sealed = await try_seal_skill(
-                    run_id=run_id,
-                    accs_score=float(accs_snap.get("accs_score") or 0.0),
-                    tool_chain=tool_chain,
-                    planner_output={"tasks": [t.id for t in plan.tasks]} if plan else {},
-                    final_answer=assistant_text,
-                    user_message=user_msg_for_accs,
-                    flags={
-                        "degraded": bool(accs_snap.get("degraded") or accs_snap.get("accs_degraded")),
-                        "iqs_skipped": bool(iqs_snap.get("iqs_skipped")),
-                        "accs_skipped": bool(accs_snap.get("accs_skipped")),
-                    },
-                    embedding_cfg=req.embedding if isinstance(req.embedding, dict) else None,
-                )
-                if sealed is not None:
-                    accs_snap["crystallized_skill_id"] = sealed.id
-                    accs_snap["crystallized_trigger_intent"] = sealed.trigger_intent
+            else:
+                persist_text = "No reply text was generated for this turn."
 
         if iqs_snap is not None:
             metrics_payload.update(iqs_snap)
-        if accs_snap is not None:
-            metrics_payload.update(accs_snap)
 
-        if run_principal is not None and assistant_text.strip():
-            from oaao_orchestrator.chat_persist import persist_assistant_message  # noqa: PLC0415
-            from oaao_orchestrator.chat_internal_sync import sync_adjunct_via_php  # noqa: PLC0415
+        if not run.cancelled:
+            try:
+                from oaao_orchestrator.conversation_title import resolve_conversation_title_for_run  # noqa: PLC0415
+                from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
 
-            if persist_assistant_message(
-                principal=run_principal,
-                content=assistant_text,
-                meta=metrics_payload,
-            ):
-                metrics_payload["persisted_by_orchestrator"] = True
-                secret = os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
-                await sync_adjunct_via_php(
-                    principal=run_principal,
-                    meta=metrics_payload,
-                    shared_secret=secret,
+                conv_title = await resolve_conversation_title_for_run(
+                    req,
+                    plan=plan,
+                    user_message=_last_user_message(messages_for_llm),
+                    assistant_snippet=assistant_text,
+                    chat_completions_url=_chat_completions_url(req.endpoint.base_url),
+                    api_key=_resolve_api_key(req.endpoint.api_key_env),
+                    model=req.endpoint.model,
                 )
+                if conv_title:
+                    metrics_payload["conversation_title"] = conv_title
+            except Exception:
+                logger.exception("conversation_title resolve failed run_id=%s", run_id)
+
+        metrics_payload["pipeline_timing"] = pipeline_timing
+        metrics_payload["run_status"] = "complete"
 
         end_text = "run_cancelled" if run.cancelled else "run_closed"
         await run.append(
@@ -1398,13 +1509,59 @@ async def execute_chat_run(
                 payload=metrics_payload,
             )
         )
-        if not run.cancelled:
-            from oaao_orchestrator.post_stream_pool import enqueue_post_stream_jobs_for_chat  # noqa: PLC0415
-
-            await enqueue_post_stream_jobs_for_chat(req=req, metrics_payload=metrics_payload)
-        await _report_usage_to_php(
-            tenant_id=req.tenant_id,
-            event_kind="chat.completion",
-            meta=metrics_payload,
-        )
         run.mark_done()
+
+        async def _post_run_end_housekeeping() -> None:
+            try:
+                if run_principal is not None and persist_text:
+                    from oaao_orchestrator.chat_persist import persist_assistant_message  # noqa: PLC0415
+
+                    if persist_assistant_message(
+                        principal=run_principal,
+                        content=persist_text,
+                        meta=metrics_payload,
+                    ):
+                        metrics_payload["persisted_by_orchestrator"] = True
+                if run_principal is not None and (
+                    metrics_payload.get("conversation_title")
+                    or metrics_payload.get("slide_project")
+                    or metrics_payload.get("materials")
+                ):
+                    from oaao_orchestrator.chat_internal_sync import sync_adjunct_via_php  # noqa: PLC0415
+
+                    secret = os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
+                    await sync_adjunct_via_php(
+                        principal=run_principal,
+                        meta=metrics_payload,
+                        shared_secret=secret,
+                    )
+                if not run.cancelled:
+                    from oaao_orchestrator.evaluation.post_stream_worker import (  # noqa: PLC0415
+                        evolution_post_stream_enabled,
+                        schedule_evolution_post_stream,
+                    )
+                    from oaao_orchestrator.post_stream_pool import enqueue_post_stream_jobs_for_chat  # noqa: PLC0415
+
+                    schedule_evolution_post_stream(
+                        req=req,
+                        metrics_payload=metrics_payload,
+                        assistant_text=assistant_text,
+                        messages_for_llm=messages_for_llm,
+                        pipeline_snap=pipeline_snap,
+                        coach_endpoint=coach_endpoint,
+                        iqs_snap=iqs_snap,
+                        plan=plan,
+                        run_id=run_id,
+                        run_failed=run_failed,
+                    )
+                    if not evolution_post_stream_enabled():
+                        await enqueue_post_stream_jobs_for_chat(req=req, metrics_payload=metrics_payload)
+                await _report_usage_to_php(
+                    tenant_id=req.tenant_id,
+                    event_kind="chat.completion",
+                    meta=metrics_payload,
+                )
+            except Exception:
+                logger.exception("post_run_end_housekeeping failed run_id=%s", run_id)
+
+        asyncio.create_task(_post_run_end_housekeeping())

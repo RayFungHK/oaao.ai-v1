@@ -326,4 +326,5 @@ docker compose exec -w /app/python orchestrator python -m pytest tests/test_task
 | `docker/transcript-summary-templates/` | View Transcript summary prompts (Markdown, bind-mounted into `web`) |
 | `docs/MIGRATION_LEGACY_OAAO.md` | Legacy stack notes |
 | `backbone/sites/oaaoai/oaaoai/docs/backlog/chat-task-pipeline.md` | Chat task pipeline design + phase checklist |
+| `backbone/sites/oaaoai/oaaoai/docs/backlog/multimodal-tts-provider-api.md` | TTS (Supertonic 3) + Lance multimodal — swappable Provider API backlog |
 | `.cursor/rules/rayfung-razy-stack.mdc` | Razy / phar / vault dev rules |

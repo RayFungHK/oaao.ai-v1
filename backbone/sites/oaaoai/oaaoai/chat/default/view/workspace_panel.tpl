@@ -56,10 +56,10 @@
             </p>
         </div>
 
-        <div data-oaao-chat="composer-dock" class="flex flex-col items-stretch w-full shrink-0">
+        <div data-oaao-chat="composer-dock" class="flex flex-col items-stretch shrink-0 box-border" style="width:100%;max-width:48rem;margin-inline:auto;align-self:center;box-sizing:border-box">
         <div data-oaao-chat="composer-shell"
-            class="flex justify-center px-8 pb-2 w-full min-w-0 self-stretch box-border shrink-0">
-            <div class="oaao-chat-composer-inner-width w-full max-w-[48rem] min-w-0 flex flex-col items-stretch box-border">
+            class="flex w-full min-w-0 self-stretch box-border shrink-0">
+            <div class="oaao-chat-composer-inner-width w-full min-w-0 flex flex-col items-stretch box-border">
                 <!-- Template / deck refs sit outside the rounded composer card (attachment-style). -->
                 <div data-oaao-chat="composer-refs" class="oaao-chat-composer-refs hidden flex flex-wrap items-center justify-end gap-1.5 w-full min-w-0 px-1 pb-2">
                     <div data-oaao-chat="composer-desk-mode-bar" class="oaao-chat-composer-desk-mode-bar hidden">
@@ -76,7 +76,8 @@
                 </div>
                 <!-- Shared chrome: main composer + optional pipeline toolbar ({@code composer_extra_toolbar}). -->
                 <div data-oaao-chat="composer-card-wrap"
-                    class="flex flex-col w-full min-w-0 rounded-[22px] overflow-hidden p-px bg-[var(--grid-panel)] [box-sizing:border-box] [box-shadow:0_12px_32px_rgba(0,0,0,0.02),0_0_0_1px_rgba(0,0,0,0.12)]">
+                    class="flex flex-col w-full min-w-0"
+                    style="border-radius:22px;overflow:hidden;background:#fff;border:1px solid rgba(0,0,0,0.12);box-shadow:0 12px 32px rgba(0,0,0,0.06);box-sizing:border-box">
                     <div data-oaao-chat="composer-inner"
                         class="flex flex-col min-w-0 w-full bg-[var(--grid-panel-bright)] [box-sizing:border-box]">
                     <form data-oaao-chat="composer"
@@ -85,6 +86,8 @@
                             <div class="flex flex-col flex-1 min-w-0 gap-2 w-full min-h-0 items-stretch">
                                 <div data-oaao-chat="composer-input-shell"
                                     class="oaao-chat-composer-input-shell w-full min-w-0 min-h-[88px] max-h-[216px] overflow-y-auto [overscroll-behavior-y:contain] px-1 py-2 [box-sizing:border-box]">
+                                    <div data-oaao-chat="composer-attachment-stack"
+                                        class="oaao-chat-composer-attachment-stack hidden flex flex-col gap-2 w-full min-w-0 mb-2"></div>
                                     <div data-oaao-chat="input" contenteditable="true" role="textbox" aria-multiline="true"
                                         spellcheck="true"
                                         data-placeholder="Assign a task or ask any question"
@@ -121,14 +124,14 @@
             </div>
         </div>
         <p data-oaao-chat="composer-disclaimer"
-            class="oaao-chat-composer-disclaimer w-full max-w-[48rem] mx-auto box-border px-8 sm:px-[1.125rem] pt-1 pb-1 text-center text-[0.68rem] leading-snug fg-[var(--grid-caption)] select-none shrink-0"
+            class="oaao-chat-composer-disclaimer w-full box-border pt-1 pb-1 text-center text-[0.68rem] leading-snug fg-[var(--grid-caption)] select-none shrink-0"
             role="note">
             <span data-i18n="workspace.chat_disclaimer">OAAO.ai can make mistakes. Verify important information. Chats may be processed according to your workspace policy.</span>
         </p>
         </div>
 
         <div data-oaao-chat="prompt-grid"
-            class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-[720px] mx-auto px-8 pt-4 pb-10">
+            class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full pt-4 pb-10">
             <div class="oaao-chat-suggestion-card w-full min-w-0 overflow-hidden rounded-lg [border:1px_solid_var(--grid-line)] bg-[var(--grid-panel-bright)] shadow-[var(--oaao-surface-shadow)]">
                 <button type="button" data-oaao-chat="suggestion"
                     class="w-full min-w-0 text-left px-4 py-4 text-[0.8125rem] fg-[var(--grid-ink)] cursor-pointer leading-normal transition-colors hover:bg-[var(--grid-panel)] font-inherit border-0 bg-transparent box-border">

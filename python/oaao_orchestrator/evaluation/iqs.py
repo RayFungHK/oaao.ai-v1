@@ -1,7 +1,9 @@
 """
 IQS — Information Quality Score (Evolution §4).
 
-Heuristic scorer for Phase 8a; E4B coach integration can replace ``_score_dimensions``.
+Primary scorer: E4B coach (``uiqe`` purpose) with conversation history in ``iqs_coach.md``.
+Inline preflight records scores for telemetry; by default it does **not** block chat (see
+``OAAO_IQS_INLINE_CLARIFY``). Multi-turn threads never inline-clarify — context lives in history.
 """
 
 from __future__ import annotations
@@ -25,37 +27,19 @@ THRESHOLD_HARD_CLARIFY = 0.30
 
 _VAGUE_ONLY = frozenset({"嗯", "好", "ok", "hi", "?", "...", "嗯嗯"})
 
-_ACTION_MARKERS = (
-    "做",
-    "写",
-    "寫",
-    "轉",
-    "转",
-    "生成",
-    "分析",
-    "帮",
-    "幫",
-    "請",
-    "请",
-    "把",
-    "convert",
-    "create",
-    "make",
-    "explain",
-)
-_SPECIFIC_MARKERS = (
-    "pdf",
-    "页",
-    "頁",
-    "表格",
-    "markdown",
-    "第",
-    "附件",
-    "保留",
-    "栏",
-    "欄",
-    "欄位",
-)
+_HEURISTIC_PASS_DIMS: dict[str, float] = {
+    "clarity": 0.85,
+    "specificity": 0.85,
+    "actionability": 0.85,
+    "context_completeness": 0.85,
+}
+
+_HEURISTIC_VAGUE_DIMS: dict[str, float] = {
+    "clarity": 0.40,
+    "specificity": 0.35,
+    "actionability": 0.35,
+    "context_completeness": 0.30,
+}
 
 
 @dataclass
@@ -89,45 +73,39 @@ def combine_dimensions(
     return float(product ** (1.0 / weight_sum))
 
 
-def _heuristic_dimensions(user_message: str, conversation_history: list[Any]) -> dict[str, float]:
+def _normalize_history(conversation_history: list[Any]) -> list[dict[str, Any]]:
+    msgs: list[dict[str, Any]] = [m for m in conversation_history if isinstance(m, dict)]
+    while msgs:
+        role = str(msgs[-1].get("role") or "").strip().lower()
+        content = str(msgs[-1].get("content") or "").strip()
+        if role == "assistant" and not content:
+            msgs.pop()
+        else:
+            break
+    return msgs
+
+
+def _has_prior_turn_context(conversation_history: list[Any]) -> bool:
+    """True when any completed turn exists before the latest user message."""
+    msgs = _normalize_history(list(conversation_history or []))
+    if len(msgs) <= 1:
+        return False
+    for msg in msgs[:-1]:
+        if str(msg.get("content") or "").strip():
+            return True
+    return False
+
+
+def should_bypass_iqs_clarify(user_message: str, conversation_history: list[Any] | None) -> bool:
+    """
+    Multi-turn threads carry context in history — never inline-clarify.
+
+    Structural rule only; does not depend on keyword lists or coach dimension scores.
+    """
     text = (user_message or "").strip()
-    lower = text.lower()
-    n = len(text)
-
-    if text in _VAGUE_ONLY or n <= 2:
-        return {
-            "clarity": 0.40,
-            "specificity": 0.35,
-            "actionability": 0.35,
-            "context_completeness": 0.30,
-        }
-
-    has_action = any(m in lower or m in text for m in _ACTION_MARKERS)
-    has_specific = any(m in lower or m in text for m in _SPECIFIC_MARKERS)
-
-    if has_specific and has_action and n >= 18:
-        return {
-            "clarity": 0.92,
-            "specificity": 0.95,
-            "actionability": 0.93,
-            "context_completeness": 0.88,
-        }
-
-    clarity = 0.58 if has_action else 0.35
-    specificity = min(1.0, n / 28.0)
-    if has_specific:
-        specificity = max(specificity, 0.82)
-    actionability = min(1.0, 0.32 + n / 42.0)
-    context_completeness = 0.78 if n > 10 else 0.42
-    if conversation_history and n < 12:
-        context_completeness = max(0.35, context_completeness - 0.15)
-
-    return {
-        "clarity": clarity,
-        "specificity": specificity,
-        "actionability": actionability,
-        "context_completeness": context_completeness,
-    }
+    if not text or text in _VAGUE_ONLY:
+        return False
+    return _has_prior_turn_context(list(conversation_history or []))
 
 
 def _action_for_score(score: float) -> str:
@@ -140,47 +118,40 @@ def _action_for_score(score: float) -> str:
     return "hard_clarify"
 
 
-def _clarification_questions(user_message: str, dimensions: dict[str, float], action: str) -> list[str]:
-    if action not in ("clarify", "hard_clarify"):
-        return []
+def _finalize_iqs_result(
+    result: IQSResult,
+    *,
+    user_message: str,
+    conversation_history: list[Any],
+    inline: bool = False,
+) -> IQSResult:
+    from oaao_orchestrator.evaluation.coach_client import inline_iqs_clarify_enabled  # noqa: PLC0415
 
-    if (user_message or "").strip() in _VAGUE_ONLY:
-        if action == "hard_clarify":
-            return [
-                "收到。請問你想讓我幫你做哪一件事？",
-                "請用一句話描述目標，以及期望的輸出形式。",
-            ]
-        return ["收到。請問你想讓我幫你做哪一件事？請簡單描述目標或期望結果。"]
+    history = list(conversation_history or [])
+    if should_bypass_iqs_clarify(user_message, history):
+        result.clarification_questions = []
+        if result.action in ("clarify", "hard_clarify"):
+            result.action = "assume_defaults"
+    if result.action in ("clarify", "hard_clarify") and not result.clarification_questions:
+        result.action = "assume_defaults"
+    if inline and not inline_iqs_clarify_enabled():
+        result.clarification_questions = []
+    return result
 
-    weakest = min(dimensions, key=dimensions.get)
-    questions: list[str] = []
 
-    if weakest == "clarity" or dimensions.get("clarity", 1.0) < 0.45:
-        questions.append("你想完成什麼具體任務？請用一句話描述目標。")
-    if weakest == "specificity" or dimensions.get("specificity", 1.0) < 0.45:
-        questions.append("有哪些檔案、格式或欄位需要處理？")
-    if weakest == "actionability" or dimensions.get("actionability", 1.0) < 0.45:
-        questions.append("期望的輸出形式是什麼（例如 Markdown、表格、摘要）？")
-    if weakest == "context_completeness" or dimensions.get("context_completeness", 1.0) < 0.45:
-        questions.append("「這個／那個」指的是哪一項內容？請補充上下文。")
-
-    if not questions:
-        questions.append("能否再具體說明你的需求與期望結果？")
-
-    if action == "hard_clarify":
-        while len(questions) < 3:
-            questions.append("請提供一個完整範例輸入，方便我們對齊格式與內容。")
-        questions = questions[:4]
-    else:
-        questions = questions[:2]
-
-    return questions
+def _heuristic_dimensions(user_message: str, conversation_history: list[Any]) -> dict[str, float]:
+    """Minimal safe fallback when E4B coach is down — no keyword scoring."""
+    text = (user_message or "").strip()
+    if text in _VAGUE_ONLY or len(text) <= 2:
+        return dict(_HEURISTIC_VAGUE_DIMS)
+    return dict(_HEURISTIC_PASS_DIMS)
 
 
 async def _score_iqs_heuristic(
     *,
     user_message: str,
     conversation_history: list[Any],
+    inline: bool = False,
 ) -> IQSResult:
     dims = _heuristic_dimensions(user_message, conversation_history)
     score = combine_dimensions(
@@ -190,14 +161,18 @@ async def _score_iqs_heuristic(
         context_completeness=dims["context_completeness"],
     )
     action = _action_for_score(score)
-    questions = _clarification_questions(user_message, dims, action)
-    return IQSResult(
-        score=score,
-        dimensions=dims,
-        action=action,
-        clarification_questions=questions,
-        skipped=False,
-        source="heuristic",
+    return _finalize_iqs_result(
+        IQSResult(
+            score=score,
+            dimensions=dims,
+            action=action,
+            clarification_questions=[],
+            skipped=False,
+            source="heuristic",
+        ),
+        user_message=user_message,
+        conversation_history=conversation_history,
+        inline=inline,
     )
 
 
@@ -206,6 +181,7 @@ async def _score_iqs_coach(
     user_message: str,
     conversation_history: list[Any],
     coach_endpoint: dict[str, Any],
+    inline: bool = False,
 ) -> IQSResult:
     from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
         CoachCallError,
@@ -219,7 +195,11 @@ async def _score_iqs_coach(
         conversation_history=conversation_history,
     )
     try:
-        raw = await call_coach_json(endpoint=coach_endpoint, prompt=prompt)
+        raw = await call_coach_json(
+            endpoint=coach_endpoint,
+            prompt=prompt,
+            inline=inline,
+        )
         dims, coach_questions = parse_iqs_coach_response(raw)
     except CoachCallError:
         raise
@@ -233,14 +213,19 @@ async def _score_iqs_coach(
         context_completeness=dims["context_completeness"],
     )
     action = _action_for_score(score)
-    questions = coach_questions or _clarification_questions(user_message, dims, action)
-    return IQSResult(
-        score=score,
-        dimensions=dims,
-        action=action,
-        clarification_questions=questions,
-        skipped=False,
-        source="coach",
+    questions = list(coach_questions) if coach_questions else []
+    return _finalize_iqs_result(
+        IQSResult(
+            score=score,
+            dimensions=dims,
+            action=action,
+            clarification_questions=questions,
+            skipped=False,
+            source="coach",
+        ),
+        user_message=user_message,
+        conversation_history=conversation_history,
+        inline=inline,
     )
 
 
@@ -249,57 +234,97 @@ async def score_iqs(
     user_message: str,
     conversation_history: list[Any] | None = None,
     coach_endpoint: dict[str, Any] | None = None,
+    inline: bool = False,
 ) -> IQSResult:
-    """Score user input quality; on breaker open → skip and pass through."""
-    from oaao_orchestrator.evaluation.coach_client import CoachCallError, coach_endpoint_ready  # noqa: PLC0415
+    """Score user input quality; on breaker open / timeout → degrade, do not block users."""
+    from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
+        CoachCallError,
+        coach_call_timeout_s,
+        coach_endpoint_ready,
+        inline_iqs_coach_disabled,
+    )
+    from oaao_orchestrator.safety.circuit_breaker import BreakerOpen, BreakerTimeout  # noqa: PLC0415
 
     history = list(conversation_history or [])
-    breaker = get_breaker("iqs", failure_threshold=3, reset_timeout=600.0, call_timeout=8.0)
+    use_coach = coach_endpoint_ready(coach_endpoint)
+    if inline and inline_iqs_coach_disabled():
+        use_coach = False
 
-    if breaker.state == "open":
-        return IQSResult(
-            score=0.0,
-            dimensions={d: 0.0 for d in DIMENSION_WEIGHTS},
-            action="pass",
-            clarification_questions=[],
-            skipped=True,
-            source="skipped",
+    coach_timeout = coach_call_timeout_s(inline=inline)
+
+    async def _coach_call() -> IQSResult:
+        assert coach_endpoint is not None
+        return await _score_iqs_coach(
+            user_message=user_message,
+            conversation_history=history,
+            coach_endpoint=coach_endpoint,
+            inline=inline,
         )
 
-    if coach_endpoint_ready(coach_endpoint):
-        assert coach_endpoint is not None
+    if use_coach and not inline:
         try:
-            return await breaker.call(
-                lambda: _score_iqs_coach(
-                    user_message=user_message,
-                    conversation_history=history,
-                    coach_endpoint=coach_endpoint,
-                )
-            )
-        except BreakerOpen:
-            return IQSResult(
-                score=0.0,
-                dimensions={d: 0.0 for d in DIMENSION_WEIGHTS},
-                action="pass",
-                clarification_questions=[],
-                skipped=True,
-                source="skipped",
-            )
+            return await _coach_call()
         except CoachCallError:
-            if breaker.state == "open":
-                return IQSResult(
-                    score=0.0,
-                    dimensions={d: 0.0 for d in DIMENSION_WEIGHTS},
-                    action="pass",
-                    clarification_questions=[],
-                    skipped=True,
-                    source="skipped",
-                )
             fallback = await _score_iqs_heuristic(
                 user_message=user_message,
                 conversation_history=history,
+                inline=inline,
             )
             fallback.source = "heuristic_fallback"
             return fallback
 
-    return await _score_iqs_heuristic(user_message=user_message, conversation_history=history)
+    if use_coach and inline:
+        breaker = get_breaker(
+            "iqs",
+            failure_threshold=3,
+            reset_timeout=600.0,
+            call_timeout=coach_timeout + 2.0,
+        )
+        if breaker.state == "open":
+            fallback = await _score_iqs_heuristic(
+                user_message=user_message,
+                conversation_history=history,
+                inline=inline,
+            )
+            fallback.source = "heuristic_breaker_fallback"
+            return fallback
+        try:
+            return await breaker.call(_coach_call)
+        except BreakerOpen:
+            fallback = await _score_iqs_heuristic(
+                user_message=user_message,
+                conversation_history=history,
+                inline=inline,
+            )
+            fallback.source = "heuristic_breaker_fallback"
+            return fallback
+        except BreakerTimeout:
+            fallback = await _score_iqs_heuristic(
+                user_message=user_message,
+                conversation_history=history,
+                inline=inline,
+            )
+            fallback.source = "heuristic_timeout_fallback"
+            return fallback
+        except CoachCallError:
+            if breaker.state == "open":
+                fallback = await _score_iqs_heuristic(
+                    user_message=user_message,
+                    conversation_history=history,
+                    inline=inline,
+                )
+                fallback.source = "heuristic_breaker_fallback"
+                return fallback
+            fallback = await _score_iqs_heuristic(
+                user_message=user_message,
+                conversation_history=history,
+                inline=inline,
+            )
+            fallback.source = "heuristic_fallback"
+            return fallback
+
+    return await _score_iqs_heuristic(
+        user_message=user_message,
+        conversation_history=history,
+        inline=inline,
+    )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
@@ -63,6 +64,12 @@ def persist_assistant_message(
                     "UPDATE oaao_message SET content = ? WHERE id = ? AND conversation_id = ?",
                     (body, principal.assistant_message_id, principal.conversation_id),
                 )
+            _maybe_update_conversation_title(
+                cur,
+                conversation_id=principal.conversation_id,
+                user_id=principal.user_id,
+                meta=meta,
+            )
             cur.execute(
                 "UPDATE oaao_conversation SET updated_at = ? WHERE id = ?",
                 (now, principal.conversation_id),
@@ -74,3 +81,37 @@ def persist_assistant_message(
     except sqlite3.Error as exc:
         logger.warning("chat_persist: sqlite failed: %s", exc)
         return False
+
+
+def _maybe_update_conversation_title(
+    cur: sqlite3.Cursor,
+    *,
+    conversation_id: int,
+    user_id: int,
+    meta: dict[str, Any] | None,
+) -> None:
+    if not meta or not isinstance(meta, dict):
+        return
+    raw = meta.get("conversation_title")
+    if not isinstance(raw, str):
+        return
+    title = re.sub(r"\s+", " ", raw.strip()).strip("\"'""''`")
+    if not title or title.lower() in ("", "new chat", "new conversation"):
+        return
+    if len(title) > 80:
+        title = title[:80].rstrip()
+    cur.execute(
+        "SELECT title FROM oaao_conversation WHERE id = ? AND user_id = ?",
+        (conversation_id, user_id),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return
+    cur_title = str(row[0] or "").strip()
+    if cur_title and cur_title.lower() not in ("", "new chat", "new conversation"):
+        return
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    cur.execute(
+        "UPDATE oaao_conversation SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+        (title, now, conversation_id, user_id),
+    )

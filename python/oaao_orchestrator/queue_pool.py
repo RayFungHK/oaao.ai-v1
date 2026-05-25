@@ -39,6 +39,12 @@ class QueuePool:
     async def enqueue(self, job: QueueJobPayload) -> None:
         await self._queue.put(job)
 
+    def queue_depth(self) -> int:
+        return int(self._queue.qsize())
+
+    def worker_count(self) -> int:
+        return len(self._workers)
+
     async def start(self) -> None:
         n = int(self.settings.worker_number)
         self._workers = [asyncio.create_task(self._worker_loop(wid)) for wid in range(n)]

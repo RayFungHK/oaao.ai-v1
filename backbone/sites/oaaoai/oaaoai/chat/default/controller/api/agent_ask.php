@@ -46,6 +46,10 @@ return function (): void {
         return;
     }
 
+    if (\session_status() === PHP_SESSION_ACTIVE) {
+        \session_write_close();
+    }
+
     $j = $this->resolveOrchestratorAgentAsk($runId, $taskId, $decision);
     if (! \is_array($j) || empty($j['ok'])) {
         http_response_code(502);

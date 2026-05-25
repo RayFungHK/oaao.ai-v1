@@ -334,11 +334,13 @@ export async function tryConvertTemplateDirectiveInEditor(editorEl, resolveSlug,
  */
 export function mountChatComposerEditor(editorEl, signal, hooks) {
     editorEl.addEventListener(
-        'keydown',
+        '        keydown',
         (ev) => {
             if (ev.key === 'Enter' && !ev.shiftKey) {
                 ev.preventDefault();
                 const form = editorEl.closest('form');
+                const card = editorEl.closest('[data-oaao-chat="composer-card-wrap"]');
+                if (card instanceof HTMLElement && card.dataset.oaaoComposerBusy) return;
                 if (form instanceof HTMLFormElement) {
                     form.requestSubmit();
                 }

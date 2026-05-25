@@ -372,6 +372,16 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Resolve chat run task planner LLM ({@code planning.*} — Settings → Task planner).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolvePlanningBinding(): ?array
+    {
+        return $this->resolveVaultPurposeBinding('planning', 'planning.primary', 'planning');
+    }
+
+    /**
      * Resolve vault-grounded summarisation LLM ({@code vault.*}).
      *
      * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null

@@ -59,6 +59,10 @@ class PlannerOutputDraft(BaseModel):
         default=None,
         description="When user articulated reusable logic with no catalog match — preview for user to save.",
     )
+    conversation_title: str | None = Field(
+        default=None,
+        description="Optional sidebar title for a new chat thread (planner-suggested).",
+    )
 
 
 class ReportResultDraft(BaseModel):
@@ -129,7 +133,8 @@ Schema:
   "use_material_id": "material_id from conversation_materials or null",
   "needs_vault_rag": false,
   "apply_skill_ids": ["skill_id from skills_catalog when a micro skill applies"],
-  "suggest_skill": null | {{ "title": "...", "summary": "...", "preview_markdown": "..." }}
+  "suggest_skill": null | {{ "title": "...", "summary": "...", "preview_markdown": "..." }},
+  "conversation_title": "optional short thread title (max 8 words, user's language) for a new chat; omit when unclear"
 }}
 
 Allowed agents (when to use type=agent — pick agent_kind from the list above):
@@ -170,7 +175,9 @@ Rules:
   continue/regenerate/reuse turns (conversation_materials do not embed RAG text). false only when the user clearly
   needs no document grounding (pure chit-chat) or vault_scope=no.
 - skills_catalog (when present): pick apply_skill_ids for bound_template / conversation skills that fit this turn;
-  use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI)."""
+  use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI).
+- conversation_title: when the turn starts a new thread, suggest a concise sidebar title (max 8 words, user's language).
+  Omit or null when the topic is unclear — the chat model will title the thread later."""
 
 
 def _report_system_prompt(*, agent_guide: str) -> str:
@@ -200,6 +207,13 @@ def _last_user_message(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _planner_max_tokens() -> int:
+    try:
+        return max(128, min(2048, int(os.environ.get("OAAO_RUN_PLANNER_MAX_TOKENS", "512"))))
+    except (TypeError, ValueError):
+        return 512
+
+
 async def llm_chat_completion_text(
     *,
     url: str,
@@ -208,6 +222,7 @@ async def llm_chat_completion_text(
     messages: list[dict[str, str]],
     temperature: float = 0.2,
     timeout_s: float = 60.0,
+    max_tokens: int | None = None,
 ) -> str | None:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -218,6 +233,8 @@ async def llm_chat_completion_text(
         "temperature": max(0.0, min(1.0, temperature)),
         "stream": False,
     }
+    if max_tokens is not None and max_tokens > 0:
+        body["max_tokens"] = int(max_tokens)
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s, connect=15.0)) as client:
             resp = await client.post(url, headers=headers, json=body)
@@ -741,6 +758,8 @@ def planner_output_to_run_plan(
     slide_designer_cfg: dict[str, Any] | None = None,
     conv_materials: list[Any] | None = None,
 ) -> RunPlan:
+    from oaao_orchestrator.conversation_title import normalize_conversation_title  # noqa: PLC0415
+
     slide_cfg = merge_planner_slide_intent(
         draft,
         slide_designer_cfg,
@@ -780,6 +799,7 @@ def planner_output_to_run_plan(
         abilities=abilities,
         report_after_task_ids=[x.strip() for x in draft.report_after if x.strip()],
         slide_designer=slide_cfg,
+        conversation_title=normalize_conversation_title(draft.conversation_title) or None,
     )
 
 
@@ -962,6 +982,7 @@ async def plan_report_result_tasks(
         messages=messages,
         temperature=0.1,
         timeout_s=45.0,
+        max_tokens=_planner_max_tokens(),
     )
     if not text:
         return []

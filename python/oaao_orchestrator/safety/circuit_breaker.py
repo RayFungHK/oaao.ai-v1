@@ -111,7 +111,11 @@ def get_breaker(name: str, **kwargs: Any) -> CircuitBreaker:
     """Return a process-wide breaker instance (isolated per ``name``)."""
     if name not in _registry:
         _registry[name] = CircuitBreaker(name=name, **kwargs)
-    return _registry[name]
+        return _registry[name]
+    br = _registry[name]
+    if "call_timeout" in kwargs:
+        br.call_timeout = float(kwargs["call_timeout"])
+    return br
 
 
 def reset_all_breakers_for_tests() -> None:

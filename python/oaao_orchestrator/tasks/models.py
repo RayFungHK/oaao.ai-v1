@@ -65,6 +65,10 @@ class RunTaskSpec(BaseModel):
         default=False,
         description="When true, executor may schedule alongside other parallel_ok tasks (future).",
     )
+    duration_ms: int | None = Field(
+        default=None,
+        description="Wall-clock ms for this step (executor sets on completion).",
+    )
 
 
 class AgentTaskSpec(BaseModel):
@@ -115,6 +119,7 @@ class TaskListItem(BaseModel):
         default=False,
         description="True when agent_tasks are parallel slide page run tasks (SD-4 UI).",
     )
+    duration_ms: int | None = None
 
 
 class AbilityHint(BaseModel):
@@ -147,6 +152,7 @@ class RunTaskView(BaseModel):
     type: RunTaskType | str
     status: RunTaskStatus | str
     agent_kind: str | None = None
+    duration_ms: int | None = None
 
 
 class AgentView(BaseModel):
@@ -241,6 +247,10 @@ class RunPlan(BaseModel):
         default=None,
         description="Effective slide_designer config after planner slide_action merge (executor / agents).",
     )
+    conversation_title: str | None = Field(
+        default=None,
+        description="Planner-suggested sidebar title for a new chat thread.",
+    )
 
     def task_list_payload(self, *, allowed_agents: list[str] | None = None) -> dict[str, Any]:
         from oaao_orchestrator.tasks.stream_emit import resolve_run_task_agent_kind  # noqa: PLC0415
@@ -307,6 +317,7 @@ class RunPlan(BaseModel):
                     agent_kind=resolve_run_task_agent_kind(t),
                     parallel_ok=bool(t.parallel_ok),
                     slide_index=slide_idx,
+                    duration_ms=t.duration_ms,
                 )
             )
             i += 1
@@ -330,4 +341,5 @@ class RunPlan(BaseModel):
             type=task.type,
             status=task.status,
             agent_kind=task.agent_kind,
+            duration_ms=task.duration_ms,
         ).model_dump()

@@ -28,12 +28,11 @@ async def test_iqs_returns_score_and_dimension_breakdown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_iqs_low_score_triggers_clarification() -> None:
-    """Score < 0.50 → clarification questions must be generated."""
+async def test_iqs_low_score_without_coach_passes_to_main_llm() -> None:
+    """Heuristic fallback never emits hardcoded clarify copy — main LLM handles vague input."""
     result = await iqs.score_iqs(user_message="嗯", conversation_history=[])
-    if result.score < 0.50:
-        assert result.action == "clarify"
-        assert len(result.clarification_questions) >= 1
+    assert result.action == "assume_defaults"
+    assert result.clarification_questions == []
 
 
 @pytest.mark.asyncio
@@ -49,12 +48,57 @@ async def test_iqs_high_score_passes_through() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iqs_multi_turn_followup_passes_with_history() -> None:
+    """Multi-turn threads must reach the main LLM — no inline clarify on structural grounds."""
+    history = [
+        {"role": "user", "content": "GraphRAG 怎麼做？"},
+        {"role": "assistant", "content": "可以用 Class 當 node、Function 當 child…"},
+        {"role": "user", "content": "有人會用以上方法開發嗎?"},
+    ]
+    result = await iqs.score_iqs(
+        user_message="有人會用以上方法開發嗎?",
+        conversation_history=history,
+        inline=True,
+    )
+    assert result.action in ("pass", "assume_defaults")
+    assert result.clarification_questions == []
+
+
+@pytest.mark.asyncio
+async def test_iqs_multi_turn_with_trailing_empty_assistant() -> None:
+    """send.php appends an empty assistant row before streaming — still prior context."""
+    history = [
+        {"role": "user", "content": "GraphRAG 怎麼做？"},
+        {"role": "assistant", "content": "Hybrid search + graph…"},
+        {"role": "user", "content": "有人會用以上方法開發嗎?"},
+        {"role": "assistant", "content": ""},
+    ]
+    assert iqs.should_bypass_iqs_clarify("有人會用以上方法開發嗎?", history) is True
+
+
+@pytest.mark.asyncio
+async def test_iqs_inline_clarify_disabled_by_default() -> None:
+    """Default: inline IQS never blocks — coach/heuristic may score low but chat continues."""
+    from oaao_orchestrator.evaluation.coach_client import inline_iqs_clarify_enabled
+
+    assert inline_iqs_clarify_enabled() is False
+    result = await iqs.score_iqs(user_message="嗯", conversation_history=[], inline=True)
+    assert result.clarification_questions == []
+
+
+@pytest.mark.asyncio
 async def test_iqs_circuit_breaker_skips_on_failure(monkeypatch) -> None:
     """When coach fails 3 times in a row, IQS must skip (not block user)."""
     breaker = pytest.importorskip("oaao_orchestrator.safety.circuit_breaker")
-    # Force open state
-    breaker.get_breaker("iqs").force_open()
-    result = await iqs.score_iqs(user_message="anything", conversation_history=[])
+    monkeypatch.setenv("OAAO_IQS_INLINE_COACH", "1")
+    breaker.get_breaker("iqs", call_timeout=8.0).force_open()
+    fake_ep = {"base_url": "http://coach.test/v1", "model": "coach-model"}
+    result = await iqs.score_iqs(
+        user_message="anything",
+        conversation_history=[],
+        coach_endpoint=fake_ep,
+        inline=True,
+    )
     assert result.skipped is True
     assert result.action == "pass"
     breaker.get_breaker("iqs").reset()

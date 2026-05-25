@@ -64,11 +64,10 @@ def resolve_allowed_agents(req: object) -> list[str]:
 
 
 def needs_multi_agent_turn(req: object) -> bool:
-    """True when the turn needs LLM planner + slide/web/attachment agents (not plain Q&A)."""
+    """True when the turn needs LLM planner + slide/web agents (not plain Q&A)."""
     if bool(getattr(req, "enable_web_search", False)):
         return True
-    if getattr(req, "chat_attachments", None):
-        return True
+    # Ephemeral attachments use deterministic rt-attachments — not LLM planner.
     sd = getattr(req, "slide_designer", None)
     if isinstance(sd, dict):
         for key in ("template_id", "continuation", "regenerate_deck", "regenerate"):

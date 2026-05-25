@@ -252,14 +252,27 @@ export function resolveOrchestratorPublicUrl(spec) {
         u.protocol = 'wss:';
     }
     if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.protocol === 'http:') {
-        const proxyRaw =
+        const sidecarRaw =
             (typeof document !== 'undefined' && document.body?.dataset?.oaaoOrchestratorStreamProxy)?.trim() ??
-            '/chat/api/orchestrator_stream';
-        const proxyPath = applyOaaoMountPrefix(proxyRaw.startsWith('/') ? proxyRaw : `/${proxyRaw}`);
+            '/sidecar';
+        const legacyPhp = sidecarRaw.includes('orchestrator_stream');
+        if (legacyPhp) {
+            const proxyPath = applyOaaoMountPrefix(sidecarRaw.startsWith('/') ? sidecarRaw : `/${sidecarRaw}`);
+            try {
+                const proxy = new URL(proxyPath, window.location.href);
+                proxy.search = u.search;
+                return proxy.href;
+            } catch {
+                /* fall through */
+            }
+        }
+        const sidecarPrefix = applyOaaoMountPrefix(
+            sidecarRaw.startsWith('/') ? sidecarRaw.replace(/\/$/, '') : `/${sidecarRaw.replace(/\/$/, '')}`,
+        );
         try {
-            const proxy = new URL(proxyPath, window.location.href);
-            proxy.search = u.search;
-            return proxy.href;
+            const sidecar = new URL(`${sidecarPrefix}/v1/stream`, window.location.href);
+            sidecar.search = u.search;
+            return sidecar.href;
         } catch {
             /* fall through */
         }

@@ -3261,6 +3261,9 @@ async function vaultExplorerRefreshAfterMutation() {
     }
 }
 
+/** Pending upload focus when explorer refresh runs before mount or between navigations. */
+let vaultPendingUploadFocus = null;
+
 /**
  * Refresh vault tree + ResourceList after upload (lightweight — no full explorer remount).
  *
@@ -3270,24 +3273,94 @@ async function vaultExplorerRefreshAfterMutation() {
 async function vaultRefreshListAfterUpload(data, signal) {
     const vidRaw = data.vault_id;
     const cidRaw = data.container_id;
+    const docRaw = data.document_id;
     const uploadVaultId = typeof vidRaw === 'number' ? vidRaw : Math.floor(Number(vidRaw ?? NaN));
+    const uploadDocId = typeof docRaw === 'number' ? docRaw : Math.floor(Number(docRaw ?? NaN));
     let uploadContainerId = null;
     if (cidRaw != null && cidRaw !== '') {
         const c = typeof cidRaw === 'number' ? cidRaw : Math.floor(Number(cidRaw));
         if (Number.isFinite(c) && c > 0) uploadContainerId = c;
     }
 
-    /** @type {{ vaultId: number, containerId: number | null } | null} */
+    /** @type {{ vaultId: number, containerId: number | null, documentId?: number | null } | null} */
     const focusUpload =
         Number.isFinite(uploadVaultId) && uploadVaultId > 0
-            ? { vaultId: uploadVaultId, containerId: uploadContainerId }
+            ? {
+                  vaultId: uploadVaultId,
+                  containerId: uploadContainerId,
+                  ...(Number.isFinite(uploadDocId) && uploadDocId > 0 ? { documentId: uploadDocId } : {}),
+              }
             : null;
 
+    vaultInvalidateTreeCache();
+
     if (typeof vaultExplorerListRefreshRef === 'function') {
-        await vaultExplorerListRefreshRef({ focusUpload });
+        await vaultExplorerListRefreshRef({ focusUpload, forceFullTree: true });
     } else if (typeof vaultExplorerRefreshTreeRef === 'function') {
+        vaultPendingUploadFocus = focusUpload;
         await vaultExplorerRefreshTreeRef();
+    } else if (focusUpload) {
+        vaultPendingUploadFocus = focusUpload;
+        document.dispatchEvent(new CustomEvent('oaao-vault-explorer-refresh'));
     }
+}
+
+/**
+ * After upload refresh — open folder, highlight row, show detail panel.
+ *
+ * @param {{ vaultId?: number, containerId?: number | null, documentId?: number | null } | null | undefined} focus
+ * @param {unknown[]} rows
+ * @param {HTMLElement} mount
+ * @param {AbortSignal} signal
+ */
+function vaultFocusUploadedDocumentInExplorer(focus, rows, mount, signal) {
+    const docId = Math.floor(Number(focus?.documentId ?? 0));
+    if (!Number.isFinite(docId) || docId < 1) return;
+    const fresh = vaultFindDocumentNodeById(rows, docId);
+    if (!fresh || typeof fresh !== 'object') return;
+
+    const vidRaw = fresh.vault_id ?? focus?.vaultId ?? null;
+    const vidNum = typeof vidRaw === 'number' ? vidRaw : Math.floor(Number(vidRaw ?? NaN));
+    const cidRaw = fresh.container_id ?? focus?.containerId ?? null;
+    const cidNum =
+        cidRaw != null && Number.isFinite(Number(cidRaw)) && Number(cidRaw) > 0
+            ? Math.floor(Number(cidRaw))
+            : null;
+
+    if (Number.isFinite(vidNum) && vidNum > 0) {
+        const wantNav = { vaultId: vidNum, containerId: cidNum };
+        const validNav = vaultValidateExplorerNav(rows, wantNav);
+        const navChanged =
+            vaultExplorerNav.vaultId !== validNav.vaultId ||
+            vaultExplorerNav.containerId !== validNav.containerId;
+        if (navChanged) {
+            vaultExplorerNav = validNav;
+            vaultPersistStoredExplorerNav();
+            if (typeof vaultExplorerRedraw === 'function') {
+                vaultExplorerRedraw();
+            }
+        }
+    }
+
+    vaultSetResourceListFocusRowKey('', /** @type {Record<string, unknown>} */ (fresh));
+    vaultDetailOpenDocId = docId;
+    const dm = mount instanceof HTMLElement ? mount : vaultMountRef;
+    const sig = vaultPanelAbort?.signal ?? signal;
+    if (dm instanceof HTMLElement && sig && !sig.aborted) {
+        renderVaultDetailPanel(/** @type {Record<string, unknown>} */ (fresh), dm, sig);
+    }
+    /** @param {number} attempt */
+    const tryScrollToRow = (attempt) => {
+        const tr = vaultExplorerRlShellRef?.querySelector(
+            `tr.resource-list-row[data-row-key="document:${docId}"]`,
+        );
+        if (tr instanceof HTMLElement) {
+            tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            return;
+        }
+        if (attempt < 10) window.setTimeout(() => tryScrollToRow(attempt + 1), 100);
+    };
+    requestAnimationFrame(() => tryScrollToRow(0));
 }
 
 /**
@@ -4726,6 +4799,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
             .map((x) => Math.floor(Number(x)))
             .filter((x) => Number.isFinite(x) && x > 0);
         const forceFullTree = opts?.forceFullTree === true || opts?.focusUpload != null;
+        const focus = opts?.focusUpload ?? null;
 
         if (!forceFullTree && watchIds.length > 0 && vaultExplorerTreeCache.length > 0) {
             const statuses = await fetchVaultDocumentStatusesJson(watchIds);
@@ -4747,15 +4821,24 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
                 applyUploadScopeFromNav();
                 syncVaultExplorerFolderUi(mount);
                 renderWorkspaceVaultSidebarList(mount, vaultExplorerTreeCache, signal);
-                await paintTable({ reuseResourceList: vaultExplorerNav.vaultId != null });
+                await paintTable({ reuseResourceList: focus ? false : vaultExplorerNav.vaultId != null });
 
-                const oid = vaultDetailOpenDocId;
-                const dm = vaultMountRef;
-                const sig = vaultPanelAbort?.signal;
-                if (oid != null && oid > 0 && dm instanceof HTMLElement && sig && !sig.aborted) {
-                    const fresh = vaultFindDocumentNodeById(vaultExplorerTreeCache, oid);
-                    if (fresh && typeof fresh === 'object') {
-                        renderVaultDetailPanel(fresh, dm, sig);
+                if (focus?.documentId && focus.documentId > 0) {
+                    vaultFocusUploadedDocumentInExplorer(
+                        focus,
+                        vaultExplorerTreeCache,
+                        vaultMountRef ?? mount,
+                        signal,
+                    );
+                } else {
+                    const oid = vaultDetailOpenDocId;
+                    const dm = vaultMountRef;
+                    const sig = vaultPanelAbort?.signal;
+                    if (oid != null && oid > 0 && dm instanceof HTMLElement && sig && !sig.aborted) {
+                        const fresh = vaultFindDocumentNodeById(vaultExplorerTreeCache, oid);
+                        if (fresh && typeof fresh === 'object') {
+                            renderVaultDetailPanel(fresh, dm, sig);
+                        }
                     }
                 }
 
@@ -4776,7 +4859,6 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
         const rows = Array.isArray(j.data?.tree) ? j.data.tree : [];
         vaultExplorerTreeCache = rows;
 
-        const focus = opts?.focusUpload ?? null;
         if (focus && Number.isFinite(focus.vaultId) && focus.vaultId > 0) {
             vaultExplorerNav = vaultValidateExplorerNav(rows, {
                 vaultId: Math.floor(focus.vaultId),
@@ -4793,21 +4875,29 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
         applyUploadScopeFromNav();
         syncVaultExplorerFolderUi(mount);
         renderWorkspaceVaultSidebarList(mount, rows, signal);
-        await paintTable({ reuseResourceList: vaultExplorerNav.vaultId != null });
+        await paintTable({ reuseResourceList: focus ? false : vaultExplorerNav.vaultId != null });
 
-        const oid = vaultDetailOpenDocId;
-        const dm = vaultMountRef;
-        const sig = vaultPanelAbort?.signal;
-        if (
-            oid != null &&
-            oid > 0 &&
-            dm instanceof HTMLElement &&
-            sig &&
-            !sig.aborted
-        ) {
-            const fresh = vaultFindDocumentNodeById(rows, oid);
-            if (fresh && typeof fresh === 'object') {
-                renderVaultDetailPanel(fresh, dm, sig);
+        if (focus?.documentId && focus.documentId > 0) {
+            vaultFocusUploadedDocumentInExplorer(focus, rows, mount, signal);
+            vaultPendingUploadFocus = null;
+        } else if (vaultPendingUploadFocus?.documentId && vaultPendingUploadFocus.documentId > 0) {
+            vaultFocusUploadedDocumentInExplorer(vaultPendingUploadFocus, rows, mount, signal);
+            vaultPendingUploadFocus = null;
+        } else {
+            const oid = vaultDetailOpenDocId;
+            const dm = vaultMountRef;
+            const sig = vaultPanelAbort?.signal;
+            if (
+                oid != null &&
+                oid > 0 &&
+                dm instanceof HTMLElement &&
+                sig &&
+                !sig.aborted
+            ) {
+                const fresh = vaultFindDocumentNodeById(rows, oid);
+                if (fresh && typeof fresh === 'object') {
+                    renderVaultDetailPanel(fresh, dm, sig);
+                }
             }
         }
     };
@@ -4947,6 +5037,7 @@ async function wireVaultRazyUploader(mount, signal, refreshTree) {
                             ? /** @type {Record<string, unknown>} */ (j.data)
                             : {};
 
+                    vaultInvalidateTreeCache();
                     await vaultRefreshListAfterUpload(data, signal);
 
                     const docRaw = data.document_id;

@@ -2,10 +2,17 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatAttachmentManifest;
+use oaaoai\chat\ChatAttachmentStorage;
+
 /**
  * POST /chat/api/attachment_upload — ephemeral file for current conversation (multipart).
  *
- * Fields: {@code conversation_id}, optional {@code workspace_id}, file field {@code file}.
+ * Fields: optional {@code conversation_id}, optional {@code create_conversation=1} (legacy — prefer draft upload without it),
+ * optional {@code workspace_id}, file field {@code file}.
+ *
+ * When {@code conversation_id} is omitted and {@code create_conversation} is not set, stores a per-user draft
+ * ({@code conversation_id=0}) until {@code send} claims it — no sidebar conversation is created.
  */
 return function (): void {
     header('Content-Type: application/json; charset=UTF-8');
@@ -24,31 +31,50 @@ return function (): void {
     }
 
     $cid = isset($_POST['conversation_id']) ? (int) $_POST['conversation_id'] : 0;
+    $createIfMissing = isset($_POST['create_conversation']) && in_array(strtolower((string) $_POST['create_conversation']), ['1', 'true', 'yes'], true);
     $wid = $this->oaao_chat_resolve_workspace_id($_POST);
     if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
         return;
     }
 
-    if ($cid < 1) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'conversation_id required']);
-
-        return;
+    require_once __DIR__ . '/_ensure_conversation_attachment_schema.php';
+    if ($pdo instanceof \PDO) {
+        oaao_chat_ensure_conversation_attachment_schema($pdo);
     }
 
-    $conv = $splitDb->prepare()
-        ->select('id')
-        ->from('conversation')
-        ->where('id=?,user_id=?,workspace_id=?')
-        ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
-        ->limit(1)
-        ->query()
-        ->fetch();
-    if (! \is_array($conv)) {
-        http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Conversation not found']);
+    $draftUpload = false;
+    if ($cid < 1 && $createIfMissing) {
+        $nowConv = date('Y-m-d H:i:s');
+        $splitDb->insert('conversation', ['user_id', 'workspace_id', 'title', 'created_at', 'updated_at'])
+            ->assign([
+                'user_id'      => $uid,
+                'workspace_id' => $wid,
+                'title'        => 'New chat',
+                'created_at'   => $nowConv,
+                'updated_at'   => $nowConv,
+            ])
+            ->query();
+        $cid = (int) $splitDb->lastID();
+    } elseif ($cid < 1) {
+        $draftUpload = true;
+        $cid = 0;
+    }
 
-        return;
+    if (! $draftUpload) {
+        $conv = $splitDb->prepare()
+            ->select('id')
+            ->from('conversation')
+            ->where('id=?,user_id=?,workspace_id=?')
+            ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
+            ->limit(1)
+            ->query()
+            ->fetch();
+        if (! \is_array($conv)) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Conversation not found']);
+
+            return;
+        }
     }
 
     if (! isset($_FILES['file']) || ! \is_array($_FILES['file'])) {
@@ -94,10 +120,9 @@ return function (): void {
     $ext = pathinfo($orig, PATHINFO_EXTENSION);
     $safeExt = $ext !== '' ? ('.' . preg_replace('/[^a-zA-Z0-9]/', '', $ext)) : '';
 
-    require_once __DIR__ . '/../library/ChatAttachmentStorage.php';
-    \oaaoai\chat\ChatAttachmentStorage::sweepExpired($splitDb);
+    ChatAttachmentStorage::sweepExpired($splitDb);
 
-    $dir = \oaaoai\chat\ChatAttachmentStorage::ensureConversationDir($cid);
+    $dir = $draftUpload ? ChatAttachmentStorage::ensureDraftDir($uid) : ChatAttachmentStorage::ensureConversationDir($cid);
     $stored = 'att_' . bin2hex(random_bytes(8)) . $safeExt;
     $dest = $dir . '/' . $stored;
     if (! move_uploaded_file($tmp, $dest)) {
@@ -107,7 +132,7 @@ return function (): void {
         return;
     }
 
-    $ttlDays = \oaaoai\chat\ChatAttachmentStorage::ttlDays();
+    $ttlDays = ChatAttachmentStorage::ttlDays();
     $expires = date('Y-m-d H:i:s', time() + $ttlDays * 86400);
     $now = date('Y-m-d H:i:s');
     $relPath = $stored;
@@ -136,14 +161,16 @@ return function (): void {
         ])->query();
 
         $aid = $splitDb->lastID();
+        $kind = ChatAttachmentManifest::classifyKind($mime, $orig);
         echo json_encode([
             'success' => true,
             'data'    => [
-                'attachment_id' => $aid,
+                'attachment_id'   => $aid,
                 'conversation_id' => $cid,
-                'file_name'     => $orig,
-                'mime_type'     => $mime,
-                'byte_size'     => $size,
+                'file_name'       => $orig,
+                'mime_type'       => $mime,
+                'byte_size'       => $size,
+                'kind'            => $kind,
             ],
         ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     } catch (\Throwable $e) {

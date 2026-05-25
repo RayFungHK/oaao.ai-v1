@@ -46,8 +46,6 @@ return function (): void {
             return;
         }
 
-        require_once dirname(__DIR__, 2) . '/library/ChatConversationMaterial.php';
-        $limit = (int) ($_GET['limit'] ?? 16);
         $materials = ChatConversationMaterial::catalogForPlanner(
             $pdo,
             $cid,

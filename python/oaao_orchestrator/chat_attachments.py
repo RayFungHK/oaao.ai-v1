@@ -5,15 +5,33 @@ from __future__ import annotations
 import base64
 import logging
 import mimetypes
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
-from oaao_orchestrator.vault_document_extract import TextSegment, extract_text_segments, build_embedding_pieces
+from oaao_orchestrator.vault_document_extract import extract_text_segments, build_embedding_pieces
 
 logger = logging.getLogger(__name__)
+
+_ATTACHMENT_INLINE_CITATIONS = (
+    "When a sentence uses an attached file excerpt below, add citation marker(s) at the end "
+    "of that sentence using the exact keys shown (e.g. [A1], [A2]). "
+    "Use only keys that appear in the attachment excerpts. Do not invent keys. "
+    "If your answer relies on attached content, include at least one such marker."
+)
+
+
+@dataclass
+class AttachmentCitation:
+    cite_key: str
+    attachment_id: int = 0
+    file_name: str = ""
+    mime_type: str = ""
+    excerpt: str = ""
 
 
 def _endpoint_supports_vision(endpoint: dict[str, Any]) -> bool:
@@ -42,6 +60,21 @@ def _image_data_url(path: str, mime: str) -> str | None:
         return None
 
 
+def _excerpt_from_text(text: str, *, limit: int = 280) -> str:
+    raw = (text or "").replace("\r\n", "\n")
+    lines = raw.split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if not lines:
+        return ""
+    flat = re.sub(r"\s+", " ", "\n".join(lines).strip())
+    if not flat:
+        return ""
+    if len(flat) <= limit:
+        return flat
+    return flat[: limit - 1].rstrip() + "…"
+
+
 async def process_chat_attachments(
     client: httpx.AsyncClient,
     messages: list[dict[str, Any]],
@@ -58,10 +91,12 @@ async def process_chat_attachments(
     if not attachments:
         return messages, {}
 
-    text_blocks: list[str] = []
+    numbered_blocks: list[str] = []
+    attachment_citations: list[AttachmentCitation] = []
     image_urls: list[str] = []
     file_names: list[str] = []
     audio_done = 0
+    cite_serial = 0
 
     for att in attachments:
         if not isinstance(att, dict):
@@ -71,6 +106,10 @@ async def process_chat_attachments(
         fname = str(att.get("file_name") or att.get("name") or Path(path).name or "file")
         if fname:
             file_names.append(fname)
+        try:
+            aid = int(att.get("id") or 0)
+        except (TypeError, ValueError):
+            aid = 0
         if not path:
             continue
 
@@ -84,7 +123,18 @@ async def process_chat_attachments(
                 polish_enabled=True,
             )
             if text:
-                text_blocks.append(f"[Audio: {fname}]\n{text}")
+                cite_serial += 1
+                key = f"A{cite_serial}"
+                numbered_blocks.append(f"[{key}] {fname} · audio\n{text.strip()[:32000]}")
+                attachment_citations.append(
+                    AttachmentCitation(
+                        cite_key=key,
+                        attachment_id=aid,
+                        file_name=fname,
+                        mime_type=mime,
+                        excerpt=_excerpt_from_text(text),
+                    )
+                )
                 audio_done += 1
             continue
 
@@ -100,31 +150,58 @@ async def process_chat_attachments(
 
                 ocr = pytesseract.image_to_string(Image.open(path), lang="eng+chi_tra")
                 if (ocr or "").strip():
-                    text_blocks.append(f"[Image OCR: {fname}]\n{ocr.strip()[:24000]}")
+                    cite_serial += 1
+                    key = f"A{cite_serial}"
+                    body = ocr.strip()[:24000]
+                    numbered_blocks.append(f"[{key}] {fname} · image OCR\n{body}")
+                    attachment_citations.append(
+                        AttachmentCitation(
+                            cite_key=key,
+                            attachment_id=aid,
+                            file_name=fname,
+                            mime_type=mime,
+                            excerpt=_excerpt_from_text(body),
+                        )
+                    )
             except Exception as e:  # noqa: BLE001
                 logger.info("chat_attachments: image OCR skip %s — %s", fname, e)
             continue
 
         p = Path(path)
         segs = extract_text_segments(p, mime)
+        body = ""
         if segs:
             pieces = build_embedding_pieces(segs, chunk_size=2800, overlap=260, max_chunks=12)
-            joined = "\n\n".join(t for t, _ in pieces[:8])
-            if joined.strip():
-                text_blocks.append(f"[Attachment: {fname}]\n{joined.strip()[:32000]}")
+            body = "\n\n".join(t for t, _ in pieces[:8]).strip()[:32000]
         else:
             try:
                 flat = p.read_text(encoding="utf-8", errors="replace")
                 if flat.strip():
-                    text_blocks.append(f"[Attachment: {fname}]\n{flat.strip()[:32000]}")
+                    body = flat.strip()[:32000]
             except OSError:
-                pass
+                body = ""
+        if body:
+            cite_serial += 1
+            key = f"A{cite_serial}"
+            body = body.strip()
+            numbered_blocks.append(f"[{key}] {fname}\n{body}")
+            attachment_citations.append(
+                AttachmentCitation(
+                    cite_key=key,
+                    attachment_id=aid,
+                    file_name=fname,
+                    mime_type=mime,
+                    excerpt=_excerpt_from_text(body),
+                )
+            )
 
     out_msgs = list(messages)
-    if text_blocks:
-        block = "\n\n---\n\n".join(text_blocks)
+    if numbered_blocks:
+        block = "\n\n---\n\n".join(numbered_blocks)
         sys = (
-            "The user attached files for this turn only (not in vault). Use excerpts below when relevant:\n\n"
+            "The user attached files for this turn only (not in vault). Use excerpts below when relevant.\n\n"
+            + _ATTACHMENT_INLINE_CITATIONS
+            + "\n\n"
             + block
         )
         out_msgs.insert(0, {"role": "system", "content": sys})
@@ -147,6 +224,27 @@ async def process_chat_attachments(
             break
 
     rail_detail = file_names[:8] if file_names else [f"{len(attachments)} file(s)"]
+    blocks: list[dict[str, Any]] = []
+    if attachment_citations:
+        blocks.append(
+            {
+                "type": "attachment_citations",
+                "zone": "inline",
+                "props": {
+                    "inline": True,
+                    "references": [
+                        {
+                            "cite_key": c.cite_key,
+                            "attachment_id": c.attachment_id,
+                            "file_name": c.file_name,
+                            "mime_type": c.mime_type,
+                            "excerpt": c.excerpt,
+                        }
+                        for c in attachment_citations
+                    ],
+                },
+            }
+        )
     pipeline = {
         "milestone": {
             "steps": [
@@ -161,21 +259,6 @@ async def process_chat_attachments(
                 },
             ],
         },
-        "blocks": [],
+        "blocks": blocks,
     }
-    if file_names:
-        pipeline["blocks"].append(
-            {
-                "type": "rag_citations",
-                "zone": "after",
-                "title": "Attachments",
-                "props": {
-                    "references": [
-                        {"vault_id": 0, "document_id": 0, "file_name": fn}
-                        for fn in file_names[:16]
-                    ],
-                },
-            },
-        )
-
     return out_msgs, pipeline

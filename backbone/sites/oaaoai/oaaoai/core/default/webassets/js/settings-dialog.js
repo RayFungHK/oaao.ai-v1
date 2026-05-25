@@ -328,7 +328,7 @@ export async function openWorkspaceSettingsDialog(razyui) {
                     /* webpackIgnore: true */ oaaoAppendShellEsmV(resolveShellRegistryUrl(sec.panel_js_module)),
                 );
                 if (typeof mod.mountSettingsPanel === 'function') {
-                    await mod.mountSettingsPanel(host, { razyui, section: sec, Dialog, JIT });
+                    await mod.mountSettingsPanel(host, { razyui, section: sec, Dialog, JIT, oaaoT });
                 }
                 if (typeof mod.teardownSettingsPanel === 'function') {
                     panelTeardowns.push(() => {

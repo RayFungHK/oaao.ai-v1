@@ -26,7 +26,7 @@
 | PHP `session_start` / `session_stop` | Cadence debate/meeting 自動節流 |
 | Orchestrator WS 收 PCM + Qwen3 streaming 橋接 | 會後長摘要、推送 Chat |
 | SSE `live_transcript`（partial/final） | Redis 多實例 |
-| 音訊 segment 落盤 + 基本 TTL 設定 | TTS 回覆 |
+| 音訊 segment 落盤 + 基本 TTL 設定 | TTS 回覆（延後 → [multimodal-tts-provider-api.md](./multimodal-tts-provider-api.md) §2 Supertonic 3） |
 
 **M1 驗收**：開麥 → 10s 內看到滾動逐字稿；Network 有 WS 上行與 SSE 下行；停止後音訊依設定保留或刪除。
 

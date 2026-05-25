@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatConversationScope;
+use oaaoai\chat\TurnScorerVersion;
+
 /**
  * GET /chat/api/turn_scores?conversation_id= — IQS/ACCS rows for thread UI (Phase 4).
  */
@@ -36,35 +39,28 @@ return function (): void {
     }
 
     try {
-        $own = $splitDb->prepare()
-            ->select('id')
-            ->from('conversation')
-            ->where('id=?,user_id=?,workspace_id=?')
-            ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
-            ->limit(1)
-            ->query()
-            ->fetch();
-        if (! \is_array($own) || ! isset($own['id'])) {
+        $own = ChatConversationScope::findForUser($splitDb, $uid, $cid, $wid, 'id');
+        if ($own === null) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Conversation not found'], JSON_UNESCAPED_UNICODE);
 
             return;
         }
 
-        $assistantIds = $splitDb->prepare()
-            ->select('id')
+        $rawMessages = $splitDb->prepare()
+            ->select('id, role, content, meta_json')
             ->from('message')
-            ->where('conversation_id=?,role=assistant')
+            ->where('conversation_id=?')
             ->assign(['conversation_id' => $cid])
             ->order('+id')
             ->limit(500)
             ->query()
             ->fetchAll();
-        /** @var array<int, int> $turnIndexToMessageId */
-        $turnIndexToMessageId = [];
-        $turn = 0;
-        if (\is_array($assistantIds)) {
-            foreach ($assistantIds as $row) {
+
+        /** @var list<array{id: int, role: string, content: string, meta: array<string, mixed>|null}> $messages */
+        $messages = [];
+        if (\is_array($rawMessages)) {
+            foreach ($rawMessages as $row) {
                 if (! \is_array($row)) {
                     continue;
                 }
@@ -72,11 +68,34 @@ return function (): void {
                 if ($mid < 1) {
                     continue;
                 }
-                $turn += 1;
-                $turnIndexToMessageId[$turn] = $mid;
+                $meta = null;
+                $mj = $row['meta_json'] ?? null;
+                if (\is_string($mj) && $mj !== '') {
+                    $decoded = json_decode($mj, true);
+                    $meta = \is_array($decoded) ? $decoded : null;
+                }
+                $messages[] = [
+                    'id'      => $mid,
+                    'role'    => strtolower(trim((string) ($row['role'] ?? ''))),
+                    'content' => (string) ($row['content'] ?? ''),
+                    'meta'    => $meta,
+                ];
             }
         }
 
+        /** @var array<int, int> $turnIndexToMessageId */
+        $turnIndexToMessageId = [];
+        $turn = 0;
+        foreach ($messages as $row) {
+            if (($row['role'] ?? '') !== 'assistant') {
+                continue;
+            }
+            $turn += 1;
+            $turnIndexToMessageId[$turn] = (int) $row['id'];
+        }
+
+        /** @var array<int, array<string, mixed>> $scoreByTurn */
+        $scoreByTurn = [];
         $rawScores = $canonDb->prepare()
             ->select(
                 'turn_index, iqs, accs, iqs_dims_json, accs_dims_json, iqs_reasons_json, accs_reasons_json, scorer_version, scored_at, complete, topic_shift'
@@ -89,43 +108,77 @@ return function (): void {
             ->query()
             ->fetchAll();
 
-        $scores = [];
         if (\is_array($rawScores)) {
             foreach ($rawScores as $row) {
                 if (! \is_array($row)) {
                     continue;
                 }
                 $ti = (int) ($row['turn_index'] ?? 0);
-                $mid = $turnIndexToMessageId[$ti] ?? 0;
-                $iqsDims = $row['iqs_dims_json'] ?? '{}';
-                $accsDims = $row['accs_dims_json'] ?? '{}';
-                $iqsReasons = $row['iqs_reasons_json'] ?? null;
-                $accsReasons = $row['accs_reasons_json'] ?? null;
-                $scores[] = [
-                    'turn_index'            => $ti,
-                    'assistant_message_id'  => $mid > 0 ? $mid : null,
-                    'iqs'                   => (float) ($row['iqs'] ?? 0),
-                    'accs'                  => (float) ($row['accs'] ?? 0),
-                    'iqs_dims'              => json_decode(\is_string($iqsDims) ? $iqsDims : '{}', true) ?: [],
-                    'accs_dims'             => json_decode(\is_string($accsDims) ? $accsDims : '{}', true) ?: [],
-                    'iqs_reasons'           => $iqsReasons !== null && $iqsReasons !== ''
-                        ? (json_decode((string) $iqsReasons, true) ?: [])
-                        : [],
-                    'accs_reasons'          => $accsReasons !== null && $accsReasons !== ''
-                        ? (json_decode((string) $accsReasons, true) ?: [])
-                        : [],
-                    'scorer_version'        => (string) ($row['scorer_version'] ?? ''),
-                    'scored_at'             => (float) ($row['scored_at'] ?? 0),
-                    'complete'              => (int) ($row['complete'] ?? 1),
-                    'topic_shift'           => (int) ($row['topic_shift'] ?? 0),
-                ];
+                if ($ti > 0) {
+                    $scoreByTurn[$ti] = $row;
+                }
             }
         }
 
+        $scores = [];
+        $rescorePending = 0;
+        foreach ($turnIndexToMessageId as $ti => $mid) {
+            $stored = $scoreByTurn[$ti] ?? null;
+            $iqs = \is_array($stored) ? (float) ($stored['iqs'] ?? 0) : 0.0;
+            $accs = \is_array($stored) ? (float) ($stored['accs'] ?? 0) : 0.0;
+            $iqsDimsRaw = \is_array($stored) ? ($stored['iqs_dims_json'] ?? '{}') : '{}';
+            $accsDimsRaw = \is_array($stored) ? ($stored['accs_dims_json'] ?? '{}') : '{}';
+            $iqsReasonsRaw = \is_array($stored) ? ($stored['iqs_reasons_json'] ?? null) : null;
+            $accsReasonsRaw = \is_array($stored) ? ($stored['accs_reasons_json'] ?? null) : null;
+            $iqsDims = json_decode(\is_string($iqsDimsRaw) ? $iqsDimsRaw : '{}', true);
+            $accsDims = json_decode(\is_string($accsDimsRaw) ? $accsDimsRaw : '{}', true);
+            $iqsDims = TurnScorerVersion::normalizeScoreDims(\is_array($iqsDims) ? $iqsDims : []);
+            $accsDims = TurnScorerVersion::normalizeScoreDims(\is_array($accsDims) ? $accsDims : []);
+            $iqsReasons = $iqsReasonsRaw !== null && $iqsReasonsRaw !== ''
+                ? (json_decode((string) $iqsReasonsRaw, true) ?: [])
+                : [];
+            $iqsReasons = \is_array($iqsReasons) ? $iqsReasons : [];
+            $accsReasons = $accsReasonsRaw !== null && $accsReasonsRaw !== ''
+                ? (json_decode((string) $accsReasonsRaw, true) ?: [])
+                : [];
+            $accsReasons = \is_array($accsReasons) ? $accsReasons : [];
+            $storedVersion = \is_array($stored) ? (string) ($stored['scorer_version'] ?? '') : '';
+            $iqsAction = '';
+            if (isset($iqsReasons['action']) && \is_string($iqsReasons['action'])) {
+                $iqsAction = $iqsReasons['action'];
+            }
+            [$storedIqsVer, $storedAccsVer] = TurnScorerVersion::parseStored($storedVersion);
+            $needsIqs = TurnScorerVersion::needsIqsRescore($storedVersion, $iqs, $iqsDims);
+            $needsAccs = TurnScorerVersion::needsAccsRescore($storedVersion, $accs, $accsDims, $iqsAction);
+            if ($needsIqs || $needsAccs) {
+                $rescorePending += 1;
+            }
+            $scores[] = [
+                'turn_index'            => $ti,
+                'assistant_message_id'  => $mid,
+                'iqs'                   => $iqs,
+                'accs'                  => $accs,
+                'iqs_dims'              => $iqsDims,
+                'accs_dims'             => $accsDims,
+                'iqs_reasons'           => $iqsReasons,
+                'accs_reasons'          => $accsReasons,
+                'scorer_version'        => $storedVersion,
+                'iqs_version'           => $storedIqsVer !== '' ? $storedIqsVer : null,
+                'accs_version'          => $storedAccsVer !== '' ? $storedAccsVer : null,
+                'needs_iqs_rescore'     => $needsIqs,
+                'needs_accs_rescore'    => $needsAccs,
+                'scored_at'             => \is_array($stored) ? (float) ($stored['scored_at'] ?? 0) : 0,
+                'complete'              => \is_array($stored) ? (int) ($stored['complete'] ?? 1) : 0,
+                'topic_shift'           => \is_array($stored) ? (int) ($stored['topic_shift'] ?? 0) : 0,
+            ];
+        }
+
         echo json_encode([
-            'success'         => true,
-            'conversation_id' => $cid,
-            'scores'          => $scores,
+            'success'           => true,
+            'conversation_id'   => $cid,
+            'scorer_versions'   => TurnScorerVersion::payload(),
+            'rescore_pending'   => $rescorePending,
+            'scores'            => $scores,
         ], JSON_UNESCAPED_UNICODE);
     } catch (\Throwable $e) {
         error_log('turn_scores list failed: ' . $e->getMessage());

@@ -1,0 +1,7 @@
+# Apache reverse proxy — browser SSE/WebSocket to Python orchestrator (no PHP workers).
+# Rendered at container start from OAAO_ORCHESTRATOR_SIDECAR_PATH + OAAO_ORCHESTRATOR_INTERNAL_URL.
+
+ProxyPreserveHost On
+ProxyPass __SIDECAR_PATH__/ __SIDECAR_UPSTREAM__/
+ProxyPassReverse __SIDECAR_PATH__/ __SIDECAR_UPSTREAM__/
+RequestHeader set X-Forwarded-Proto "https" env=HTTPS

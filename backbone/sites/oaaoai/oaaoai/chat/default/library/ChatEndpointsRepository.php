@@ -38,7 +38,6 @@ final class ChatEndpointsRepository
             return $this->coreApi->bootstrapTenantContext($pdo);
         }
         if ($pdo instanceof \PDO) {
-            require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
             TenantContext::bootstrap($pdo);
         }
 

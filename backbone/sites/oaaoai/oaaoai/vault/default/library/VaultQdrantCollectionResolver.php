@@ -71,8 +71,13 @@ final class VaultQdrantCollectionResolver
     {
         $raw = $override ?? self::$tenantSlug ?? '';
         $raw = trim((string) $raw);
+        if ($raw !== '') {
+            return self::sanitizeSegment($raw);
+        }
 
-        return self::sanitizeSegment($raw !== '' ? $raw : 't');
+        require_once dirname(__DIR__, 3) . '/core/default/library/TenantHostResolver.php';
+
+        return self::sanitizeSegment(\Oaaoai\Core\TenantHostResolver::tenantSlug());
     }
 
     private static function sanitizeSegment(string $raw): string

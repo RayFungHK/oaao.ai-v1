@@ -6,19 +6,15 @@
  */
 export function mountRagComposerAttach(host, ctx) {
     const getCid = typeof ctx.getConversationId === 'function' ? ctx.getConversationId : () => null;
+    const getItems = typeof ctx.getAttachmentItems === 'function' ? ctx.getAttachmentItems : () => [];
     const chatApiUrl = ctx.chatApiUrl;
     const workspaceFields =
         typeof ctx.workspaceChatBodyFields === 'function' ? ctx.workspaceChatBodyFields : () => ({});
     const onChange = typeof ctx.onAttachmentsChange === 'function' ? ctx.onAttachmentsChange : () => {};
     const signal = ctx.signal instanceof AbortSignal ? ctx.signal : undefined;
 
-    /** @type {number[]} */
-    let ids = [];
-    /** @type {string[]} */
-    let names = [];
-
     const wrap = document.createElement('span');
-    wrap.className = 'inline-flex flex-col items-start min-w-0';
+    wrap.className = 'inline-flex shrink-0 items-center';
 
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -36,39 +32,18 @@ export function mountRagComposerAttach(host, ctx) {
     input.accept =
         'image/*,audio/*,application/pdf,text/*,application/json,.docx,.xlsx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-    const chips = document.createElement('div');
-    chips.className = 'hidden flex flex-wrap gap-1 max-w-full min-w-0 mt-1';
-    chips.dataset.oaaoChat = 'attachment-chips';
-
-    function paintChips() {
-        chips.replaceChildren();
-        if (!names.length) {
-            chips.classList.add('hidden');
-            return;
-        }
-        chips.classList.remove('hidden');
-        for (const nm of names) {
-            const c = document.createElement('span');
-            c.className =
-                'inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] fg-[var(--grid-ink-muted)] bg-[var(--grid-line)]/30 truncate max-w-[160px]';
-            c.textContent = nm;
-            c.title = nm;
-            chips.append(c);
-        }
-    }
-
     async function uploadFile(file) {
-        const cid = getCid();
-        if (!cid || cid < 1) {
-            if (typeof ctx.toast === 'function') ctx.toast('Start or select a conversation first.');
-            return;
-        }
-        if (ids.length >= 4) {
+        const items = getItems();
+        if (items.length >= 4) {
             if (typeof ctx.toast === 'function') ctx.toast('Maximum 4 attachments per message.');
             return;
         }
+
+        const cid = getCid();
         const fd = new FormData();
-        fd.append('conversation_id', String(cid));
+        if (cid && cid > 0) {
+            fd.append('conversation_id', String(cid));
+        }
         fd.append('file', file);
         const wf = workspaceFields();
         if (wf.workspace_id != null) fd.append('workspace_id', String(wf.workspace_id));
@@ -80,14 +55,19 @@ export function mountRagComposerAttach(host, ctx) {
             if (typeof ctx.toast === 'function') ctx.toast(data.message || 'Upload failed');
             return;
         }
+
         const aid = Number(data.data?.attachment_id ?? 0);
-        const fn = String(data.data?.file_name ?? file.name);
-        if (aid > 0) {
-            ids.push(aid);
-            names.push(fn);
-            onChange(ids.slice(), fn);
-            paintChips();
-        }
+        if (aid < 1) return;
+
+        const next = items.slice();
+        next.push({
+            id: aid,
+            file_name: String(data.data?.file_name ?? file.name),
+            mime_type: String(data.data?.mime_type ?? file.type ?? ''),
+            kind: String(data.data?.kind ?? 'other'),
+            byte_size: Number(data.data?.byte_size ?? file.size ?? 0),
+        });
+        onChange(next);
     }
 
     btn.addEventListener(
@@ -100,11 +80,12 @@ export function mountRagComposerAttach(host, ctx) {
         () => {
             const files = input.files ? [...input.files] : [];
             input.value = '';
-            void Promise.all(files.slice(0, 4 - ids.length).map((f) => uploadFile(f)));
+            const room = Math.max(0, 4 - getItems().length);
+            void Promise.all(files.slice(0, room).map((f) => uploadFile(f)));
         },
         signal ? { signal } : undefined,
     );
 
-    wrap.append(btn, input, chips);
+    wrap.append(btn, input);
     host.append(wrap);
 }

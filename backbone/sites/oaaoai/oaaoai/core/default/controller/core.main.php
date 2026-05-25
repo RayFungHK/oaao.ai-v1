@@ -247,7 +247,7 @@ return function (): void {
     };
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env. */
-    $oaaoShellEsmRev = '20260523-vault-browse-grid-fill-v';
+    $oaaoShellEsmRev = '20260525-stream-ask-v18';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)
@@ -479,7 +479,7 @@ return function (): void {
 
     require_once dirname(__DIR__, 3) . '/chat/default/library/OrchestratorPublicBase.php';
     $oaao_orchestrator_stream_proxy = htmlspecialchars(
-        $oaaoPrefixedWebPath(\oaaoai\chat\OrchestratorPublicBase::streamProxyPath(), $oaaoMountPrefix),
+        $oaaoPrefixedWebPath(\oaaoai\chat\OrchestratorPublicBase::sidecarPath(), $oaaoMountPrefix),
         ENT_QUOTES | ENT_HTML5,
         'UTF-8'
     );
