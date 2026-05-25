@@ -116,22 +116,25 @@ async function refreshNotifications(panel, badge) {
 /** Wire notification bell in workspace header. */
 export function wireWorkspaceNotifications() {
     const trigger = document.getElementById('workspace-notifications-trigger');
+    const anchor = document.getElementById('workspace-notifications-anchor');
     const panel = document.getElementById('workspace-notifications-panel');
     const badge = document.getElementById('workspace-notifications-badge');
-    if (!trigger || !panel || trigger.dataset.oaaoNotifBound === '1') return;
+    if (!trigger || !panel || !anchor || trigger.dataset.oaaoNotifBound === '1') return;
     trigger.dataset.oaaoNotifBound = '1';
 
     let open = false;
 
     const close = () => {
         open = false;
-        panel.classList.add('hidden');
+        anchor.classList.add('hidden');
+        anchor.hidden = true;
         trigger.setAttribute('aria-expanded', 'false');
     };
 
     const openPanel = () => {
         open = true;
-        panel.classList.remove('hidden');
+        anchor.classList.remove('hidden');
+        anchor.hidden = false;
         trigger.setAttribute('aria-expanded', 'true');
         void refreshNotifications(panel, badge);
     };
@@ -147,7 +150,7 @@ export function wireWorkspaceNotifications() {
         (ev) => {
             if (!open) return;
             if (!(ev.target instanceof Node)) return;
-            if (trigger.contains(ev.target) || panel.contains(ev.target)) return;
+            if (trigger.contains(ev.target) || anchor.contains(ev.target)) return;
             close();
         },
         true,

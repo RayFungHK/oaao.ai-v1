@@ -4,6 +4,7 @@
  */
 
 import { OAAO_TASK_AGENT_CATALOG, getOaaoAgentCatalogEntry } from './oaao-agent-catalog.js';
+import { mountComposerDropupAbove, renderComposerDropupOptions } from './composer-dropup.js';
 import {
     appendChatComposerEditorText,
     clearChatComposerEditor,
@@ -447,114 +448,137 @@ function mountChatComposerFeatureToggles(host, signal) {
         return btn;
     };
 
-    host.replaceChildren(
-        makeToggle({
-            id: 'web_search',
-            iconEl: buildOaaoComposerToggleGlobeIcon(),
-            title: oaaoChatT('workspace.composer.web_search', 'Web search'),
-            pressed: chatComposerWebSearchEnabled,
-            onToggle: (on) => {
-                chatComposerWebSearchEnabled = on;
-                try {
-                    localStorage.setItem(CHAT_COMPOSER_WEB_SEARCH_KEY, on ? '1' : '0');
-                } catch {
-                    /* ignore */
+    const webSearchBtn = makeToggle({
+        id: 'web_search',
+        iconEl: buildOaaoComposerToggleGlobeIcon(),
+        title: oaaoChatT('workspace.composer.web_search', 'Web search'),
+        pressed: chatComposerWebSearchEnabled,
+        onToggle: (on) => {
+            chatComposerWebSearchEnabled = on;
+            try {
+                localStorage.setItem(CHAT_COMPOSER_WEB_SEARCH_KEY, on ? '1' : '0');
+            } catch {
+                /* ignore */
+            }
+        },
+    });
+
+    const plannerStepsBtn = makeToggle({
+        id: 'planner_steps',
+        iconEl: buildOaaoComposerTogglePlannerIcon(),
+        title: oaaoChatT('workspace.composer.planner_steps', 'Planner steps'),
+        pressed: chatComposerShowPlannerSteps,
+        onToggle: (on) => {
+            chatComposerShowPlannerSteps = on;
+            try {
+                localStorage.setItem(CHAT_COMPOSER_PLANNER_STEPS_KEY, on ? '1' : '0');
+            } catch {
+                /* ignore */
+            }
+            syncComposerPlannerStepsVisibility(document);
+            const cid = Number(activeConversationId ?? 0);
+            if (on && cid > 0) {
+                const state = getOaaoTaskListStateForConversation(cid);
+                if (state.items.size > 0) {
+                    renderOaaoTaskListForConversation(document, cid, state);
                 }
-            },
-        }),
-        makeToggle({
-            id: 'planner_steps',
-            iconEl: buildOaaoComposerTogglePlannerIcon(),
-            title: oaaoChatT('workspace.composer.planner_steps', 'Planner steps'),
-            pressed: chatComposerShowPlannerSteps,
-            onToggle: (on) => {
-                chatComposerShowPlannerSteps = on;
-                try {
-                    localStorage.setItem(CHAT_COMPOSER_PLANNER_STEPS_KEY, on ? '1' : '0');
-                } catch {
-                    /* ignore */
-                }
-                syncComposerPlannerStepsVisibility(document);
-                const cid = Number(activeConversationId ?? 0);
-                if (on && cid > 0) {
-                    const state = getOaaoTaskListStateForConversation(cid);
-                    if (state.items.size > 0) {
-                        renderOaaoTaskListForConversation(document, cid, state);
-                    }
-                }
-                scheduleChatComposerReserveSync();
-            },
-        }),
-    );
+            }
+            scheduleChatComposerReserveSync();
+        },
+    });
+
+    const plannerWrap = document.createElement('div');
+    plannerWrap.dataset.oaaoChat = 'planner-mode-root';
+    plannerWrap.className = 'inline-flex shrink-0';
+    plannerWrap.append(plannerStepsBtn);
+    mountChatComposerPlannerModeDropup(plannerWrap, plannerStepsBtn, signal);
+
+    host.replaceChildren(webSearchBtn, plannerWrap);
     syncComposerPlannerStepsVisibility(document);
 }
 
+/** @type {Array<{ id: 'default' | 'tot' | 'ddtree', label: string }>} */
+const PLANNER_MODE_DROPUP_ROWS = [
+    { id: 'default', label: 'Default' },
+    { id: 'tot', label: 'ToT' },
+    { id: 'ddtree', label: 'DDTree' },
+];
+
+/** @returns {string} */
+function plannerModeDropupLabel(mode) {
+    const hit = PLANNER_MODE_DROPUP_ROWS.find((row) => row.id === mode);
+    return hit?.label ?? 'Default';
+}
+
 /**
- * Planner mode (default / tot / ddtree) — always visible in composer footer.
- * @param {HTMLElement} host
+ * Planner mode dropup — chevron above planner icon, menu opens upward.
+ * @param {HTMLElement} root
+ * @param {HTMLElement} iconBtn
  * @param {AbortSignal} signal
  */
-function mountChatComposerPlannerModeSelect(host, signal) {
-    const wrap = document.createElement('label');
-    wrap.className =
-        'oaao-chat-planner-mode-composer inline-flex items-center gap-1.5 shrink-0 text-[0.6875rem] fg-[var(--grid-caption)]';
-    wrap.dataset.oaaoChat = 'planner-mode-wrap';
-    const span = document.createElement('span');
-    span.textContent = oaaoChatT('chat.planner_mode.label', 'Planner');
-    const sel = document.createElement('select');
-    sel.dataset.oaaoChat = 'planner-mode-select';
-    sel.className =
-        'oaao-chat-planner-mode-select rounded-[6px] border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] px-1.5 py-0.5 text-[0.6875rem] fg-[var(--grid-ink)] cursor-pointer font-inherit max-w-[5.5rem]';
-    sel.setAttribute('aria-label', oaaoChatT('chat.planner_mode.label', 'Planner mode'));
-    for (const [value, label] of [
-        ['default', 'Default'],
-        ['tot', 'ToT'],
-        ['ddtree', 'DDTree'],
-    ]) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        sel.append(opt);
-    }
-    sel.addEventListener(
-        'change',
-        () => {
-            const mode = normalizePlannerModeId(sel.value);
+function mountChatComposerPlannerModeDropup(root, iconBtn, signal) {
+    const menuLabel = oaaoChatT('chat.planner_mode.label', 'Planner mode');
+    const dropup = mountComposerDropupAbove(root, iconBtn, {
+        signal,
+        menuLabel,
+        heading: oaaoChatT('chat.planner_mode.label', 'Planner'),
+    });
+    chatComposerPlannerModeDropup = dropup;
+
+    const pickMode = (id) => {
+        const normalized = normalizePlannerModeId(id);
+        const cid = Number(activeConversationId) || 0;
+        if (cid > 0) {
+            persistPlannerMode(cid, normalized);
+        } else {
+            try {
+                sessionStorage.setItem(OAAO_PLANNER_MODE_PENDING_KEY, normalized);
+            } catch {
+                /* ignore */
+            }
+        }
+        syncChatComposerPlannerModeSelect();
+        dropup.close();
+    };
+
+    const syncPanel = () => {
+        const mode = readComposerPlannerModeForSend(activeConversationId);
+        renderComposerDropupOptions(dropup.list, PLANNER_MODE_DROPUP_ROWS, mode, pickMode);
+        const summary = `${menuLabel}: ${plannerModeDropupLabel(mode)}`;
+        dropup.arrowBtn.title = summary;
+        dropup.arrowBtn.setAttribute('aria-label', summary);
+    };
+
+    dropup.arrowBtn.addEventListener('click', syncPanel, { signal });
+    syncPanel();
+}
+
+/** Sync composer planner dropup with active conversation. */
+function syncChatComposerPlannerModeSelect() {
+    const dropup = chatComposerPlannerModeDropup;
+    if (!dropup) return;
+    const mode = readComposerPlannerModeForSend(activeConversationId);
+    const menuLabel = oaaoChatT('chat.planner_mode.label', 'Planner mode');
+    const summary = `${menuLabel}: ${plannerModeDropupLabel(mode)}`;
+    dropup.arrowBtn.title = summary;
+    dropup.arrowBtn.setAttribute('aria-label', summary);
+    if (dropup.isOpen()) {
+        renderComposerDropupOptions(dropup.list, PLANNER_MODE_DROPUP_ROWS, mode, (id) => {
+            const normalized = normalizePlannerModeId(id);
             const cid = Number(activeConversationId) || 0;
             if (cid > 0) {
-                persistPlannerMode(cid, mode);
+                persistPlannerMode(cid, normalized);
             } else {
                 try {
-                    sessionStorage.setItem(OAAO_PLANNER_MODE_PENDING_KEY, mode);
+                    sessionStorage.setItem(OAAO_PLANNER_MODE_PENDING_KEY, normalized);
                 } catch {
                     /* ignore */
                 }
             }
-        },
-        { signal },
-    );
-    wrap.append(span, sel);
-    host.append(wrap);
-    chatComposerPlannerModeSelectEl = sel;
-    syncChatComposerPlannerModeSelect();
-}
-
-/** Sync composer planner dropdown with active conversation. */
-function syncChatComposerPlannerModeSelect() {
-    const sel = chatComposerPlannerModeSelectEl;
-    if (!(sel instanceof HTMLSelectElement)) return;
-    const cid = Number(activeConversationId) || 0;
-    let mode = 'default';
-    if (cid > 0) {
-        mode = readStoredPlannerMode(cid);
-    } else {
-        try {
-            mode = normalizePlannerModeId(sessionStorage.getItem(OAAO_PLANNER_MODE_PENDING_KEY));
-        } catch {
-            mode = 'default';
-        }
+            syncChatComposerPlannerModeSelect();
+            dropup.close();
+        });
     }
-    if (sel.value !== mode) sel.value = mode;
 }
 
 function mountVaultAutoRagToggle(host, signal) {
@@ -5485,8 +5509,8 @@ const OAAO_PLANNER_MODE_PENDING_KEY = 'oaao_planner_mode_pending';
 /** @type {Map<number, 'default' | 'tot' | 'ddtree'>} */
 const plannerModeByConversationId = new Map();
 
-/** @type {HTMLSelectElement | null} */
-let chatComposerPlannerModeSelectEl = null;
+/** @type {ReturnType<typeof mountComposerDropupAbove> | null} */
+let chatComposerPlannerModeDropup = null;
 
 /** @type {Set<number>} */
 const deskModeConversationIds = new Set();
@@ -5633,10 +5657,6 @@ function readStoredPlannerMode(conversationId) {
 function readComposerPlannerModeForSend(conversationId) {
     const cid = Number(conversationId) || 0;
     if (cid > 0) {
-        const sel = chatComposerPlannerModeSelectEl;
-        if (sel instanceof HTMLSelectElement) {
-            return normalizePlannerModeId(sel.value);
-        }
         return readStoredPlannerMode(cid);
     }
     try {
@@ -10376,7 +10396,6 @@ export async function mountShellPanel(mount) {
     const composerFeatureToggles = mount.querySelector('[data-oaao-chat="composer-feature-toggles"]');
     if (composerFeatureToggles instanceof HTMLElement) {
         mountChatComposerFeatureToggles(composerFeatureToggles, signal);
-        mountChatComposerPlannerModeSelect(composerFeatureToggles, signal);
     }
 
     /** @param {string} msg */

@@ -210,7 +210,7 @@
                             </svg>
                             <span data-i18n="workspace.service_ok">All systems operational</span>
                         </span>
-                        <div class="relative inline-flex items-center">
+                        <div class="oaao-notifications-menu relative inline-flex items-center">
                             <button type="button" id="workspace-notifications-trigger"
                                 class="relative inline-flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer font-inherit fg-[var(--grid-caption)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
                                 aria-expanded="false"
@@ -222,8 +222,8 @@
                                 <span id="workspace-notifications-badge"
                                     class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-[var(--grid-accent)] fg-white text-[0.625rem] fw-semibold leading-4 text-center pointer-events-none"></span>
                             </button>
-                            <div id="workspace-notifications-panel" role="menu"
-                                class="hidden absolute right-0 top-[calc(100%+6px)] min-w-[18rem] max-w-[min(24rem,calc(100vw-2rem))] max-h-[min(60vh,420px)] overflow-y-auto z-[90] rounded-[10px] border-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] shadow-[0_8px_24px_rgba(0,0,0,0.1)] py-1">
+                            <div id="workspace-notifications-anchor" class="oaao-notifications-anchor hidden" hidden>
+                                <div id="workspace-notifications-panel" role="menu" class="oaao-notifications-panel"></div>
                             </div>
                         </div>
                         <!-- Account menu: hand-rolled panel + JIT today; prefer {@code rui-dropdown} / {@see Dropdown.js} + {@code registerElement} when init wiring lands — practice RazyUI, avoid parallel menu semantics. Keep {@code #workspace-user-label} for preferences greeting ({@see preferences-dialog.js}). -->
