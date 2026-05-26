@@ -12,11 +12,11 @@
 
 | # | 能力軸 | Manus.im | oaao.ai-v1 現況 | 差距 | 路徑 |
 |---|---|---|---|---|---|
-| 1 | **多輪自主規劃** | 動態 plan-execute-replan 多輪 | `planner_llm.py` 單輪 + `report_after` replan 二輪 | 🟡 缺多輪反思迴圈 | Phase 8 Reflection；ToT/DDTree mode |
-| 2 | **Tool / Skill 熱插拔** | UI 上傳 Tool → 立即 function-call 可用 | MicroSkill per-request catalog + hot-plug JSON manifest | ✅ Settings → Skills admin 持久化 manifest；orchestrator `merge_openai_tools` | Phase 9 Skills Manager（PHP）+ `skill_to_openai_tool()` |
-| 3 | **Function Call 自動暴露** | 所有 Tool 自動進 OpenAI tools list | 已透傳 `tools` 欄位，但 schema 由 caller 提供 | 🟡 缺自動轉換器 | Phase 9 同上 |
+| 1 | **多輪自主規劃** | 動態 plan-execute-replan 多輪 | `planner_modes.py` ToT ACCS best-of-N + DDTree depth≤3 | 🟢 Phase 8b 已落地 | 多輪 execute-replan 仍可強化 |
+| 2 | **Tool / Skill 熱插拔** | UI 上傳 Tool → 立即 function-call 可用 | MicroSkill + hot-plug JSON manifest + Settings admin | 🟢 `SkillsManifestStorage` + `hot_plug.py` | — |
+| 3 | **Function Call 自動暴露** | 所有 Tool 自動進 OpenAI tools list | `skill_to_openai_tool()` + `merge_openai_tools` | 🟢 Phase 9 已落地 | MicroSkill catalog 自動合併可選 |
 | 4 | **Self-Reflection** | Native 內建，多輪批判 | **Phase 8a 已落地**：`inline_reflection.py` + `reflection.py` — ACCS &lt; 0.65 → Main 重寫一輪；stream `reflection_complete` | 🟢 單輪已對齊 | 多輪 ToT 仍 Phase 8b |
-| 5 | **跨對話技能記憶** | Memory + Skill library | RAG (Qdrant + Arango) 有事實記憶；**Phase 9a** `crystallization/sealer` + `recall` 已雙寫 in-process | 🟡 Vault 持久化待強化 | Phase 9 Crystallization 全量 |
+| 5 | **跨對話技能記憶** | Memory + Skill library | RAG + crystallization seal/recall；Arango/Qdrant 雙寫 + PHP admin | 🟢 Phase 9 Vault 全量 | LRU cron 可排 host timer |
 | 6 | **沙箱執行（瀏覽器 / Python）** | Native browser + Python sandbox | ❌ 無 browser；Python sandbox 為 sidecar 但無工具註冊 | 🔴 缺整段 | Phase 10+（依商業優先級）|
 | 7 | **檔案系統操作** | 全鏈路（read/write/edit 在 sandbox） | Vault 上傳 + 解析；無「LLM 主動寫檔」工具 | 🔴 缺 write 軸 | Phase 10+ |
 | 8 | **多模態輸入** | 圖片 / PDF / 音訊 | ASR ✅、PDF ✅、**mm_lance stub + OCR fallback**（Settings Config URL）；真 VLM 待 CUDA Lance | 🟡 圖片 pipeline 已接、品質待 GPU | Phase 12+ CUDA Lance |
@@ -105,11 +105,11 @@ Manus 是「使用者帶來知識」；oaao.ai 設計上是「系統自己沉澱
 | **P0** | Circuit Breaker | Phase 8 | 低 | 低 | ✅ `safety/circuit_breaker.py` on IQS/ACCS coach |
 | **P1** | IQS Clarification Hook | Phase 8 | 中 | 中 | ✅ `OAAO_IQS_INLINE_CLARIFY` + preamble gate |
 | **P1** | Thread health / ACCS UX | Phase 8 | 低 | 低 | ✅ banner + pills + stream provisional scores |
-| **P1** | Skill Crystallization 雙寫 | Phase 9 | 中 | 中 | 🟡 in-process seal/recall；Vault 全量待做 |
+| **P1** | Skill Crystallization 雙寫 | Phase 9 | 中 | 中 | ✅ Arango/Qdrant + `param_template` + PHP admin + usage Arango sync |
 | **P2** | Hot-plug Skills（Manifest + auto schema）| Phase 9 | 高 | 中 | ✅ `SkillsManifestStorage` + `hot_plug.py` + Settings UI |
-| **P2** | ToT / DDTree 實作 | Phase 8 | 中 | 低 | 待做 |
+| **P2** | ToT / DDTree 實作 | Phase 8 | 中 | 低 | ✅ ACCS best-of-N + DDTree depth≤3 + integration tests |
 | **P3** | 兩台機 LB（purpose_allocation 擴張）| Phase 10 | 中 | 低 | 待做 |
-| **P3** | Daily/Weekly Evolution Report cron | Phase 11 | 中 | 中 | 部分（queue UI）|
+| **P3** | Daily/Weekly Evolution Report cron | Phase 11 | 中 | 中 | ✅ systemd timers + 7-day aggregate + report review UI |
 | **P4** | 圖片理解 VLM | Phase 12+ | 高 | 高 | 待 CUDA Lance |
 | **P5** | Browser sandbox | 視業務 | 很高 | 很高 | 戰略放棄 |
 
