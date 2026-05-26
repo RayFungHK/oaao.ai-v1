@@ -11,10 +11,11 @@ Mounted so far:
 - routes.mine    — `/v1/mine/*` (run + discover; W5-S1 phase 2)
 - routes.research — `/v1/research/*` (run + match + discover trio; W5-S1 phase 2)
 - routes.live    — `/v1/live/*` (session lifecycle + WS audio + SSE; W5-S1 phase 3)
+- routes.runs    — `/v1/runs/{id}/agent_ask|cancel` + `/v1/stream` (W5-S1 phase 4)
 
 Pending phase-2 candidates (do not block W5-S1 acceptance):
 - routes.slides    (`/v1/slides/*`)         — ~500 LOC
-- routes.runs      (`/v1/runs/*`)           — touches streaming, last to move
+- `/v1/runs/chat`  — follows after run_executor LLM-stream loop is extracted
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from oaao_orchestrator.routes.health import router as health_router
 from oaao_orchestrator.routes.live import router as live_router
 from oaao_orchestrator.routes.mine import router as mine_router
 from oaao_orchestrator.routes.research import router as research_router
+from oaao_orchestrator.routes.runs import router as runs_router
 
 __all__ = [
     "admin_router",
@@ -31,4 +33,5 @@ __all__ = [
     "live_router",
     "mine_router",
     "research_router",
+    "runs_router",
 ]

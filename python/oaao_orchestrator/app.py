@@ -23,12 +23,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from oaao_orchestrator.agent_ask import ASK_DECISION_SKIP
 from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
 from oaao_orchestrator.cors_config import resolve_cors_config
 from oaao_orchestrator.funasr_ops import ensure_funasr, funasr_status
@@ -40,7 +38,7 @@ from oaao_orchestrator.routes.health import router as _health_router
 from oaao_orchestrator.routes.live import router as _live_router
 from oaao_orchestrator.routes.mine import router as _mine_router
 from oaao_orchestrator.routes.research import router as _research_router
-from oaao_orchestrator.streaming.session import StreamSessionRegistry
+from oaao_orchestrator.routes.runs import router as _runs_router
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
 configure_oaao_logging()
@@ -353,8 +351,9 @@ def _template_scope_ctx(body: TemplateScopePayload | None) -> TemplateScopeConte
     return TemplateScopeContext.from_payload(body.model_dump() if body is not None else None)
 
 
-registry = StreamSessionRegistry()
-_stream_tokens: dict[str, str] = {}
+# Streaming state moved to streaming_state.py so routes/runs.py can share it
+# without creating an import cycle with app.py.
+from oaao_orchestrator.streaming_state import _stream_tokens, registry  # noqa: E402
 
 
 def _shared_secret() -> str:
@@ -534,6 +533,7 @@ app.include_router(_admin_router)
 app.include_router(_mine_router)
 app.include_router(_research_router)
 app.include_router(_live_router)
+app.include_router(_runs_router)
 
 
 @app.post("/v1/runs/chat")
@@ -554,42 +554,6 @@ async def start_chat_run(
     asyncio.create_task(_run_llm_stream(run_id=run_id, req=req))  # noqa: RUF006
 
     return {"run_id": run_id, "stream_token": token}
-
-
-class AgentAskRequest(BaseModel):
-    task_id: str = Field(min_length=1, max_length=128)
-    decision: str = Field(description="proceed | skip | proceed_fork")
-
-
-@app.post("/v1/runs/{run_id}/agent_ask")
-async def resolve_agent_ask(
-    run_id: str,
-    body: AgentAskRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-
-    run = registry.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="unknown_run")
-
-    decision = (body.decision or "").strip().lower()
-    if decision not in ("proceed", "skip", "proceed_fork"):
-        raise HTTPException(
-            status_code=400, detail="decision must be proceed, skip, or proceed_fork"
-        )
-
-    resolved = ASK_DECISION_SKIP if decision == "proceed_fork" else decision
-    if not run.resolve_agent_ask(body.task_id.strip(), resolved):
-        raise HTTPException(
-            status_code=404,
-            detail="no_pending_ask",
-        )
-
-    return {"ok": True, "decision": decision}
 
 
 @app.post("/v1/skills/discover")
@@ -1127,24 +1091,6 @@ async def slide_template_delete(
         raise HTTPException(status_code=500, detail="slide_template_delete_failed") from exc
 
 
-@app.post("/v1/runs/{run_id}/cancel")
-async def cancel_chat_run(
-    run_id: str,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-
-    run = registry.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="unknown_run")
-
-    run.request_cancel()
-    return {"ok": True, "run_id": run_id, "cancelled": True}
-
-
 @app.post("/v1/asr/transcribe")
 async def transcribe_audio(
     req: AsrTranscribeRequest,
@@ -1353,33 +1299,3 @@ async def work_queues_status(
     )
 
     return {"ok": True, **work_queues_status_payload()}
-
-
-@app.get("/v1/stream")
-async def subscribe_stream(
-    run_id: str = Query(...),
-    token: str = Query(...),
-    since_seq: int = Query(0, ge=0),
-) -> StreamingResponse:
-    exp = _stream_tokens.get(run_id)
-    if not exp or not secrets.compare_digest(exp, token):
-        raise HTTPException(status_code=403, detail="bad_stream_token")
-
-    run = registry.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="unknown_run")
-
-    async def gen():
-        async for chunk in run.subscribe(since_seq):
-            yield chunk
-
-    # Proxies (nginx) may buffer SSE unless explicitly disabled; keep connection alive hints for browsers.
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-store",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
