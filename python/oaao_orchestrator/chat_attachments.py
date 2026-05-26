@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 _ATTACHMENT_INLINE_CITATIONS = (
     "When a sentence uses an attached file excerpt below, add citation marker(s) at the end "
-    "of that sentence using the exact keys shown (e.g. [A1], [A2]). "
+    "of that sentence using the **exact** keys shown (e.g. [A1], [A2]) — no extra text inside "
+    "the brackets (not [A2, PDF page 1]). "
     "Use only keys that appear in the attachment excerpts. Do not invent keys. "
     "If your answer relies on attached content, include at least one such marker."
 )

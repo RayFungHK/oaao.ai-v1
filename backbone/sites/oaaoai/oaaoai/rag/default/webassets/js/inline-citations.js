@@ -334,6 +334,24 @@ function dispatchOpenVaultTranscript(row) {
     );
 }
 
+/** Models sometimes emit [A2, PDF page 1] — match optional trailing clause inside brackets. */
+const INLINE_CITE_MARKER_RE = /\[A(\d+)(?:[,\s][^\]]*)?\]|\[(\d+)(?:[,\s][^\]]*)?\]/gi;
+
+/** @param {string} text */
+function textMayContainCitationMarkers(text) {
+    return /\[(?:A?\d+)(?:[,\s][^\]]*)?\]/i.test(String(text ?? ''));
+}
+
+/** @param {string | number} num */
+function canonicalAttachmentCiteLabel(num) {
+    return `[A${num}]`;
+}
+
+/** @param {string | number} num */
+function canonicalVaultCiteLabel(num) {
+    return `[${num}]`;
+}
+
 /**
  * Parse [1] / [A1] into bracket parts for styled pills.
  *
@@ -422,16 +440,17 @@ export function injectInlineCitationPillsIntoHtml(html, vaultCites, attachmentCi
     const textNodes = [];
     let n = walker.nextNode();
     while (n) {
-        if (n instanceof Text && !isCitationInjectionExempt(n) && /\[A?\d+\]/.test(n.data)) {
+        if (n instanceof Text && !isCitationInjectionExempt(n) && textMayContainCitationMarkers(n.data)) {
             textNodes.push(n);
         }
         n = walker.nextNode();
     }
 
-    const markerRe = /\[A(\d+)\]|\[(\d+)\]/gi;
+    const markerRe = INLINE_CITE_MARKER_RE;
 
     for (const textNode of textNodes) {
         const raw = textNode.data;
+        markerRe.lastIndex = 0;
         if (!markerRe.test(raw)) continue;
         markerRe.lastIndex = 0;
         const frag = document.createDocumentFragment();
@@ -440,27 +459,26 @@ export function injectInlineCitationPillsIntoHtml(html, vaultCites, attachmentCi
         while (m) {
             const start = m.index;
             if (start > last) frag.append(raw.slice(last, start));
-            const full = m[0];
             if (m[1]) {
                 const key = `A${m[1]}`;
                 const row = attachmentCites.get(key);
                 if (row) {
-                    frag.append(createCitationPill(full, row, 'attachment'));
+                    frag.append(createCitationPill(canonicalAttachmentCiteLabel(m[1]), row, 'attachment'));
                 } else {
-                    frag.append(full);
+                    frag.append(m[0]);
                 }
             } else if (m[2]) {
                 const idx = Number(m[2]);
                 const row = vaultCites.get(idx);
                 if (row) {
-                    frag.append(createCitationPill(full, row, 'vault'));
+                    frag.append(createCitationPill(canonicalVaultCiteLabel(m[2]), row, 'vault'));
                 } else {
-                    frag.append(full);
+                    frag.append(m[0]);
                 }
             } else {
-                frag.append(full);
+                frag.append(m[0]);
             }
-            last = start + full.length;
+            last = start + m[0].length;
             m = markerRe.exec(raw);
         }
         if (last < raw.length) frag.append(raw.slice(last));
@@ -478,13 +496,57 @@ export function hydrateInlineCitationPills(bubble, maps) {
     if (!(bubble instanceof HTMLElement)) return;
     if (!maps.vault.size && !maps.attachment.size) return;
     const outer = bubble.closest('.oaao-chat-assistant-row');
-    const hadInlineMarkers = /\[(?:A?\d+)\]/.test(bubble.textContent ?? '');
     bubble.innerHTML = injectInlineCitationPillsIntoHtml(bubble.innerHTML, maps.vault, maps.attachment);
     if (outer instanceof HTMLElement) {
         outer.querySelector('[data-oaao-inline-cite-fallback]')?.remove();
     }
-    if (hadInlineMarkers) {
+    if (bubble.querySelector('.oaao-inline-cite')) {
         return;
+    }
+    // Composer uploads only — vault fallback was removed (off-topic RAG cites).
+    if (maps.attachment.size > 0) {
+        renderAttachmentCitationFallbackRow(bubble, maps);
+    }
+}
+
+/**
+ * Fallback source row for composer attachments when inline markers are missing or non-standard.
+ *
+ * @param {HTMLElement} bubble
+ * @param {{ vault: Map<number, CitationRef>, attachment: Map<string, CitationRef> }} maps
+ */
+function renderAttachmentCitationFallbackRow(bubble, maps) {
+    if (!(bubble instanceof HTMLElement) || !maps.attachment.size) return;
+    const outer = bubble.closest('.oaao-chat-assistant-row');
+    if (!(outer instanceof HTMLElement)) return;
+
+    /** @type {Array<{ label: string, row: CitationRef }>} */
+    const items = [];
+    for (const [key, row] of [...maps.attachment.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        items.push({ label: `[${key}]`, row });
+    }
+    if (!items.length) return;
+
+    let host = outer.querySelector('[data-oaao-inline-cite-fallback]');
+    if (!(host instanceof HTMLElement)) {
+        host = document.createElement('div');
+        host.dataset.oaaoInlineCiteFallback = '1';
+        host.className = 'oaao-inline-cite-fallback';
+        const label = document.createElement('span');
+        label.className = 'oaao-inline-cite-fallback__label';
+        label.textContent = 'Sources';
+        host.append(label);
+        bubble.insertAdjacentElement('afterend', host);
+    } else {
+        host.replaceChildren();
+        const label = document.createElement('span');
+        label.className = 'oaao-inline-cite-fallback__label';
+        label.textContent = 'Sources';
+        host.append(label);
+    }
+
+    for (const item of items) {
+        host.append(createCitationPill(item.label, item.row, 'attachment'));
     }
 }
 
