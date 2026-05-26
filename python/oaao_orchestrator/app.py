@@ -32,7 +32,9 @@ from oaao_orchestrator.routes.runs import router as _runs_router
 from oaao_orchestrator.routes.skills import router as _skills_router
 from oaao_orchestrator.routes.slides import router as _slides_router
 from oaao_orchestrator.routes.turn_scores import router as _turn_scores_router
+from oaao_orchestrator.routes.version import router as _version_router
 from oaao_orchestrator.routes.media import router as _media_router
+from oaao_orchestrator.build_info import load_build_info
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
 configure_oaao_logging()
@@ -85,7 +87,11 @@ async def _lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="oaao orchestrator sidecar", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(
+    title="oaao orchestrator sidecar",
+    version=str(load_build_info().get("version") or "0.0.0"),
+    lifespan=_lifespan,
+)
 
 # W10-S2 — CORS allowlist. Single source of truth lives in `cors_config.py`
 # (unit-tested in `tests/test_cors_allowlist.py`). Defaults cover localhost on
@@ -139,6 +145,7 @@ from oaao_orchestrator.streaming_state import (  # noqa: E402, F401
 # routes._deps.require_internal_token. The historical blocks that occupied
 # lines 555-718 of this file were moved verbatim; behaviour is preserved.
 app.include_router(_health_router)
+app.include_router(_version_router)
 app.include_router(_admin_router)
 app.include_router(_asr_router)
 app.include_router(_chat_router)

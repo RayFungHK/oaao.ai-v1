@@ -162,18 +162,24 @@ async def _run_evolution_post_stream(
             return
 
         from oaao_orchestrator.evaluation.accs import score_accs
+        from oaao_orchestrator.evaluation.pipeline_evidence import (
+            evidence_from_pipeline_snap,
+            vault_grounding_context_text,
+        )
 
-        evidence: list[Any] = []
-        if pipeline_snap and isinstance(pipeline_snap.get("vault_rag"), dict):
-            raw_ev = pipeline_snap["vault_rag"].get("passages") or []
-            if isinstance(raw_ev, list):
-                evidence = raw_ev
+        evidence = evidence_from_pipeline_snap(
+            pipeline_snap if isinstance(pipeline_snap, dict) else None,
+        )
+        grounding_context = vault_grounding_context_text(
+            pipeline_snap if isinstance(pipeline_snap, dict) else None,
+        )
 
         accs_result = await score_accs(
             user_message=user_msg,
             llm_output=assistant_text,
             evidence=evidence,
             coach_endpoint=coach_endpoint,
+            grounding_context=grounding_context,
         )
         if accs_result.skipped or accs_result.score <= 0:
             from oaao_orchestrator.evaluation.accs import _score_accs_heuristic
@@ -226,6 +232,7 @@ async def _run_evolution_post_stream(
                 planner_output={"tasks": [t.id for t in plan.tasks]} if plan else {},
                 final_answer=assistant_text,
                 user_message=user_msg,
+                plan_tasks=list(plan.tasks) if plan else None,
                 flags={
                     "degraded": bool(accs_result.degraded),
                     "iqs_skipped": bool(iqs_snap and iqs_snap.get("iqs_skipped")),

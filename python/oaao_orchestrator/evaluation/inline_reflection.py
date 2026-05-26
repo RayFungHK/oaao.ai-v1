@@ -30,13 +30,15 @@ def inline_reflection_enabled() -> bool:
 
 
 def _evidence_from_pipeline(pipeline_snap: dict[str, Any] | None) -> list[Any]:
-    if not isinstance(pipeline_snap, dict):
-        return []
-    vr = pipeline_snap.get("vault_rag")
-    if isinstance(vr, dict):
-        raw = vr.get("passages") or []
-        return list(raw) if isinstance(raw, list) else []
-    return []
+    from oaao_orchestrator.evaluation.pipeline_evidence import evidence_from_pipeline_snap
+
+    return evidence_from_pipeline_snap(pipeline_snap)
+
+
+def _grounding_context_from_pipeline(pipeline_snap: dict[str, Any] | None) -> str:
+    from oaao_orchestrator.evaluation.pipeline_evidence import vault_grounding_context_text
+
+    return vault_grounding_context_text(pipeline_snap)
 
 
 async def maybe_reflect_and_revise(
@@ -65,11 +67,13 @@ async def maybe_reflect_and_revise(
         return assistant_text, meta
 
     evidence = _evidence_from_pipeline(pipeline_snap)
+    grounding_context = _grounding_context_from_pipeline(pipeline_snap)
     initial = await score_accs(
         user_message=user_message,
         llm_output=assistant_text,
         evidence=evidence,
         coach_endpoint=coach_endpoint,
+        grounding_context=grounding_context,
     )
     meta["accs_score"] = round(float(initial.score), 4)
     meta["accs_action"] = initial.action

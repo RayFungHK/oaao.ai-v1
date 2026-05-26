@@ -10,7 +10,21 @@ from oaao_orchestrator.db.pg import pg_connection, pool_available
 
 logger = logging.getLogger(__name__)
 
-_CLAIM_SQL = """
+_CLAIM_ORDER = """
+    ORDER BY
+        CASE hook_id
+            WHEN 'vh.rag.audio_asr' THEN 0
+            WHEN 'vh.rag.document_embed' THEN 1
+            WHEN 'vh.rag.transcript_summary' THEN 2
+            WHEN 'vh.rag.graph_index' THEN 3
+            ELSE 4
+        END,
+        CASE WHEN status = 'queued' THEN 0 ELSE 1 END,
+        created_at ASC
+"""
+
+_CLAIM_SQL = (
+    """
 WITH picked AS (
     SELECT job_id FROM oaao_vault_job
     WHERE status = 'queued'
@@ -19,8 +33,9 @@ WITH picked AS (
             AND claimed_at IS NOT NULL
             AND claimed_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'
        )
-    {hook_filter}
-    ORDER BY CASE WHEN status = 'queued' THEN 0 ELSE 1 END, created_at ASC
+    {hook_filter}"""
+    + _CLAIM_ORDER
+    + """
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
@@ -33,6 +48,7 @@ FROM picked p
 WHERE j.job_id = p.job_id
 RETURNING j.*
 """
+)
 
 _RECLAIM_SQL = """
 UPDATE oaao_vault_job

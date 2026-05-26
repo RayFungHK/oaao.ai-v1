@@ -10,15 +10,18 @@ from typing import Any
 
 import httpx
 
+from oaao_orchestrator.crystallization.collections import COLLECTION as _COLLECTION_NAME
 from oaao_orchestrator.crystallization.embedding import embed_intent, skill_id_for_run
 from oaao_orchestrator.crystallization.models import CrystallizedSkill
+from oaao_orchestrator.crystallization.param_template import extract_param_template_from_tasks
+from oaao_orchestrator.tasks.models import RunTaskSpec
 from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
 
 MIN_ACCS = 0.85
 MIN_TOOL_CHAIN_LEN = 2
-COLLECTION = "crystallized_skills"
+COLLECTION = _COLLECTION_NAME
 
 _MEMORY: dict[str, CrystallizedSkill] = {}
 _MEMORY_VECTORS: dict[str, list[float]] = {}
@@ -103,6 +106,8 @@ async def try_seal_skill(
     user_message: str,
     flags: dict[str, Any] | None = None,
     embedding_cfg: dict[str, Any] | None = None,
+    plan_tasks: list[RunTaskSpec] | None = None,
+    param_template: dict[str, Any] | None = None,
 ) -> CrystallizedSkill | None:
     """
     Persist a crystallized skill when ACCS and tool-chain criteria are met.
@@ -115,14 +120,21 @@ async def try_seal_skill(
     if _flags_block_seal(flags):
         return None
 
+    from oaao_orchestrator.crystallization.collections import ensure_crystallized_collections
+
+    await ensure_crystallized_collections()
+
     skill_id = skill_id_for_run(planner_output=planner_output, final_answer=final_answer)
     intent_vec = await embed_intent(user_message, embedding_cfg)
+    tmpl = param_template if isinstance(param_template, dict) else {}
+    if not tmpl and plan_tasks:
+        tmpl = extract_param_template_from_tasks(plan_tasks)
     skill = CrystallizedSkill(
         id=skill_id,
         trigger_intent=_trigger_intent(user_message),
         intent_embedding=intent_vec,
         tool_chain=chain,
-        param_template={},
+        param_template=tmpl,
         success_score=float(accs_score),
         usage_count=0,
         created_at=datetime.now(UTC),

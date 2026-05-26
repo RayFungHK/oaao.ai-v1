@@ -124,16 +124,19 @@ async def rescore_turn_item(
         )
 
     if item.needs_accs and iqs_action not in ("clarify", "hard_clarify"):
-        evidence: list[Any] = []
-        if item.pipeline_snap and isinstance(item.pipeline_snap.get("vault_rag"), dict):
-            raw_ev = item.pipeline_snap["vault_rag"].get("passages") or []
-            if isinstance(raw_ev, list):
-                evidence = raw_ev
+        from oaao_orchestrator.evaluation.pipeline_evidence import (
+            evidence_from_pipeline_snap,
+            vault_grounding_context_text,
+        )
+
+        evidence = evidence_from_pipeline_snap(item.pipeline_snap)
+        grounding_context = vault_grounding_context_text(item.pipeline_snap)
         accs_result = await score_accs(
             user_message=item.user_message,
             llm_output=item.assistant_content,
             evidence=evidence,
             coach_endpoint=coach_endpoint,
+            grounding_context=grounding_context,
         )
         await upsert_turn_score(
             plugin_id="accs",

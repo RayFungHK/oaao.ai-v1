@@ -86,3 +86,16 @@ def test_asr_purpose_pinned_to_box2() -> None:
         "routing_policy": "tiered",
     }
     assert ep.pick_base_url(cfg, ctx=Ctx()) == "http://box2:9000"
+
+
+@pytest.mark.skipif(not _has("maybe_downgrade_planner_mode"), reason="Phase 8b — downgrade helper")
+def test_maybe_downgrade_planner_mode_when_box1_unhealthy(monkeypatch) -> None:
+    monkeypatch.setattr(ep, "_health_cache", {})
+    monkeypatch.setenv("OAAO_UNHEALTHY_BOX_URLS", "http://box1:9000")
+    cfg = {
+        "routing_policy": "tiered",
+        "base_urls": ["http://box1:9000", "http://box2:9000"],
+    }
+    mode, note = ep.maybe_downgrade_planner_mode("tot", cfg)
+    assert mode == "default"
+    assert note == "tot->default"

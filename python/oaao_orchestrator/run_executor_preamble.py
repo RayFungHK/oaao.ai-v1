@@ -280,9 +280,50 @@ async def prepare_run_preamble(
     else:
         plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
 
+    from oaao_orchestrator.chat_helpers import _chat_completions_url
+    from oaao_orchestrator.endpoint import maybe_downgrade_planner_mode, pick_base_url
     from oaao_orchestrator.planner_modes import refine_plan_for_mode
 
     planner_mode_id = str(getattr(req, "planner_mode_id", None) or "default")
+    endpoint_cfg: dict[str, Any] = {}
+    ep_obj = getattr(req, "endpoint", None)
+    if ep_obj is not None:
+        if hasattr(ep_obj, "model_dump"):
+            endpoint_cfg = dict(ep_obj.model_dump())
+        elif isinstance(ep_obj, dict):
+            endpoint_cfg = dict(ep_obj)
+        else:
+            base = str(getattr(ep_obj, "base_url", "") or "")
+            endpoint_cfg = {"base_url": base, "base_urls": getattr(ep_obj, "base_urls", None)}
+    downgraded, downgrade_note = maybe_downgrade_planner_mode(planner_mode_id, endpoint_cfg)
+    if downgrade_note:
+        planner_mode_id = downgraded
+        setattr(req, "planner_mode_id", planner_mode_id)
+        await run.append(
+            StreamEnvelope(
+                phase=PHASE_SYSTEM,
+                kind=KIND_STATUS,
+                text="planner_mode_downgraded",
+                payload={"from": downgrade_note.split("->")[0], "to": "default", "reason": "box1_unhealthy"},
+            )
+        )
+
+    main_base = (
+        pick_base_url(
+            endpoint_cfg,
+            ctx={
+                "planner_mode_id": planner_mode_id,
+                "purpose_id": str(getattr(req, "purpose_id", None) or "chat"),
+            },
+        )
+        if endpoint_cfg
+        else ""
+    )
+    if not main_base and ep_obj is not None:
+        main_base = str(getattr(ep_obj, "base_url", "") or "")
+    main_llm_url = _chat_completions_url(main_base) if main_base else planner_url
+    main_model = str(getattr(ep_obj, "model", None) or planner_model or "")
+
     plan, planner_mode_meta = await refine_plan_for_mode(
         plan,
         req=req,
@@ -291,6 +332,11 @@ async def prepare_run_preamble(
         api_key=planner_api_key,
         model=planner_model,
         allowed_agents=allowed_agents,
+        main_llm_url=main_llm_url,
+        main_api_key=api_key,
+        main_model=main_model,
+        coach_endpoint=coach_endpoint,
+        run=run,
     )
     if planner_mode_meta.get("mode") in ("tot", "ddtree"):
         iqs_snap["planner_mode_meta"] = planner_mode_meta
@@ -352,7 +398,7 @@ async def prepare_run_preamble(
         "allowed_agents": allowed_agents,
         "assistant_message_id": req.assistant_message_id,
         "workspace_id": req.workspace_id,
-        "planner_mode_id": str(getattr(req, "planner_mode_id", None) or "default"),
+        "planner_mode_id": planner_mode_id,
         "llm_url": planner_url,
         "llm_api_key": api_key,
         "llm_model": planner_model,

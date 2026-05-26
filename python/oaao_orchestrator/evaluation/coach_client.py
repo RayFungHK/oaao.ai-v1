@@ -154,6 +154,7 @@ def build_accs_coach_prompt(
     user_message: str,
     llm_output: str,
     evidence: list[Any],
+    grounding_context: str = "",
 ) -> str:
     template = _load_prompt(_PROMPT_REFS["accs"])
     return _render(
@@ -162,6 +163,7 @@ def build_accs_coach_prompt(
             "user_message": (user_message or "").strip()[:2000],
             "llm_output": (llm_output or "").strip()[:6000],
             "evidence_excerpt": _evidence_excerpt(evidence),
+            "grounding_context": (grounding_context or "(none)").strip()[:2000],
         },
     )
 
@@ -226,6 +228,18 @@ def parse_iqs_coach_response(raw: dict[str, Any]) -> tuple[dict[str, float], lis
     return dims, questions
 
 
+def enrich_accs_display_factors(factors: dict[str, float]) -> dict[str, float]:
+    """Ensure citation_fidelity / source_analysis exist for UI sub-pills."""
+    out = dict(factors)
+    acc = float(out.get("accuracy") or 0.0)
+    ali = float(out.get("alignment") or 0.0)
+    if "citation_fidelity" not in out:
+        out["citation_fidelity"] = acc if acc > 0 else ali
+    if "source_analysis" not in out:
+        out["source_analysis"] = ali if ali > 0 else acc
+    return out
+
+
 def parse_accs_coach_response(raw: dict[str, Any]) -> dict[str, float]:
     factors: dict[str, float] = {}
     for name in ("alignment", "accuracy", "hallucination_penalty"):
@@ -235,4 +249,10 @@ def parse_accs_coach_response(raw: dict[str, Any]) -> dict[str, float]:
         if val is None:
             raise CoachCallError(f"accs_missing_factor:{name}")
         factors[name] = val
-    return factors
+    for optional in ("citation_fidelity", "source_analysis"):
+        val = _clamp01(raw.get(optional))
+        if val is None and isinstance(raw.get("factors"), dict):
+            val = _clamp01(raw["factors"].get(optional))
+        if val is not None:
+            factors[optional] = val
+    return enrich_accs_display_factors(factors)

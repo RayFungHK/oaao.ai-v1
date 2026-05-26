@@ -19,12 +19,36 @@ logger = logging.getLogger(__name__)
 SIM_THRESHOLD = 0.88
 
 
+async def _arango_patch_usage(skill_id: str, *, usage_count: int, last_used_at: str) -> None:
+    from oaao_orchestrator.vault_arango import _arango_request, resolve_arango_from_profile
+
+    cfg = resolve_arango_from_profile({})
+    if not cfg:
+        return
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+        await _arango_request(
+            client,
+            cfg=cfg,
+            method="PATCH",
+            path=f"/_api/document/{COLLECTION}/{skill_id}",
+            json_body={"usage_count": usage_count, "last_used_at": last_used_at},
+        )
+
+
 async def _bump_usage_count(skill_id: str) -> None:
     skill = _MEMORY.get(skill_id)
     if skill is not None:
         skill.usage_count += 1
         skill.last_used_at = datetime.now(UTC)
         _MEMORY[skill_id] = skill
+        try:
+            await _arango_patch_usage(
+                skill_id,
+                usage_count=int(skill.usage_count),
+                last_used_at=skill.last_used_at.isoformat(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("arango usage bump failed id=%s", skill_id, exc_info=True)
 
 
 async def _qdrant_search(

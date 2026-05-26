@@ -88,8 +88,107 @@ def list_low_score_cases(*, limit: int = 50) -> list[dict[str, Any]]:
     return list(_MEMORY_LOW_SCORE[-limit:])
 
 
+async def _arango_query(collection: str, query: str, *, bind: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    from oaao_orchestrator.vault_arango import _arango_request
+
+    cfg = await _arango_cfg()
+    if not cfg:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+            resp = await _arango_request(
+                client,
+                cfg=cfg,
+                method="POST",
+                path="/_api/cursor",
+                json_body={"query": query, "bindVars": bind or {}},
+            )
+            if resp is None or resp.status_code != 201:
+                return []
+            return [r for r in resp.json().get("result") or [] if isinstance(r, dict)]
+    except Exception:  # noqa: BLE001
+        logger.debug("arango query failed collection=%s", collection, exc_info=True)
+        return []
+
+
 def list_evolution_reports(*, limit: int = 10) -> list[dict[str, Any]]:
-    return list(reversed(_MEMORY_REPORTS[-limit:]))
+    mem = list(reversed(_MEMORY_REPORTS[-limit:]))
+    return mem
+
+
+async def list_evolution_reports_merged(*, limit: int = 10) -> list[dict[str, Any]]:
+    """Merge in-memory reports with Arango-backed history."""
+    mem = list_evolution_reports(limit=limit)
+    arango_rows = await _arango_query(
+        "evolution_reports",
+        """
+            FOR r IN evolution_reports
+              SORT r.generated_at DESC
+              LIMIT @lim
+              RETURN r
+        """,
+        bind={"lim": limit},
+    )
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in arango_rows:
+        rid = str(row.get("report_id") or row.get("_key") or "")
+        if rid:
+            by_id[rid] = row
+    for row in mem:
+        rid = str(row.get("report_id") or "")
+        if rid:
+            by_id[rid] = {**by_id.get(rid, {}), **row}
+    merged = sorted(by_id.values(), key=lambda r: str(r.get("generated_at") or ""), reverse=True)
+    return merged[:limit]
+
+
+async def list_evolution_patches_merged(*, limit: int = 50) -> list[dict[str, Any]]:
+    mem = list_evolution_patches(limit=limit)
+    arango_rows = await _arango_query(
+        "evolution_patches",
+        """
+            FOR p IN evolution_patches
+              SORT p.recorded_at DESC
+              LIMIT @lim
+              RETURN p
+        """,
+        bind={"lim": limit},
+    )
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in arango_rows:
+        pid = str(row.get("patch_id") or row.get("_key") or "")
+        if pid:
+            by_id[pid] = row
+    for row in mem:
+        pid = str(row.get("patch_id") or "")
+        if pid:
+            by_id[pid] = {**by_id.get(pid, {}), **row}
+    merged = sorted(by_id.values(), key=lambda r: str(r.get("recorded_at") or ""), reverse=True)
+    return merged[:limit]
+
+
+def update_evolution_report(report_id: str, **fields: Any) -> dict[str, Any] | None:
+    rid = (report_id or "").strip()
+    for i in range(len(_MEMORY_REPORTS) - 1, -1, -1):
+        if str(_MEMORY_REPORTS[i].get("report_id") or "") == rid:
+            _MEMORY_REPORTS[i] = {**_MEMORY_REPORTS[i], **fields}
+            return dict(_MEMORY_REPORTS[i])
+    if fields:
+        row = {"report_id": rid, **fields}
+        _MEMORY_REPORTS.append(row)
+        return row
+    return None
+
+
+async def update_evolution_report_persisted(report_id: str, **fields: Any) -> dict[str, Any] | None:
+    updated = update_evolution_report(report_id, **fields)
+    if updated is None:
+        return None
+    try:
+        await _arango_post("evolution_reports", {**updated, "_key": report_id[:254]})
+    except Exception:  # noqa: BLE001
+        logger.debug("evolution_reports arango update skipped", exc_info=True)
+    return updated
 
 
 def list_evolution_runs(*, limit: int = 500) -> list[dict[str, Any]]:

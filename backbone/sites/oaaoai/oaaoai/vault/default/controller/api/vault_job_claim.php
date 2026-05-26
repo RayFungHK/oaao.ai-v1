@@ -57,7 +57,16 @@ return function (): void {
         if ($hookFilter !== '') {
             $sql .= ' AND hook_id = :hook_id';
         }
-        $sql .= ' ORDER BY CASE WHEN status = \'queued\' THEN 0 ELSE 1 END, created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
+        $sql .= ' ORDER BY
+            CASE hook_id
+                WHEN \'vh.rag.audio_asr\' THEN 0
+                WHEN \'vh.rag.document_embed\' THEN 1
+                WHEN \'vh.rag.transcript_summary\' THEN 2
+                WHEN \'vh.rag.graph_index\' THEN 3
+                ELSE 4
+            END,
+            CASE WHEN status = \'queued\' THEN 0 ELSE 1 END,
+            created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
         )
         UPDATE oaao_vault_job j
         SET status = \'running\',

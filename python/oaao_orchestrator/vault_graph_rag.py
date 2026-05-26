@@ -69,6 +69,70 @@ def _last_user_query(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _prior_user_queries(messages: list[dict[str, Any]], *, skip_last: bool = True) -> list[str]:
+    """Earlier user turns (newest first), optionally skipping the latest user message."""
+    out: list[str] = []
+    skipped = not skip_last
+    for m in reversed(messages):
+        if not isinstance(m, dict):
+            continue
+        if str(m.get("role") or "").lower() != "user":
+            continue
+        c = m.get("content")
+        if not isinstance(c, str) or not c.strip():
+            continue
+        if not skipped:
+            skipped = True
+            continue
+        out.append(c.strip())
+    return out
+
+
+def _is_vault_rescan_query(query: str) -> bool:
+    """True when the user asks to re-search vault without restating the topic (e.g. 再查一下 Vault)."""
+    q = query.strip()
+    if not q:
+        return False
+    low = q.lower()
+    has_vault = (
+        "vault" in low
+        or "知識庫" in q
+        or "知识库" in q
+        or "知識库" in q
+    )
+    if not has_vault:
+        return False
+    rescan = any(
+        token in low or token in q
+        for token in (
+            "再查",
+            "重新查",
+            "再搜",
+            "重新搜",
+            "再找找",
+            "again",
+            "recheck",
+            "re-check",
+        )
+    )
+    lookup = any(token in low or token in q for token in ("查", "搜", "找", "search", "check", "look"))
+    short = len(q) <= 64
+    return short and (rescan or lookup)
+
+
+def _retrieval_query_from_messages(messages: list[dict[str, Any]]) -> str:
+    """Embedding / relevance query — reuse prior user turn on vault re-scan follow-ups."""
+    last = _last_user_query(messages)
+    if not last:
+        return ""
+    if not _is_vault_rescan_query(last):
+        return last
+    for prior in _prior_user_queries(messages):
+        if not _is_vault_rescan_query(prior):
+            return prior
+    return last
+
+
 def _inject_system(messages: list[dict[str, Any]], content: str) -> None:
     if messages and str(messages[0].get("role") or "").lower() == "system":
         prev = messages[0].get("content")
@@ -82,6 +146,16 @@ def _inject_system(messages: list[dict[str, Any]], content: str) -> None:
 def last_user_query(messages: list[dict[str, Any]]) -> str:
     """Public API — last user message text (HR-1)."""
     return _last_user_query(messages)
+
+
+def retrieval_query_from_messages(messages: list[dict[str, Any]]) -> str:
+    """Public API — query text for vault vector search (may reuse prior turn on re-scan)."""
+    return _retrieval_query_from_messages(messages)
+
+
+def is_vault_rescan_query(query: str) -> bool:
+    """Public API — whether the user asked to re-search vault without restating the topic."""
+    return _is_vault_rescan_query(query)
 
 
 def inject_system_message(messages: list[dict[str, Any]], content: str) -> None:
@@ -1619,9 +1693,12 @@ async def augment_chat_messages_for_vault_rag(
     manual_scope = bool(vault_source_refs) or bool(vault_scope_documents)
     explicit_scope = manual_scope and not vault_auto_rag
 
-    query = _last_user_query(messages)
-    if not query:
+    last_query = _last_user_query(messages)
+    if not last_query:
         return out
+
+    query = _retrieval_query_from_messages(messages)
+    vault_rescan = _is_vault_rescan_query(last_query)
 
     from oaao_orchestrator.slide_project.teaching_intent import (
         text_signals_vault_grounding,
@@ -1780,12 +1857,12 @@ async def augment_chat_messages_for_vault_rag(
             for pick in vault_picks:
                 all_picks.append(pick)
 
-    if not all_picks and scope_by_vault and (wants_record or handbook_turn):
+    if not all_picks and scope_by_vault and (wants_record or handbook_turn or vault_rescan):
         scroll_picks = await _record_passages_via_scope_scroll(
             profiles,
             scope_by_vault,
-            per_vault_limit=per_vault_limit,
-            min_score=min_score,
+            per_vault_limit=max(8, per_vault_limit) if vault_rescan else per_vault_limit,
+            min_score=max(0.06, min_score * 0.35) if vault_rescan else min_score,
             seen=seen,
             default_qdrant=default_qdrant,
         )
@@ -1819,6 +1896,8 @@ async def augment_chat_messages_for_vault_rag(
     if all_picks:
         if handbook_turn:
             all_picks = _handbook_grounding_picks(query, all_picks, limit=handbook_pick_limit)
+        elif vault_rescan:
+            all_picks = all_picks[:12]
         else:
             relevant = [p for p in all_picks if _passage_relevant_to_query(query, p.passage)]
             if relevant:
@@ -1836,7 +1915,7 @@ async def augment_chat_messages_for_vault_rag(
                 gk_had_off_topic = True
                 all_picks = []
 
-    if all_picks and not handbook_turn and not wants_record and not explicit_scope:
+    if all_picks and not handbook_turn and not wants_record and not explicit_scope and not vault_rescan:
         strict_relevant = [
             p for p in all_picks if _passage_relevant_to_query(query, p.passage, strict=True)
         ]
@@ -1856,7 +1935,7 @@ async def augment_chat_messages_for_vault_rag(
     )
     citation_picks = _picks_for_citations(query, cite_pool or all_picks, wants_gk=wants_gk)
 
-    if handbook_turn or wants_record or explicit_scope:
+    if handbook_turn or wants_record or explicit_scope or vault_rescan:
         grounding_picks = all_picks[:32]
     else:
         grounding_picks = citation_picks[:32]
@@ -2050,8 +2129,17 @@ def build_pipeline_snapshot_for_rag(
         )
     snap["blocks"] = blocks
     snap["artifacts"] = []
+    passages_for_accs = [
+        {
+            "file_name": c.file_name,
+            "excerpt": (c.excerpt or "")[:800],
+        }
+        for c in outcome.citation_refs[:8]
+        if (c.excerpt or "").strip()
+    ]
     snap["vault_rag"] = {
         "passage_count": outcome.passage_count,
         "profile_hits": outcome.profile_hits,
+        "passages": passages_for_accs,
     }
     return snap

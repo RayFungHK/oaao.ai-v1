@@ -155,6 +155,30 @@ class ForkSuggestionsRequest(BaseModel):
     coach_endpoint: dict[str, Any] | None = None
 
 
+class ForkHandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    parent_conversation_id: int = Field(ge=1)
+    recent_messages: list[dict[str, Any]] = Field(default_factory=list)
+    seed_prompt: str = ""
+    locale_hint: str = ""
+    coach_endpoint: dict[str, Any] | None = None
+
+
+@router.post("/v1/conversation/fork_handoff")
+async def conversation_fork_handoff(body: ForkHandoffRequest) -> dict[str, Any]:
+    from oaao_orchestrator.evaluation.fork_cit_cmt import build_fork_handoff_compacted
+
+    payload = await build_fork_handoff_compacted(
+        parent_conversation_id=int(body.parent_conversation_id),
+        recent_messages=list(body.recent_messages or []),
+        seed_prompt=str(body.seed_prompt or ""),
+        coach_endpoint=body.coach_endpoint if isinstance(body.coach_endpoint, dict) else None,
+        locale_hint=str(body.locale_hint or ""),
+    )
+    return {"ok": True, **payload}
+
+
 @router.post("/v1/conversation/fork_suggestions")
 async def conversation_fork_suggestions(body: ForkSuggestionsRequest) -> dict[str, Any]:
     from oaao_orchestrator.evaluation.fork_chat_suggestions import (

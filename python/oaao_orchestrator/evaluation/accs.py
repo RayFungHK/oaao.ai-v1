@@ -40,6 +40,10 @@ def _heuristic_factors(
     llm_output: str,
     evidence: list[Any],
 ) -> tuple[float, dict[str, float]]:
+    from oaao_orchestrator.evaluation.pipeline_evidence import (
+        looks_like_valid_vault_negative_answer,
+    )
+
     out = (llm_output or "").lower()
     um = (user_message or "").lower()
     has_evidence = bool(evidence)
@@ -50,6 +54,13 @@ def _heuristic_factors(
         alignment = 0.72
 
     accuracy = 0.74
+    if looks_like_valid_vault_negative_answer(
+        user_message=user_message,
+        llm_output=llm_output,
+        evidence=evidence,
+    ):
+        alignment = max(alignment, 0.86)
+        accuracy = 0.88
     if "wrong" in out or "incorrect" in out:
         alignment = 0.68
         accuracy = 0.44
@@ -58,16 +69,27 @@ def _heuristic_factors(
         accuracy = 0.96
 
     hallucination = 0.42 if not has_evidence else 0.05
-    if has_evidence and ("citation" in out or "source" in out):
+    if has_evidence and ("citation" in out or "source" in out or "vault" in out):
         hallucination = 0.03
+    if looks_like_valid_vault_negative_answer(
+        user_message=user_message,
+        llm_output=llm_output,
+        evidence=evidence,
+    ):
+        hallucination = 0.02
 
-    raw = ALPHA * alignment + BETA * accuracy - GAMMA * hallucination
     factors = {
         "alignment": alignment,
         "accuracy": accuracy,
         "hallucination_penalty": hallucination,
+        "citation_fidelity": accuracy,
+        "source_analysis": alignment,
     }
-    return _clip_score(raw), factors
+    from oaao_orchestrator.evaluation.coach_client import enrich_accs_display_factors
+
+    factors = enrich_accs_display_factors(factors)
+    score = _accs_from_factors(factors)
+    return score, factors
 
 
 def _action_for_score(score: float) -> tuple[str, bool, bool]:
@@ -79,11 +101,20 @@ def _action_for_score(score: float) -> tuple[str, bool, bool]:
 
 
 def _accs_from_factors(factors: dict[str, float]) -> float:
-    raw = (
-        ALPHA * factors["alignment"]
-        + BETA * factors["accuracy"]
-        - GAMMA * factors["hallucination_penalty"]
+    from oaao_orchestrator.evaluation.coach_client import enrich_accs_display_factors
+
+    f = enrich_accs_display_factors(factors)
+    core = (
+        ALPHA * f["alignment"]
+        + BETA * f["accuracy"]
+        - GAMMA * f["hallucination_penalty"]
     )
+    cf = float(f.get("citation_fidelity") or 0.0)
+    sa = float(f.get("source_analysis") or 0.0)
+    if cf > 0 and sa > 0:
+        raw = 0.55 * core + 0.25 * cf + 0.20 * sa
+    else:
+        raw = core
     return _clip_score(raw)
 
 
@@ -95,6 +126,7 @@ async def _score_accs_heuristic(
 ) -> ACCSResult:
     score, factors = _heuristic_factors(user_message, llm_output, evidence)
     action, crystallization, degraded = _action_for_score(score)
+    factors = dict(factors)
     return ACCSResult(
         score=score,
         factors=factors,
@@ -112,6 +144,7 @@ async def _score_accs_coach(
     llm_output: str,
     evidence: list[Any],
     coach_endpoint: dict[str, Any],
+    grounding_context: str = "",
 ) -> ACCSResult:
     from oaao_orchestrator.evaluation.coach_client import (
         CoachCallError,
@@ -124,6 +157,7 @@ async def _score_accs_coach(
         user_message=user_message,
         llm_output=llm_output,
         evidence=evidence,
+        grounding_context=grounding_context,
     )
     try:
         raw = await call_coach_json(endpoint=coach_endpoint, prompt=prompt, inline=False)
@@ -134,6 +168,7 @@ async def _score_accs_coach(
         raise CoachCallError(str(exc)[:200]) from exc
 
     score = _accs_from_factors(factors)
+    factors = dict(factors)
     action, crystallization, degraded = _action_for_score(score)
     return ACCSResult(
         score=score,
@@ -152,6 +187,7 @@ async def score_accs(
     llm_output: str,
     evidence: list[Any] | None = None,
     coach_endpoint: dict[str, Any] | None = None,
+    grounding_context: str = "",
 ) -> ACCSResult:
     """Score assistant output; on breaker open → skip and ship."""
     from oaao_orchestrator.evaluation.coach_client import (
@@ -188,6 +224,7 @@ async def score_accs(
                     llm_output=llm_output,
                     evidence=ev,
                     coach_endpoint=coach_endpoint,
+                    grounding_context=grounding_context,
                 )
             )
         except BreakerOpen:

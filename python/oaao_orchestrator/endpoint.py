@@ -82,3 +82,30 @@ def pick_base_url(cfg: dict[str, Any], *, ctx: Any = None) -> str:
         if alt != preferred and _is_healthy(alt):
             return alt
     return preferred
+
+
+def maybe_downgrade_planner_mode(
+    mode_id: str,
+    cfg: dict[str, Any] | None,
+) -> tuple[str, str | None]:
+    """When Box 1 is unhealthy, downgrade heavy planner modes to ``default`` (Audit §7.2)."""
+    mode = (mode_id or "default").strip().lower()
+    if mode not in ("tot", "ddtree"):
+        return mode, None
+    if not isinstance(cfg, dict):
+        return mode, None
+    policy = str(cfg.get("routing_policy") or "").strip().lower()
+    if policy != "tiered":
+        return mode, None
+    urls_raw = cfg.get("base_urls")
+    if not isinstance(urls_raw, list) or len(urls_raw) < 2:
+        return mode, None
+    urls = [str(u).strip().rstrip("/") for u in urls_raw if str(u).strip()]
+    if len(urls) < 2:
+        return mode, None
+    box1 = urls[0]
+    if _is_healthy(box1):
+        return mode, None
+    if any(u != box1 and _is_healthy(u) for u in urls):
+        return "default", f"{mode}->default"
+    return mode, None

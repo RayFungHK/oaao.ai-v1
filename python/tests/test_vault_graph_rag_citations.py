@@ -11,6 +11,8 @@ from oaao_orchestrator.vault_graph_rag import (
     _picks_for_citations,
     _query_is_general_knowledge,
     build_pipeline_snapshot_for_rag,
+    is_vault_rescan_query,
+    retrieval_query_from_messages,
 )
 
 
@@ -50,6 +52,21 @@ def test_passage_relevant_strict_blocks_spurious_handbook_hit() -> None:
     passage = "TRADING RULES OF THE MARKET\nOpening and closing of the Market"
     assert _passage_relevant_to_query(query, passage) is False
     assert _passage_relevant_to_query(query, passage, strict=True) is False
+
+
+def test_vault_rescan_reuses_prior_user_turn() -> None:
+    messages = [
+        {"role": "user", "content": "HKGX 合約裡 mFinance 的條款是什麼？"},
+        {"role": "assistant", "content": "（先前回答）"},
+        {"role": "user", "content": "再查一下 Vault"},
+    ]
+    assert is_vault_rescan_query("再查一下 Vault") is True
+    assert retrieval_query_from_messages(messages) == "HKGX 合約裡 mFinance 的條款是什麼？"
+
+
+def test_vault_rescan_without_prior_keeps_last_message() -> None:
+    messages = [{"role": "user", "content": "再查一下 Vault"}]
+    assert retrieval_query_from_messages(messages) == "再查一下 Vault"
 
 
 def test_numbered_passage_and_citation_index() -> None:
