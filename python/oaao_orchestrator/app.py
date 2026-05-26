@@ -36,6 +36,7 @@ from oaao_orchestrator.research_fetch_poll import research_fetch_poll_loop
 from oaao_orchestrator.research_refetch_poll import research_refetch_poll_loop
 from oaao_orchestrator.routes.admin import router as _admin_router
 from oaao_orchestrator.routes.health import router as _health_router
+from oaao_orchestrator.routes.mine import router as _mine_router
 from oaao_orchestrator.streaming.session import StreamSessionRegistry
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
@@ -559,6 +560,7 @@ async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
 # lines 555-718 of this file were moved verbatim; behaviour is preserved.
 app.include_router(_health_router)
 app.include_router(_admin_router)
+app.include_router(_mine_router)
 
 
 @app.post("/v1/runs/chat")
@@ -1376,44 +1378,6 @@ async def research_discover_finalize(
         final_index_url=str(payload.get("final_index_url") or "").strip() or None,
     )
     return {"ok": True, "source": src, "preview": {**src, "ok": True}}
-
-
-class MineRunRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/mine/run")
-async def mine_run(
-    req: MineRunRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.mine.worker import run_mine_job
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    return await run_mine_job(payload)
-
-
-class MineDiscoverRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/mine/discover")
-async def mine_discover(
-    req: MineDiscoverRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.mine.discover import discover_mine_sources
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    return await discover_mine_sources(payload)
 
 
 class LiveSessionStartRequest(BaseModel):

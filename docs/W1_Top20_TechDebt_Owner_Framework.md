@@ -26,7 +26,7 @@
 | 4 | 巨型 PHP controller（單檔 1979 行） | High | P0 | php-lead | 🟠 Scheduled | W6-S1 (next) — vault controller modular split | [backbone/.../vault.php](../backbone/sites/oaaoai/oaaoai/vault/default/controller/vault.php) |
 | 5 | 巨型 Python RAG 模組（1819 行） | High | P0 | python-lead | 🟠 Scheduled | W7-S2 — needs contract gate (W7-S1 done) before split | [python/oaao_orchestrator/vault_graph_rag.py](../python/oaao_orchestrator/vault_graph_rag.py) |
 | 6 | 巨型執行器模組（1581 行） | High | P0 | python-lead | 🟡 In progress | W5-S2 phase 1 — upstream sampling/timeout extracted to `run_executor_upstream.py`; phase 2 (pipeline-timing) pending | [python/oaao_orchestrator/run_executor.py](../python/oaao_orchestrator/run_executor.py) |
-| 7 | 核心 app.py 過重（1384 行） | High | P1 | python-lead | 🟡 In progress | W5-S1 phase 1 — admin + health extracted to `routes/`; app.py 1862→1707 LOC; phase 2 mounts pending | [python/oaao_orchestrator/app.py](../python/oaao_orchestrator/app.py) |
+| 7 | 核心 app.py 過重（1384 行） | High | P1 | python-lead | 🟡 In progress | W5-S1 phase 1 — admin + health extracted; phase 2 in flight — `/v1/mine/*` moved to `routes/mine.py`; app.py 1707→1671 LOC; remaining: slides/research/live/runs | [python/oaao_orchestrator/app.py](../python/oaao_orchestrator/app.py) |
 | 8 | Queue 仍為 in-process，缺可擴展 backend | High | P1 | python-lead | 🟠 Scheduled | W8-S1 — Redis queue canary | [python/oaao_orchestrator/queue_pool.py](../python/oaao_orchestrator/queue_pool.py) |
 | 9 | vault job 仍依賴 HTTP poll，跨服務耦合高 | High | P1 | python-lead | 🟠 Scheduled | W8-S2 — SSE/queue unification | [python/oaao_orchestrator/vault_job_poll.py](../python/oaao_orchestrator/vault_job_poll.py) |
 | 10 | Python 廣泛 broad exception + pass | High | P1 | python-lead | ✅ Done | W4-S1 P1 (surface) + P2 (cleanup) — `BLE` hard-fail in CI; 113 noqa baselined | [python/oaao_orchestrator/vault_graph_rag.py](../python/oaao_orchestrator/vault_graph_rag.py), [pyproject.toml](../pyproject.toml) |
@@ -41,8 +41,8 @@
 | 19 | CI 缺性能回歸 gate | Med | P2 | qa-lead | ⬜ Open | W12-S1 candidate — needs KPI baseline (W1-S2 ✅) before threshold | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
 | 20 | 文件入口分散，對外契約不集中 | Low | P2 | qa-lead | 🟡 Active | W7-S1 partial — `contracts/v1/` index established; full doc consolidation in W12 | [contracts/README.md](../contracts/README.md) |
 
-**Burn-down @ today** — Top 20: 9 ✅ Done · 2 🟡 In progress · 1 🟡 Active (partial) · 6 🟠 Scheduled · 2 ⬜ Open · **closed-rate 45%**.
-P0 subset (12 items): 7 ✅ · 2 🟡 In progress (#6, #7) · 0 🟡 Active · 3 🟠 Scheduled (#4, #5, #8) · 0 ⬜ · **P0 closed-rate 58%**.
+**Burn-down @ today** — Top 20: 9 ✅ Done (#1,2,3,10,11,12,13,14,18) · 2 🟡 In progress (#6,7) · 1 🟡 Active (#20) · 4 🟠 Scheduled (#4,5,8,9) · 4 ⬜ Open (#15,16,17,19) · **closed-rate 45%**.
+P0 subset (7 items: #1,2,3,4,5,6,14): 4 ✅ (#1,2,3,14) · 1 🟡 In progress (#6) · 2 🟠 Scheduled (#4,5) · 0 ⬜ · **P0 closed-rate 57%**.
 
 ---
 
