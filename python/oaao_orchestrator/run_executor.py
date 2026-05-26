@@ -47,6 +47,9 @@ from oaao_orchestrator.run_executor_agent import (  # noqa: E402
 from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
     handle_attachments_task as _handle_attachments_task,
 )
+from oaao_orchestrator.run_executor_error import (  # noqa: E402
+    handle_run_error as _handle_run_error,
+)
 from oaao_orchestrator.run_executor_finalize import (  # noqa: E402
     finalize_run as _finalize_run,
 )
@@ -86,9 +89,7 @@ async def execute_chat_run(
     registry: StreamSessionRegistry,
 ) -> None:
     from oaao_orchestrator.chat_helpers import (
-        _chat_completions_url,
         _resolve_planner_llm,
-        _sanitize_client_text,
     )
     from oaao_orchestrator.chat_models import ChatRunRequest
     from oaao_orchestrator.endpoint_keys import resolve_api_key as _resolve_api_key
@@ -421,33 +422,10 @@ async def execute_chat_run(
                 )
                 raise
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         run_failed = True
-        run_error_detail = _sanitize_client_text(str(e))
-        req_url = _chat_completions_url(req.endpoint.base_url)
-        err_code = (
-            "iqs_failed"
-            if "iqs" in type(e).__name__.lower() or "Breaker" in type(e).__name__
-            else "llm_stream_failed"
-        )
-        logger.exception(
-            "chat_run_failed run_id=%s ref=%s url=%s code=%s",
-            run_id,
-            req.endpoint.endpoint_ref,
-            req_url,
-            err_code,
-        )
-        await run.append(
-            StreamEnvelope(
-                phase=PHASE_SYSTEM,
-                kind="error",
-                text=err_code,
-                payload={
-                    "detail": run_error_detail,
-                    "exc_type": type(e).__name__,
-                    "hint": "From inside Docker use this compose stack's service hostname + container port for the LLM (e.g. http://my-llm:1234/v1/...); avoid http://127.0.0.1 unless the model shares that container's namespace. Only when the inference server runs on the workstation use http://host.docker.internal:<host-port>.",
-                },
-            )
+        run_error_detail = await _handle_run_error(
+            run=run, req=req, run_id=run_id, exc=e
         )
     finally:
         await _finalize_run(
