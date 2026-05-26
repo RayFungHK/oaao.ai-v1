@@ -48,6 +48,9 @@ from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
     handle_attachments_task as _handle_attachments_task,
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
+    apply_request_material_grounding as _apply_request_material_grounding,
+)
+from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     log_chat_attachments_entry as _log_chat_attachments_entry,
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
@@ -121,32 +124,7 @@ async def execute_chat_run(
     pipeline_snap: dict[str, Any] | None = None
     plan: RunPlan | None = None
     messages_for_llm = list(req.messages)
-    material_grounding = list(
-        getattr(req, "conversation_material_grounding", None) or [],
-    )
-    reuse_grounding_msg = getattr(req, "reuse_grounding_message_id", None)
-    reuse_grounding_turn = False
-    try:
-        reuse_grounding_turn = int(reuse_grounding_msg or 0) > 0
-    except (TypeError, ValueError):
-        reuse_grounding_turn = False
-    sd_for_reuse = req.slide_designer if isinstance(req.slide_designer, dict) else {}
-    if isinstance(sd_for_reuse, dict) and (
-        sd_for_reuse.get("regenerate_deck")
-        or sd_for_reuse.get("continuation")
-        or str(sd_for_reuse.get("active_material_id") or "").strip()
-    ):
-        reuse_grounding_turn = True
-    if material_grounding:
-        from oaao_orchestrator.material_grounding import (
-            apply_conversation_material_grounding,
-        )
-
-        apply_conversation_material_grounding(
-            messages_for_llm,
-            material_grounding,
-            reuse_turn=reuse_grounding_turn,
-        )
+    _apply_request_material_grounding(req=req, messages_for_llm=messages_for_llm)
     run_failed = False
     run_error_detail: str | None = None
     slide_project_meta: dict[str, Any] | None = None

@@ -51,3 +51,39 @@ def register_request_tool_servers(*, req: Any) -> None:
                     openapi_spec=spec if isinstance(spec, dict) else None,
                 )
             )
+
+
+def apply_request_material_grounding(*, req: Any, messages_for_llm: list[Any]) -> None:
+    """Apply conversation material grounding to ``messages_for_llm`` in place.
+
+    Replicates the pre-loop reuse-turn detection: integer
+    ``reuse_grounding_message_id > 0``, or a ``slide_designer`` dict that
+    sets ``regenerate_deck`` / ``continuation`` / a non-empty
+    ``active_material_id``.
+    """
+    material_grounding = list(
+        getattr(req, "conversation_material_grounding", None) or [],
+    )
+    reuse_grounding_msg = getattr(req, "reuse_grounding_message_id", None)
+    reuse_grounding_turn = False
+    try:
+        reuse_grounding_turn = int(reuse_grounding_msg or 0) > 0
+    except (TypeError, ValueError):
+        reuse_grounding_turn = False
+    sd_for_reuse = req.slide_designer if isinstance(req.slide_designer, dict) else {}
+    if isinstance(sd_for_reuse, dict) and (
+        sd_for_reuse.get("regenerate_deck")
+        or sd_for_reuse.get("continuation")
+        or str(sd_for_reuse.get("active_material_id") or "").strip()
+    ):
+        reuse_grounding_turn = True
+    if material_grounding:
+        from oaao_orchestrator.material_grounding import (
+            apply_conversation_material_grounding,
+        )
+
+        apply_conversation_material_grounding(
+            messages_for_llm,
+            material_grounding,
+            reuse_turn=reuse_grounding_turn,
+        )
