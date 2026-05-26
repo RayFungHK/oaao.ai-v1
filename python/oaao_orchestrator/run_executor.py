@@ -17,15 +17,10 @@ from oaao_orchestrator.planner import resolve_allowed_agents
 # W5-S2 phase 1 — Upstream sampling + timeout helpers live in
 # run_executor_upstream.py. The underscore-prefixed names below are kept as
 # thin aliases so internal callers in this module need no churn.
-from oaao_orchestrator.streaming.events import (
-    PHASE_SYSTEM,
-    StreamEnvelope,
-)
 from oaao_orchestrator.streaming.session import StreamSessionRegistry
 from oaao_orchestrator.tasks.cancel import emit_run_cancelled
-from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskStatus, RunTaskType
+from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskStatus
 from oaao_orchestrator.tasks.stream_emit import (
-    emit_run_task_end,
     emit_run_task_start,
     ensure_run_task_agent_kind,
 )
@@ -37,11 +32,8 @@ logger = logging.getLogger(__name__)
 # Plan/queue helpers extracted into run_executor_plan (Top-20 #6 phase 4).
 # Aliased to underscore names so existing call sites in execute_chat_run need
 # no churn.
-from oaao_orchestrator.run_executor_agent import (  # noqa: E402
-    handle_agent_task as _handle_agent_task,
-)
-from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
-    handle_attachments_task as _handle_attachments_task,
+from oaao_orchestrator.run_executor_dispatch import (  # noqa: E402
+    dispatch_run_task as _dispatch_run_task,
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     apply_request_material_grounding as _apply_request_material_grounding,
@@ -61,12 +53,6 @@ from oaao_orchestrator.run_executor_error import (  # noqa: E402
 from oaao_orchestrator.run_executor_finalize import (  # noqa: E402
     finalize_run as _finalize_run,
 )
-from oaao_orchestrator.run_executor_llm_stream import (  # noqa: E402
-    LLMStreamState as _LLMStreamState,
-)
-from oaao_orchestrator.run_executor_llm_stream import (  # noqa: E402
-    handle_llm_stream_task as _handle_llm_stream_task,
-)
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     pop_parallel_batch as _pop_parallel_batch,
 )
@@ -84,9 +70,6 @@ from oaao_orchestrator.run_executor_preamble import (  # noqa: E402
 )
 from oaao_orchestrator.run_executor_slide_fanout import (  # noqa: E402
     handle_slide_page_batch as _handle_slide_page_batch,
-)
-from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
-    handle_vault_rag_task as _handle_vault_rag_task,
 )
 
 
@@ -215,115 +198,43 @@ async def execute_chat_run(
             task_t0 = time.perf_counter()
             task_failed = False
             try:
-                if run_task.type == RunTaskType.VAULT_RAG:
-                    messages_for_llm, pipeline_snap = await _handle_vault_rag_task(
-                        req=req,
-                        run=run,
-                        run_task=run_task,
-                        plan=plan,
-                        run_ctx=run_ctx,
-                        allowed_agents=allowed_agents,
-                        scope_docs=scope_docs,
-                        pipeline_snap=pipeline_snap,
-                        messages_for_llm=messages_for_llm,
-                    )
-
-                elif run_task.type == RunTaskType.ATTACHMENTS:
-                    messages_for_llm, pipeline_snap = await _handle_attachments_task(
-                        req=req,
-                        run_ctx=run_ctx,
-                        messages_for_llm=messages_for_llm,
-                        pipeline_snap=pipeline_snap,
-                    )
-
-                elif run_task.type == RunTaskType.AGENT:
-                    (
-                        messages_for_llm,
-                        pipeline_snap,
-                        task_failed,
-                        run_failed,
-                        slide_project_meta,
-                        _agent_skip,
-                    ) = await _handle_agent_task(
-                        run=run,
-                        req=req,
-                        plan=plan,
-                        task_queue=task_queue,
-                        run_task=run_task,
-                        run_ctx=run_ctx,
-                        allowed_agents=allowed_agents,
-                        messages_for_llm=messages_for_llm,
-                        pipeline_snap=pipeline_snap,
-                        slide_project_meta=slide_project_meta,
-                    )
-                    if _agent_skip:
-                        continue
-
-                elif run_task.type == RunTaskType.LLM_CALL:
-                    await run.append(
-                        StreamEnvelope(
-                            phase=PHASE_SYSTEM,
-                            kind="status",
-                            text="llm_call_skipped",
-                            payload={"run_task_id": run_task.id},
-                        )
-                    )
-
-                elif run_task.type == RunTaskType.LLM_STREAM:
-                    _stream_state = _LLMStreamState(
-                        streamed_parts=streamed_parts,
-                        t_first_token=t_first_token,
-                        out_chars=out_chars,
-                        completion_tokens=completion_tokens,
-                        prompt_tokens=prompt_tokens,
-                        finish_reason=finish_reason,
-                        task_failed=task_failed,
-                        run_failed=run_failed,
-                    )
-                    _llm_abort = await _handle_llm_stream_task(
-                        state=_stream_state,
-                        run=run,
-                        req=req,
-                        run_ctx=run_ctx,
-                        run_task=run_task,
-                        plan=plan,
-                        allowed_agents=allowed_agents,
-                        messages_for_llm=messages_for_llm,
-                        pipeline_snap=pipeline_snap,
-                        pipeline_timing=pipeline_timing,
-                        task_t0=task_t0,
-                        api_key=api_key,
-                    )
-                    t_first_token = _stream_state.t_first_token
-                    out_chars = _stream_state.out_chars
-                    completion_tokens = _stream_state.completion_tokens
-                    prompt_tokens = _stream_state.prompt_tokens
-                    finish_reason = _stream_state.finish_reason
-                    task_failed = _stream_state.task_failed
-                    run_failed = _stream_state.run_failed
-                    if _llm_abort:
-                        return
-
-                elif run_task.type == RunTaskType.EMIT:
-                    await run.append(
-                        StreamEnvelope(
-                            phase=PHASE_SYSTEM,
-                            kind="status",
-                            text=run_task.title or "emit",
-                            payload={"run_task_id": run_task.id},
-                        )
-                    )
-
-                else:
-                    logger.warning("unsupported run_task type=%s id=%s", run_task.type, run_task.id)
-                    run_task.status = RunTaskStatus.SKIPPED
-                    await emit_run_task_end(
-                        run,
-                        plan,
-                        run_task,
-                        allowed_agents=allowed_agents,
-                        pipeline_snap=pipeline_snap,
-                    )
+                _dispatch_outcome = await _dispatch_run_task(
+                    run=run,
+                    req=req,
+                    run_task=run_task,
+                    plan=plan,
+                    task_queue=task_queue,
+                    run_ctx=run_ctx,
+                    allowed_agents=allowed_agents,
+                    scope_docs=scope_docs,
+                    messages_for_llm=messages_for_llm,
+                    pipeline_snap=pipeline_snap,
+                    pipeline_timing=pipeline_timing,
+                    slide_project_meta=slide_project_meta,
+                    streamed_parts=streamed_parts,
+                    t_first_token=t_first_token,
+                    out_chars=out_chars,
+                    completion_tokens=completion_tokens,
+                    prompt_tokens=prompt_tokens,
+                    finish_reason=finish_reason,
+                    task_failed=task_failed,
+                    run_failed=run_failed,
+                    api_key=api_key,
+                    task_t0=task_t0,
+                )
+                messages_for_llm = _dispatch_outcome.messages_for_llm
+                pipeline_snap = _dispatch_outcome.pipeline_snap
+                task_failed = _dispatch_outcome.task_failed
+                run_failed = _dispatch_outcome.run_failed
+                slide_project_meta = _dispatch_outcome.slide_project_meta
+                t_first_token = _dispatch_outcome.t_first_token
+                out_chars = _dispatch_outcome.out_chars
+                completion_tokens = _dispatch_outcome.completion_tokens
+                prompt_tokens = _dispatch_outcome.prompt_tokens
+                finish_reason = _dispatch_outcome.finish_reason
+                if _dispatch_outcome.control == "return":
+                    return
+                if _dispatch_outcome.control == "continue":
                     continue
 
                 (
