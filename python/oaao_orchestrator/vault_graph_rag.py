@@ -1144,16 +1144,17 @@ def _inject_general_knowledge_only(messages: list[dict[str, Any]], *, explicit_s
             "The user scoped vault sources, but nothing retrieved answers this question. "
             "Use **one short sentence** noting the selected sources did not cover this topic, then answer "
             "**fully from general knowledge**. Do **not** bullet-list unrelated source topics. "
-            "Do **not** claim you cannot access the user's private vault, knowledge base, or uploaded documents.",
+            "Do **not** claim you cannot access the user's private vault or knowledge base. "
+            "Ephemeral files attached in chat (if any) are separate — honor attachment excerpts when present.",
         )
         return
     _inject_system(
         messages,
-        "Answer this question **fully from your general training knowledge**. "
-        "Vault retrieval found **no on-topic passages** — do **not** mention uploaded files, meeting records, "
-        "or that documents lack the answer. Do **not** list unrelated vault topics. "
-        "Do **not** claim you cannot access the user's private vault, knowledge base, or uploaded documents. "
-        "Give a direct, complete explanation as you would without any document context.",
+        "Answer this question **fully from your general training knowledge** when vault excerpts do not apply. "
+        "Vault retrieval found **no on-topic passages** — do **not** mention vault-indexed documents, meeting records, "
+        "or that vault sources lack the answer. Do **not** list unrelated vault topics. "
+        "Do **not** claim you cannot access the user's private vault or knowledge base. "
+        "Ephemeral files attached in chat (if any) are separate — honor attachment excerpts when present.",
     )
 
 

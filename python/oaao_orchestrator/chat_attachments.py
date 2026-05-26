@@ -229,7 +229,9 @@ async def process_chat_attachments(
     if numbered_blocks:
         block = "\n\n---\n\n".join(numbered_blocks)
         sys = (
-            "The user attached files for this turn only (not in vault). Use excerpts below when relevant.\n\n"
+            "The user attached files for this turn only (not in vault). "
+            "When they ask to summarize (總結, 摘要, summarize, etc.) or refer to these files, "
+            "answer from the excerpts below — do not claim no document or content was provided.\n\n"
             + _ATTACHMENT_INLINE_CITATIONS
             + "\n\n"
             + block

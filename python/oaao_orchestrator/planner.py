@@ -26,17 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def _vault_rag_needed(req: object) -> bool:
-    if bool(getattr(req, "vault_auto_rag", False)):
-        return True
-    refs = getattr(req, "vault_source_refs", None) or []
-    if refs:
-        return True
-    ids = getattr(req, "vault_source_ids", None) or []
-    if ids:
-        return True
-    scope = getattr(req, "vault_scope_documents", None) or {}
-    if scope:
-        return True
+    attachments = getattr(req, "chat_attachments", None) or []
+    has_attachments = bool(attachments)
+    auto_rag = bool(getattr(req, "vault_auto_rag", False))
+    explicit_scope = bool(
+        getattr(req, "vault_source_refs", None)
+        or getattr(req, "vault_source_ids", None)
+        or getattr(req, "vault_scope_documents", None)
+    )
     from oaao_orchestrator.slide_project.teaching_intent import (
         text_signals_personal_record_lookup,
         text_signals_vault_grounding,
@@ -52,6 +49,24 @@ def _vault_rag_needed(req: object) -> bool:
             continue
         if text_signals_vault_grounding(content) or text_signals_personal_record_lookup(content):
             return True
+
+    # Composer uploads for this turn — auto vault search adds conflicting zero-hit prompts.
+    if has_attachments and auto_rag and not explicit_scope:
+        return False
+
+    if auto_rag:
+        return True
+    if explicit_scope:
+        return True
+    refs = getattr(req, "vault_source_refs", None) or []
+    if refs:
+        return True
+    ids = getattr(req, "vault_source_ids", None) or []
+    if ids:
+        return True
+    scope = getattr(req, "vault_scope_documents", None) or {}
+    if scope:
+        return True
     return False
 
 

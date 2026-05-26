@@ -94,6 +94,7 @@ def inject_compose_vault_awareness(
         or getattr(req, "vault_retrieval_profiles", None)
         or getattr(req, "vault_scope_documents", None)
     )
+    has_attachments = bool(getattr(req, "chat_attachments", None) or [])
 
     query = last_user_query(messages)
     handbook_turn = bool(query and text_signals_vault_grounding(query))
@@ -109,6 +110,14 @@ def inject_compose_vault_awareness(
         return
 
     if passage_count > 0:
+        return
+    if has_attachments:
+        inject_system_message(
+            messages,
+            "The user attached files for this turn; excerpts are in the system message (attached files). "
+            "When the question refers to those files (e.g. summarize / 總結), answer from the attachment excerpts. "
+            "Do not claim no document was provided.",
+        )
         return
     if not vault_ran and not scoped and not handbook_turn and not record_turn:
         return

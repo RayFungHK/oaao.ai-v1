@@ -67,3 +67,16 @@ def test_attachments_use_fast_plan_not_llm_planner() -> None:
     assert needs_multi_agent_turn(req) is False
     plan = build_fast_chat_plan(req)
     assert [t.type for t in plan.tasks] == [RunTaskType.ATTACHMENTS, RunTaskType.LLM_STREAM]
+
+
+def test_attachments_skip_auto_vault_rag() -> None:
+    req = SimpleNamespace(
+        vault_auto_rag=True,
+        vault_source_refs=[],
+        vault_source_ids=[],
+        vault_scope_documents={},
+        chat_attachments=[{"id": 1, "file_name": "agreement.pdf"}],
+        messages=[{"role": "user", "content": "總結"}],
+    )
+    plan = build_fast_chat_plan(req)
+    assert [t.type for t in plan.tasks] == [RunTaskType.ATTACHMENTS, RunTaskType.LLM_STREAM]
