@@ -3,11 +3,18 @@
 These functions used to live inline in ``run_executor.execute_chat_run``'s
 preamble. Splitting them out trims the orchestrator's hottest module without
 changing call sites — ``run_executor`` now re-imports each helper.
+
+Phase 5 also folds the inline VAULT_RAG dispatch branch into
+``handle_vault_rag_task`` so the dispatch tree in ``execute_chat_run`` only
+needs a one-liner.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover
     from oaao_orchestrator.run_plan import RunPlan
@@ -134,3 +141,90 @@ def inject_compose_vault_awareness(
         "If retrieval found no on-topic passages, answer briefly from general knowledge and note that "
         "scoped sources did not match this question — without refusing on access grounds.",
     )
+
+
+async def handle_vault_rag_task(
+    *,
+    req: Any,
+    run: Any,
+    run_task: Any,
+    plan: Any,
+    run_ctx: RunContext,
+    allowed_agents: Any,
+    scope_docs: dict[int, list[int]],
+    pipeline_snap: dict[str, Any] | None,
+    messages_for_llm: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Run the VAULT_RAG dispatch branch.
+
+    Top-20 #6 phase 5 — folds the inline branch from
+    ``run_executor.execute_chat_run`` so the dispatch tree shrinks. Returns the
+    (possibly-updated) ``(messages_for_llm, pipeline_snap)`` tuple. Mutates
+    ``run_ctx`` in place (``.extra["vault_rag"]``, ``.messages``) and emits the
+    same SSE envelopes as the original inline code.
+    """
+    from oaao_orchestrator.agents import get_agent_registry
+    from oaao_orchestrator.safety.agent_timeout import run_agent_with_timeout
+    from oaao_orchestrator.streaming.events import (
+        KIND_STATUS,
+        PHASE_SYSTEM,
+        StreamEnvelope,
+    )
+    from oaao_orchestrator.tasks.stream_emit import emit_task_list_status
+
+    run_ctx.extra["vault_rag"] = vault_rag_ctx_extra(
+        req,
+        scope_docs=scope_docs,
+        pipeline_snap=pipeline_snap,
+        plan=plan,
+    )
+    rag_failed = False
+    try:
+        rag_agent_result = await run_agent_with_timeout(
+            get_agent_registry().run,
+            run=run,
+            run_task=run_task,
+            ctx=run_ctx,
+            agent_kind="vault_rag",
+        )
+        (
+            messages_for_llm,
+            pipeline_snap,
+            rag_failed,
+        ) = await apply_vault_rag_agent_result(
+            rag_agent_result,
+            messages_for_llm=messages_for_llm,
+            run_ctx=run_ctx,
+            pipeline_snap=pipeline_snap,
+        )
+    except Exception:
+        logger.exception("vault_rag_task_failed run_task=%s", run_task.id)
+        rag_failed = True
+    if rag_failed:
+        inject_compose_vault_awareness(
+            messages_for_llm,
+            req=req,
+            vault_ran=False,
+            passage_count=0,
+        )
+        run_ctx.messages = list(messages_for_llm)
+        await run.append(
+            StreamEnvelope(
+                phase=PHASE_SYSTEM,
+                kind=KIND_STATUS,
+                text="vault_rag_degraded",
+                payload={
+                    "run_task_id": run_task.id,
+                    "detail": "Knowledge-base retrieval failed; continuing with general knowledge.",
+                },
+            )
+        )
+    await emit_task_list_status(
+        run,
+        plan,
+        allowed_agents=allowed_agents,
+        pipeline_snap=pipeline_snap,
+        text="vault_rag_ready" if not rag_failed else "vault_rag_degraded",
+    )
+    return messages_for_llm, pipeline_snap
+

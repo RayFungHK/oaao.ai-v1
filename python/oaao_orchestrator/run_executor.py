@@ -111,6 +111,9 @@ from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
     apply_vault_rag_agent_result as _apply_vault_rag_agent_result,
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
+    handle_vault_rag_task as _handle_vault_rag_task,
+)
+from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
     inject_compose_vault_awareness as _inject_compose_vault_awareness,
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
@@ -678,59 +681,16 @@ async def execute_chat_run(
             task_failed = False
             try:
                 if run_task.type == RunTaskType.VAULT_RAG:
-                    run_ctx.extra["vault_rag"] = _vault_rag_ctx_extra(
-                        req,
+                    messages_for_llm, pipeline_snap = await _handle_vault_rag_task(
+                        req=req,
+                        run=run,
+                        run_task=run_task,
+                        plan=plan,
+                        run_ctx=run_ctx,
+                        allowed_agents=allowed_agents,
                         scope_docs=scope_docs,
                         pipeline_snap=pipeline_snap,
-                        plan=plan,
-                    )
-                    rag_failed = False
-                    try:
-                        rag_agent_result = await run_agent_with_timeout(
-                            get_agent_registry().run,
-                            run=run,
-                            run_task=run_task,
-                            ctx=run_ctx,
-                            agent_kind="vault_rag",
-                        )
-                        (
-                            messages_for_llm,
-                            pipeline_snap,
-                            rag_failed,
-                        ) = await _apply_vault_rag_agent_result(
-                            rag_agent_result,
-                            messages_for_llm=messages_for_llm,
-                            run_ctx=run_ctx,
-                            pipeline_snap=pipeline_snap,
-                        )
-                    except Exception:
-                        logger.exception("vault_rag_task_failed run_task=%s", run_task.id)
-                        rag_failed = True
-                    if rag_failed:
-                        _inject_compose_vault_awareness(
-                            messages_for_llm,
-                            req=req,
-                            vault_ran=False,
-                            passage_count=0,
-                        )
-                        run_ctx.messages = list(messages_for_llm)
-                        await run.append(
-                            StreamEnvelope(
-                                phase=PHASE_SYSTEM,
-                                kind=KIND_STATUS,
-                                text="vault_rag_degraded",
-                                payload={
-                                    "run_task_id": run_task.id,
-                                    "detail": "Knowledge-base retrieval failed; continuing with general knowledge.",
-                                },
-                            )
-                        )
-                    await emit_task_list_status(
-                        run,
-                        plan,
-                        allowed_agents=allowed_agents,
-                        pipeline_snap=pipeline_snap,
-                        text="vault_rag_ready" if not rag_failed else "vault_rag_degraded",
+                        messages_for_llm=messages_for_llm,
                     )
 
                 elif run_task.type == RunTaskType.ATTACHMENTS:
