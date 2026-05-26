@@ -25,8 +25,8 @@
 | 3 | CORS 全開 allow_origins | High | P0 | security-lead | ✅ Done | W10-S2 — env-driven allowlist; wildcard requires explicit opt-in | [python/oaao_orchestrator/app.py](../python/oaao_orchestrator/app.py) |
 | 4 | 巨型 PHP controller（單檔 1979 行） | High | P0 | php-lead | 🟠 Scheduled | W6-S1 (next) — vault controller modular split | [backbone/.../vault.php](../backbone/sites/oaaoai/oaaoai/vault/default/controller/vault.php) |
 | 5 | 巨型 Python RAG 模組（1819 行） | High | P0 | python-lead | 🟠 Scheduled | W7-S2 — needs contract gate (W7-S1 done) before split | [python/oaao_orchestrator/vault_graph_rag.py](../python/oaao_orchestrator/vault_graph_rag.py) |
-| 6 | 巨型執行器模組（1581 行） | High | P0 | python-lead | � In progress | W5-S2 phase 1 — upstream sampling/timeout extracted to `run_executor_upstream.py`; phase 2 (pipeline-timing) pending | [python/oaao_orchestrator/run_executor.py](../python/oaao_orchestrator/run_executor.py) |
-| 7 | 核心 app.py 過重（1384 行） | High | P1 | python-lead | � In progress | W5-S1 phase 1 — admin + health extracted to `routes/`; app.py 1862→1707 LOC; phase 2 mounts pending | [python/oaao_orchestrator/app.py](../python/oaao_orchestrator/app.py) |
+| 6 | 巨型執行器模組（1581 行） | High | P0 | python-lead | 🟡 In progress | W5-S2 phase 1 — upstream sampling/timeout extracted to `run_executor_upstream.py`; phase 2 (pipeline-timing) pending | [python/oaao_orchestrator/run_executor.py](../python/oaao_orchestrator/run_executor.py) |
+| 7 | 核心 app.py 過重（1384 行） | High | P1 | python-lead | 🟡 In progress | W5-S1 phase 1 — admin + health extracted to `routes/`; app.py 1862→1707 LOC; phase 2 mounts pending | [python/oaao_orchestrator/app.py](../python/oaao_orchestrator/app.py) |
 | 8 | Queue 仍為 in-process，缺可擴展 backend | High | P1 | python-lead | 🟠 Scheduled | W8-S1 — Redis queue canary | [python/oaao_orchestrator/queue_pool.py](../python/oaao_orchestrator/queue_pool.py) |
 | 9 | vault job 仍依賴 HTTP poll，跨服務耦合高 | High | P1 | python-lead | 🟠 Scheduled | W8-S2 — SSE/queue unification | [python/oaao_orchestrator/vault_job_poll.py](../python/oaao_orchestrator/vault_job_poll.py) |
 | 10 | Python 廣泛 broad exception + pass | High | P1 | python-lead | ✅ Done | W4-S1 P1 (surface) + P2 (cleanup) — `BLE` hard-fail in CI; 113 noqa baselined | [python/oaao_orchestrator/vault_graph_rag.py](../python/oaao_orchestrator/vault_graph_rag.py), [pyproject.toml](../pyproject.toml) |
@@ -37,12 +37,12 @@
 | 15 | subprocess 熱點分散，可能造成資源抖動 | Med | P1 | python-lead | ⬜ Open | W9-S1 candidate — subprocess pool + back-pressure | [python/oaao_orchestrator/funasr_ops.py](../python/oaao_orchestrator/funasr_ops.py) |
 | 16 | slide template 儲存模組過肥（1149 行） | Med | P2 | php-lead | ⬜ Open | W9-S2 candidate — defer until W6-S1 pattern stable | [backbone/.../SlideTemplateStorage.php](../backbone/sites/oaaoai/oaaoai/slide-designer/default/library/SlideTemplateStorage.php) |
 | 17 | slide project store 過肥（1104 行） | Med | P2 | python-lead | ⬜ Open | W9-S2 candidate — defer until W5-S2 pattern stable | [python/oaao_orchestrator/slide_project/store.py](../python/oaao_orchestrator/slide_project/store.py) |
-| 18 | CI 缺安全掃描 gate | Med | P1 | security-lead | 🟡 Active | W11-S2 (partial — SQL guard live); secret-scan + dep-audit pending | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
+| 18 | CI 缺安全掃描 gate | Med | P1 | security-lead | 🟡 Active | W11-S3 Phase 1 — gitleaks + pip-audit + composer audit wired as advisory; Phase 2 flip pending baseline curation | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
 | 19 | CI 缺性能回歸 gate | Med | P2 | qa-lead | ⬜ Open | W12-S1 candidate — needs KPI baseline (W1-S2 ✅) before threshold | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
 | 20 | 文件入口分散，對外契約不集中 | Low | P2 | qa-lead | 🟡 Active | W7-S1 partial — `contracts/v1/` index established; full doc consolidation in W12 | [contracts/README.md](../contracts/README.md) |
 
-**Burn-down @ today** — Top 20: 9 ✅ Done · 2 🟡 Active · 6 🟠 Scheduled · 3 ⬜ Open · **closed-rate 45%**.
-P0 subset (12 items): 7 ✅ · 0 🟡 · 4 🟠 · 1 ⬜ · **P0 closed-rate 58%**.
+**Burn-down @ today** — Top 20: 8 ✅ Done · 2 🟡 In progress · 2 🟡 Active (partial) · 6 🟠 Scheduled · 2 ⬜ Open · **closed-rate 40%**.
+P0 subset (12 items): 7 ✅ · 2 🟡 In progress (#6, #7) · 0 🟡 Active · 3 🟠 Scheduled (#4, #5, #8) · 0 ⬜ · **P0 closed-rate 58%**.
 
 ---
 
@@ -111,7 +111,7 @@ P0 subset (12 items): 7 ✅ · 0 🟡 · 4 🟠 · 1 ⬜ · **P0 closed-rate 58%
 | 15 | python-lead | qa-lead | **W9** | subprocess pool + back-pressure metrics |
 | 16 | php-lead | qa-lead | **W9** | apply W6-S1 pattern post-stabilisation |
 | 17 | python-lead | qa-lead | **W9** | apply W5-S2 pattern post-stabilisation |
-| 18 | security-lead | devops | **W11** | secret-scan + dep-audit CI step |
+| 18 | security-lead | devops | W11 ✅ P1 | secret-scan + dep-audit CI step (advisory; Phase-2 flip pending) |
 | 19 | qa-lead | python-lead | **W12** | perf-bench CI step + thresholds from W1-S2 KPIs |
 | 20 | qa-lead | tech-writer | **W12** | docs index + contract index page |
 

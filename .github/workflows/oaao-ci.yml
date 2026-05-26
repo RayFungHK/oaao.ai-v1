@@ -144,6 +144,74 @@ jobs:
             exit 1
           fi
 
+  security-audit:
+    # W11-S3 (Top-20 #18) — Secret scan + dependency audit.
+    # Phase 1 (this commit): ADVISORY. Establishes baseline; CI surfaces findings
+    #   but does not block merges so we can land the gate without false-positive
+    #   churn against the historical tree.
+    # Phase 2 (later): flip continue-on-error off for secret-scan (gitleaks) once
+    #   .gitleaks.toml allowlist is curated, and for pip-audit/composer-audit once
+    #   the dep tree is patched current. See docs/W1_Top20_TechDebt_Owner_Framework.md #18.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs full history to scan blobs
+
+      # --- Secret scan ----------------------------------------------------
+      - name: gitleaks (secret scan, advisory)
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+      # --- Python dependency audit ----------------------------------------
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: pip-audit (Python deps, advisory)
+        continue-on-error: true
+        run: |
+          set -eu
+          pip install --quiet pip-audit
+          # Scan every requirements*.txt under python/. Use --disable-pip so the
+          # audit does not try to resolve transitive trees through the network
+          # beyond the vulnerability DB itself (faster, deterministic).
+          shopt -s nullglob
+          status=0
+          for req in python/requirements*.txt; do
+            echo "::group::pip-audit ${req}"
+            pip-audit --requirement "${req}" --strict --progress-spinner=off || status=$?
+            echo "::endgroup::"
+          done
+          if [ "$status" != "0" ]; then
+            echo "::warning::pip-audit reported vulnerabilities (advisory, not blocking)"
+          fi
+
+      # --- PHP dependency audit -------------------------------------------
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer:v2
+          coverage: none
+
+      - name: composer audit (PHP deps, advisory)
+        continue-on-error: true
+        run: |
+          set -eu
+          if [ -f composer.lock ]; then
+            composer audit --no-dev --format=plain || true
+          else
+            echo "no composer.lock at root; running install-less audit"
+            composer audit --format=plain || true
+          fi
+
   # W2-S3 — Unified CI summary. Aggregates all upstream job results into a single
   # check that PR reviewers can read at a glance. Required jobs failing → summary
   # fails. Advisory jobs (php-style, python-lint) surface their status but do not
@@ -155,6 +223,7 @@ jobs:
       - audit-full
       - php-style
       - python-lint
+      - security-audit
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -165,6 +234,7 @@ jobs:
           AUDIT: ${{ needs.audit-full.result }}
           STYLE: ${{ needs.php-style.result }}
           LINT: ${{ needs.python-lint.result }}
+          SECAUDIT: ${{ needs.security-audit.result }}
         run: |
           set -eu
           icon() {
@@ -186,6 +256,7 @@ jobs:
             echo "| audit-full          | $(icon "$AUDIT")  $AUDIT  | required |"
             echo "| php-style           | $(icon "$STYLE")  $STYLE  | advisory (W2-S2) |"
             echo "| python-lint         | $(icon "$LINT")   $LINT   | required (ruff hard-fail, W4-S1 P2) |"
+            echo "| security-audit      | $(icon "$SECAUDIT") $SECAUDIT | advisory (W11-S3 P1) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if any required job failed

@@ -1,0 +1,54 @@
+# W11-S3 (Top-20 #18) — gitleaks allowlist for the oaao.ai-v1 repo.
+#
+# Phase 1 is ADVISORY in CI (continue-on-error). This file documents the
+# false-positive corridor that we already audit by hand so reviewers don't
+# get drowned when we flip the gate to hard-fail in Phase 2.
+#
+# Rules of thumb:
+#   - Allowlist patterns must be SPECIFIC. Never globally allow regex like
+#     "secret" or "token".
+#   - When you add an entry here, also reference a docs/ rationale.
+#   - Real secrets must NEVER end up in this file. If gitleaks flags a real
+#     leak, rotate the credential, remove the blob, then close — do not
+#     allowlist it.
+
+title = "oaao.ai-v1 gitleaks allowlist"
+
+[extend]
+# Inherit the upstream default ruleset.
+useDefault = true
+
+[allowlist]
+description = "Known-safe fixtures and dev-only placeholders"
+
+paths = [
+  # Dev / staging / prod env templates — they ship placeholder values only.
+  '''docker/env\.example$''',
+  '''docker/env\.stage\.example$''',
+  '''docker/env\.prod\.example$''',
+  # Local-only env file is .gitignored; if it shows up in CI it's a mistake
+  # we want surfaced, so DO NOT allowlist docker/env or .env here.
+
+  # Test fixtures that intentionally embed dummy tokens.
+  '''python/tests/.*fixture.*''',
+  '''Test_Suite/.*''',
+
+  # Documentation pages that quote secret formats by design.
+  '''docs/.*\.md$''',
+]
+
+regexes = [
+  # CI smoke secret (W3-S1) — well-known placeholder, never used outside the
+  # ephemeral GitHub runner.
+  '''ci_smoke_secret_do_not_reuse''',
+  # Hex placeholder convention used across env.*.example files.
+  '''<32-byte-hex-from-secret-manager>''',
+]
+
+stopwords = [
+  # Generic words gitleaks may flag in code comments. Keep this list short.
+  "example",
+  "placeholder",
+  "dummy",
+  "fixture",
+]
