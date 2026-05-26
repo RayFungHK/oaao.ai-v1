@@ -18,11 +18,13 @@ logger = logging.getLogger(__name__)
 def log_chat_attachments_entry(*, run_id: str, req: Any) -> None:
     """Emit the chat_attachments entry log line."""
     atts_in = list(getattr(req, "chat_attachments", None) or [])
+    mm_u = getattr(req, "mm_understand", None)
     logger.info(
-        "chat_attachments: execute_chat_run entry run_id=%s count=%s ids=%s",
+        "chat_attachments: execute_chat_run entry run_id=%s count=%s ids=%s mm_understand=%s",
         run_id,
         len(atts_in),
         [a.get("id") if isinstance(a, dict) else None for a in atts_in[:8]],
+        isinstance(mm_u, dict),
     )
 
 
@@ -51,6 +53,14 @@ def register_request_tool_servers(*, req: Any) -> None:
                     openapi_spec=spec if isinstance(spec, dict) else None,
                 )
             )
+
+
+def register_request_hot_plug_skills(*, req: Any) -> None:
+    """Register hot-plug skills from PHP manifest (per-request, no orchestrator restart)."""
+    from oaao_orchestrator.skills.hot_plug import register_request_hot_plug_skills as _register
+
+    rows = getattr(req, "hot_plug_skills", None) or []
+    _register(rows if isinstance(rows, list) else [])
 
 
 def apply_request_material_grounding(*, req: Any, messages_for_llm: list[Any]) -> None:

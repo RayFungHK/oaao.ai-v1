@@ -8,6 +8,7 @@ require_once __DIR__ . '/../library/CanonicalEndpointsRepository.php';
 require_once __DIR__ . '/../library/AsrPurposeConfig.php';
 require_once __DIR__ . '/../library/AsrLivePurposeConfig.php';
 require_once __DIR__ . '/../library/UiqePurposeConfig.php';
+require_once __DIR__ . '/../library/MmPurposeConfig.php';
 
 use oaaoai\endpoints\AsrLivePurposeConfig;
 use oaaoai\endpoints\AsrPurposeConfig;
@@ -16,6 +17,9 @@ use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\FeatureRegistryBootstrap;
 use oaaoai\endpoints\PurposeAllocationRegister;
 use oaaoai\endpoints\UiqePurposeConfig;
+use oaaoai\endpoints\MmPurposeConfig;
+use oaaoai\endpoints\MediaCapabilityRegister;
+use oaaoai\endpoints\MmPythonModuleRegister;
 use Razy\Database;
 use Razy\Agent;
 use Razy\Controller;
@@ -380,6 +384,61 @@ return new class extends Controller {
         ];
     }
 
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getMediaCapabilityRegistry(): array
+    {
+        $this->ensureFeatureRegistries();
+
+        return MediaCapabilityRegister::allSorted();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getMmPythonModuleRegistry(): array
+    {
+        $this->ensureFeatureRegistries();
+
+        return MmPythonModuleRegister::allSorted();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorMmUnderstandPayload(): ?array
+    {
+        return $this->resolveOrchestratorMmAxisPayload('understand');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorMmGeneratePayload(): ?array
+    {
+        return $this->resolveOrchestratorMmAxisPayload('generate');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorMmEditPayload(): ?array
+    {
+        return $this->resolveOrchestratorMmAxisPayload('edit');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function resolveOrchestratorMmAxisPayload(string $axis): ?array
+    {
+        require_once __DIR__ . '/../library/MmModuleSettings.php';
+        $this->ensureFeatureRegistries();
+
+        return MmModuleSettings::orchestratorPayloadForAxis($axis);
+    }
+
     public function __onInit(Agent $agent): bool
     {
         /* Required for {@see Emitter}: {@code $this->api('endpoints')->registerPurposeAllocationSlot(...)} from {@code oaaoai/*}. */
@@ -397,11 +456,17 @@ return new class extends Controller {
             'resolveOrchestratorPolishPayload'    => 'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload'      => 'resolveOrchestratorUiqePayload',
             'resolveOrchestratorPlannerPayload'   => 'resolveOrchestratorPlannerPayload',
+            'resolveOrchestratorMmUnderstandPayload' => 'resolveOrchestratorMmUnderstandPayload',
+            'resolveOrchestratorMmGeneratePayload'   => 'resolveOrchestratorMmGeneratePayload',
+            'resolveOrchestratorMmEditPayload'         => 'resolveOrchestratorMmEditPayload',
+            'getMediaCapabilityRegistry'            => 'getMediaCapabilityRegistry',
+            'getMmPythonModuleRegistry'             => 'getMmPythonModuleRegistry',
         ]);
 
         $purposeAllocationListener = 'event/purpose_allocation_register_listener';
         $chatPipelineListener = 'event/chat_pipeline_register_listener';
         $plannerAgentListener = 'event/planner_agent_register_listener';
+        $mmPythonModuleListener = 'event/mm_python_module_register_listener';
         $microSkillProviderListener = 'event/micro_skill_provider_register_listener';
         $vaultDocumentHookListener = 'event/vault_document_hook_register_listener';
         $toolServerListener = 'event/tool_server_register_listener';
@@ -435,6 +500,10 @@ return new class extends Controller {
             'oaaoai/chat:tool_server.register'           => $toolServerListener,
             'oaaoai/rag:tool_server.register'            => $toolServerListener,
             'oaaoai/endpoints:tool_server.register'      => $toolServerListener,
+            'oaaoai/chat:mm_python_module.register'      => $mmPythonModuleListener,
+            'oaaoai/rag:mm_python_module.register'       => $mmPythonModuleListener,
+            'oaaoai/vault:mm_python_module.register'     => $mmPythonModuleListener,
+            'oaaoai/endpoints:mm_python_module.register' => $mmPythonModuleListener,
         ]);
 
         // Settings nav rows for endpoints / purposes: {@code panel_js_module} is {@code /webassets/core/default/js/oaao-endpoints-settings-panel.js} (registered in {@code oaaoai/core}) so {@code index.tpl} embeds {@code oaao-settings-registry} before SPA bootstrap.
@@ -451,6 +520,8 @@ return new class extends Controller {
                 'GET purposes_list'     => 'purposes_list',
                 'POST purposes_save'    => 'purposes_save',
                 'POST purposes_delete'  => 'purposes_delete',
+                'GET mm_settings'       => 'mm_settings',
+                'POST mm_settings_save' => 'mm_settings_save',
                 'POST funasr_ensure'      => 'funasr_ensure',
                 'POST funasr_nano_ensure' => 'funasr_nano_ensure',
             ],

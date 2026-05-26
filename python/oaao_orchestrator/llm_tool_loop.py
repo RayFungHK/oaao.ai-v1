@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from oaao_orchestrator.tools.caller import invoke_openapi_tool
+from oaao_orchestrator.tools.caller import invoke_llm_tool
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ async def stream_chat_with_tools(
                 name = str(row.get("name") or "").strip()
                 if not name:
                     continue
-                result = await invoke_openapi_tool(name, row.get("arguments") or "{}")
+                result = await invoke_llm_tool(name, row.get("arguments") or "{}")
                 convo.append(
                     {
                         "role": "tool",

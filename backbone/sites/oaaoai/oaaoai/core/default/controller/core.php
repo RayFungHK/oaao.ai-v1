@@ -333,6 +333,23 @@ return new class extends Controller {
             ]
         );
 
+        $mmJs = '/webassets/core/default/js/oaao-mm-settings-panel.js';
+
+        SettingsRegister::add(
+            'settings-mm',
+            'Multimodal',
+            'Multimodal',
+            'Understand / generate / edit backends — HTTP endpoint or Python module (Lance). Routing under Purpose allocation.',
+            'scan-eye',
+            [
+                'sort'            => 27,
+                'panel_js_module' => $mmJs,
+                'label_key'       => 'settings.nav.mm.label',
+                'title_key'       => 'settings.nav.mm.title',
+                'sub_key'         => 'settings.nav.mm.sub',
+            ]
+        );
+
         SettingsRegister::add(
             'settings-purposes',
             'Purpose allocation',

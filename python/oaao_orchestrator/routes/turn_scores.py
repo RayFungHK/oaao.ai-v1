@@ -142,3 +142,30 @@ async def work_queues_status() -> dict[str, Any]:
     )
 
     return {"ok": True, **work_queues_status_payload()}
+
+
+class ForkSuggestionsRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    conversation_id: int = Field(ge=1)
+    alert: str = "none"
+    health: dict[str, Any] = Field(default_factory=dict)
+    recent_messages: list[dict[str, Any]] = Field(default_factory=list)
+    locale_hint: str = ""
+    coach_endpoint: dict[str, Any] | None = None
+
+
+@router.post("/v1/conversation/fork_suggestions")
+async def conversation_fork_suggestions(body: ForkSuggestionsRequest) -> dict[str, Any]:
+    from oaao_orchestrator.evaluation.fork_chat_suggestions import (
+        build_fork_chat_suggestions,
+    )
+
+    payload = await build_fork_chat_suggestions(
+        alert=str(body.alert or "none"),
+        health=body.health if isinstance(body.health, dict) else {},
+        recent_messages=list(body.recent_messages or []),
+        coach_endpoint=body.coach_endpoint if isinstance(body.coach_endpoint, dict) else None,
+        locale_hint=str(body.locale_hint or ""),
+    )
+    return {"ok": True, "conversation_id": int(body.conversation_id), **payload}

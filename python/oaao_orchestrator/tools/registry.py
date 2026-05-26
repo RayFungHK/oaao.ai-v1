@@ -103,9 +103,16 @@ def merge_openai_tools(
     purpose_id: str = "chat",
     extra: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    from oaao_orchestrator.skills.hot_plug import openai_tools_from_hot_plug_skills
+
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for source in (base or [], tools_for_purpose(purpose_id), extra or []):
+    for source in (
+        base or [],
+        tools_for_purpose(purpose_id),
+        openai_tools_from_hot_plug_skills(purpose_id=purpose_id),
+        extra or [],
+    ):
         for tool in source:
             if not isinstance(tool, dict):
                 continue

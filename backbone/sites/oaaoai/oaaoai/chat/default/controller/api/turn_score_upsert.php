@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatConversationHealth;
 use oaaoai\chat\TurnScorerVersion;
 
 /**
@@ -77,7 +78,7 @@ return function (): void {
     $scoredAt = microtime(true);
 
     $existing = $canonDb->prepare()
-        ->select('iqs, accs, iqs_dims_json, accs_dims_json, iqs_reasons_json, accs_reasons_json, scorer_version')
+        ->select('iqs, accs, iqs_dims_json, accs_dims_json, iqs_reasons_json, accs_reasons_json, scorer_version, topic_shift')
         ->from('turn_score')
         ->where('conversation_id=?,turn_index=?')
         ->assign(['conversation_id' => $cid, 'turn_index' => $turnIndex])
@@ -114,11 +115,47 @@ return function (): void {
         }
     }
 
+    $topicShift = \is_array($existing) ? (int) ($existing['topic_shift'] ?? 0) : 0;
+    if ($plugin === 'accs') {
+        if (array_key_exists('topic_shift', $input)) {
+            $topicShift = (int) $input['topic_shift'] ? 1 : 0;
+        } else {
+            $accsDimsArr = json_decode($accsDims, true);
+            $accsDimsArr = \is_array($accsDimsArr) ? $accsDimsArr : [];
+            $userMsg = '';
+            $prevRows = $splitDb->prepare()
+                ->select('id, content')
+                ->from('message')
+                ->where('conversation_id=?,role=?')
+                ->assign([
+                    'conversation_id' => $cid,
+                    'role'            => 'user',
+                ])
+                ->order('-id')
+                ->limit(8)
+                ->query()
+                ->fetchAll();
+            if (\is_array($prevRows)) {
+                foreach ($prevRows as $prevRow) {
+                    if (! \is_array($prevRow)) {
+                        continue;
+                    }
+                    $prevId = (int) ($prevRow['id'] ?? 0);
+                    if ($prevId > 0 && $prevId < $mid) {
+                        $userMsg = (string) ($prevRow['content'] ?? '');
+                        break;
+                    }
+                }
+            }
+            $topicShift = ChatConversationHealth::topicShiftFlag($userMsg, $accsDimsArr, $accs);
+        }
+    }
+
     try {
         $existingVersion = \is_array($existing) ? (string) ($existing['scorer_version'] ?? '') : '';
         $scorerVersion = TurnScorerVersion::merge($existingVersion, $plugin, $scorerVersion);
         if (\is_array($existing)) {
-            $canonDb->update('turn_score', [
+            $updateCols = [
                 'iqs',
                 'accs',
                 'iqs_dims_json',
@@ -127,20 +164,26 @@ return function (): void {
                 'accs_reasons_json',
                 'scorer_version',
                 'scored_at',
-            ])
+            ];
+            $updateAssign = [
+                'iqs'               => $iqs,
+                'accs'              => $accs,
+                'iqs_dims_json'     => $iqsDims,
+                'accs_dims_json'    => $accsDims,
+                'iqs_reasons_json'  => $iqsReasons,
+                'accs_reasons_json' => $accsReasons,
+                'scorer_version'    => $scorerVersion,
+                'scored_at'         => $scoredAt,
+                'conversation_id'   => $cid,
+                'turn_index'        => $turnIndex,
+            ];
+            if ($plugin === 'accs') {
+                $updateCols[] = 'topic_shift';
+                $updateAssign['topic_shift'] = $topicShift;
+            }
+            $canonDb->update('turn_score', $updateCols)
                 ->where('conversation_id=?,turn_index=?')
-                ->assign([
-                    'iqs'               => $iqs,
-                    'accs'              => $accs,
-                    'iqs_dims_json'     => $iqsDims,
-                    'accs_dims_json'    => $accsDims,
-                    'iqs_reasons_json'  => $iqsReasons,
-                    'accs_reasons_json' => $accsReasons,
-                    'scorer_version'    => $scorerVersion,
-                    'scored_at'         => $scoredAt,
-                    'conversation_id'   => $cid,
-                    'turn_index'        => $turnIndex,
-                ])
+                ->assign($updateAssign)
                 ->query();
         } else {
             $canonDb->insert('turn_score', [
@@ -169,7 +212,7 @@ return function (): void {
                     'scorer_version'    => $scorerVersion,
                     'scored_at'         => $scoredAt,
                     'complete'          => 1,
-                    'topic_shift'       => 0,
+                    'topic_shift'       => $plugin === 'accs' ? $topicShift : 0,
                 ])
                 ->query();
         }

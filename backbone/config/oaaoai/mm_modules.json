@@ -1,0 +1,14 @@
+{
+    "python_module": "mm_lance",
+    "axes": {
+        "understand": {
+            "default_task": "x2t_image"
+        },
+        "generate": {
+            "default_task": "t2i"
+        },
+        "edit": {
+            "default_task": "image_edit"
+        }
+    }
+}

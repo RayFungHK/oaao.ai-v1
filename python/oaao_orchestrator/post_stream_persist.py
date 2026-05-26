@@ -27,6 +27,7 @@ async def upsert_turn_score(
     plugin_id: str,
     meta: dict[str, Any],
     score: IqsScoreResult | AccsScoreResult,
+    topic_shift: int | None = None,
 ) -> bool:
     cid = str(meta.get("conversation_id") or "").strip()
     mid = str(meta.get("assistant_message_id") or "").strip()
@@ -58,6 +59,8 @@ async def upsert_turn_score(
                 "accs_reasons_json": score.reasons,
             }
         )
+        if topic_shift is not None:
+            body["topic_shift"] = 1 if int(topic_shift) else 0
 
     url = f"{php_chat_api_base()}/turn_score_upsert"
     assert_php_http_allowed(url, context="turn_score_upsert")

@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * POST /chat/api/conversation_fork — branch a desk-mode thread for a different agent/mode.
  *
- * Body JSON: { "conversation_id": int, "workspace_id"?: int|null }
+ * Body JSON: { "conversation_id": int, "workspace_id"?: int|null, "seed_prompt"?: string }
  */
 return function (): void {
     [$splitDb, $user] = $this->oaao_chat_require_user();
@@ -61,6 +61,10 @@ return function (): void {
             'mode'        => 'default',
             'forked_from' => $parentId,
         ];
+        $seedPrompt = isset($input['seed_prompt']) ? trim((string) $input['seed_prompt']) : '';
+        if ($seedPrompt !== '') {
+            $params['fork_seed_prompt'] = mb_substr($seedPrompt, 0, 4000);
+        }
         $paramsJson = json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
         $now = date('Y-m-d H:i:s');

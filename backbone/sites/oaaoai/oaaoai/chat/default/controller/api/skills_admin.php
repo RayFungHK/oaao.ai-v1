@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\chat\MicroSkillsRegister;
+use oaaoai\chat\SkillsManifestStorage;
 use oaaoai\endpoints\ToolServerRegister;
 use oaaoai\endpoints\ToolServerStorage;
 
@@ -19,6 +20,7 @@ return function (): void {
 
     require_once dirname(__DIR__, 4) . '/endpoints/default/library/ToolServerStorage.php';
     require_once dirname(__DIR__, 4) . '/endpoints/default/library/ToolServerRegister.php';
+    require_once __DIR__ . '/../../library/SkillsManifestStorage.php';
 
     ToolServerStorage::bootstrapPersisted();
 
@@ -57,6 +59,9 @@ return function (): void {
             'tool_servers'        => $registered,
             'tool_servers_file'   => ToolServerStorage::configPath(),
             'tool_servers_persisted_count' => \count($persisted),
+            'hot_plug_skills'     => SkillsManifestStorage::loadPersisted(),
+            'skills_manifest_file' => SkillsManifestStorage::configPath(),
+            'hot_plug_skills_count' => \count(SkillsManifestStorage::loadPersisted()),
             'micro_skill_counts'  => $skillCounts,
             'crystallization_stats' => (function () {
                 $resp = ChatOrchestratorApi::getInternalJson('/v1/admin/crystallization/stats', 15);
@@ -70,7 +75,7 @@ return function (): void {
             })(),
             'env_hints'           => [
                 'OAAO_SEARXNG_URL'          => (string) (getenv('OAAO_SEARXNG_URL') ?: ''),
-                'OAAO_SKILLS_MANIFEST_PATH' => (string) (getenv('OAAO_SKILLS_MANIFEST_PATH') ?: ''),
+                'OAAO_SKILLS_MANIFEST_PATH' => (string) (getenv('OAAO_SKILLS_MANIFEST_PATH') ?: SkillsManifestStorage::configPath()),
                 'OAAO_TOOL_SERVERS_PATH'    => (string) (getenv('OAAO_TOOL_SERVERS_PATH') ?: ToolServerStorage::configPath()),
             ],
         ],

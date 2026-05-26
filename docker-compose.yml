@@ -5,6 +5,9 @@
 #   2. From repo root:
 #        cp docker/env.example .env       # edit if needed
 #        docker compose --profile vectors up --build -d   # vault embed / RAG needs qdrant
+#        docker compose --profile lance up -d --build lance   # mm_lance stub (any host)
+#        docker compose --profile lance-cuda up -d --build lance-cuda   # CUDA dev (pipeline TBD)
+#        # MLX dev (Mac): run MLX sidecar on host — see docker/env.mlx-dev.example
 #        # chat-only (no vault vectors): docker compose up --build -d
 #
 # Open: http://localhost:${OAAO_WEB_PORT:-8080}/  (DocumentRoot is backbone/, not /backbone on the URL path.)
@@ -43,6 +46,16 @@ name: oaaoai-v1
 x-oaao-env: &oaao-env
   env_file:
     - docker/env
+
+x-lance-sidecar: &lance_sidecar
+  build:
+    context: .
+    dockerfile: docker/lance_adapter/Dockerfile
+  restart: unless-stopped
+  ports:
+    - '${OAAO_LANCE_HOST_PORT:-8787}:8787'
+  volumes:
+    - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
 
 services:
   postgres:
@@ -141,6 +154,7 @@ services:
       OAAO_VAULT_JOB_STUB_MODE: ${OAAO_VAULT_JOB_STUB_MODE:-fail}
       OAAO_FUNASR_BASE_URL: ${OAAO_FUNASR_BASE_URL:-http://funasr:8765}
       OAAO_FUNASR_COMPOSE_ENABLED: ${OAAO_FUNASR_COMPOSE_ENABLED:-1}
+      OAAO_LANCE_BASE_URL: ${OAAO_LANCE_BASE_URL:-http://lance:8787}
       OAAO_COMPOSE_PROJECT_DIR: /compose
       OAAO_COMPOSE_PROJECT_NAME: ${OAAO_COMPOSE_PROJECT_NAME:-oaaoai-v1}
       OAAO_DOCKER_SOCKET: /var/run/docker.sock
@@ -231,3 +245,21 @@ services:
       FUNASR_SPK_MODEL: ${FUNASR_SPK_MODEL:-}
     volumes:
       - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+
+  # ── Lance mm_lance sidecars (optional profiles) — same HTTP contract POST /v1/task
+  # Stub:     docker compose --profile lance up -d --build lance
+  # CUDA dev: docker compose --profile lance-cuda up -d --build lance-cuda  (+ OAAO_LANCE_BASE_URL=http://lance-cuda:8787)
+  # MLX dev:  host MLX on :8787 — OAAO_LANCE_BASE_URL=http://host.docker.internal:8787 (docker/env.mlx-dev.example)
+  lance-cuda:
+    <<: *lance_sidecar
+    profiles: ['lance-cuda']
+    environment:
+      LANCE_ADAPTER_MODE: ${LANCE_ADAPTER_MODE:-stub}
+      LANCE_DEV_BACKEND: cuda
+
+  lance:
+    <<: *lance_sidecar
+    profiles: ['lance']
+    environment:
+      LANCE_ADAPTER_MODE: ${LANCE_ADAPTER_MODE:-stub}
+      LANCE_DEV_BACKEND: stub

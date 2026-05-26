@@ -3,7 +3,11 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/library/PurposeAllocationRegister.php';
+require_once dirname(__DIR__, 2) . '/library/MediaCapabilityRegister.php';
+require_once dirname(__DIR__, 2) . '/library/MmPythonModuleRegister.php';
 
+use oaaoai\endpoints\MediaCapabilityRegister;
+use oaaoai\endpoints\MmPythonModuleRegister;
 use oaaoai\endpoints\PurposeAllocationRegister;
 
 /** Built-in purpose-allocation slots owned by {@code oaaoai/endpoints}. */
@@ -65,6 +69,151 @@ return function (array $payload): void {
             'sub_key'   => 'settings.slot.asr_live.sub',
         ]
     );
+    PurposeAllocationRegister::add(
+        'pa-mm-understand',
+        'MM understand',
+        'MM understand',
+        'Attachment / vision understanding (<code class="font-mono text-xs">mm.understand.*</code>) — endpoint or Python module.',
+        'scan-eye',
+        [
+            'sort' => 72,
+            'purpose_key_prefix' => 'mm.understand',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.mm_understand.label',
+            'sub_key'   => 'settings.slot.mm_understand.sub',
+            'meta_defaults' => ['mm_axis' => 'understand'],
+        ]
+    );
+    PurposeAllocationRegister::add(
+        'pa-mm-generate',
+        'MM generate',
+        'MM generate',
+        'Image / video generation (<code class="font-mono text-xs">mm.generate.*</code>) — endpoint or Lance module.',
+        'image-plus',
+        [
+            'sort' => 73,
+            'purpose_key_prefix' => 'mm.generate',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.mm_generate.label',
+            'sub_key'   => 'settings.slot.mm_generate.sub',
+            'meta_defaults' => ['mm_axis' => 'generate'],
+        ]
+    );
+    PurposeAllocationRegister::add(
+        'pa-mm-edit',
+        'MM edit',
+        'MM edit',
+        'Image / video editing (<code class="font-mono text-xs">mm.edit.*</code>) — endpoint or Lance module.',
+        'image-upscale',
+        [
+            'sort' => 74,
+            'purpose_key_prefix' => 'mm.edit',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.mm_edit.label',
+            'sub_key'   => 'settings.slot.mm_edit.sub',
+            'meta_defaults' => ['mm_axis' => 'edit'],
+        ]
+    );
+
+    MediaCapabilityRegister::add(
+        'x2t_image',
+        'Image → text',
+        'Caption or understand uploaded images',
+        ['sort' => 10, 'mm_axis' => 'understand', 'lance_task' => 'x2t_image', 'module_code' => 'oaaoai/endpoints']
+    );
+    MediaCapabilityRegister::add(
+        'x2t_video',
+        'Video → text',
+        'Summarise or understand uploaded video',
+        ['sort' => 11, 'mm_axis' => 'understand', 'lance_task' => 'x2t_video', 'module_code' => 'oaaoai/endpoints']
+    );
+    MediaCapabilityRegister::add(
+        't2i',
+        'Text → image',
+        'Generate images from prompts',
+        ['sort' => 20, 'mm_axis' => 'generate', 'lance_task' => 't2i', 'module_code' => 'oaaoai/endpoints']
+    );
+    MediaCapabilityRegister::add(
+        't2v',
+        'Text → video',
+        'Generate video from prompts',
+        ['sort' => 21, 'mm_axis' => 'generate', 'lance_task' => 't2v', 'module_code' => 'oaaoai/endpoints']
+    );
+    MediaCapabilityRegister::add(
+        'image_edit',
+        'Image edit',
+        'Edit or inpaint images',
+        ['sort' => 30, 'mm_axis' => 'edit', 'lance_task' => 'image_edit', 'module_code' => 'oaaoai/endpoints']
+    );
+    MediaCapabilityRegister::add(
+        'video_edit',
+        'Video edit',
+        'Edit or extend video clips',
+        ['sort' => 31, 'mm_axis' => 'edit', 'lance_task' => 'video_edit', 'module_code' => 'oaaoai/endpoints']
+    );
+
+    MmPythonModuleRegister::add(
+        'mm_lance',
+        'Lance',
+        'Hugging Face Lance multimodal worker (t2i, t2v, x2t, edit)',
+        [
+            'sort'            => 10,
+            'module_code'     => 'oaaoai/endpoints',
+            'base_url_env'    => 'OAAO_LANCE_BASE_URL',
+            'supported_tasks' => ['t2i', 't2v', 'x2t_image', 'x2t_video', 'image_edit', 'video_edit'],
+            'aliases'         => ['lance'],
+            'i18n_label_key'  => 'settings.mm.module.mm_lance.label',
+            'i18n_desc_key'   => 'settings.mm.module.mm_lance.desc',
+            'config_fields'   => [
+                [
+                    'key'          => 'base_url',
+                    'type'         => 'url',
+                    'label_key'    => 'settings.mm.config.base_url',
+                    'placeholder'  => 'http://host.docker.internal:8787',
+                    'env_fallback' => 'OAAO_LANCE_BASE_URL',
+                    'hint_key'     => 'settings.mm.config.base_url_hint',
+                ],
+            ],
+        ],
+    );
+
+    $this->trigger('planner_agent.register')->resolve([
+        'agent_kind'  => 'mm_understand',
+        'name'        => 'Multimodal understand',
+        'description' => 'Parse attachments with vision / caption models',
+        'extras'      => [
+            'sort'            => 35,
+            'module_code'     => 'oaaoai/endpoints',
+            'planner_hint'    => 'Use when attachments (PDF pages, images, video) need dedicated understanding beyond chat LLM vision.',
+            'mm_purpose_axis' => 'understand',
+        ],
+    ]);
+    $this->trigger('planner_agent.register')->resolve([
+        'agent_kind'  => 'mm_generate',
+        'name'        => 'Multimodal generate',
+        'description' => 'Generate images or video from prompts',
+        'extras'      => [
+            'sort'            => 41,
+            'module_code'     => 'oaaoai/endpoints',
+            'planner_hint'    => 'Use when the user wants generated images or video (t2i / t2v). Prefer over legacy image_gen when Settings allocates mm.generate.',
+            'mm_purpose_axis' => 'generate',
+            'ask_enabled'     => true,
+            'ask_default_message' => 'I can generate images or video from your prompt. Proceed?',
+        ],
+    ]);
+    $this->trigger('planner_agent.register')->resolve([
+        'agent_kind'  => 'mm_edit',
+        'name'        => 'Multimodal edit',
+        'description' => 'Edit images or video with inpainting / style tools',
+        'extras'      => [
+            'sort'            => 42,
+            'module_code'     => 'oaaoai/endpoints',
+            'planner_hint'    => 'Use when the user wants to edit, inpaint, or restyle an existing image or video clip.',
+            'mm_purpose_axis' => 'edit',
+            'ask_enabled'     => true,
+            'ask_default_message' => 'I can edit the image or video you attached. Proceed?',
+        ],
+    ]);
     PurposeAllocationRegister::add(
         'pa-other',
         'Other',

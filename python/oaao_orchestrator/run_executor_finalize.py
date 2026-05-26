@@ -135,6 +135,27 @@ async def finalize_run(
             )
             if reflection_meta:
                 metrics_payload.update(reflection_meta)
+
+            try:
+                cid = int(str(req.conversation_id or "0"))
+            except (TypeError, ValueError):
+                cid = 0
+            accs_hint = reflection_meta.get("accs_score") if isinstance(reflection_meta, dict) else None
+            if cid > 0 and isinstance(accs_hint, (int, float)) and 0 < float(accs_hint) < 0.65:
+                from oaao_orchestrator.evaluation.thread_health_stream import (
+                    emit_conversation_health_status,
+                    provisional_health_from_accs,
+                )
+                from oaao_orchestrator.planner_llm import _last_user_message
+
+                health = provisional_health_from_accs(
+                    conversation_id=cid,
+                    accs_score=float(accs_hint),
+                    user_message=_last_user_message(messages_for_llm),
+                )
+                if health is not None:
+                    metrics_payload["thread_health"] = health.to_dict()
+                    await emit_conversation_health_status(run, health)
         except Exception:
             logger.exception("inline_reflection_failed run_id=%s", run_id)
 

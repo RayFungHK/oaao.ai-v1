@@ -185,6 +185,17 @@ async def _run_evolution_post_stream(
             )
             accs_result.source = "heuristic_post_stream_fallback"
 
+        from oaao_orchestrator.evaluation.conversation_health import (
+            is_user_correction,
+            topic_shift_flag,
+        )
+
+        user_correction = 1 if is_user_correction(user_msg or "") else 0
+        ts = topic_shift_flag(
+            user_message=user_msg or "",
+            accs_factors=dict(accs_result.factors or {}),
+            accs_score=float(accs_result.score),
+        )
         if accs_result.score > 0:
             await upsert_turn_score(
                 plugin_id="accs",
@@ -192,8 +203,13 @@ async def _run_evolution_post_stream(
                 score=AccsScoreResult(
                     accs=float(accs_result.score),
                     dimensions=dict(accs_result.factors or {}),
-                    reasons={"action": accs_result.action, "source": accs_result.source},
+                    reasons={
+                        "action": accs_result.action,
+                        "source": accs_result.source,
+                        "user_correction": user_correction,
+                    },
                 ),
+                topic_shift=ts,
             )
 
         if (
@@ -221,11 +237,12 @@ async def _run_evolution_post_stream(
             )
 
         logger.info(
-            "evolution post_stream done conversation_id=%s assistant_message_id=%s iqs_persisted=%s accs=%.3f",
+            "evolution post_stream done conversation_id=%s assistant_message_id=%s iqs_persisted=%s accs=%.3f topic_shift=%s",
             meta.get("conversation_id"),
             meta.get("assistant_message_id"),
             iqs_persisted,
             accs_result.score,
+            ts,
         )
         from oaao_orchestrator.evaluation.evolution_store import (
             record_evolution_run,

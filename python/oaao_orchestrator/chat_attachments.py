@@ -76,6 +76,77 @@ def _excerpt_from_text(text: str, *, limit: int = 280) -> str:
     return flat[: limit - 1].rstrip() + "…"
 
 
+def _vision_endpoint(endpoint: dict[str, Any], mm_understand: dict[str, Any] | None) -> dict[str, Any]:
+    if isinstance(mm_understand, dict) and str(mm_understand.get("backend") or "").lower() == "endpoint":
+        bu = str(mm_understand.get("base_url") or "").strip()
+        model = str(mm_understand.get("model") or "").strip()
+        if bu and model:
+            return {
+                "base_url": bu,
+                "model": model,
+                "api_key_env": mm_understand.get("api_key_env"),
+                "capabilities": {"supports_vision": True},
+            }
+    return endpoint
+
+
+def _mm_text_from_result(result: dict[str, Any]) -> str:
+    for key in ("text", "caption", "output", "content"):
+        raw = result.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    choices = result.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            msg = first.get("message")
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+    return ""
+
+
+def _is_mm_stub_caption(result: dict[str, Any], text: str) -> bool:
+    """Lance dev adapter returns placeholder text — not pixel-level understanding."""
+    if str(result.get("adapter_mode") or "").lower() == "stub":
+        return True
+    low = (text or "").strip().lower()
+    return "lance stub" in low
+
+
+async def _caption_image_via_mm(
+    client: httpx.AsyncClient,
+    *,
+    path: str,
+    mime: str,
+    mm_understand: dict[str, Any],
+) -> str:
+    from oaao_orchestrator.media.capability_client import MediaCapabilityClient
+
+    task = str(mm_understand.get("default_task") or "x2t_image").strip()
+    url = _image_data_url(path, mime)
+    mc = MediaCapabilityClient()
+    result = await mc.run(
+        mm_understand,
+        task=task,
+        inputs={"image_url": url or "", "path": path, "mime_type": mime, "http_client": client},
+    )
+    text = _mm_text_from_result(result)
+    if text and _is_mm_stub_caption(result, text):
+        logger.info(
+            "chat_attachments: mm_lance stub caption ignored path=%s task=%s — try OCR/vision",
+            path,
+            task,
+        )
+        return ""
+    if text:
+        return text[:24000]
+    if result.get("ok") and result.get("deferred"):
+        return f"[{task} queued on Lance — configure OAAO_LANCE_BASE_URL for live captions]"
+    return ""
+
+
 async def process_chat_attachments(
     client: httpx.AsyncClient,
     messages: list[dict[str, Any]],
@@ -85,14 +156,20 @@ async def process_chat_attachments(
     asr_cfg: dict[str, Any] | None = None,
     polish_cfg: dict[str, Any] | None = None,
     glossary: dict[str, Any] | None = None,
+    mm_understand: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
     Augment messages with attachment context. Returns (messages, pipeline_fragment).
     """
-    logger.info("chat_attachments: process entry count=%s", len(attachments or []))
+    logger.info("chat_attachments: process entry count=%s mm=%s", len(attachments or []), bool(mm_understand))
     if not attachments:
         return messages, {}
 
+    vision_ep = _vision_endpoint(endpoint, mm_understand)
+    use_mm_caption = isinstance(mm_understand, dict) and (
+        bool(mm_understand.get("purpose_key"))
+        or str(mm_understand.get("backend") or "").lower() == "python_module"
+    )
     numbered_blocks: list[str] = []
     attachment_citations: list[AttachmentCitation] = []
     image_urls: list[str] = []
@@ -151,32 +228,70 @@ async def process_chat_attachments(
             continue
 
         if mime.startswith("image/"):
-            if _endpoint_supports_vision(endpoint):
-                url = _image_data_url(path, mime)
-                if url:
-                    image_urls.append(url)
-                    continue
-            try:
-                import pytesseract
-                from PIL import Image
-
-                ocr = pytesseract.image_to_string(Image.open(path), lang="eng+chi_tra")
-                if (ocr or "").strip():
+            image_handled = False
+            if use_mm_caption:
+                caption = await _caption_image_via_mm(
+                    client, path=path, mime=mime, mm_understand=mm_understand or {}
+                )
+                if caption:
                     cite_serial += 1
                     key = f"A{cite_serial}"
-                    body = ocr.strip()[:24000]
-                    numbered_blocks.append(f"[{key}] {fname} · image OCR\n{body}")
+                    numbered_blocks.append(f"[{key}] {fname} · image (mm.understand)\n{caption}")
                     attachment_citations.append(
                         AttachmentCitation(
                             cite_key=key,
                             attachment_id=aid,
                             file_name=fname,
                             mime_type=mime,
-                            excerpt=_excerpt_from_text(body),
+                            excerpt=_excerpt_from_text(caption),
                         )
                     )
-            except Exception as e:  # noqa: BLE001
-                logger.info("chat_attachments: image OCR skip %s — %s", fname, e)
+                    image_handled = True
+            if not image_handled and _endpoint_supports_vision(vision_ep):
+                url = _image_data_url(path, mime)
+                if url:
+                    image_urls.append(url)
+                    image_handled = True
+            if not image_handled:
+                try:
+                    import pytesseract
+                    from PIL import Image
+
+                    ocr = pytesseract.image_to_string(Image.open(path), lang="eng+chi_tra")
+                    if (ocr or "").strip():
+                        cite_serial += 1
+                        key = f"A{cite_serial}"
+                        body = ocr.strip()[:24000]
+                        numbered_blocks.append(f"[{key}] {fname} · image OCR\n{body}")
+                        attachment_citations.append(
+                            AttachmentCitation(
+                                cite_key=key,
+                                attachment_id=aid,
+                                file_name=fname,
+                                mime_type=mime,
+                                excerpt=_excerpt_from_text(body),
+                            )
+                        )
+                        image_handled = True
+                except Exception as e:  # noqa: BLE001
+                    logger.info("chat_attachments: image OCR skip %s — %s", fname, e)
+            if not image_handled:
+                cite_serial += 1
+                key = f"A{cite_serial}"
+                numbered_blocks.append(
+                    f"[{key}] {fname} · image\n"
+                    "Image file attached for this turn. The user may ask what it shows (e.g. 這是什麼 / what is this). "
+                    "Acknowledge the attachment and answer from any excerpt above; do not say no image was uploaded."
+                )
+                attachment_citations.append(
+                    AttachmentCitation(
+                        cite_key=key,
+                        attachment_id=aid,
+                        file_name=fname,
+                        mime_type=mime,
+                        excerpt=fname,
+                    )
+                )
             continue
 
         p = Path(path)
@@ -231,8 +346,8 @@ async def process_chat_attachments(
         block = "\n\n---\n\n".join(numbered_blocks)
         sys = (
             "The user attached files for this turn only (not in vault). "
-            "When they ask to summarize (總結, 摘要, summarize, etc.) or refer to these files, "
-            "answer from the excerpts below — do not claim no document or content was provided.\n\n"
+            "When they ask what something is (這是什麼, what is this, identify, describe), summarize (總結, 摘要), "
+            "or refer to these files, answer from the excerpts below — never claim no image, file, or content was provided.\n\n"
             + _ATTACHMENT_INLINE_CITATIONS
             + "\n\n"
             + block

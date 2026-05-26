@@ -491,6 +491,135 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Multimodal understand ({@code mm.understand.*}) — vision / caption / attachment parsing.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resolveMmUnderstandBinding(): ?array
+    {
+        return $this->resolveMmPurposeBinding('mm.understand', 'mm.understand.primary', 'mm.understand');
+    }
+
+    /**
+     * Multimodal generate ({@code mm.generate.*}) — t2i / t2v.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resolveMmGenerateBinding(): ?array
+    {
+        return $this->resolveMmPurposeBinding('mm.generate', 'mm.generate.primary', 'mm.generate');
+    }
+
+    /**
+     * Multimodal edit ({@code mm.edit.*}) — image_edit / video_edit.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resolveMmEditBinding(): ?array
+    {
+        return $this->resolveMmPurposeBinding('mm.edit', 'mm.edit.primary', 'mm.edit');
+    }
+
+    /**
+     * @return array<string, mixed>|null binding with {@code purpose_meta.backend} endpoint|python_module
+     */
+    private function resolveMmPurposeBinding(string $prefix, string $primaryKey, string $exactKey): ?array
+    {
+        require_once __DIR__ . '/MmPurposeConfig.php';
+
+        $purposes = $this->listPurposeRowsForScope([
+            'purpose_key',
+            'default_endpoint_id',
+            'is_enabled',
+            'meta_json',
+            'sort_order',
+        ]);
+
+        /** @var list<array{purpose_key: string, endpoint_id: int, meta_json: mixed}> $candidates */
+        $candidates = [];
+        foreach ($purposes as $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            if ((int) ($row['is_enabled'] ?? 1) !== 1) {
+                continue;
+            }
+            $pk = trim((string) ($row['purpose_key'] ?? ''));
+            if ($pk === '') {
+                continue;
+            }
+            if ($pk !== $exactKey && ! str_starts_with($pk, $prefix . '.')) {
+                continue;
+            }
+            $meta = MmPurposeConfig::decodePurposeMeta($row['meta_json'] ?? null);
+            $eid = (int) ($row['default_endpoint_id'] ?? 0);
+            if (! MmPurposeConfig::isPythonModuleBackend($meta) && $eid < 1) {
+                continue;
+            }
+            $candidates[] = [
+                'purpose_key' => $pk,
+                'endpoint_id' => $eid,
+                'meta_json'   => $row['meta_json'] ?? null,
+                'meta'        => $meta,
+            ];
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        $picked = null;
+        foreach ($candidates as $c) {
+            if ($c['purpose_key'] === $primaryKey) {
+                $picked = $c;
+                break;
+            }
+        }
+        if ($picked === null) {
+            foreach ($candidates as $c) {
+                if ($c['purpose_key'] === $exactKey) {
+                    $picked = $c;
+                    break;
+                }
+            }
+        }
+        if ($picked === null) {
+            $picked = $candidates[0];
+        }
+
+        $meta = \is_array($picked['meta'] ?? null) ? $picked['meta'] : MmPurposeConfig::decodePurposeMeta($picked['meta_json'] ?? null);
+        $out = [
+            'purpose_key'  => $picked['purpose_key'],
+            'purpose_meta' => $meta,
+            'base_url'     => '',
+            'model'        => '',
+            'api_key_ref'  => '',
+        ];
+
+        if (MmPurposeConfig::isPythonModuleBackend($meta)) {
+            return $out;
+        }
+
+        $endpoint = $this->getEndpointById($picked['endpoint_id']);
+        if ($endpoint === null || (int) ($endpoint['is_enabled'] ?? 1) !== 1) {
+            return null;
+        }
+
+        $bu = trim((string) ($endpoint['base_url'] ?? ''));
+        $model = trim((string) ($endpoint['model'] ?? ''));
+        $ref = isset($endpoint['api_key_ref']) ? trim((string) $endpoint['api_key_ref']) : '';
+        if ($bu === '' || $model === '') {
+            return null;
+        }
+
+        $out['base_url'] = $bu;
+        $out['model'] = $model;
+        $out['api_key_ref'] = $ref;
+
+        return $out;
+    }
+
+    /**
      * Primary chat LLM for auxiliary tasks (e.g. research summary).
      *
      * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null

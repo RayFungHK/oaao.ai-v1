@@ -42,6 +42,9 @@ from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     log_chat_attachments_entry as _log_chat_attachments_entry,
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
+    register_request_hot_plug_skills as _register_request_hot_plug_skills,
+)
+from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     register_request_tool_servers as _register_request_tool_servers,
 )
 from oaao_orchestrator.run_executor_error import (  # noqa: E402
@@ -90,6 +93,7 @@ async def execute_chat_run(
 
     _log_chat_attachments_entry(run_id=run_id, req=req)
     _register_request_tool_servers(req=req)
+    _register_request_hot_plug_skills(req=req)
 
     run = registry.get(run_id)
     if run is None:

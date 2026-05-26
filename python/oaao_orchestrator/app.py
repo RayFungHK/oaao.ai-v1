@@ -32,6 +32,7 @@ from oaao_orchestrator.routes.runs import router as _runs_router
 from oaao_orchestrator.routes.skills import router as _skills_router
 from oaao_orchestrator.routes.slides import router as _slides_router
 from oaao_orchestrator.routes.turn_scores import router as _turn_scores_router
+from oaao_orchestrator.routes.media import router as _media_router
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
 configure_oaao_logging()
@@ -148,5 +149,6 @@ app.include_router(_runs_router)
 app.include_router(_skills_router)
 app.include_router(_slides_router)
 app.include_router(_turn_scores_router)
+app.include_router(_media_router)
 
 

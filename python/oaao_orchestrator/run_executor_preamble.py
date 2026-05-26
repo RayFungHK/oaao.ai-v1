@@ -363,7 +363,14 @@ async def prepare_run_preamble(
             pipeline_snap=pipeline_snap,
             plan=plan,
         ),
+        "chat_attachments": list(getattr(req, "chat_attachments", None) or []),
     }
+    if isinstance(getattr(req, "mm_understand", None), dict):
+        run_ctx_extra["mm_understand"] = dict(req.mm_understand)
+    if isinstance(getattr(req, "mm_generate", None), dict):
+        run_ctx_extra["mm_generate"] = dict(req.mm_generate)
+    if isinstance(getattr(req, "mm_edit", None), dict):
+        run_ctx_extra["mm_edit"] = dict(req.mm_edit)
     if run_principal is not None:
         run_ctx_extra["run_principal"] = run_principal
     run_ctx = RunContext(

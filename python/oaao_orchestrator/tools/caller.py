@@ -104,3 +104,20 @@ async def invoke_openapi_tool(name: str, arguments: str | dict[str, Any] | None)
     except Exception as exc:  # noqa: BLE001
         logger.warning("tool_invoke_failed op=%s err=%s", op_name, exc)
         return json.dumps({"error": str(exc)[:200]}, ensure_ascii=False)
+
+
+async def invoke_llm_tool(name: str, arguments: str | dict[str, Any] | None) -> str:
+    """OpenAPI tool server first, then hot-plug skill manifest."""
+    result = await invoke_openapi_tool(name, arguments)
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            if isinstance(parsed, dict) and str(parsed.get("error") or "").startswith("unknown_tool:"):
+                from oaao_orchestrator.skills.hot_plug import invoke_hot_plug_skill
+
+                skill_result = await invoke_hot_plug_skill(name, arguments)
+                if skill_result is not None:
+                    return skill_result
+        except json.JSONDecodeError:
+            pass
+    return result

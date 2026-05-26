@@ -626,6 +626,29 @@ function chatProfileHasEndpointBound(p) {
     return false;
 }
 
+/** @param {unknown} raw */
+function purposeRowMetaJson(raw) {
+    if (raw == null) return {};
+    if (typeof raw === 'object' && !Array.isArray(raw)) return /** @type {Record<string, unknown>} */ ({ ...raw });
+    const s = String(raw).trim();
+    if (!s) return {};
+    try {
+        const dec = JSON.parse(s);
+        return dec && typeof dec === 'object' && !Array.isArray(dec) ? /** @type {Record<string, unknown>} */ (dec) : {};
+    } catch {
+        return {};
+    }
+}
+
+/** @param {Record<string, unknown>|null} primaryRow */
+function mmPurposeSlotComplete(primaryRow) {
+    if (!primaryRow) return false;
+    const meta = purposeRowMetaJson(primaryRow.meta_json);
+    if (String(meta.backend ?? '').toLowerCase() === 'python_module') return true;
+    const depNum = Number(primaryRow.default_endpoint_id);
+    return Number.isFinite(depNum) && depNum > 0;
+}
+
 /**
  * Registered pipeline card — one primary {@code purpose_key === prefix}. Wrapped in {@code <details>}
  * (closed by default). Chat picker subtree is {@link buildChatCompletionProfilesPicker} (DSL).
@@ -651,10 +674,13 @@ function buildPurposePipelineCard(slot, primaryRow, chatProfiles) {
 
     const depNum = depId !== '' && depId != null ? Number(depId) : Number.NaN;
     const hasDefaultEndpoint = Number.isFinite(depNum) && depNum > 0;
+    const isMmSlot = pfx.startsWith('mm.');
     const slotIncomplete =
         allocMode === 'chat_multi'
             ? chatPurposeSlotIncomplete(profiles)
-            : !hasDefaultEndpoint;
+            : isMmSlot
+              ? !mmPurposeSlotComplete(primaryRow)
+              : !hasDefaultEndpoint;
 
     const icon = slotIconClasses(slot.icon);
 
@@ -760,7 +786,9 @@ function buildPurposePipelineCard(slot, primaryRow, chatProfiles) {
                 ? `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${escapeHtml(oaaoT('settings.slot.asr.pipeline_hint'))}</p>`
                 : pfx === 'asr.live'
                   ? `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${escapeHtml(oaaoT('settings.slot.asr_live.pipeline_hint'))}</p>`
-                  : '';
+                  : isMmSlot
+                    ? `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${escapeHtml(oaaoT('settings.slot.mm.pipeline_hint'))}</p>`
+                    : '';
         const primaryPurposeControlsHtml =
             `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${assignP}</p>
       <label class="mt-2 flex flex-col gap-0.5 text-[0.8125rem] max-w-full"><span class="fw-medium">${llmEpLbl}</span>

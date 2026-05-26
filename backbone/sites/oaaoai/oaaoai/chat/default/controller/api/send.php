@@ -11,7 +11,9 @@ use oaaoai\chat\ChatTeachingIntent;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\MicroSkillCatalog;
 use oaaoai\chat\PlannerAgentRegister;
+use oaaoai\chat\SkillsManifestStorage;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
+use oaaoai\endpoints\MmModuleSettings;
 
 /**
  * POST /chat/api/send — append user message + assistant row; when orchestrator + binding exist, start Python stream run.
@@ -677,6 +679,7 @@ return function (): void {
             if ($endpointsApi && method_exists($endpointsApi, 'getToolServerRegistry')) {
                 $payload['tool_servers'] = $endpointsApi->getToolServerRegistry();
             }
+            $payload['hot_plug_skills'] = SkillsManifestStorage::enabledForPurpose('chat');
             $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
             if ($splitPdo instanceof \PDO && $conversationId > 0) {
                 if ($activeMaterialId !== '') {
@@ -770,6 +773,13 @@ return function (): void {
                     $payload['chat_attachments'] = $chatAttachments;
                 }
             }
+
+            // Multimodal — always forward python_module bindings ({@code mm_modules.json}); no Purpose row.
+            $this->api('endpoints')?->ensureFeatureRegistries();
+            require_once __DIR__ . '/../../../../endpoints/default/library/MmModuleSettings.php';
+            $payload['mm_understand'] = MmModuleSettings::orchestratorPayloadForAxis('understand');
+            $payload['mm_generate'] = MmModuleSettings::orchestratorPayloadForAxis('generate');
+            $payload['mm_edit'] = MmModuleSettings::orchestratorPayloadForAxis('edit');
 
             if ($canonDb instanceof \Razy\Database) {
                 $canonPdoForVault = $canonDb->getDBAdapter();

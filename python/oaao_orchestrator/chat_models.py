@@ -134,6 +134,10 @@ class ChatRunRequest(BaseModel):
         default_factory=list,
         description="Registered OpenAPI tool servers from PHP tool_server.register.",
     )
+    hot_plug_skills: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Admin hot-plug skills manifest from PHP SkillsManifestStorage.",
+    )
     openai_tools: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Pre-resolved OpenAI tools[] merged at LLM stream time.",
@@ -141,6 +145,18 @@ class ChatRunRequest(BaseModel):
     run_principal: str | None = Field(
         default=None,
         description="HMAC-signed run identity from PHP send — validates user/conversation/message for the whole run.",
+    )
+    mm_understand: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved mm.understand.* purpose for attachment vision / caption.",
+    )
+    mm_generate: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved mm.generate.* purpose for image/video generation agents.",
+    )
+    mm_edit: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved mm.edit.* purpose for image/video edit agents.",
     )
     is_new_conversation: bool = Field(
         default=False,

@@ -41,6 +41,24 @@ async def handle_attachments_task(
     transcribed/polished content.
     """
     attach_pipeline: dict[str, Any] = {}
+    attachment_snapshot: list[dict[str, Any]] = []
+    for att in req.chat_attachments or []:
+        if not isinstance(att, dict):
+            continue
+        path = str(att.get("absolute_path") or att.get("path") or "").strip()
+        if not path:
+            continue
+        attachment_snapshot.append(
+            {
+                "id": att.get("id"),
+                "absolute_path": path,
+                "path": path,
+                "mime_type": str(att.get("mime_type") or att.get("mime") or ""),
+                "file_name": str(att.get("file_name") or att.get("name") or ""),
+            }
+        )
+    if attachment_snapshot:
+        run_ctx.extra["chat_attachment_snapshot"] = attachment_snapshot
     logger.info(
         "chat_attachments: ATTACHMENTS task running count=%s",
         len(req.chat_attachments or []),
@@ -56,6 +74,7 @@ async def handle_attachments_task(
             asr_cfg=req.asr if isinstance(req.asr, dict) else None,
             polish_cfg=req.polish if isinstance(req.polish, dict) else None,
             glossary=req.glossary if isinstance(req.glossary, dict) else None,
+            mm_understand=req.mm_understand if isinstance(getattr(req, "mm_understand", None), dict) else None,
         )
         att_ids: list[int] = []
         for att in req.chat_attachments or []:

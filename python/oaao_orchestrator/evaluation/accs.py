@@ -71,12 +71,11 @@ def _heuristic_factors(
 
 
 def _action_for_score(score: float) -> tuple[str, bool, bool]:
+    """Evolution §5.3 / §6 — ship at ≥0.65; reflect once when below ship threshold."""
     crystallization = score >= THRESHOLD_CRYSTALLIZE
     if score >= THRESHOLD_SHIP:
         return "ship", crystallization, False
-    if score >= THRESHOLD_REFLECT:
-        return "reflect", False, False
-    return "ship", False, True
+    return "reflect", False, False
 
 
 def _accs_from_factors(factors: dict[str, float]) -> float:

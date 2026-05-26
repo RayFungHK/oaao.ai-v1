@@ -93,14 +93,17 @@ def default_agent_factories() -> dict[str, AgentFactory]:
         stub_agent_factory,
     )
     from oaao_orchestrator.agents.web_search import WebSearchAgent
+    from oaao_orchestrator.agents.mm_media import MM_AGENT_KINDS, mm_media_agent_factory
 
     factories: dict[str, AgentFactory] = {
         "vault_rag": _vault_rag_factory,
         "slide_designer": lambda: _slide_designer_mod.SlideDesignerAgent(),
         "web_search": lambda: WebSearchAgent(),
     }
+    for kind in MM_AGENT_KINDS:
+        factories[kind] = mm_media_agent_factory(kind)
     for kind in STUB_AGENT_DEFS:
-        if kind in ("slide_designer", "web_search"):
+        if kind in ("slide_designer", "web_search") or kind in MM_AGENT_KINDS:
             continue
         factories[kind] = stub_agent_factory(kind)
     return factories

@@ -32,8 +32,17 @@ return function (): void {
         $repo->ensurePlanningPurposeRow();
         $repo->ensureAsrLivePurposeRow();
         $rows = $repo->listPurposesWithDefaultEndpointName();
+        $epApi = $this->api('endpoints');
+        $mmModules = $epApi ? $epApi->getMmPythonModuleRegistry() : [];
+        $mediaCapabilities = $epApi ? $epApi->getMediaCapabilityRegistry() : [];
         echo json_encode(
-            ['success' => true, 'purposes' => $rows ?: [], 'purposes_postgresql_only' => false],
+            [
+                'success'                  => true,
+                'purposes'                 => $rows ?: [],
+                'purposes_postgresql_only' => false,
+                'mm_python_modules'        => $mmModules,
+                'media_capabilities'       => $mediaCapabilities,
+            ],
             JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
         );
     } catch (\Throwable $e) {

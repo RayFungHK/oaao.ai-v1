@@ -73,6 +73,7 @@ async def maybe_reflect_and_revise(
     )
     meta["accs_score"] = round(float(initial.score), 4)
     meta["accs_action"] = initial.action
+    meta["accs_source"] = initial.source
     if initial.skipped:
         meta["accs_skipped"] = True
         return assistant_text, meta

@@ -13,16 +13,16 @@
 | # | 能力軸 | Manus.im | oaao.ai-v1 現況 | 差距 | 路徑 |
 |---|---|---|---|---|---|
 | 1 | **多輪自主規劃** | 動態 plan-execute-replan 多輪 | `planner_llm.py` 單輪 + `report_after` replan 二輪 | 🟡 缺多輪反思迴圈 | Phase 8 Reflection；ToT/DDTree mode |
-| 2 | **Tool / Skill 熱插拔** | UI 上傳 Tool → 立即 function-call 可用 | MicroSkill 寫死在 Python；`catalog_from_request()` per-request | 🟡 沒有 hot-plug 入口 | Phase 9 Skills Manager（PHP）+ `skill_to_openai_tool()` |
+| 2 | **Tool / Skill 熱插拔** | UI 上傳 Tool → 立即 function-call 可用 | MicroSkill per-request catalog + hot-plug JSON manifest | ✅ Settings → Skills admin 持久化 manifest；orchestrator `merge_openai_tools` | Phase 9 Skills Manager（PHP）+ `skill_to_openai_tool()` |
 | 3 | **Function Call 自動暴露** | 所有 Tool 自動進 OpenAI tools list | 已透傳 `tools` 欄位，但 schema 由 caller 提供 | 🟡 缺自動轉換器 | Phase 9 同上 |
-| 4 | **Self-Reflection** | Native 內建，多輪批判 | ❌ 無 | 🔴 規劃中 | Phase 8 ACCS-triggered |
-| 5 | **跨對話技能記憶** | Memory + Skill library | RAG (Qdrant + Arango) 有事實記憶；無 Skill 沉澱 | 🟡 結構已有，缺寫入器 | Phase 9 Crystallization |
+| 4 | **Self-Reflection** | Native 內建，多輪批判 | **Phase 8a 已落地**：`inline_reflection.py` + `reflection.py` — ACCS &lt; 0.65 → Main 重寫一輪；stream `reflection_complete` | 🟢 單輪已對齊 | 多輪 ToT 仍 Phase 8b |
+| 5 | **跨對話技能記憶** | Memory + Skill library | RAG (Qdrant + Arango) 有事實記憶；**Phase 9a** `crystallization/sealer` + `recall` 已雙寫 in-process | 🟡 Vault 持久化待強化 | Phase 9 Crystallization 全量 |
 | 6 | **沙箱執行（瀏覽器 / Python）** | Native browser + Python sandbox | ❌ 無 browser；Python sandbox 為 sidecar 但無工具註冊 | 🔴 缺整段 | Phase 10+（依商業優先級）|
 | 7 | **檔案系統操作** | 全鏈路（read/write/edit 在 sandbox） | Vault 上傳 + 解析；無「LLM 主動寫檔」工具 | 🔴 缺 write 軸 | Phase 10+ |
-| 8 | **多模態輸入** | 圖片 / PDF / 音訊 | ASR (Qwen) ✅、PDF 解析 ✅、圖片理解 ❌ | 🟡 圖片缺 | Phase 11+（待 VLM 選型）|
+| 8 | **多模態輸入** | 圖片 / PDF / 音訊 | ASR ✅、PDF ✅、**mm_lance stub + OCR fallback**（Settings Config URL）；真 VLM 待 CUDA Lance | 🟡 圖片 pipeline 已接、品質待 GPU | Phase 12+ CUDA Lance |
 | 9 | **長對話狀態管理** | Native 永久狀態 + 摘要 | `conversation_id` + post-stream `vault_transcript_summary` ✅ | 🟢 對齊 | — |
 | 10 | **輸出可追溯（evidence）** | 部分 | `vault_rag` evidence 已在 envelope；UI 渲染 ✅ | 🟢 對齊 | — |
-| 11 | **錯誤恢復與熔斷** | 黑箱 | Phase 7 規格定稿，Phase 8 落地 | 🟡 規格已有 | Phase 8 Circuit Breaker |
+| 11 | **錯誤恢復與熔斷** | 黑箱 | **`safety/circuit_breaker.py`** — IQS/ACCS coach 連續失敗 → open → skip scoring、不 block 使用者 | 🟢 Phase 8a 已落地 | 擴展至更多 sidecar |
 | 12 | **本地部署 / 隱私** | ❌ 雲端 only | ✅ 全本地（GB10 + Razy）| **⭐ 超越** | — |
 | 13 | **多模型併存（CoT / Eval 分離）** | 單模型黑箱 | E4B (Coach) + 31B (Main) + 26B-A4B (Fast) | **⭐ 超越** | Phase 8 IQS+ACCS |
 | 14 | **演化迴圈（IQS/ACCS）** | ❌ 無自我修補 prompt / few-shot | Phase 7 規格 + Phase 11 cron | **⭐ 超越（潛在）** | Phase 11 |
@@ -99,18 +99,19 @@ Manus 是「使用者帶來知識」；oaao.ai 設計上是「系統自己沉澱
 
 ## 3. 必須補上的缺口（按優先級）
 
-| 優先級 | 缺口 | 建議 Phase | 投入估計 | 風險 |
-|---|---|---|---|---|
-| **P0** | Self-Reflection（ACCS-triggered） | Phase 8 | 中（1 個檔，~500 行）| 低 |
-| **P0** | Circuit Breaker | Phase 8 | 低（1 個檔，~200 行）| 低 |
-| **P1** | IQS Clarification Hook | Phase 8 | 中 | 中（UX：澄清過度會煩使用者；需 A/B 閾值）|
-| **P1** | Skill Crystallization 雙寫 | Phase 9 | 中（2 個檔 + 1 collection）| 中（命中率初期低，需冷啟動 seed）|
-| **P2** | Hot-plug Skills（Manifest + auto schema）| Phase 9 | 高（PHP UI + Python loader）| 中（安全：第三方 Skill 沙箱）|
-| **P2** | ToT / DDTree 實作 | Phase 8 | 中（planner_llm.py 分支）| 低 |
-| **P3** | 兩台機 LB（purpose_allocation 擴張）| Phase 10 | 中（PHP + Python）| 低（同網低 RTT）|
-| **P3** | Daily/Weekly Evolution Report cron | Phase 11 | 中 | 中（自動 rollback 邏輯需保守）|
-| **P4** | 圖片理解 VLM | Phase 12+ | 高（模型選型 + 記憶體重切）| 高（GB10 預算需重排）|
-| **P5** | Browser sandbox | 視業務 | 很高 | 很高（安全 + 維護）|
+| 優先級 | 缺口 | 建議 Phase | 投入估計 | 風險 | **2026-05 狀態** |
+|---|---|---|---|---|---|
+| **P0** | Self-Reflection（ACCS-triggered） | Phase 8 | 中 | 低 | ✅ `inline_reflection` + stream `reflection_complete` |
+| **P0** | Circuit Breaker | Phase 8 | 低 | 低 | ✅ `safety/circuit_breaker.py` on IQS/ACCS coach |
+| **P1** | IQS Clarification Hook | Phase 8 | 中 | 中 | ✅ `OAAO_IQS_INLINE_CLARIFY` + preamble gate |
+| **P1** | Thread health / ACCS UX | Phase 8 | 低 | 低 | ✅ banner + pills + stream provisional scores |
+| **P1** | Skill Crystallization 雙寫 | Phase 9 | 中 | 中 | 🟡 in-process seal/recall；Vault 全量待做 |
+| **P2** | Hot-plug Skills（Manifest + auto schema）| Phase 9 | 高 | 中 | ✅ `SkillsManifestStorage` + `hot_plug.py` + Settings UI |
+| **P2** | ToT / DDTree 實作 | Phase 8 | 中 | 低 | 待做 |
+| **P3** | 兩台機 LB（purpose_allocation 擴張）| Phase 10 | 中 | 低 | 待做 |
+| **P3** | Daily/Weekly Evolution Report cron | Phase 11 | 中 | 中 | 部分（queue UI）|
+| **P4** | 圖片理解 VLM | Phase 12+ | 高 | 高 | 待 CUDA Lance |
+| **P5** | Browser sandbox | 視業務 | 很高 | 很高 | 戰略放棄 |
 
 ---
 
