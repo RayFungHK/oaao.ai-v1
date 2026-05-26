@@ -37,11 +37,11 @@
 | 15 | subprocess 熱點分散，可能造成資源抖動 | Med | P1 | python-lead | ⬜ Open | W9-S1 candidate — subprocess pool + back-pressure | [python/oaao_orchestrator/funasr_ops.py](../python/oaao_orchestrator/funasr_ops.py) |
 | 16 | slide template 儲存模組過肥（1149 行） | Med | P2 | php-lead | ⬜ Open | W9-S2 candidate — defer until W6-S1 pattern stable | [backbone/.../SlideTemplateStorage.php](../backbone/sites/oaaoai/oaaoai/slide-designer/default/library/SlideTemplateStorage.php) |
 | 17 | slide project store 過肥（1104 行） | Med | P2 | python-lead | ⬜ Open | W9-S2 candidate — defer until W5-S2 pattern stable | [python/oaao_orchestrator/slide_project/store.py](../python/oaao_orchestrator/slide_project/store.py) |
-| 18 | CI 缺安全掃描 gate | Med | P1 | security-lead | 🟡 Active | W11-S3 Phase 1 — gitleaks + pip-audit + composer audit wired as advisory; Phase 2 flip pending baseline curation | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
+| 18 | CI 缺安全掃描 gate | Med | P1 | security-lead | ✅ Done | W11-S3 Phase 2 — gitleaks + pip-audit promoted to required; baseline clean (46 commits, 0 leaks); Pillow >=12.2 closes 6 CVEs. composer audit stays advisory until root composer.json lands. | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
 | 19 | CI 缺性能回歸 gate | Med | P2 | qa-lead | ⬜ Open | W12-S1 candidate — needs KPI baseline (W1-S2 ✅) before threshold | [.github/workflows/oaao-ci.yml](../.github/workflows/oaao-ci.yml) |
 | 20 | 文件入口分散，對外契約不集中 | Low | P2 | qa-lead | 🟡 Active | W7-S1 partial — `contracts/v1/` index established; full doc consolidation in W12 | [contracts/README.md](../contracts/README.md) |
 
-**Burn-down @ today** — Top 20: 8 ✅ Done · 2 🟡 In progress · 2 🟡 Active (partial) · 6 🟠 Scheduled · 2 ⬜ Open · **closed-rate 40%**.
+**Burn-down @ today** — Top 20: 9 ✅ Done · 2 🟡 In progress · 1 🟡 Active (partial) · 6 🟠 Scheduled · 2 ⬜ Open · **closed-rate 45%**.
 P0 subset (12 items): 7 ✅ · 2 🟡 In progress (#6, #7) · 0 🟡 Active · 3 🟠 Scheduled (#4, #5, #8) · 0 ⬜ · **P0 closed-rate 58%**.
 
 ---
@@ -111,7 +111,7 @@ P0 subset (12 items): 7 ✅ · 2 🟡 In progress (#6, #7) · 0 🟡 Active · 3
 | 15 | python-lead | qa-lead | **W9** | subprocess pool + back-pressure metrics |
 | 16 | php-lead | qa-lead | **W9** | apply W6-S1 pattern post-stabilisation |
 | 17 | python-lead | qa-lead | **W9** | apply W5-S2 pattern post-stabilisation |
-| 18 | security-lead | devops | W11 ✅ P1 | secret-scan + dep-audit CI step (advisory; Phase-2 flip pending) |
+| 18 | security-lead | devops | W11 ✅ P2 | secret-scan + dep-audit CI gate hardened (required) |
 | 19 | qa-lead | python-lead | **W12** | perf-bench CI step + thresholds from W1-S2 KPIs |
 | 20 | qa-lead | tech-writer | **W12** | docs index + contract index page |
 

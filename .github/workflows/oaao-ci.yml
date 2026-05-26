@@ -146,12 +146,13 @@ jobs:
 
   security-audit:
     # W11-S3 (Top-20 #18) — Secret scan + dependency audit.
-    # Phase 1 (this commit): ADVISORY. Establishes baseline; CI surfaces findings
-    #   but does not block merges so we can land the gate without false-positive
-    #   churn against the historical tree.
-    # Phase 2 (later): flip continue-on-error off for secret-scan (gitleaks) once
-    #   .gitleaks.toml allowlist is curated, and for pip-audit/composer-audit once
-    #   the dep tree is patched current. See docs/W1_Top20_TechDebt_Owner_Framework.md #18.
+    # Phase 2 (this commit): gitleaks + pip-audit are REQUIRED gates. Baseline
+    #   verified clean locally (46 commits scanned, 0 leaks; Pillow bumped to
+    #   >=12.2 to clear CVE-2026-25990 / 40192 / 42308-42311).
+    # composer audit stays advisory until a root-level composer.json lands —
+    #   the PHP code under backbone/ uses Razy directly without a composer
+    #   manifest at repo root, so there is nothing to audit yet.
+    # See docs/W1_Top20_TechDebt_Owner_Framework.md #18 for the audit trail.
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -161,8 +162,7 @@ jobs:
           fetch-depth: 0  # gitleaks needs full history to scan blobs
 
       # --- Secret scan ----------------------------------------------------
-      - name: gitleaks (secret scan, advisory)
-        continue-on-error: true
+      - name: gitleaks (secret scan)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -174,14 +174,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: pip-audit (Python deps, advisory)
-        continue-on-error: true
+      - name: pip-audit (Python deps)
         run: |
           set -eu
           pip install --quiet pip-audit
-          # Scan every requirements*.txt under python/. Use --disable-pip so the
-          # audit does not try to resolve transitive trees through the network
-          # beyond the vulnerability DB itself (faster, deterministic).
           shopt -s nullglob
           status=0
           for req in python/requirements*.txt; do
@@ -190,7 +186,8 @@ jobs:
             echo "::endgroup::"
           done
           if [ "$status" != "0" ]; then
-            echo "::warning::pip-audit reported vulnerabilities (advisory, not blocking)"
+            echo "::error::pip-audit reported vulnerabilities — patch deps or pin a fix."
+            exit "$status"
           fi
 
       # --- PHP dependency audit -------------------------------------------
@@ -256,7 +253,7 @@ jobs:
             echo "| audit-full          | $(icon "$AUDIT")  $AUDIT  | required |"
             echo "| php-style           | $(icon "$STYLE")  $STYLE  | advisory (W2-S2) |"
             echo "| python-lint         | $(icon "$LINT")   $LINT   | required (ruff hard-fail, W4-S1 P2) |"
-            echo "| security-audit      | $(icon "$SECAUDIT") $SECAUDIT | advisory (W11-S3 P1) |"
+            echo "| security-audit      | $(icon "$SECAUDIT") $SECAUDIT | required (W11-S3 P2; composer audit still advisory) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if any required job failed
@@ -265,10 +262,11 @@ jobs:
           SMOKE: ${{ needs.orchestrator-smoke.result }}
           AUDIT: ${{ needs.audit-full.result }}
           LINT: ${{ needs.python-lint.result }}
+          SECAUDIT: ${{ needs.security-audit.result }}
         run: |
           set -eu
           fail=0
-          for r in "$BRIDGE" "$SMOKE" "$AUDIT" "$LINT"; do
+          for r in "$BRIDGE" "$SMOKE" "$AUDIT" "$LINT" "$SECAUDIT" ; do
             case "$r" in
               success) ;;
               skipped) ;;
