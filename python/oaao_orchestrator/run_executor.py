@@ -15,14 +15,8 @@ from typing import Any
 
 import httpx
 
-from oaao_orchestrator.agent_ask import (
-    ASK_DECISION_PROCEED,
-    wait_for_agent_ask_decision,
-)
 from oaao_orchestrator.agent_phase_handoff import (
-    emit_inter_agent_ask,
     maybe_inter_agent_handoff,
-    resolve_agent_ask_prompt,
 )
 from oaao_orchestrator.agents import get_agent_registry
 from oaao_orchestrator.pipeline import RunContext
@@ -81,6 +75,9 @@ logger = logging.getLogger(__name__)
 # Plan/queue helpers extracted into run_executor_plan (Top-20 #6 phase 4).
 # Aliased to underscore names so existing call sites in execute_chat_run need
 # no churn.
+from oaao_orchestrator.run_executor_agent import (  # noqa: E402
+    handle_agent_task as _handle_agent_task,
+)
 from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
     handle_attachments_task as _handle_attachments_task,
 )
@@ -107,9 +104,6 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     slide_worker_concurrency as _slide_worker_concurrency,
-)
-from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
-    apply_vault_rag_agent_result as _apply_vault_rag_agent_result,
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
     handle_vault_rag_task as _handle_vault_rag_task,
@@ -703,122 +697,27 @@ async def execute_chat_run(
                     )
 
                 elif run_task.type == RunTaskType.AGENT:
-                    needs_ask, ask_msg, ask_meta = resolve_agent_ask_prompt(
-                        run_task,
-                        req,
-                        run_ctx_extra=run_ctx.extra,
-                    )
-                    if needs_ask:
-                        run_task.status = RunTaskStatus.AWAITING_ASK
-                        await emit_inter_agent_ask(
-                            run,
-                            plan,
-                            run_task,
-                            message=ask_msg,
-                            ask_meta=ask_meta,
-                            allowed_agents=allowed_agents,
-                            pipeline_snap=pipeline_snap,
-                        )
-                        decision = await wait_for_agent_ask_decision(run, run_task_id=run_task.id)
-                        if run.cancelled or decision != ASK_DECISION_PROCEED:
-                            run_task.status = RunTaskStatus.SKIPPED
-                            await emit_run_task_end(
-                                run,
-                                plan,
-                                run_task,
-                                allowed_agents=allowed_agents,
-                                pipeline_snap=pipeline_snap,
-                            )
-                            continue
-                        run_task.status = RunTaskStatus.ACTIVE
-                        await emit_task_list_status(
-                            run,
-                            plan,
-                            allowed_agents=allowed_agents,
-                            pipeline_snap=pipeline_snap,
-                            text="agent_ask_proceeded",
-                        )
-
-                    run_ctx.extra["run_plan"] = plan
-                    run_ctx.extra["pipeline_snap_base"] = (
-                        dict(pipeline_snap) if isinstance(pipeline_snap, dict) else {}
-                    )
-                    agent_result = await run_agent_with_timeout(
-                        get_agent_registry().run,
+                    (
+                        messages_for_llm,
+                        pipeline_snap,
+                        task_failed,
+                        run_failed,
+                        slide_project_meta,
+                        _agent_skip,
+                    ) = await _handle_agent_task(
                         run=run,
+                        req=req,
+                        plan=plan,
+                        task_queue=task_queue,
                         run_task=run_task,
-                        ctx=run_ctx,
+                        run_ctx=run_ctx,
+                        allowed_agents=allowed_agents,
+                        messages_for_llm=messages_for_llm,
+                        pipeline_snap=pipeline_snap,
+                        slide_project_meta=slide_project_meta,
                     )
-                    if not agent_result.success:
-                        task_failed = True
-                        run_failed = True
-                    else:
-                        kind = (run_task.agent_kind or "").strip()
-                        if kind == "vault_rag":
-                            (
-                                messages_for_llm,
-                                pipeline_snap,
-                                vr_failed,
-                            ) = await _apply_vault_rag_agent_result(
-                                agent_result,
-                                messages_for_llm=messages_for_llm,
-                                run_ctx=run_ctx,
-                                pipeline_snap=pipeline_snap,
-                            )
-                            if vr_failed:
-                                task_failed = True
-                                run_failed = True
-                        else:
-                            messages_for_llm = list(run_ctx.messages)
-                            run_ctx.messages = list(messages_for_llm)
-                        if agent_result.artifacts:
-                            pipeline_snap = pipeline_snap or {}
-                            arts = pipeline_snap.get("artifacts")
-                            if not isinstance(arts, list):
-                                arts = []
-                            pipeline_snap["artifacts"] = list(arts) + list(agent_result.artifacts)
-                        extra_blocks = agent_result.extra.get("pipeline_blocks")
-                        if isinstance(extra_blocks, list) and extra_blocks:
-                            pipeline_snap = pipeline_snap or {}
-                            blocks = pipeline_snap.get("blocks")
-                            if not isinstance(blocks, list):
-                                blocks = []
-                            pipeline_snap["blocks"] = list(blocks) + [
-                                b for b in extra_blocks if isinstance(b, dict)
-                            ]
-                        sp = agent_result.extra.get("slide_project")
-                        if isinstance(sp, dict) and sp.get("project_id"):
-                            slide_project_meta = sp
-                            run_ctx.extra["slide_project_id"] = str(sp["project_id"])
-                        extra_append = agent_result.extra.get("append_tasks")
-                        if isinstance(extra_append, list) and extra_append:
-                            from oaao_orchestrator.planner_llm import (
-                                PlannerOutputDraft,
-                                PlannerTaskDraft,
-                                planner_output_to_run_plan,
-                            )
-
-                            draft = PlannerOutputDraft(
-                                tasks=[
-                                    PlannerTaskDraft.model_validate(x)
-                                    for x in extra_append
-                                    if isinstance(x, dict)
-                                ]
-                            )
-                            follow = planner_output_to_run_plan(
-                                draft,
-                                allowed_agents=allowed_agents,
-                                require_vault=False,
-                                require_attachments=False,
-                            ).tasks
-                            _append_tasks_to_plan(plan, task_queue, follow)
-                            await emit_task_list_status(
-                                run,
-                                plan,
-                                allowed_agents=allowed_agents,
-                                pipeline_snap=pipeline_snap,
-                                text="tasks_appended",
-                            )
+                    if _agent_skip:
+                        continue
 
                 elif run_task.type == RunTaskType.LLM_CALL:
                     await run.append(
