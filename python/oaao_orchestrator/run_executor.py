@@ -15,24 +15,13 @@ from oaao_orchestrator.agent_phase_handoff import (
     maybe_inter_agent_handoff,
 )
 from oaao_orchestrator.agents import get_agent_registry
-from oaao_orchestrator.pipeline import RunContext
-from oaao_orchestrator.pipeline_ui import (
-    build_minimal_pipeline_snapshot,
-    merge_vault_chat_sources_into_snapshot,
-)
-from oaao_orchestrator.planner import build_run_plan, resolve_allowed_agents
+from oaao_orchestrator.planner import resolve_allowed_agents
 from oaao_orchestrator.planner_llm import plan_report_result_tasks, planner_enabled
 
 # W5-S2 phase 2 — pipeline_timing helpers live in run_executor_timing.py.
 # Imported as underscore-prefixed names for back-compat with existing call sites.
 from oaao_orchestrator.run_executor_timing import (
-    elapsed_ms_since as _elapsed_ms_since,
-)
-from oaao_orchestrator.run_executor_timing import (
     finalize_run_task_timing as _finalize_run_task_timing,
-)
-from oaao_orchestrator.run_executor_timing import (
-    record_pipeline_phase as _record_pipeline_phase,
 )
 
 # W5-S2 phase 1 — Upstream sampling + timeout helpers live in
@@ -40,8 +29,6 @@ from oaao_orchestrator.run_executor_timing import (
 # thin aliases so internal callers in this module need no churn.
 from oaao_orchestrator.safety.agent_timeout import run_agent_with_timeout
 from oaao_orchestrator.streaming.events import (
-    KIND_STATUS,
-    PHASE_LLM,
     PHASE_SYSTEM,
     StreamEnvelope,
 )
@@ -84,9 +71,6 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     inject_slide_project_id as _inject_slide_project_id,
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
-    plan_pipeline_source as _plan_pipeline_source,
-)
-from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     pop_parallel_batch as _pop_parallel_batch,
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
@@ -98,11 +82,11 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     slide_worker_concurrency as _slide_worker_concurrency,
 )
-from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
-    handle_vault_rag_task as _handle_vault_rag_task,
+from oaao_orchestrator.run_executor_preamble import (  # noqa: E402
+    prepare_run_preamble as _prepare_run_preamble,
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
-    vault_rag_ctx_extra as _vault_rag_ctx_extra,
+    handle_vault_rag_task as _handle_vault_rag_task,
 )
 
 
@@ -114,7 +98,6 @@ async def execute_chat_run(
 ) -> None:
     from oaao_orchestrator.chat_helpers import (
         _chat_completions_url,
-        _hook_before_llm,
         _resolve_planner_llm,
         _sanitize_client_text,
     )
@@ -209,298 +192,32 @@ async def execute_chat_run(
     allowed_agents = resolve_allowed_agents(req)
 
     try:
-        _hook_before_llm(req)
-
-        from oaao_orchestrator.run_principal import require_for_request
-
-        run_principal = require_for_request(req)
-
-        from oaao_orchestrator.evaluation.coach_client import (
-            inline_iqs_clarify_enabled,
-        )
-        from oaao_orchestrator.evaluation.iqs import (
-            score_iqs,
-            should_bypass_iqs_clarify,
-        )
-        from oaao_orchestrator.planner_llm import _last_user_message
-
-        user_msg_for_iqs = _last_user_message(messages_for_llm)
-        coach_endpoint = req.uiqe if isinstance(req.uiqe, dict) else None
-        clarify_gate = inline_iqs_clarify_enabled()
-
-        async def _timed_iqs():
-            t0 = time.perf_counter()
-            res = await score_iqs(
-                user_message=user_msg_for_iqs,
-                conversation_history=messages_for_llm,
-                coach_endpoint=coach_endpoint,
-                inline=True,
-            )
-            return res, _elapsed_ms_since(t0)
-
-        async def _timed_plan() -> tuple[RunPlan, int]:
-            t0 = time.perf_counter()
-            built = await build_run_plan(
-                req,
-                chat_completions_url=planner_url,
-                api_key=planner_api_key,
-                model=planner_model,
-            )
-            return built, _elapsed_ms_since(t0)
-
-        def _record_plan_phase(duration_ms: int, *, source: str | None = None) -> None:
-            _record_pipeline_phase(
-                pipeline_timing,
-                "plan",
-                duration_ms,
-                model=planner_model if planner_enabled(req) else None,
-                source=source or _plan_pipeline_source(req),
-            )
-
-        async def _maybe_recall_crystallized_plan(iqs_result: object, current: RunPlan) -> RunPlan:
-            from oaao_orchestrator.crystallization.plan import (
-                build_plan_from_tool_chain,
-            )
-            from oaao_orchestrator.crystallization.recall import recall_skill
-
-            if str(getattr(iqs_result, "action", "") or "") not in ("pass", "assume_defaults"):
-                return current
-            t_recall = time.perf_counter()
-            skill_hit = await recall_skill(
-                user_msg_for_iqs,
-                embedding_cfg=req.embedding if isinstance(req.embedding, dict) else None,
-            )
-            _record_pipeline_phase(pipeline_timing, "skill_recall", _elapsed_ms_since(t_recall))
-            if skill_hit is None:
-                return current
-            iqs_snap["crystallized_skill_recall"] = {
-                "skill_id": skill_hit.skill.id,
-                "similarity": round(float(skill_hit.similarity), 4),
-                "tool_chain": list(skill_hit.skill.tool_chain),
-            }
-            _record_plan_phase(0, source="crystallized_skill")
-            await run.append(
-                StreamEnvelope(
-                    phase=PHASE_SYSTEM,
-                    kind=KIND_STATUS,
-                    text="reusing_crystallized_skill",
-                    payload={
-                        "skill_id": skill_hit.skill.id,
-                        "trigger_intent": skill_hit.skill.trigger_intent,
-                        "similarity": round(float(skill_hit.similarity), 4),
-                        "tool_chain": list(skill_hit.skill.tool_chain),
-                    },
-                )
-            )
-            return build_plan_from_tool_chain(skill_hit.skill.tool_chain)
-
-        if clarify_gate:
-            iqs_result, iqs_ms = await _timed_iqs()
-            _record_pipeline_phase(pipeline_timing, "iqs", iqs_ms, source=iqs_result.source)
-        else:
-            await run.append(
-                StreamEnvelope(
-                    phase=PHASE_SYSTEM,
-                    kind=KIND_STATUS,
-                    text="plan_build_start",
-                    payload={},
-                )
-            )
-            (iqs_result, iqs_ms), (plan, plan_ms) = await asyncio.gather(
-                _timed_iqs(), _timed_plan()
-            )
-            _record_pipeline_phase(pipeline_timing, "iqs", iqs_ms, source=iqs_result.source)
-            _record_plan_phase(plan_ms)
-
-        iqs_snap = {
-            "iqs_score": round(float(iqs_result.score), 4),
-            "iqs_action": iqs_result.action,
-            "iqs_dimensions": iqs_result.dimensions,
-            "iqs_skipped": bool(iqs_result.skipped),
-            "iqs_source": iqs_result.source,
-        }
-
-        await run.append(
-            StreamEnvelope(
-                phase=PHASE_SYSTEM,
-                kind="status",
-                text="llm_request_start",
-                payload={
-                    "purpose_id": req.purpose_id,
-                    "chat_profile_id": req.chat_profile.id,
-                    **iqs_snap,
-                },
-            )
-        )
-
-        if (
-            clarify_gate
-            and iqs_result.action in ("clarify", "hard_clarify")
-            and not iqs_result.skipped
-            and not should_bypass_iqs_clarify(user_msg_for_iqs, messages_for_llm)
-            and iqs_result.clarification_questions
-        ):
-            clarify_lines = list(iqs_result.clarification_questions)
-            if len(clarify_lines) == 1:
-                clarify_text = clarify_lines[0]
-            else:
-                clarify_text = "\n\n".join(
-                    f"{i}. {q}" for i, q in enumerate(clarify_lines, start=1)
-                )
-            if clarify_text:
-                streamed_parts.append(clarify_text)
-                out_chars += len(clarify_text)
-            await run.append(
-                StreamEnvelope(
-                    phase=PHASE_SYSTEM,
-                    kind="status",
-                    text="iqs_clarify",
-                    payload={
-                        **iqs_snap,
-                        "clarification_questions": clarify_lines,
-                    },
-                )
-            )
-            if clarify_text:
-                await run.append(
-                    StreamEnvelope(
-                        phase=PHASE_LLM,
-                        kind="delta",
-                        text=clarify_text,
-                        payload={"iqs_action": iqs_result.action},
-                    )
-                )
-            return
-
-        pipeline_snap = merge_vault_chat_sources_into_snapshot(
-            build_minimal_pipeline_snapshot(),
-            list(req.vault_source_ids or []),
-            [r.model_dump() for r in (req.vault_source_refs or [])],
-        )
-
-        if clarify_gate:
-            if iqs_result.action in ("pass", "assume_defaults"):
-                await run.append(
-                    StreamEnvelope(
-                        phase=PHASE_SYSTEM,
-                        kind=KIND_STATUS,
-                        text="plan_build_start",
-                        payload={},
-                    )
-                )
-                plan, plan_ms = await _timed_plan()
-                _record_plan_phase(plan_ms)
-                plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
-            else:
-                await run.append(
-                    StreamEnvelope(
-                        phase=PHASE_SYSTEM,
-                        kind=KIND_STATUS,
-                        text="plan_build_start",
-                        payload={},
-                    )
-                )
-                plan, plan_ms = await _timed_plan()
-                _record_plan_phase(plan_ms)
-        else:
-            plan = await _maybe_recall_crystallized_plan(iqs_result, plan)
-
-        from oaao_orchestrator.planner_modes import refine_plan_for_mode
-
-        planner_mode_id = str(getattr(req, "planner_mode_id", None) or "default")
-        plan, planner_mode_meta = await refine_plan_for_mode(
-            plan,
+        preamble = await _prepare_run_preamble(
+            run=run,
             req=req,
-            mode_id=planner_mode_id,
-            chat_completions_url=planner_url,
-            api_key=planner_api_key,
-            model=planner_model,
+            t_start=t_start,
+            messages_for_llm=messages_for_llm,
+            pipeline_timing=pipeline_timing,
+            streamed_parts=streamed_parts,
+            planner_url=planner_url,
+            planner_api_key=planner_api_key,
+            planner_model=planner_model,
+            api_key=api_key,
             allowed_agents=allowed_agents,
         )
-        if planner_mode_meta.get("mode") in ("tot", "ddtree"):
-            iqs_snap["planner_mode_meta"] = planner_mode_meta
-            await run.append(
-                StreamEnvelope(
-                    phase=PHASE_SYSTEM,
-                    kind=KIND_STATUS,
-                    text=f"planner_mode_{planner_mode_meta.get('mode')}",
-                    payload=planner_mode_meta,
-                )
-            )
-
-        task_queue: list[RunTaskSpec] = list(plan.tasks)
-        report_after_ids = set(plan.report_after_task_ids)
+        out_chars += preamble.out_chars_delta
+        run_principal = preamble.run_principal
+        coach_endpoint = preamble.coach_endpoint
+        iqs_snap = preamble.iqs_snap
+        if preamble.short_circuit:
+            return
+        pipeline_snap = preamble.pipeline_snap
+        plan = preamble.plan
+        run_ctx = preamble.run_ctx
+        task_queue: list[RunTaskSpec] = preamble.task_queue
+        report_after_ids = preamble.report_after_ids
+        scope_docs = preamble.scope_docs
         report_replan_done = False
-        pipeline_timing["thinking_ms"] = _elapsed_ms_since(t_start)
-
-        await run.append(
-            StreamEnvelope(
-                phase=PHASE_SYSTEM,
-                kind=KIND_STATUS,
-                text="preflight_timing",
-                payload={"pipeline_timing": dict(pipeline_timing)},
-            )
-        )
-
-        await emit_task_list_status(
-            run, plan, allowed_agents=allowed_agents, pipeline_snap=pipeline_snap, text="task_plan"
-        )
-
-        scope_docs: dict[int, list[int]] = {}
-        for raw_vid, raw_ids in (req.vault_scope_documents or {}).items():
-            try:
-                vid = int(raw_vid)
-            except (TypeError, ValueError):
-                continue
-            if vid < 1 or not isinstance(raw_ids, list):
-                continue
-            clean_ids: list[int] = []
-            for x in raw_ids:
-                try:
-                    did = int(x)
-                except (TypeError, ValueError):
-                    continue
-                if did > 0:
-                    clean_ids.append(did)
-            if clean_ids:
-                scope_docs[vid] = sorted(set(clean_ids))
-
-        slide_designer_cfg = req.slide_designer if isinstance(req.slide_designer, dict) else {}
-        if isinstance(getattr(plan, "slide_designer", None), dict):
-            slide_designer_cfg = dict(plan.slide_designer)
-        if isinstance(slide_designer_cfg, dict) and (
-            slide_designer_cfg.get("start_new_deck") or slide_designer_cfg.get("regenerate_deck")
-        ):
-            slide_designer_cfg = dict(slide_designer_cfg)
-            slide_designer_cfg.pop("resume_project_id", None)
-            slide_designer_cfg.pop("continuation", None)
-        run_ctx_extra: dict[str, Any] = {
-            "allowed_agents": allowed_agents,
-            "assistant_message_id": req.assistant_message_id,
-            "workspace_id": req.workspace_id,
-            "planner_mode_id": str(getattr(req, "planner_mode_id", None) or "default"),
-            "llm_url": planner_url,
-            "llm_api_key": api_key,
-            "llm_model": planner_model,
-            "slide_designer": slide_designer_cfg,
-            "vault_rag": _vault_rag_ctx_extra(
-                req,
-                scope_docs=scope_docs,
-                pipeline_snap=pipeline_snap,
-                plan=plan,
-            ),
-        }
-        if run_principal is not None:
-            run_ctx_extra["run_principal"] = run_principal
-        run_ctx = RunContext(
-            conversation_id=req.conversation_id,
-            user_id=req.user_id,
-            purpose_id=req.purpose_id,
-            mode_id=req.mode_id,
-            messages=list(messages_for_llm),
-            model=req.endpoint.model,
-            extra=run_ctx_extra,
-        )
 
         cancel_emitted = False
 
