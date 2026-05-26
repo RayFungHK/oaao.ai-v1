@@ -657,6 +657,31 @@ async function fetchVaultDocumentStatusesJson(documentIds) {
     return cache.fetchVaultDocumentStatuses(wid, buildUrl, documentIds);
 }
 
+/**
+ * Bulk vault-scoped poll — replaces N×document_status calls with one
+ * vault_status call. Returns only non-terminal documents
+ * (transient_only=1) so steady-state polling stays cheap.
+ *
+ * @param {number} vaultId
+ * @returns {Promise<unknown[]>}
+ */
+async function fetchVaultStatusByVaultJson(vaultId) {
+    if (!Number.isFinite(vaultId) || vaultId < 1) return [];
+    const base = vaultApiBase();
+    const wid = getOaaoActiveWorkspaceIdForVault();
+    const scopeQ = wid != null ? `workspace_id=${encodeURIComponent(String(wid))}&` : '';
+    const url = `${base}vault_status?${scopeQ}vault_id=${encodeURIComponent(String(vaultId))}&transient_only=1`;
+    try {
+        const resp = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        if (!resp.ok) return [];
+        const json = await resp.json();
+        const docs = json && json.data && Array.isArray(json.data.documents) ? json.data.documents : [];
+        return docs;
+    } catch (_e) {
+        return [];
+    }
+}
+
 /** Fallback UI strings ({@see workspace.js workspaceShellUiLang}). */
 const VAULT_SIDEBAR_UI = {
     loading: { en: 'Loading vault…', 'zh-Hant': '正在載入保管庫…' },
@@ -754,6 +779,7 @@ const VAULT_SIDEBAR_UI = {
         'zh-Hant': '請待向量化完成後再試。',
     },
     action_requeue_embed: { en: 'Re-queue · Embedding', 'zh-Hant': '重新排程 · 向量化' },
+    action_requeue_graph: { en: 'Re-queue · Graph', 'zh-Hant': '重新排程 · 圖譜' },
     action_reembed: { en: 'Re-embed', 'zh-Hant': '重新向量化' },
     confirm_requeue_embed: {
         en: 'Cancel the in-progress embedding job and queue a new run? Existing vectors for this file will be cleared first.',
@@ -4272,6 +4298,8 @@ function renderVaultDetailPanel(docNode, mount, signal) {
                 : pre;
 
         const isEmbedHook = hookId === 'vh.rag.document_embed';
+        const isGraphHook = hookId === 'vh.rag.graph_index';
+        const graphStatusLc = typeof gStat === 'string' ? gStat.trim().toLowerCase() : '';
         const needsForceReembed =
             isEmbedHook && (embedStatusLc === 'embedding' || embedStatusLc === 'embedded');
 
@@ -4281,6 +4309,8 @@ function renderVaultDetailPanel(docNode, mount, signal) {
             embedBtnIdleText = vaultSidebarUiString('action_requeue_embed');
         } else if (isEmbedHook && embedStatusLc === 'embedded') {
             embedBtnIdleText = `${vaultSidebarUiString('action_reembed')} · ${label}`;
+        } else if (isGraphHook && graphStatusLc === 'failed') {
+            embedBtnIdleText = vaultSidebarUiString('action_requeue_graph');
         }
 
         const btn = document.createElement('button');
@@ -4349,10 +4379,11 @@ function renderVaultDetailPanel(docNode, mount, signal) {
                                 `${vaultSidebarUiString('badge_queued')} · ${label}`,
                             );
                             vaultEnsureEmbedWatchDoc(docId);
-                            vaultPatchDocumentNodeInTreeCache(docId, {
-                                embed_status: 'pending',
-                                embed_error: null,
-                            });
+                            /** @type {Record<string, unknown>} */
+                            const patch = isGraphHook
+                                ? { graph_status: 'pending', graph_error: null }
+                                : { embed_status: 'pending', embed_error: null };
+                            vaultPatchDocumentNodeInTreeCache(docId, patch);
                             vaultExplorerRedraw();
                             vaultStartEmbedProgressPolling(signal);
                             const fresh = vaultFindDocumentNodeById(vaultExplorerTreeCache, docId);
@@ -5144,7 +5175,28 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
         const focus = opts?.focusUpload ?? null;
 
         if (!forceFullTree && watchIds.length > 0 && vaultExplorerTreeCache.length > 0) {
-            const statuses = await fetchVaultDocumentStatusesJson(watchIds);
+            // Bulk path: when we're inside a vault view AND watching ≥8 docs,
+            // one vault_status call replaces N document_status calls.
+            const navVaultId =
+                vaultExplorerNav && Number.isFinite(vaultExplorerNav.vaultId)
+                    ? Math.floor(Number(vaultExplorerNav.vaultId))
+                    : 0;
+            let statuses;
+            if (navVaultId > 0 && watchIds.length >= 8) {
+                const watchSet = new Set(watchIds);
+                const bulk = await fetchVaultStatusByVaultJson(navVaultId);
+                // Bulk endpoint returns ALL transient docs in the vault — keep
+                // only the ones we're actually watching to preserve old
+                // patch semantics.
+                statuses = bulk.filter(
+                    (row) =>
+                        row &&
+                        typeof row === 'object' &&
+                        watchSet.has(Math.floor(Number(/** @type {{ id?: unknown }} */ (row).id ?? 0))),
+                );
+            } else {
+                statuses = await fetchVaultDocumentStatusesJson(watchIds);
+            }
             if (signal.aborted) return;
             if (statuses.length > 0) {
                 const cache = await loadVaultTreeCacheMod();

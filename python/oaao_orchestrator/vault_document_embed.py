@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -414,18 +415,46 @@ async def process_vault_document_embed(
     batch_size = max(1, min(256, int(_env("OAAO_VAULT_EMBED_BATCH_SIZE", "48") or "48")))
     embeddings: list[tuple[int, list[float], str, dict[str, Any]]] = []
     texts_only = [t for t, _ in pieces_meta]
+    # Retry transient embedding-service failures with exponential backoff so a
+    # single hiccup (rate-limit, network blip, upstream cold-start) does not
+    # mark the document as permanently failed and starve sibling docs from
+    # appearing complete. The job loop is single-worker — a real perma-fail
+    # still surfaces after the last attempt.
+    retry_delays = (0.0, 2.0, 5.0, 10.0)
     for batch_start in range(0, len(texts_only), batch_size):
         batch = texts_only[batch_start : batch_start + batch_size]
-        vecs, embed_err = await openai_compat_embed_batch(
-            client,
-            batch,
-            ek,
-            url=embed_url_final,
-            model=mo,
-        )
+        vecs: list[list[float]] | None = None
+        embed_err: str | None = None
+        for attempt_idx, delay in enumerate(retry_delays):
+            if delay > 0:
+                await asyncio.sleep(delay)
+            vecs, embed_err = await openai_compat_embed_batch(
+                client,
+                batch,
+                ek,
+                url=embed_url_final,
+                model=mo,
+            )
+            if vecs and len(vecs) == len(batch):
+                if attempt_idx > 0:
+                    logger.info(
+                        "vault_document_embed: batch %d succeeded after %d retries (doc=%d)",
+                        batch_start,
+                        attempt_idx,
+                        document_id,
+                    )
+                break
+            logger.warning(
+                "vault_document_embed: batch %d attempt %d/%d failed (doc=%d): %s",
+                batch_start,
+                attempt_idx + 1,
+                len(retry_delays),
+                document_id,
+                embed_err or "unknown",
+            )
         if not vecs or len(vecs) != len(batch):
             detail = embed_err or "unknown"
-            msg = f"embedding_failed_at_batch:{batch_start}:{detail}"
+            msg = f"embedding_failed_at_batch:{batch_start}:after_{len(retry_delays)}_attempts:{detail}"
             return "failed", msg[:4000], {}
         for off, vec in enumerate(vecs):
             idx = batch_start + off
