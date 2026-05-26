@@ -35,6 +35,7 @@ from oaao_orchestrator.routes.live import router as _live_router
 from oaao_orchestrator.routes.mine import router as _mine_router
 from oaao_orchestrator.routes.research import router as _research_router
 from oaao_orchestrator.routes.runs import router as _runs_router
+from oaao_orchestrator.routes.skills import router as _skills_router
 from oaao_orchestrator.routes.slides import router as _slides_router
 from oaao_orchestrator.routes.turn_scores import router as _turn_scores_router
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
@@ -236,12 +237,6 @@ class ChatRunRequest(BaseModel):
     )
 
 
-class SkillsDiscoverRequest(BaseModel):
-    user_message: str = ""
-    conversation_excerpt: str = ""
-    skills_catalog: list[dict[str, Any]] = Field(default_factory=list)
-    endpoint: EndpointPayload
-
 
 
 # Streaming state moved to streaming_state.py so routes/runs.py can share it
@@ -309,42 +304,12 @@ async def _report_usage_to_php(
         logger.debug("usage_record callback failed: %s", exc)
 
 
-def _resolve_api_key(ep: EndpointPayload | None) -> str | None:
-    """Bearer token from sidecar env."""
-    if ep is None:
-        fb = os.environ.get("OPENAI_API_KEY")
-        return fb.strip() if isinstance(fb, str) and fb.strip() else None
-    name = (ep.api_key_env or "").strip() or "OPENAI_API_KEY"
-    v = os.environ.get(name)
-    if isinstance(v, str):
-        v = v.strip()
-        if v:
-            return v
-    fb = os.environ.get("OPENAI_API_KEY")
-    if isinstance(fb, str):
-        fb = fb.strip()
-        if fb:
-            return fb
-
-    return None
-
-
-def _resolve_api_key_env_dict(snap: dict[str, Any] | None) -> str | None:
-    """Bearer token from sidecar env using orchestrator purpose snapshot."""
-    if not isinstance(snap, dict):
-        return None
-    name = str(snap.get("api_key_env") or "").strip() or "OPENAI_API_KEY"
-    v = os.environ.get(name)
-    if isinstance(v, str):
-        v = v.strip()
-        if v:
-            return v
-    fb = os.environ.get("OPENAI_API_KEY")
-    if isinstance(fb, str):
-        fb = fb.strip()
-        if fb:
-            return fb
-    return None
+from oaao_orchestrator.endpoint_keys import (  # noqa: E402
+    resolve_api_key as _resolve_api_key,
+)
+from oaao_orchestrator.endpoint_keys import (  # noqa: E402
+    resolve_api_key_env_dict as _resolve_api_key_env_dict,
+)
 
 
 def _resolve_planner_llm(req: Any) -> tuple[str, str | None, str]:
@@ -428,6 +393,7 @@ app.include_router(_mine_router)
 app.include_router(_research_router)
 app.include_router(_live_router)
 app.include_router(_runs_router)
+app.include_router(_skills_router)
 app.include_router(_slides_router)
 app.include_router(_turn_scores_router)
 
@@ -450,37 +416,4 @@ async def start_chat_run(
     asyncio.create_task(_run_llm_stream(run_id=run_id, req=req))  # noqa: RUF006
 
     return {"run_id": run_id, "stream_token": token}
-
-
-@app.post("/v1/skills/discover")
-async def skills_discover(
-    body: SkillsDiscoverRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    """LLM: match user turn to catalog skills or suggest a new conversation skill (markdown preview)."""
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-
-    from oaao_orchestrator.micro_skills import (
-        catalog_from_request,
-        discover_skills_llm,
-    )
-
-    class _CatReq:
-        skills_catalog = body.skills_catalog
-
-    catalog = catalog_from_request(_CatReq())
-    api_key = _resolve_api_key(body.endpoint)
-    base = (body.endpoint.base_url or "").rstrip("/")
-    result = await discover_skills_llm(
-        url=f"{base}/chat/completions" if base else "",
-        api_key=api_key,
-        model=body.endpoint.model,
-        user_message=body.user_message,
-        catalog=catalog,
-        conversation_excerpt=body.conversation_excerpt,
-    )
-    return {"ok": True, **result}
 
