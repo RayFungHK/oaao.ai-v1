@@ -37,6 +37,7 @@ from oaao_orchestrator.research_refetch_poll import research_refetch_poll_loop
 from oaao_orchestrator.routes.admin import router as _admin_router
 from oaao_orchestrator.routes.health import router as _health_router
 from oaao_orchestrator.routes.mine import router as _mine_router
+from oaao_orchestrator.routes.research import router as _research_router
 from oaao_orchestrator.streaming.session import StreamSessionRegistry
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
@@ -561,6 +562,7 @@ async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
 app.include_router(_health_router)
 app.include_router(_admin_router)
 app.include_router(_mine_router)
+app.include_router(_research_router)
 
 
 @app.post("/v1/runs/chat")
@@ -1245,139 +1247,6 @@ async def funasr_status_route(
     ):
         raise HTTPException(status_code=403, detail="bad_internal_token")
     return await funasr_status()
-
-
-class ResearchRunRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/research/run")
-async def research_run(
-    req: ResearchRunRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.research.worker import run_research_job
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    return await run_research_job(payload)
-
-
-class ResearchMatchPromptRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/research/match_prompt_normalize")
-async def research_match_prompt_normalize(
-    req: ResearchMatchPromptRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.research.match import normalize_match_prompt
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    raw = str(payload.get("match_prompt") or "").strip()
-    llm_cfg = payload.get("match_llm") if isinstance(payload.get("match_llm"), dict) else None
-    if llm_cfg is None:
-        llm_cfg = (
-            payload.get("summary_llm") if isinstance(payload.get("summary_llm"), dict) else None
-        )
-    if not raw:
-        return {"ok": False, "error": "match_prompt_required"}
-    async with httpx.AsyncClient() as client:
-        normalized = await normalize_match_prompt(client, raw, llm_cfg)
-    return {"ok": True, "normalized_prompt": normalized}
-
-
-class ResearchDiscoverRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/research/discover")
-async def research_discover(
-    req: ResearchDiscoverRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.research.discover import discover_research_sources
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    return await discover_research_sources(payload)
-
-
-class ResearchDiscoverStepRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/research/discover_step")
-async def research_discover_step(
-    req: ResearchDiscoverStepRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.research.discover_step import discover_research_step
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    url = str(payload.get("url") or "").strip()
-    if not url:
-        return {"ok": False, "error": "url_required"}
-    async with httpx.AsyncClient() as client:
-        return await discover_research_step(
-            client,
-            url=url,
-            depth=int(payload.get("depth") or 1),
-            max_depth=int(payload.get("max_depth") or 3),
-            parent_url=str(payload.get("parent_url") or "").strip() or None,
-            llm_cfg=payload.get("llm_cfg") if isinstance(payload.get("llm_cfg"), dict) else None,
-            use_llm=bool(payload.get("use_llm", True)),
-            use_playwright=bool(payload.get("use_playwright")),
-        )
-
-
-class ResearchDiscoverFinalizeRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-@app.post("/v1/research/discover_finalize")
-async def research_discover_finalize(
-    req: ResearchDiscoverFinalizeRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    from oaao_orchestrator.research.discover_step import finalize_discover_source
-
-    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
-    root_url = str(payload.get("root_url") or "").strip()
-    if not root_url:
-        return {"ok": False, "error": "root_url_required"}
-    path = payload.get("path") if isinstance(payload.get("path"), list) else []
-    selected = (
-        payload.get("selected_article_urls")
-        if isinstance(payload.get("selected_article_urls"), list)
-        else []
-    )
-    src = finalize_discover_source(
-        root_url=root_url,
-        path=[p for p in path if isinstance(p, dict)],
-        selected_article_urls=[str(u) for u in selected],
-        final_index_url=str(payload.get("final_index_url") or "").strip() or None,
-    )
-    return {"ok": True, "source": src, "preview": {**src, "ok": True}}
 
 
 class LiveSessionStartRequest(BaseModel):
