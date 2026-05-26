@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -32,7 +32,7 @@ def _trigger_intent(user_message: str) -> str:
 def _flags_block_seal(flags: dict[str, Any] | None) -> bool:
     if not isinstance(flags, dict):
         return False
-    for key in ("degraded", "iqs_skipped", "accs_skipped"):
+    for key in ("degraded", "iqs_skipped", "accs_skipped"):  # noqa: SIM110
         if bool(flags.get(key)):
             return True
     return False
@@ -73,7 +73,10 @@ async def _qdrant_upsert_skill(skill: CrystallizedSkill) -> None:
 
 
 async def _arango_insert_skill(skill: CrystallizedSkill) -> None:
-    from oaao_orchestrator.vault_arango import _arango_request, resolve_arango_from_profile  # noqa: PLC0415
+    from oaao_orchestrator.vault_arango import (
+        _arango_request,
+        resolve_arango_from_profile,
+    )
 
     cfg = resolve_arango_from_profile({})
     if not cfg:
@@ -122,7 +125,7 @@ async def try_seal_skill(
         param_template={},
         success_score=float(accs_score),
         usage_count=0,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         last_used_at=None,
         source_run_id=str(run_id or ""),
     )
@@ -130,11 +133,11 @@ async def try_seal_skill(
     _register_in_memory(skill)
     try:
         await _qdrant_upsert_skill(skill)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("qdrant upsert skill failed id=%s", skill.id, exc_info=True)
     try:
         await _arango_insert_skill(skill)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("arango insert skill failed id=%s", skill.id, exc_info=True)
 
     logger.info(

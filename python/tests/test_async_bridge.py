@@ -1,7 +1,6 @@
 import asyncio
 
 import pytest
-
 from oaao_orchestrator.slide_project.async_bridge import _get_soffice_mutex, run_soffice_job
 
 

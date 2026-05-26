@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "captured_at": "2026-05-26T02:45:21Z",
+  "git_sha": "b77d3e5e9f",
+  "error_rate":  { "http_5xx_24h": null, "ws_4xxx_24h": null },
+  "latency":     { "chat_ttfb_p95_ms": null, "vault_job_p95_ms": null },
+  "tests":       { "pass_rate_pct": 95.18, "coverage_py_pct": null, "passed": 237, "failed": 12, "skipped": 3 },
+  "security":    { "vuln_high": null, "vuln_med": null },
+  "code_health": { "broad_except": 0, "php_style": null, "contract_drift": 0 },
+  "debt":        { "top20_closed_pct": 40.0, "p0_closed_pct": 57.1 }
+}

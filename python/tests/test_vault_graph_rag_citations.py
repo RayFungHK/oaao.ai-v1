@@ -1,16 +1,16 @@
 """Vault RAG citation selection — general-knowledge off-topic behavior."""
 
+from oaao_orchestrator.slide_project.teaching_intent import text_signals_vault_grounding
 from oaao_orchestrator.vault_graph_rag import (
-    _PassagePick,
+    VaultRagOutcome,
     _citation_from_pick,
     _embedding_query_for_handbook_lookup,
     _format_numbered_passage_block,
+    _PassagePick,
     _picks_for_citations,
     _query_is_general_knowledge,
     build_pipeline_snapshot_for_rag,
 )
-from oaao_orchestrator.vault_graph_rag import VaultRagOutcome
-from oaao_orchestrator.slide_project.teaching_intent import text_signals_vault_grounding
 
 
 def test_query_is_general_knowledge_fourier() -> None:

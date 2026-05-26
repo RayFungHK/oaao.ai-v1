@@ -1,0 +1,10 @@
+# W11-S2 (backlog) — audited-safe SQL interpolation sites.
+# One substring per line (matched against `grep -n` output: "file:line:content").
+# `#` starts a comment. Blank lines ignored.
+#
+# Adding an entry here means: a code reviewer has confirmed the interpolation
+# is either a whitelisted identifier (e.g. via quoteIdent / in_array check)
+# or a dynamic-placeholder count (?,?,?) — NOT a raw value substitution.
+
+# MineStorage: $order built from in_array($sortColumn, $columns, true) + quoteIdent.
+mine/default/library/MineStorage.php

@@ -37,7 +37,9 @@ def test_pick_avoids_agenda_template_for_regulatory_title() -> None:
 
 
 def test_apply_uses_content_match_not_deck_index() -> None:
-    slides = [{"index": 2, "title": "合規管理的三大支柱", "outline_bullets": ["政策", "流程", "監控"]}]
+    slides = [
+        {"index": 2, "title": "合規管理的三大支柱", "outline_bullets": ["政策", "流程", "監控"]}
+    ]
     pages = [
         {
             "index": 1,

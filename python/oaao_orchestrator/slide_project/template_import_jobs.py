@@ -64,7 +64,7 @@ async def start_template_import_job(
                 stored.status = "failed"
                 stored.error = str(exc) or exc.__class__.__name__
 
-    asyncio.create_task(_run())
+    asyncio.create_task(_run())  # noqa: RUF006
     return job_id
 
 

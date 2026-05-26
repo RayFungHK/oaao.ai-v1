@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from oaao_orchestrator.agents.registry import get_agent_registry, reset_agent_registry_for_tests
 from oaao_orchestrator.agents.stub_vertical import STUB_AGENT_DEFS, StubVerticalAgent
 from oaao_orchestrator.pipeline import RunContext
@@ -38,15 +37,17 @@ async def test_sandbox_stub_emits_sandbox_phase() -> None:
         ],
     )
     run_task = plan.tasks[0]
-    ctx = RunContext(messages=[{"role": "user", "content": "write a script"}], extra={"run_plan": plan})
+    ctx = RunContext(
+        messages=[{"role": "user", "content": "write a script"}], extra={"run_plan": plan}
+    )
     agent = StubVerticalAgent(STUB_AGENT_DEFS["sandbox_code"])
     result = await agent.run(run=run, run_task=run_task, ctx=ctx)
     assert result.success is True
-    progress = [
-        e for _, e in run._events if e.phase == PHASE_SANDBOX and e.kind == "progress"
-    ]
+    progress = [e for _, e in run._events if e.phase == PHASE_SANDBOX and e.kind == "progress"]
     assert len(progress) >= 3
-    assert any("[Sandbox code execution is stubbed" in str(m.get("content", "")) for m in ctx.messages)
+    assert any(
+        "[Sandbox code execution is stubbed" in str(m.get("content", "")) for m in ctx.messages
+    )
 
 
 @pytest.mark.asyncio

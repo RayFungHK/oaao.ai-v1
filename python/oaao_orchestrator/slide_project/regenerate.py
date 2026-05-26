@@ -39,7 +39,7 @@ async def _generate_validated_slide_html(
     Code-verify loop: generate HTML, run sandbox tests, feed errors back to LLM until pass.
     Returns (html, ok, validation_errors, attempts_used).
     """
-    from oaao_orchestrator.slide_project.store import _fallback_slide_html  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.store import _fallback_slide_html
 
     idx = int(spec.get("index") or 1)
     errors: list[str] = list(initial_errors or [])
@@ -93,7 +93,10 @@ def _finalize_saved_slide(
     deck_style: dict[str, Any] | None = None,
 ) -> tuple[str, bool, list[str], list[str]]:
     """Persist normalized HTML and re-validate on disk."""
-    from oaao_orchestrator.slide_project.store import _fallback_slide_html, _persist_slide_html  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.store import (
+        _fallback_slide_html,
+        _persist_slide_html,
+    )
 
     idx = int(spec.get("index") or 1)
     _persist_slide_html(slide_path, html)
@@ -127,10 +130,14 @@ async def get_slide_slots(
     storage_root: str | None = None,
 ) -> dict[str, Any]:
     """Return layout slot definitions and saved slot bodies for one deck slide."""
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.slot_content import layout_slot_defs  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import infer_layout
+    from oaao_orchestrator.slide_project.slot_content import layout_slot_defs
 
-    root = Path(storage_root.strip()) if isinstance(storage_root, str) and storage_root.strip() else None
+    root = (
+        Path(storage_root.strip())
+        if isinstance(storage_root, str) and storage_root.strip()
+        else None
+    )
     store = SlideProjectStore(root=root)
     pid = project_id.strip()
     idx = max(1, int(slide_index))
@@ -147,8 +154,6 @@ async def get_slide_slots(
                 break
     if spec is None:
         return {"ok": False, "error": "slide_not_in_outline", "slide_index": idx}
-
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
 
     layout = str(spec.get("layout") or "").strip() or infer_layout(spec)
     defs = layout_slot_defs(layout, spec)
@@ -209,12 +214,16 @@ async def regenerate_slide_slot(
     storage_root: str | None = None,
 ) -> dict[str, Any]:
     """Regenerate one content slot, re-merge markdown, rebuild HTML."""
-    from oaao_orchestrator.slide_project.slot_content import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.slot_content import (
         layout_has_slots,
         regenerate_slot_content,
     )
 
-    root = Path(storage_root.strip()) if isinstance(storage_root, str) and storage_root.strip() else None
+    root = (
+        Path(storage_root.strip())
+        if isinstance(storage_root, str) and storage_root.strip()
+        else None
+    )
     store = SlideProjectStore(root=root)
     pid = project_id.strip()
     idx = max(1, int(slide_index))
@@ -246,7 +255,7 @@ async def regenerate_slide_slot(
     if spec is None:
         return {"ok": False, "error": "slide_not_in_outline", "slide_index": idx}
 
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import infer_layout
 
     layout = str(spec.get("layout") or "").strip() or infer_layout(spec)
     if not layout_has_slots(layout):
@@ -295,7 +304,7 @@ async def regenerate_slide_slot(
 
     rel = f"slides/{idx:02d}/slide.html"
     slide_path = session.proj_dir / rel
-    saved_html, ok, errors, layout_errors = _finalize_saved_slide(
+    saved_html, ok, errors, layout_errors = _finalize_saved_slide(  # noqa: RUF059
         slide_path=slide_path,
         html=html,
         ok=ok,
@@ -338,7 +347,11 @@ async def regenerate_slide_page(
     regen_markdown: bool = True,
 ) -> dict[str, Any]:
     """Rebuild one slide (markdown + HTML by default) with validate → LLM retry loop."""
-    root = Path(storage_root.strip()) if isinstance(storage_root, str) and storage_root.strip() else None
+    root = (
+        Path(storage_root.strip())
+        if isinstance(storage_root, str) and storage_root.strip()
+        else None
+    )
     store = SlideProjectStore(root=root)
     pid = project_id.strip()
     idx = max(1, int(slide_index))
@@ -411,7 +424,7 @@ async def regenerate_slide_page(
 
     rel = f"slides/{idx:02d}/slide.html"
     slide_path = session.proj_dir / rel
-    saved_html, ok, errors, layout_errors = _finalize_saved_slide(
+    saved_html, ok, errors, layout_errors = _finalize_saved_slide(  # noqa: RUF059
         slide_path=slide_path,
         html=html,
         ok=ok,
@@ -454,7 +467,11 @@ async def verify_and_fix_slide_page(
     Code verify — run sandbox tests; on failure feed errors to LLM and retry until verified.
     Does not regenerate markdown unless missing.
     """
-    root = Path(storage_root.strip()) if isinstance(storage_root, str) and storage_root.strip() else None
+    root = (
+        Path(storage_root.strip())
+        if isinstance(storage_root, str) and storage_root.strip()
+        else None
+    )
     store = SlideProjectStore(root=root)
     pid = project_id.strip()
     idx = max(1, int(slide_index))
@@ -494,7 +511,11 @@ async def verify_and_fix_slide_page(
     slide_path = session.proj_dir / rel
     manifest = store.load_manifest(pid) or {}
     for p in manifest.get("pages") or []:
-        if isinstance(p, dict) and int(p.get("index") or 0) == idx and isinstance(p.get("html_path"), str):
+        if (
+            isinstance(p, dict)
+            and int(p.get("index") or 0) == idx
+            and isinstance(p.get("html_path"), str)
+        ):
             rel = str(p["html_path"]).strip() or rel
             slide_path = session.proj_dir / rel
             break
@@ -599,7 +620,7 @@ async def _package_slide_page_result(
     fixed: bool,
     mode: str,
 ) -> dict[str, Any]:
-    from oaao_orchestrator.slide_project.store import _slide_html_api_path  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.store import _slide_html_api_path
 
     cid = str(conversation_id).strip() if conversation_id else ""
     page_entry = {
@@ -637,14 +658,22 @@ async def verify_slide_page_html(
     storage_root: str | None = None,
 ) -> dict[str, Any]:
     """Read slide.html from disk and run sandbox + layout validation (no LLM)."""
-    root = Path(storage_root.strip()) if isinstance(storage_root, str) and storage_root.strip() else None
+    root = (
+        Path(storage_root.strip())
+        if isinstance(storage_root, str) and storage_root.strip()
+        else None
+    )
     store = SlideProjectStore(root=root)
     pid = project_id.strip()
     idx = max(1, int(slide_index))
     manifest = store.load_manifest(pid)
     rel = f"slides/{idx:02d}/slide.html"
     for p in manifest.get("pages") or []:
-        if isinstance(p, dict) and int(p.get("index") or 0) == idx and isinstance(p.get("html_path"), str):
+        if (
+            isinstance(p, dict)
+            and int(p.get("index") or 0) == idx
+            and isinstance(p.get("html_path"), str)
+        ):
             rel = str(p["html_path"]).strip() or rel
             break
     path = store.project_dir(pid) / rel

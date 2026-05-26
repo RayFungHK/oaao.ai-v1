@@ -25,19 +25,23 @@ from oaao_orchestrator.live_meeting.bubble_engine import (
 )
 from oaao_orchestrator.live_meeting.bubble_rag import lookup_bubble_vault
 from oaao_orchestrator.live_meeting.dashscope_asr_stream import dashscope_api_key
+from oaao_orchestrator.live_meeting.qwen_asr_stream import (
+    is_streaming_asr_mode,
+    segment_transcribe_asr_cfg,
+    transcribe_live_pcm_segment,
+)
+from oaao_orchestrator.live_meeting.session import (
+    LiveMeetingSession,
+    live_meeting_root,
+    new_session_id,
+)
+from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_stream
 from oaao_orchestrator.live_meeting.stream_bridge import (
     LiveStreamAsrBridge,
     create_and_start_live_stream_bridge,
     resolve_live_stream_ws_url,
     resolve_stream_driver,
 )
-from oaao_orchestrator.live_meeting.qwen_asr_stream import (
-    is_streaming_asr_mode,
-    segment_transcribe_asr_cfg,
-    transcribe_live_pcm_segment,
-)
-from oaao_orchestrator.live_meeting.session import LiveMeetingSession, live_meeting_root, new_session_id
-from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_stream
 from oaao_orchestrator.streaming.events import (
     KIND_ERROR,
     KIND_LIVE_BUBBLE,
@@ -59,6 +63,8 @@ _bridge_emit_at: dict[str, float] = {}
 _stream_silent_tasks: dict[str, asyncio.Task[Any]] = {}
 _partial_seq: dict[str, int] = {}
 _last_bubble_emit: dict[str, float] = {}
+# W10-S1: minted stream tokens for GET /v1/live/{id}/stream — validated with secrets.compare_digest.
+_stream_tokens: dict[str, str] = {}
 
 STREAM_SILENT_TIMEOUT_SEC = 12.0
 
@@ -154,7 +160,9 @@ def create_session(
             session.session_id,
             (asr_cfg or {}).get("provider"),
         )
-    logger.info("live_meeting session_created id=%s workspace_id=%s", session.session_id, workspace_id)
+    logger.info(
+        "live_meeting session_created id=%s workspace_id=%s", session.session_id, workspace_id
+    )
     return session
 
 
@@ -228,7 +236,9 @@ async def _emit_live_transcript(
     )
 
 
-async def _emit_live_status(session_id: str, text: str, *, payload: dict[str, Any] | None = None) -> None:
+async def _emit_live_status(
+    session_id: str, text: str, *, payload: dict[str, Any] | None = None
+) -> None:
     hub = get_live_stream(session_id)
     await hub.append(
         StreamEnvelope(
@@ -350,8 +360,13 @@ async def _ensure_stream_bridge(session_id: str) -> None:
             "stream_bridge_ready",
             payload={"driver": driver, "upstream_ws": ws_url or None},
         )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("live_meeting stream_bridge_failed id=%s driver=%s upstream=%s", session_id, driver, ws_url)
+    except Exception as e:
+        logger.exception(
+            "live_meeting stream_bridge_failed id=%s driver=%s upstream=%s",
+            session_id,
+            driver,
+            ws_url,
+        )
         await _release_stream_bridge(session_id, f"{driver}:{str(e)[:100]}")
 
 
@@ -396,7 +411,11 @@ async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index
         asr_cfg=seg_asr_cfg or runtime.asr_cfg or {},
         glossary=runtime.glossary,
     )
-    if (err or not text) and isinstance(runtime.asr_fallback_cfg, dict) and runtime.asr_fallback_cfg:
+    if (  # noqa: SIM102
+        (err or not text)
+        and isinstance(runtime.asr_fallback_cfg, dict)
+        and runtime.asr_fallback_cfg
+    ):
         if seg_asr_cfg is not runtime.asr_fallback_cfg:
             logger.info(
                 "live_meeting asr_fallback id=%s seg=%s primary_err=%s",
@@ -446,7 +465,12 @@ async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index
             phase=PHASE_LIVE,
             kind=KIND_LIVE_TRANSCRIPT,
             text=text,
-            payload={"is_final": True, "segment": segment_index, "ts": ts, "source": "batch_segment"},
+            payload={
+                "is_final": True,
+                "segment": segment_index,
+                "ts": ts,
+                "source": "batch_segment",
+            },
         )
     )
     logger.info(
@@ -549,7 +573,7 @@ async def _run_bubble_lookup(session_id: str, query: str, bubble_id: str) -> Non
             vault_rag=runtime.vault_rag_config,
             vault_auto_rag=True,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.exception("live_meeting bubble_rag_failed id=%s", session_id)
         await hub.append(
             StreamEnvelope(
@@ -595,7 +619,9 @@ async def _run_bubble_lookup(session_id: str, query: str, bubble_id: str) -> Non
                 "query": label,
                 "passage_count": int(result.get("passage_count") or 0),
                 "materials": materials,
-                "activity_lines": result.get("activity_lines") if isinstance(result.get("activity_lines"), list) else [],
+                "activity_lines": result.get("activity_lines")
+                if isinstance(result.get("activity_lines"), list)
+                else [],
             },
         )
     )
@@ -662,6 +688,7 @@ async def stop_session(session_id: str, *, keep_audio: bool) -> bool:
                 logger.warning("live_meeting asr_task_error id=%s err=%s", session_id, result)
     _asr_tasks.pop(session_id, None)
     _runtime.pop(session_id, None)
+    _stream_tokens.pop(session_id, None)
     drop_live_stream(session_id)
     session.mark_stopped(keep_audio=keep_audio)
     if not keep_audio:
@@ -676,15 +703,45 @@ async def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     return True
 
 
-async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
-    """Binary PCM frames (s16le mono 16 kHz) or JSON ``{ \"type\": \"ping\" }`` heartbeat."""
+async def handle_audio_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    *,
+    token: str = "",
+) -> None:
+    """Binary PCM frames (s16le mono 16 kHz) or JSON ``{ \"type\": \"ping\" }`` heartbeat.
+
+    Auth modes (hybrid, W10-S2 + W10-S3):
+
+    * **Query-token (W10-S2, legacy):** ``?token=<hex>`` in the WS URL. Validated
+      *before* :py:meth:`WebSocket.accept`. Subject to proxy/access-log leakage.
+    * **First-frame (W10-S3, preferred):** open WS with no query token, then the
+      client MUST send a single JSON text frame ``{"type": "auth", "token": "<hex>"}``
+      within 3 seconds of the accept. Token never appears in URL → never in
+      reverse-proxy access logs.
+
+    Either mode succeeds — clients may upgrade incrementally.
+    """
     sid = (session_id or "").strip()
+    pre_authed = False
+    if token:
+        # W10-S2 path: validate before accept; reject unknown tokens silently (4401).
+        if not validate_stream_token(sid, token):
+            await websocket.close(code=4401)
+            return
+        pre_authed = True
+
     session = get_session(sid)
     if session is None or session.status != "active":
         await websocket.close(code=4404)
         return
 
     await websocket.accept()
+
+    if not pre_authed:  # noqa: SIM102
+        if not await _await_first_frame_auth(websocket, sid):
+            return
+
     await _ensure_stream_bridge(sid)
     rt = _runtime.get(sid)
     cfg = rt.asr_cfg if rt and isinstance(rt.asr_cfg, dict) else {}
@@ -759,11 +816,71 @@ async def subscribe_live_stream(session_id: str, *, since_seq: int = 0):
 def public_urls(session_id: str, *, public_base: str) -> dict[str, str]:
     base = (public_base or "").rstrip("/")
     token = secrets.token_hex(16)
+    # W10-S1: persist token so the SSE endpoint can validate the caller.
+    # W10-S2: same token gates the WS audio uplink (passed via ?token= query).
+    _stream_tokens[session_id] = token
     return {
-        "ws_audio_url": f"/v1/live/{session_id}/audio",
+        "ws_audio_url": f"/v1/live/{session_id}/audio?token={token}",
         "stream_url": f"{base}/v1/live/{session_id}/stream",
         "stream_token": token,
     }
+
+
+def validate_stream_token(session_id: str, token: str) -> bool:
+    """Constant-time check for ``GET /v1/live/{session_id}/stream`` token query.
+
+    Returns ``True`` only when a token has been minted for ``session_id`` via
+    :func:`public_urls` and the supplied ``token`` matches exactly.
+    """
+    sid = (session_id or "").strip()
+    supplied = (token or "").strip()
+    if not sid or not supplied:
+        return False
+    expected = _stream_tokens.get(sid)
+    if not expected:
+        return False
+    return secrets.compare_digest(expected, supplied)
+
+
+async def _await_first_frame_auth(
+    websocket: WebSocket,
+    session_id: str,
+    *,
+    timeout: float = 3.0,
+) -> bool:
+    """W10-S3 — consume the first WS text frame and validate `{type:"auth", token}`.
+
+    Returns ``True`` on success (caller proceeds to PCM loop). On any failure
+    the socket is closed with code ``4401`` and the function returns ``False``.
+    Closes are silent (no extra payload) to avoid leaking session-existence /
+    token-format details to an unauthenticated peer.
+    """
+    try:
+        first = await asyncio.wait_for(websocket.receive(), timeout=timeout)
+    except TimeoutError:
+        logger.info("live_meeting ws_auth_timeout id=%s", session_id)
+        await websocket.close(code=4401)
+        return False
+    if first.get("type") == "websocket.disconnect":
+        return False
+    text_payload = first.get("text") or ""
+    if not text_payload:
+        await websocket.close(code=4401)
+        return False
+    try:
+        auth_msg = json.loads(text_payload)
+    except json.JSONDecodeError:
+        await websocket.close(code=4401)
+        return False
+    if not isinstance(auth_msg, dict) or auth_msg.get("type") != "auth":
+        await websocket.close(code=4401)
+        return False
+    supplied = str(auth_msg.get("token") or "")
+    if not validate_stream_token(session_id, supplied):
+        logger.info("live_meeting ws_auth_bad_token id=%s", session_id)
+        await websocket.close(code=4401)
+        return False
+    return True
 
 
 def session_start_payload(

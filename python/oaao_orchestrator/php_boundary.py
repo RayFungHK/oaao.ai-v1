@@ -70,14 +70,22 @@ def php_chat_api_base() -> str:
     explicit = (os.environ.get("OAAO_CHAT_INTERNAL_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
-    vault_base = (os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL") or "http://web/vault/api").strip().rstrip("/")
+    vault_base = (
+        (os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL") or "http://web/vault/api")
+        .strip()
+        .rstrip("/")
+    )
     if vault_base.endswith("/vault/api"):
         return vault_base[: -len("/vault/api")] + "/chat/api"
     return "http://web/chat/api"
 
 
 def php_vault_api_base() -> str:
-    return (os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL") or "http://web/vault/api").strip().rstrip("/")
+    return (
+        (os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL") or "http://web/vault/api")
+        .strip()
+        .rstrip("/")
+    )
 
 
 def assert_php_http_allowed(url: str, *, context: str) -> None:

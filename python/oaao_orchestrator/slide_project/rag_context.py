@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 _VAULT_SYSTEM_MARKERS = (
@@ -56,7 +55,9 @@ def resolve_vault_grounding_for_slides(
     return vault_grounding_from_messages(messages, max_chars=max_chars)
 
 
-def slide_grounding_user_block(grounding: str, *, label: str = "Knowledge base (primary source)") -> str:
+def slide_grounding_user_block(
+    grounding: str, *, label: str = "Knowledge base (primary source)"
+) -> str:
     """Prompt section for slide LLM calls."""
     g = (grounding or "").strip()
     if not g:

@@ -73,15 +73,15 @@ def _wrap_fragment_as_document(fragment: str) -> str:
     lower = inner.lower()
     if "<body" in lower:
         return (
-            f"<!DOCTYPE html>\n<html lang=\"zh-Hant\">\n<head>\n"
-            f"<meta charset=\"utf-8\"/>\n{slide_canvas_viewport_meta()}\n"
+            f'<!DOCTYPE html>\n<html lang="zh-Hant">\n<head>\n'
+            f'<meta charset="utf-8"/>\n{slide_canvas_viewport_meta()}\n'
             f"{slide_canvas_css_block()}\n</head>\n{inner}\n</html>"
         )
     return (
-        f"<!DOCTYPE html>\n<html lang=\"zh-Hant\">\n<head>\n"
-        f"<meta charset=\"utf-8\"/>\n{slide_canvas_viewport_meta()}\n"
+        f'<!DOCTYPE html>\n<html lang="zh-Hant">\n<head>\n'
+        f'<meta charset="utf-8"/>\n{slide_canvas_viewport_meta()}\n'
         f"{slide_canvas_css_block()}\n</head>\n<body>\n"
-        f"<div class=\"oaao-slide-canvas\">{inner}</div>\n</body>\n</html>"
+        f'<div class="oaao-slide-canvas">{inner}</div>\n</body>\n</html>'
     )
 
 
@@ -94,7 +94,7 @@ def normalize_slide_html(html: str) -> str:
     if "<html" not in raw.lower():
         raw = _wrap_fragment_as_document(raw)
 
-    w, h = slide_canvas_width(), slide_canvas_height()
+    w, h = slide_canvas_width(), slide_canvas_height()  # noqa: F841
     raw = re.sub(
         r"min-height\s*:\s*100vh",
         f"min-height:{h}px",
@@ -148,7 +148,7 @@ def build_fallback_slide_document(*, title: str, subtitle: str, theme: str, body
     accent = "#38bdf8" if is_dark else "#2563eb"
     safe_title = title.replace("<", "&lt;").replace(">", "&gt;")
     safe_sub = subtitle.replace("<", "&lt;").replace(">", "&gt;")
-    w, h = slide_canvas_width(), slide_canvas_height()
+    w, h = slide_canvas_width(), slide_canvas_height()  # noqa: F841
     doc = f"""<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>

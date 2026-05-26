@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from oaao_orchestrator.config_models import EndpointSnapshot
+from oaao_orchestrator.queue_backend import apply_concurrency_cap
 from oaao_orchestrator.queue_pool import QueuePool, load_pool_settings, spawn_post_stream_jobs
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,17 @@ async def start_post_stream_pools() -> None:
     except Exception:
         logger.exception("post_stream pool config invalid path=%s", path)
         return
+    # W8-S2 — proportionally scale worker_number down if a global cap is set.
+    original = [int(row.worker_number) for row in settings_list]
+    capped = apply_concurrency_cap(original)
+    if capped != original:
+        logger.info(
+            "post_stream pools: applying global concurrency cap %s -> %s",
+            original,
+            capped,
+        )
+        for row, n in zip(settings_list, capped, strict=True):
+            row.worker_number = n  # type: ignore[assignment]
     _pools = [QueuePool(row) for row in settings_list]
     for pool in _pools:
         await pool.start()
@@ -66,7 +78,9 @@ def uiqe_endpoint_from_request(req: Any) -> EndpointSnapshot | None:
     )
 
 
-def build_post_stream_plugin_ctx_meta(req: Any, metrics_payload: dict[str, Any] | None) -> dict[str, Any]:
+def build_post_stream_plugin_ctx_meta(
+    req: Any, metrics_payload: dict[str, Any] | None
+) -> dict[str, Any]:
     """Stable meta for ``iqs`` / ``accs`` workers — no full transcripts."""
     meta: dict[str, Any] = {
         "conversation_id": str(getattr(req, "conversation_id", None) or ""),

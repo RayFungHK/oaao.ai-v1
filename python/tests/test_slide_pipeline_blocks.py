@@ -23,7 +23,11 @@ def test_build_slide_preview_strip_block_deck_artifact() -> None:
         "title": "Executive deck",
         "slide_count": 3,
         "pages": [
-            {"index": 1, "title": "Cover", "preview_url": "/slide-designer/api/slide_html?project_id=proj-abc&page=1"},
+            {
+                "index": 1,
+                "title": "Cover",
+                "preview_url": "/slide-designer/api/slide_html?project_id=proj-abc&page=1",
+            },
         ],
         "files": [
             {"name": "Executive_deck.pptx", "size_bytes": 787_456},

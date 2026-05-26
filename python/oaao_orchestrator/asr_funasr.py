@@ -75,7 +75,7 @@ def _coerce_ms(raw: Any, *, fallback_end: int | None = None) -> int | None:
     # Heuristic: values under 10_000 on long clips are likely seconds.
     if v < 10_000 and (fallback_end is None or fallback_end > 600):
         v *= 1000.0
-    return int(round(v))
+    return int(round(v))  # noqa: RUF046
 
 
 def _coerce_speaker_id(raw: Any) -> int:

@@ -81,7 +81,9 @@ class _TableCollector(HTMLParser):
         return self._tables
 
 
-def parse_html_tables(html: str, *, table_selector: str = "", table_index: int = 0) -> list[dict[str, Any]]:
+def parse_html_tables(
+    html: str, *, table_selector: str = "", table_index: int = 0
+) -> list[dict[str, Any]]:
     """Extract rows from the Nth matching table; first row is header."""
     hint = table_selector.strip()
     idx = table_index

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from oaao_orchestrator.live_meeting.dashscope_asr_stream import (
     DashscopeRealtimeAsrBridge,
     is_qwen_realtime_model,
@@ -34,7 +33,9 @@ async def test_funasr_result_generated_parsing() -> None:
     async def on_emit(text: str, is_final: bool) -> None:
         emitted.append((text, is_final))
 
-    bridge = DashscopeRealtimeAsrBridge(session_id="t", asr_cfg={"model": "fun-asr-realtime"}, on_emit=on_emit)
+    bridge = DashscopeRealtimeAsrBridge(
+        session_id="t", asr_cfg={"model": "fun-asr-realtime"}, on_emit=on_emit
+    )
     bridge._protocol = "funasr"
     await bridge._handle_message(
         {

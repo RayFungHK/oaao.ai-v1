@@ -33,5 +33,5 @@ async def run_agent_with_timeout(
             registry_run(run=run, run_task=run_task, ctx=ctx, agent_kind=agent_kind),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return AgentResult(success=False, error=f"timeout:{kind}")

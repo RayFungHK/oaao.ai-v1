@@ -55,7 +55,7 @@ class CircuitBreaker:
 
     @property
     def state(self) -> str:
-        if self._state == "open" and self._opened_at is not None:
+        if self._state == "open" and self._opened_at is not None:  # noqa: SIM102
             if time.monotonic() - self._opened_at >= self.reset_timeout:
                 self._state = "half_open"
         return self._state
@@ -87,7 +87,7 @@ class CircuitBreaker:
             out = await asyncio.wait_for(coro, timeout=self.call_timeout)
             self._on_success(st)
             return out
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             self._record_failure()
             raise BreakerTimeout(self.name) from exc
         except Exception:

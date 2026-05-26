@@ -9,7 +9,11 @@ from urllib.parse import urljoin
 
 import httpx
 
-from oaao_orchestrator.tools.registry import ToolServerSpec, list_tool_servers, load_tool_servers_from_env
+from oaao_orchestrator.tools.registry import (
+    ToolServerSpec,
+    list_tool_servers,
+    load_tool_servers_from_env,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +23,7 @@ _OPERATION_INDEX: dict[str, tuple[str, str, str]] = {}
 
 def rebuild_operation_index() -> None:
     """Map OpenAI function names (operationId) to HTTP routes."""
-    from oaao_orchestrator.tools.registry import ensure_openapi_spec  # noqa: PLC0415
+    from oaao_orchestrator.tools.registry import ensure_openapi_spec
 
     load_tool_servers_from_env()
     _OPERATION_INDEX.clear()
@@ -38,7 +42,9 @@ def rebuild_operation_index() -> None:
                     continue
                 if not isinstance(op, dict):
                     continue
-                op_id = str(op.get("operationId") or f"{method}_{path.strip('/').replace('/', '_')}").strip()
+                op_id = str(
+                    op.get("operationId") or f"{method}_{path.strip('/').replace('/', '_')}"
+                ).strip()
                 if op_id:
                     _OPERATION_INDEX[op_id[:64]] = (spec.id, method.lower(), str(path))
 
@@ -95,6 +101,6 @@ async def invoke_openapi_tool(name: str, arguments: str | dict[str, Any] | None)
                 return json.dumps(data, ensure_ascii=False)[:8000]
             except json.JSONDecodeError:
                 return json.dumps({"result": text}, ensure_ascii=False)[:8000]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("tool_invoke_failed op=%s err=%s", op_name, exc)
         return json.dumps({"error": str(exc)[:200]}, ensure_ascii=False)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
@@ -18,7 +17,9 @@ SCORER_VERSION = f"{IQS_SCORER_VERSION}+{ACCS_SCORER_VERSION}"
 
 
 def _shared_secret() -> str:
-    return (os.environ.get("OAAO_ORCH_SHARED_SECRET") or "oaao_dev_shared_secret").strip()
+    from oaao_orchestrator._internal_secret import require_internal_secret
+
+    return require_internal_secret()
 
 
 async def upsert_turn_score(
@@ -30,7 +31,9 @@ async def upsert_turn_score(
     cid = str(meta.get("conversation_id") or "").strip()
     mid = str(meta.get("assistant_message_id") or "").strip()
     if not cid or not mid:
-        logger.warning("turn_score_upsert skipped — missing conversation or message id plugin=%s", plugin_id)
+        logger.warning(
+            "turn_score_upsert skipped — missing conversation or message id plugin=%s", plugin_id
+        )
         return False
 
     body: dict[str, Any] = {

@@ -15,7 +15,8 @@ import asyncio
 import base64
 import json
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from oaao_orchestrator.live_meeting.stream_bridge import EmitCallback, resolve_live_stream_ws_url
 
@@ -78,7 +79,9 @@ class FunasrNanoWsStreamBridge:
         self._model = str(asr_cfg.get("model") or "").strip()
         self._language = str(asr_cfg.get("language") or "中文").strip() or "中文"
         self._itn = bool(asr_cfg.get("itn", asr_cfg.get("enable_itn", True)))
-        self._mode = str(asr_cfg.get("stream_mode") or asr_cfg.get("funasr_stream_mode") or "2pass").strip()
+        self._mode = str(
+            asr_cfg.get("stream_mode") or asr_cfg.get("funasr_stream_mode") or "2pass"
+        ).strip()
         self._ws: Any = None
         self._recv_task: asyncio.Task[Any] | None = None
         self._send_task: asyncio.Task[Any] | None = None
@@ -91,7 +94,7 @@ class FunasrNanoWsStreamBridge:
         if not self._ws_url:
             raise RuntimeError("funasr_stream_url_missing")
         try:
-            import websockets  # noqa: PLC0415
+            import websockets
         except ImportError as e:
             raise RuntimeError("websockets package required") from e
 
@@ -163,7 +166,7 @@ class FunasrNanoWsStreamBridge:
                 msg = json.loads(raw)
                 if isinstance(msg, dict):
                     await self._handle_message(msg)
-        except (asyncio.TimeoutError, json.JSONDecodeError):
+        except (TimeoutError, json.JSONDecodeError):
             pass
 
     async def _send_loop(self) -> None:
@@ -217,7 +220,9 @@ class FunasrNanoWsStreamBridge:
             await self.on_emit(text, is_final)
 
     async def _fatal(self, reason: str) -> None:
-        logger.warning("live_meeting funasr_nano_ws_fatal id=%s reason=%s", self.session_id, reason[:200])
+        logger.warning(
+            "live_meeting funasr_nano_ws_fatal id=%s reason=%s", self.session_id, reason[:200]
+        )
         if self._on_fatal is not None:
             await self._on_fatal(reason)
 

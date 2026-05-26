@@ -11,7 +11,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-def fetch_openapi_spec_sync(*, base_url: str, openapi_url: str = "/openapi.json", timeout_s: float = 15.0) -> dict[str, Any] | None:
+def fetch_openapi_spec_sync(
+    *, base_url: str, openapi_url: str = "/openapi.json", timeout_s: float = 15.0
+) -> dict[str, Any] | None:
     """GET ``base_url + openapi_url`` and parse JSON OpenAPI document."""
     base = (base_url or "").strip().rstrip("/")
     if not base:
@@ -21,13 +23,15 @@ def fetch_openapi_spec_sync(*, base_url: str, openapi_url: str = "/openapi.json"
         path = f"/{path}"
     url = urljoin(f"{base}/", path.lstrip("/"))
     try:
-        with httpx.Client(timeout=httpx.Timeout(timeout_s, connect=5.0), follow_redirects=True) as client:
+        with httpx.Client(
+            timeout=httpx.Timeout(timeout_s, connect=5.0), follow_redirects=True
+        ) as client:
             resp = client.get(url, headers={"Accept": "application/json"})
             resp.raise_for_status()
             data = resp.json()
             if isinstance(data, dict) and isinstance(data.get("paths"), dict):
                 return data
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("openapi fetch failed url=%s", url, exc_info=True)
     return None
 

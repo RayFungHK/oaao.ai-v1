@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -81,7 +80,7 @@ def planner_enabled(req: object | None = None) -> bool:
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
-    from oaao_orchestrator.json_utils import extract_json_object  # noqa: PLC0415
+    from oaao_orchestrator.json_utils import extract_json_object
 
     return extract_json_object(text)
 
@@ -239,7 +238,11 @@ async def llm_chat_completion_text(
     if isinstance(content, list):
         parts: list[str] = []
         for seg in content:
-            if isinstance(seg, dict) and seg.get("type") == "text" and isinstance(seg.get("text"), str):
+            if (
+                isinstance(seg, dict)
+                and seg.get("type") == "text"
+                and isinstance(seg.get("text"), str)
+            ):
                 parts.append(seg["text"])
         return "".join(parts) if parts else None
     return None
@@ -310,7 +313,7 @@ def _normalize_tasks(
         seen.add(tid)
         title = (d.title or "").strip() or tid
         agent_kind = (d.agent_kind or "").strip() or None
-        if t == RunTaskType.AGENT:
+        if t == RunTaskType.AGENT:  # noqa: SIM102
             if not agent_kind or (allowed_set and agent_kind not in allowed_set):
                 continue
         params: dict[str, Any] = {}
@@ -332,7 +335,9 @@ def _normalize_tasks(
     if require_vault and not any(s.type == RunTaskType.VAULT_RAG for s in specs):
         specs.insert(
             0,
-            RunTaskSpec(id="rt-vault-rag", title="Search knowledge base", type=RunTaskType.VAULT_RAG),
+            RunTaskSpec(
+                id="rt-vault-rag", title="Search knowledge base", type=RunTaskType.VAULT_RAG
+            ),
         )
     if require_attachments and not any(s.type == RunTaskType.ATTACHMENTS for s in specs):
         insert_at = next(
@@ -341,7 +346,9 @@ def _normalize_tasks(
         )
         specs.insert(
             insert_at,
-            RunTaskSpec(id="rt-attachments", title="Process attachments", type=RunTaskType.ATTACHMENTS),
+            RunTaskSpec(
+                id="rt-attachments", title="Process attachments", type=RunTaskType.ATTACHMENTS
+            ),
         )
     if not any(s.type == RunTaskType.LLM_STREAM for s in specs):
         specs.append(
@@ -455,7 +462,7 @@ def _turn_reuses_prior_grounding(
         return True
     if str(slide_designer_cfg.get("active_material_id") or "").strip():
         return True
-    if str(slide_designer_cfg.get("resume_project_id") or "").strip():
+    if str(slide_designer_cfg.get("resume_project_id") or "").strip():  # noqa: SIM103
         return True
 
     return False
@@ -539,7 +546,9 @@ def _user_wants_handbook_teaching_slides(user_msg: str) -> bool:
     vol = any(k in low for k in ("vol", "volume", "vol.", "vol3", "vol.3", "冊", "卷"))
     if not vol and re.search(r"第\s*[\d一二三四五六七八九十]+\s*[卷冊]", s):
         vol = True
-    teaching = any(k in low for k in ("教學", "teaching", "tutorial", "課程", "lesson", "curriculum"))
+    teaching = any(
+        k in low for k in ("教學", "teaching", "tutorial", "課程", "lesson", "curriculum")
+    )
     slides = any(k in low for k in ("簡報", "投影片", "slide", "deck", "presentation", "ppt"))
     if slides and (handbook or teaching or vol):
         return True
@@ -645,7 +654,8 @@ def inject_slide_designer_for_teaching_intent(
     if "slide_designer" not in allowed_set:
         return specs
     if any(
-        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "slide_designer" for s in specs
+        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "slide_designer"
+        for s in specs
     ):
         return specs
     if isinstance(slide_designer_cfg, dict) and slide_designer_cfg.get("continuation"):
@@ -653,9 +663,11 @@ def inject_slide_designer_for_teaching_intent(
 
     template_selected = _slide_template_selected(slide_designer_cfg)
     user_msg = _last_user_message(messages or [])
-    if not template_selected and not _user_wants_handbook_teaching_slides(
-        user_msg
-    ) and not _plan_signals_handbook_vol_teaching(specs):
+    if (
+        not template_selected
+        and not _user_wants_handbook_teaching_slides(user_msg)
+        and not _plan_signals_handbook_vol_teaching(specs)
+    ):
         return specs
 
     if template_selected:
@@ -703,7 +715,7 @@ def apply_slide_fanout_to_specs(
     messages: list[dict[str, Any]] | None,
     slide_designer_cfg: dict[str, Any] | None = None,
 ) -> list[RunTaskSpec]:
-    from oaao_orchestrator.slide_project.fanout import expand_slide_designer_fanout  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.fanout import expand_slide_designer_fanout
 
     continuation = _slide_continuation_mode(slide_designer_cfg)
     expanded = expand_slide_designer_fanout(
@@ -739,7 +751,7 @@ def planner_output_to_run_plan(
     slide_designer_cfg: dict[str, Any] | None = None,
     conv_materials: list[Any] | None = None,
 ) -> RunPlan:
-    from oaao_orchestrator.conversation_title import normalize_conversation_title  # noqa: PLC0415
+    from oaao_orchestrator.conversation_title import normalize_conversation_title
 
     slide_cfg = merge_planner_slide_intent(
         draft,
@@ -771,9 +783,13 @@ def planner_output_to_run_plan(
     specs = apply_slide_fanout_to_specs(specs, messages, slide_cfg)
     specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
     cat = catalog
-    abilities = list(draft.abilities) if draft.abilities else ability_hints_for(
-        [s.agent_kind for s in specs if s.agent_kind],
-        catalog=cat,
+    abilities = (
+        list(draft.abilities)
+        if draft.abilities
+        else ability_hints_for(
+            [s.agent_kind for s in specs if s.agent_kind],
+            catalog=cat,
+        )
     )
     return RunPlan(
         tasks=specs,
@@ -792,7 +808,7 @@ async def plan_run_with_llm(
     model: str,
     allowed_agents: list[str],
 ) -> RunPlan | None:
-    from oaao_orchestrator.planner import _vault_rag_needed  # noqa: PLC0415
+    from oaao_orchestrator.planner import _vault_rag_needed
 
     max_tasks = max(2, min(12, int(os.environ.get("OAAO_RUN_PLANNER_MAX_TASKS", "8"))))
     user_msg = _last_user_message(getattr(req, "messages", []) or [])
@@ -838,14 +854,18 @@ async def plan_run_with_llm(
             flags.append(f"composer_active_material_id={amid}")
         rid = str(sd_cfg.get("resume_project_id") or "").strip()
         if rid:
-            flags.append(f"hint_resume_project_id={rid} (use slide_action continue/regenerate; do not assume)")
+            flags.append(
+                f"hint_resume_project_id={rid} (use slide_action continue/regenerate; do not assume)"
+            )
         if amid or rid:
             flags.append(
                 "turn_reuses_conversation_material=yes — refresh vault RAG when vault_scope=yes; "
                 "set slide_action continue/regenerate and use_material_id when redoing a deck",
             )
         if sd_cfg.get("start_new_deck"):
-            flags.append("slide_start_new_deck=yes (published template chip — prefer slide_action=new unless user wants redo)")
+            flags.append(
+                "slide_start_new_deck=yes (published template chip — prefer slide_action=new unless user wants redo)"
+            )
     if material_lines:
         flags.append("conversation_materials:\n" + "\n".join(material_lines))
         flags.append(
@@ -873,8 +893,10 @@ async def plan_run_with_llm(
                 "(conversation material container); agents should use them while vault_rag may still refresh",
             )
             flags.append("material_grounding:\n" + "\n".join(g_lines))
-    from oaao_orchestrator.micro_skills.registry import (  # noqa: PLC0415
+    from oaao_orchestrator.micro_skills.registry import (
         catalog_from_request as micro_skills_catalog_from_request,
+    )
+    from oaao_orchestrator.micro_skills.registry import (
         catalog_summary_for_planner,
     )
 
@@ -974,7 +996,6 @@ async def plan_report_result_tasks(
         draft = ReportResultDraft.model_validate(obj)
     except ValidationError:
         return []
-    from oaao_orchestrator.planner import _vault_rag_needed  # noqa: PLC0415
 
     plan = planner_output_to_run_plan(
         PlannerOutputDraft(tasks=draft.append),

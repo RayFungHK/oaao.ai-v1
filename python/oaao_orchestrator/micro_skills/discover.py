@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from oaao_orchestrator.planner_llm import _extract_json_object, llm_chat_completion_text
 from oaao_orchestrator.micro_skills.markdown import skill_preview_markdown
 from oaao_orchestrator.micro_skills.registry import catalog_summary_for_planner
 from oaao_orchestrator.micro_skills.types import SkillEntry, SkillKind
+from oaao_orchestrator.planner_llm import _extract_json_object, llm_chat_completion_text
 
 logger = logging.getLogger(__name__)
 

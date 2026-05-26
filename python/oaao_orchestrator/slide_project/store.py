@@ -13,17 +13,19 @@ import logging
 import os
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 _manifest_locks: dict[str, asyncio.Lock] = {}
-from urllib.parse import urlencode
+from urllib.parse import urlencode  # noqa: E402
 
-from oaao_orchestrator.slide_project.canvas import build_fallback_slide_document, normalize_slide_html
-from oaao_orchestrator.slide_project.html_sandbox import validate_slide_html
-from oaao_orchestrator.slide_project.llm import (
+from oaao_orchestrator.slide_project.canvas import (  # noqa: E402
+    normalize_slide_html,
+)
+from oaao_orchestrator.slide_project.html_sandbox import validate_slide_html  # noqa: E402
+from oaao_orchestrator.slide_project.llm import (  # noqa: E402
     generate_deck_outline,
     generate_slide_html,
     generate_slide_markdown,
@@ -59,7 +61,9 @@ def _slide_html_api_path(project_id: str, page: int, conversation_id: str | None
 
 
 def _download_api_path(project_id: str, file_name: str) -> str:
-    return "/slide-designer/api/download?" + urlencode({"project_id": project_id, "file": file_name})
+    return "/slide-designer/api/download?" + urlencode(
+        {"project_id": project_id, "file": file_name}
+    )
 
 
 def _env_int(name: str, default: int) -> int:
@@ -81,13 +85,7 @@ def _slide_html_body_extra(theme: str) -> str:
             '<motion.div class="layer">工作層</motion.div>'
             "</motion.div>"
         ).replace("motion.", "")
-    return (
-        "<ul>"
-        "<li>答案是否可信？</li>"
-        "<li>能否被管理？</li>"
-        "<li>能否被稽核？</li>"
-        "</ul>"
-    )
+    return "<ul><li>答案是否可信？</li><li>能否被管理？</li><li>能否被稽核？</li></ul>"
 
 
 def _fallback_slide_html(
@@ -102,7 +100,7 @@ def _fallback_slide_html(
     deck_style: dict[str, Any] | None = None,
     project_dir: Path | None = None,
 ) -> str:
-    from oaao_orchestrator.slide_project.layouts import render_layout_slide  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import render_layout_slide
 
     slide_spec: dict[str, Any] = dict(spec) if isinstance(spec, dict) else {}
     if "title" not in slide_spec:
@@ -350,7 +348,7 @@ class SlideBuildSession:
         tid = str(self.manifest.get("template_id") or "").strip()
         if not tid:
             return None
-        from oaao_orchestrator.slide_project.custom_templates import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.custom_templates import (
             resolve_template_asset_dir,
         )
 
@@ -374,18 +372,24 @@ class SlideBuildSession:
         preset: dict[str, Any] | None = None
         tpl_pages: list[dict[str, Any]] = []
         if preset_id:
-            from oaao_orchestrator.slide_project.custom_templates import load_custom_template_by_id  # noqa: PLC0415
-            from oaao_orchestrator.slide_project.template_pages import load_template_pages  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.custom_templates import (
+                load_custom_template_by_id,
+            )
+            from oaao_orchestrator.slide_project.template_pages import (
+                load_template_pages,
+            )
 
             preset = load_custom_template_by_id(preset_id)
             tpl_pages = load_template_pages(preset) if isinstance(preset, dict) else []
 
         if preset_id and tpl_pages:
-            from oaao_orchestrator.slide_project.fanout import detect_slide_page_count  # noqa: PLC0415
-            from oaao_orchestrator.slide_project.teaching_intent import (  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.fanout import (
+                detect_slide_page_count,
+            )
+            from oaao_orchestrator.slide_project.teaching_intent import (
                 wants_handbook_teaching_outline,
             )
-            from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.template_pages import (
                 apply_template_pages_to_slides,
                 build_template_outline_context,
                 slides_spec_from_template_pages,
@@ -414,7 +418,7 @@ class SlideBuildSession:
                 micro = None
                 page_picks: dict[int, int] = {}
                 if isinstance(preset, dict):
-                    from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+                    from oaao_orchestrator.slide_project.template_micro_skills import (
                         load_micro_skills_from_template,
                         plan_template_page_picks,
                     )
@@ -435,7 +439,7 @@ class SlideBuildSession:
                     page_picks=page_picks or None,
                     template_micro_skills=micro,
                 )
-                from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.template_pages import (
                     attach_master_preview_url,
                 )
 
@@ -468,29 +472,37 @@ class SlideBuildSession:
                 resume_outline=prior_outline,
                 vault_grounding=vault_grounding,
             )
-            self.deck_title = str(outline.get("title") or self.manifest.get("title") or "Presentation")
+            self.deck_title = str(
+                outline.get("title") or self.manifest.get("title") or "Presentation"
+            )
             self.slide_count = int(outline.get("slide_count") or target_count)
-            from oaao_orchestrator.slide_project.layout_plan import diversify_slide_layouts  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.layout_plan import (
+                diversify_slide_layouts,
+            )
 
             self.slides_spec = diversify_slide_layouts(list(outline.get("slides") or []))
 
             if preset_id and tpl_pages:
-                from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.template_micro_skills import (
                     load_micro_skills_from_template,
                 )
-                from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.template_pages import (
                     apply_template_pages_to_slides,
                 )
 
-                micro = load_micro_skills_from_template(preset) if isinstance(preset, dict) else None
+                micro = (
+                    load_micro_skills_from_template(preset) if isinstance(preset, dict) else None
+                )
                 self.slides_spec = apply_template_pages_to_slides(
                     self.slides_spec,
                     tpl_pages,
                     template_micro_skills=micro,
                 )
-                self.log_lines.append(f"[outline] template_pages={preset_id} ({len(tpl_pages)} slides)")
+                self.log_lines.append(
+                    f"[outline] template_pages={preset_id} ({len(tpl_pages)} slides)"
+                )
 
-        from oaao_orchestrator.slide_project.outline_markdown import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.outline_markdown import (
             format_deck_outline_markdown,
             format_slide_outline_lines,
         )
@@ -546,7 +558,10 @@ class SlideBuildSession:
                 llm_model=llm_model,
             )
 
-        from oaao_orchestrator.slide_project.deck_style import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.custom_templates import (
+            load_custom_template_by_id,
+        )
+        from oaao_orchestrator.slide_project.deck_style import (
             apply_deck_style_to_slides,
             generate_deck_style,
             load_deck_style,
@@ -554,22 +569,20 @@ class SlideBuildSession:
             save_deck_style,
         )
 
-        from oaao_orchestrator.slide_project.custom_templates import load_custom_template_by_id  # noqa: PLC0415
-
         preset_id = str(self.manifest.get("template_id") or "").strip()
         preset = load_custom_template_by_id(preset_id) if preset_id else None
         if isinstance(preset, dict) and isinstance(preset.get("deck_style"), dict):
             self.deck_style = normalize_deck_style(preset["deck_style"])
             save_deck_style(self.proj_dir, self.deck_style)
             self.slides_spec = apply_deck_style_to_slides(self.slides_spec, self.deck_style)
-            from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.template_pages import (
                 apply_template_pages_to_slides,
                 load_template_pages,
             )
 
             tpl_pages = load_template_pages(preset)
             if tpl_pages:
-                from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.template_micro_skills import (
                     load_micro_skills_from_template,
                 )
 
@@ -580,7 +593,9 @@ class SlideBuildSession:
                     template_micro_skills=micro,
                 )
             self.manifest["deck_style"] = self.deck_style
-            from oaao_orchestrator.slide_project.template_registry import export_catalog_snapshot  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.template_registry import (
+                export_catalog_snapshot,
+            )
 
             self.manifest["template_catalog"] = export_catalog_snapshot()
             self.manifest["status"] = "styled"
@@ -606,15 +621,15 @@ class SlideBuildSession:
         save_deck_style(self.proj_dir, self.deck_style)
 
         self.manifest["slides_spec"] = self.slides_spec
-        from oaao_orchestrator.slide_project.template_registry import export_catalog_snapshot  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.template_registry import (
+            export_catalog_snapshot,
+        )
 
         self.manifest["deck_style"] = self.deck_style
         self.manifest["template_catalog"] = export_catalog_snapshot()
         self.manifest["status"] = "styled"
         self.store._write_manifest(self.project_id, self.manifest)
-        self.log_lines.append(
-            f"[style] deck_theme={self.deck_style.get('deck_theme', 'default')}"
-        )
+        self.log_lines.append(f"[style] deck_theme={self.deck_style.get('deck_theme', 'default')}")
 
     async def phase_markdown(
         self,
@@ -683,7 +698,9 @@ class SlideBuildSession:
             rel = f"slides/{idx:02d}/slide.html"
             slide_path = self.proj_dir / rel
             slots_path = slide_dir / "slots.json"
-            from oaao_orchestrator.slide_project.pptx_master import slide_html_stale_vs_slots  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.pptx_master import (
+                slide_html_stale_vs_slots,
+            )
 
             if slide_path.is_file() and slide_html_stale_vs_slots(slide_path, slots_path):
                 slide_path.unlink(missing_ok=True)
@@ -739,7 +756,7 @@ class SlideBuildSession:
             html_built += 1
 
     def hydrate_from_disk(self) -> None:
-        from oaao_orchestrator.slide_project.deck_style import load_deck_style  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.deck_style import load_deck_style
 
         loaded = self.store.load_manifest(self.project_id)
         if isinstance(loaded, dict):
@@ -802,7 +819,9 @@ class SlideBuildSession:
                 content_path.unlink(missing_ok=True)
 
         slots_path = slide_dir / "slots.json"
-        from oaao_orchestrator.slide_project.pptx_master import slide_html_stale_vs_slots  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_master import (
+            slide_html_stale_vs_slots,
+        )
 
         if html_path.is_file() and not slide_html_stale_vs_slots(html_path, slots_path):
             page_entry = {
@@ -1084,7 +1103,9 @@ class SlideBuildSession:
                     llm_model=llm_model,
                 )
             else:
-                from oaao_orchestrator.slide_project.pptx_master import slide_html_stale_vs_slots  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.pptx_master import (
+                    slide_html_stale_vs_slots,
+                )
 
                 slots_path = slide_dir / "slots.json"
                 if slide_html_stale_vs_slots(html_path, slots_path):
@@ -1128,7 +1149,9 @@ class SlideBuildSession:
         pptx_bytes: bytes | None = None
         export_mode = "stub"
         try:
-            from oaao_orchestrator.slide_project.pptx_export import build_project_pptx  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.pptx_export import (
+                build_project_pptx,
+            )
 
             template_src: Path | None = None
             asset = self.template_asset_dir()
@@ -1136,7 +1159,9 @@ class SlideBuildSession:
                 candidate = asset / "source.pptx"
                 if candidate.is_file():
                     template_src = candidate
-            from oaao_orchestrator.slide_project.async_bridge import run_soffice_job  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.async_bridge import (
+                run_soffice_job,
+            )
 
             pptx_bytes = await run_soffice_job(
                 build_project_pptx,
@@ -1148,7 +1173,7 @@ class SlideBuildSession:
             )
             if pptx_bytes and len(pptx_bytes) > 2000:
                 export_mode = "pptx"
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("pptx_export_build_failed project=%s", self.project_id)
 
         if not pptx_bytes or len(pptx_bytes) < 2000:

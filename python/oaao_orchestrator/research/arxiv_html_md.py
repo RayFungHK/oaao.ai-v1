@@ -81,8 +81,8 @@ def _replace_html_tables(html: str) -> str:
             return ""
         md = _grid_to_markdown(grid)
         if caption:
-            return f"\n\n{caption}\n\n<pre class=\"oaao-md-table\">\n{md}\n</pre>\n\n"
-        return f"\n\n<pre class=\"oaao-md-table\">\n{md}\n</pre>\n\n"
+            return f'\n\n{caption}\n\n<pre class="oaao-md-table">\n{md}\n</pre>\n\n'
+        return f'\n\n<pre class="oaao-md-table">\n{md}\n</pre>\n\n'
 
     return re.sub(r"(?is)<figure\b[^>]*\bltx_table\b[^>]*>.*?</figure>", repl, html)
 
@@ -102,7 +102,7 @@ def _replace_algorithms(html: str) -> str:
         chunks = [c for c in (caption, body) if c]
         if not chunks:
             return "\n\n"
-        return f"\n\n<pre class=\"oaao-md-algo\">\n" + "\n\n".join(chunks) + "\n</pre>\n\n"
+        return '\n\n<pre class="oaao-md-algo">\n' + "\n\n".join(chunks) + "\n</pre>\n\n"
 
     return re.sub(
         r"(?is)<figure\b[^>]*\bltx_float_algorithm\b[^>]*>.*?</figure>",

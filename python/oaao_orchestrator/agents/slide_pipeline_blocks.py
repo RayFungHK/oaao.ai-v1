@@ -75,11 +75,11 @@ def build_slide_preview_strip_block(
         "slide_count": total,
         "slides": slides,
         "material_thumb": {
-                "material_id": f"mat-sandbox-{run_task_id}",
-                "title": log_name.replace(".log", ""),
-                "category": "code",
-                "snippet": "ubuntu@sandbox:~$",
-            },
+            "material_id": f"mat-sandbox-{run_task_id}",
+            "title": log_name.replace(".log", ""),
+            "category": "code",
+            "snippet": "ubuntu@sandbox:~$",
+        },
     }
     if deck_artifact:
         props["deck_artifact"] = deck_artifact

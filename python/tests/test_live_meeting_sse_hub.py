@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from oaao_orchestrator.live_meeting.sse_hub import LiveStreamHub
 from oaao_orchestrator.streaming.events import KIND_LIVE_TRANSCRIPT, PHASE_LIVE, StreamEnvelope
 

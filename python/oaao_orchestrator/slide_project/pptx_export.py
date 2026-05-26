@@ -54,11 +54,7 @@ def _slot_values_for_slide(slide_dir: Path, html_path: Path | None) -> dict[str,
             data = json.loads(slots_path.read_text(encoding="utf-8"))
             raw = data.get("slots") if isinstance(data, dict) else None
             if isinstance(raw, dict):
-                return {
-                    str(k): _plain_slot_text(str(v))
-                    for k, v in raw.items()
-                    if str(v).strip()
-                }
+                return {str(k): _plain_slot_text(str(v)) for k, v in raw.items() if str(v).strip()}
         except Exception:  # noqa: BLE001
             logger.warning("pptx_export_slots_json_read_failed path=%s", slots_path)
     if html_path and html_path.is_file():
@@ -150,7 +146,11 @@ def export_from_template_source(
             w_emu, h_emu = _SLIDE_WIDTH_EMU, _SLIDE_HEIGHT_EMU
 
         from pptx.enum.shapes import MSO_SHAPE_TYPE  # type: ignore[import-untyped]
-        from oaao_orchestrator.slide_project.pptx_geometry import _bbox_pct, _shape_text  # noqa: PLC0415
+
+        from oaao_orchestrator.slide_project.pptx_geometry import (
+            _bbox_pct,
+            _shape_text,
+        )
 
         updated = 0
         for spec in sorted(slides_spec, key=lambda s: int(s.get("index") or 0)):
@@ -374,11 +374,11 @@ def build_project_pptx(
             )
             if data and len(data) > 2000:
                 return data
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("pptx_export_template_failed title=%s", deck_title)
 
     try:
         return export_from_slide_html_images(project_dir=project_dir, pages=pages)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("pptx_export_html_images_failed title=%s", deck_title)
         return None

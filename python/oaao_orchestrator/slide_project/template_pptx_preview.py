@@ -49,9 +49,9 @@ def archive_source_pptx(
 
 
 def template_asset_dir(row: dict[str, Any], ctx: TemplateScopeContext | None = None) -> Path | None:
-    from oaao_orchestrator.slide_project.custom_templates import (  # noqa: PLC0415
-        safe_template_id,
+    from oaao_orchestrator.slide_project.custom_templates import (
         _scope_base,
+        safe_template_id,
     )
 
     tid = safe_template_id(str(row.get("template_id") or ""))
@@ -100,7 +100,7 @@ def apply_pptx_render_preview(
                 pass
 
     try:
-        from oaao_orchestrator.slide_project.pptx_fonts import apply_pptx_fonts  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_fonts import apply_pptx_fonts
 
         profile = row.get("profile") if isinstance(row.get("profile"), dict) else {}
         fonts_meta = profile.get("fonts") if isinstance(profile.get("fonts"), dict) else {}
@@ -110,7 +110,7 @@ def apply_pptx_render_preview(
             fonts_meta,
             template_id=str(row.get("template_id") or ""),
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("pptx_fonts_before_render_failed template=%s", row.get("template_id"))
 
     pngs = render_pptx_to_pngs(pptx_path, render_dir, max_slides=max_slides, asset_dir=asset)
@@ -120,31 +120,39 @@ def apply_pptx_render_preview(
         return None
 
     profile_slides = profile_slides_for_template(row)
-    from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_pages import (
         build_template_pages,
         merge_pages_into_preview_rows,
     )
 
-    profile_dict = row.get("profile") if isinstance(row.get("profile"), dict) else {"slides": profile_slides}
+    profile_dict = (
+        row.get("profile") if isinstance(row.get("profile"), dict) else {"slides": profile_slides}
+    )
     archived = asset / "source.pptx"
     if archived.is_file():
         try:
-            from oaao_orchestrator.slide_project.pptx_geometry import enrich_profile_with_geometry  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.pptx_geometry import (
+                enrich_profile_with_geometry,
+            )
 
             profile_dict = enrich_profile_with_geometry(archived, profile_dict)
-            from oaao_orchestrator.slide_project.pptx_typography import enrich_profile_typography  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.pptx_typography import (
+                enrich_profile_typography,
+            )
 
             profile_dict = enrich_profile_typography(archived, profile_dict)
             row["profile"] = profile_dict
             ds = row.get("deck_style")
             if isinstance(ds, dict):
-                from oaao_orchestrator.slide_project.pptx_typography import (  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.pptx_typography import (
                     apply_typography_to_deck_style,
                 )
 
                 row["deck_style"] = apply_typography_to_deck_style(ds, profile_dict)
-        except Exception:  # noqa: BLE001
-            logger.exception("pptx_render_geometry_enrich_failed template=%s", row.get("template_id"))
+        except Exception:
+            logger.exception(
+                "pptx_render_geometry_enrich_failed template=%s", row.get("template_id")
+            )
 
     template_pages = row.get("pages")
     if not isinstance(template_pages, list) or not template_pages:
@@ -156,7 +164,9 @@ def apply_pptx_render_preview(
     pages: list[dict[str, Any]] = []
     for i, png in enumerate(pngs, start=1):
         prof = profile_slides[i - 1] if i - 1 < len(profile_slides) else {}
-        title = str(prof.get("title_guess") or f"Slide {i}") if isinstance(prof, dict) else f"Slide {i}"
+        title = (
+            str(prof.get("title_guess") or f"Slide {i}") if isinstance(prof, dict) else f"Slide {i}"
+        )
         pages.append(
             {
                 "index": i,
@@ -171,7 +181,9 @@ def apply_pptx_render_preview(
     tid = str(row.get("template_id") or "")
     pages = merge_pages_into_preview_rows(pages, template_pages, template_id=tid)
     try:
-        from oaao_orchestrator.slide_project.pptx_master import save_template_masters  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_master import (
+            save_template_masters,
+        )
 
         theme = str(row.get("deck_theme") or row.get("template_id") or "default")
         deck_style = row.get("deck_style") if isinstance(row.get("deck_style"), dict) else None
@@ -184,7 +196,7 @@ def apply_pptx_render_preview(
         row["pages"] = template_pages
         tid = str(row.get("template_id") or "")
         pages = merge_pages_into_preview_rows(pages, template_pages, template_id=tid)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("pptx_render_master_save_failed template=%s", row.get("template_id"))
 
     manifest = {
@@ -208,15 +220,21 @@ def apply_pptx_render_preview(
         patch["source_pptx_path"] = str(archived)
 
     merged = {**row, **patch}
-    save_custom_template(merged, ctx, write_scope=normalize_scope(str(row.get("scope") or "personal")))
+    save_custom_template(
+        merged, ctx, write_scope=normalize_scope(str(row.get("scope") or "personal"))
+    )
 
     try:
-        from oaao_orchestrator.slide_project.pptx_materials import apply_pptx_materials  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_materials import (
+            apply_pptx_materials,
+        )
 
         src = archived if archived is not None and archived.is_file() else pptx_path
         apply_pptx_materials(src, merged, asset)
-        save_custom_template(merged, ctx, write_scope=normalize_scope(str(row.get("scope") or "personal")))
-    except Exception:  # noqa: BLE001
+        save_custom_template(
+            merged, ctx, write_scope=normalize_scope(str(row.get("scope") or "personal"))
+        )
+    except Exception:
         logger.exception("pptx_materials_after_render_failed template=%s", row.get("template_id"))
 
     return {

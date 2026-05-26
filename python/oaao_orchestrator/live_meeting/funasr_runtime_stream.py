@@ -77,7 +77,9 @@ class FunasrRuntimeStreamBridge:
         self.on_emit = on_emit
         self._ws_url = resolve_live_stream_ws_url(asr_cfg)
         self._model = str(asr_cfg.get("model") or "").strip()
-        self._mode = str(asr_cfg.get("stream_mode") or asr_cfg.get("funasr_stream_mode") or "2pass").strip()
+        self._mode = str(
+            asr_cfg.get("stream_mode") or asr_cfg.get("funasr_stream_mode") or "2pass"
+        ).strip()
         self._chunk_size = _resolve_chunk_size(asr_cfg)
         self._chunk_interval = int(asr_cfg.get("chunk_interval") or _DEFAULT_CHUNK_INTERVAL)
         self._language = str(asr_cfg.get("language") or "").strip()
@@ -94,7 +96,7 @@ class FunasrRuntimeStreamBridge:
         if not self._ws_url:
             raise RuntimeError("funasr_stream_url_missing")
         try:
-            import websockets  # noqa: PLC0415
+            import websockets
         except ImportError as e:
             raise RuntimeError("websockets package required") from e
 

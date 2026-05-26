@@ -72,7 +72,9 @@ def _last_user_query(messages: list[dict[str, Any]]) -> str:
 def _inject_system(messages: list[dict[str, Any]], content: str) -> None:
     if messages and str(messages[0].get("role") or "").lower() == "system":
         prev = messages[0].get("content")
-        messages[0]["content"] = f"{content}\n\n{prev}" if isinstance(prev, str) and prev.strip() else content
+        messages[0]["content"] = (
+            f"{content}\n\n{prev}" if isinstance(prev, str) and prev.strip() else content
+        )
     else:
         messages.insert(0, {"role": "system", "content": content})
 
@@ -267,7 +269,7 @@ async def openai_compat_embed_batch(
 
     try:
         payload = r.json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None, "embedding_invalid_json_response"
 
     vectors = _embedding_batch_vectors_from_json(payload, expected=n)
@@ -530,7 +532,11 @@ async def _qdrant_search(
     body: dict[str, Any] = {"vector": vector, "limit": limit, "with_payload": True, "filter": flt}
     async with httpx.AsyncClient(timeout=httpx.Timeout(40.0, connect=10.0)) as client:
         r = await client.post(url, headers=headers, json=body)
-        if r.status_code == 400 and _env("OAAO_QDRANT_RETRY_WITHOUT_FILTER", "") in ("1", "true", "yes"):
+        if r.status_code == 400 and _env("OAAO_QDRANT_RETRY_WITHOUT_FILTER", "") in (
+            "1",
+            "true",
+            "yes",
+        ):
             body = {"vector": vector, "limit": limit, "with_payload": True}
             r = await client.post(url, headers=headers, json=body)
         if r.status_code >= 400:
@@ -576,7 +582,7 @@ def _rag_runtime_config(vault_rag: dict[str, Any] | None) -> dict[str, float | i
         if raw is None or raw == "":
             raw = _env(env_name, str(default))
         try:
-            n = int(round(float(raw)))
+            n = int(round(float(raw)))  # noqa: RUF046
         except (TypeError, ValueError):
             n = default
         return max(lo, min(hi, n))
@@ -639,7 +645,9 @@ def _passage_type_label(segment_type: str | None) -> str:
     return ""
 
 
-def _passage_fingerprint(vid: int, did: int | None, txt: str, *, begin_ms: int | None = None) -> str:
+def _passage_fingerprint(
+    vid: int, did: int | None, txt: str, *, begin_ms: int | None = None
+) -> str:
     if begin_ms is not None and begin_ms >= 0:
         return f"{vid}:{did}:{begin_ms}:{txt[:80]}"
     return f"{vid}:{did}:{txt[:80]}"
@@ -731,7 +739,7 @@ async def _rerank_passage_picks(
 ) -> list[_PassagePick]:
     if not picks or not isinstance(rerank_cfg, dict):
         return picks
-    from oaao_orchestrator.vault_rerank import rerank_passages  # noqa: PLC0415
+    from oaao_orchestrator.vault_rerank import rerank_passages
 
     texts: list[str] = []
     for pick in picks:
@@ -789,9 +797,7 @@ def build_slide_grounding_brief(
         sections.append("\n".join(lines).strip())
     if graph_lines:
         gl = "\n".join(
-            "- " + re.sub(r"\s+", " ", str(g)).strip()
-            for g in graph_lines[:12]
-            if str(g).strip()
+            "- " + re.sub(r"\s+", " ", str(g)).strip() for g in graph_lines[:12] if str(g).strip()
         )
         if gl:
             sections.append("## Graph context\n\n" + gl)
@@ -862,9 +868,9 @@ def _select_passages_for_vault(
 
     picks: list[_PassagePick] = []
     docs_with_summary: set[int] = set()
-    for did, (_eff, hit) in sorted(best_summary_by_doc.items(), key=lambda row: row[1][0], reverse=True)[
-        :max_summary_slots
-    ]:
+    for did, (_eff, hit) in sorted(  # noqa: B007
+        best_summary_by_doc.items(), key=lambda row: row[1][0], reverse=True
+    )[:max_summary_slots]:
         pick = _passage_pick_from_hit(hit, vault_id=vault_id)
         if pick is None or pick.document_id < 1:
             continue
@@ -1102,7 +1108,8 @@ def _narrow_grounding_picks(query: str, picks: list[_PassagePick]) -> list[_Pass
     others = [
         p
         for p in picks
-        if p.segment_type != "transcript_summary" and _passage_relevant_to_query(query, p.passage, strict=True)
+        if p.segment_type != "transcript_summary"
+        and _passage_relevant_to_query(query, p.passage, strict=True)
     ]
     return summaries + others[:1]
 
@@ -1297,7 +1304,7 @@ def _handbook_chunk_is_toc_or_cover(body: str) -> bool:
     if re.match(r"^[ivxlc]+\b", low) and re.search(r"\.{4,}\s*\d+", raw):
         return True
     # Mostly leader dots, little regulatory prose
-    if raw.count(".") > max(40, len(raw) // 6):
+    if raw.count(".") > max(40, len(raw) // 6):  # noqa: SIM102
         if not re.search(r"\b(shall|must|article|regulation|criteria|registered person)\b", low):
             return True
     return False
@@ -1307,7 +1314,9 @@ def _handbook_pick_body_text(pick: _PassagePick) -> str:
     return (pick.passage.split("\n", 1)[-1] if pick.passage else "").strip()
 
 
-def _handbook_grounding_picks(query: str, picks: list[_PassagePick], *, limit: int) -> list[_PassagePick]:
+def _handbook_grounding_picks(
+    query: str, picks: list[_PassagePick], *, limit: int
+) -> list[_PassagePick]:
     """
     Handbook / Vol turns: prefer chapter/rule body chunks; drop TOC when enough body text exists.
     """
@@ -1362,7 +1371,11 @@ def _file_name_from_payload(pl: dict[str, Any]) -> str:
         if isinstance(v, str) and v.strip():
             return v.strip()[:255]
     seg = pl.get("segment_label")
-    if isinstance(seg, str) and seg.strip() and not seg.strip().lower().startswith(("pdf page", "slide ")):
+    if (
+        isinstance(seg, str)
+        and seg.strip()
+        and not seg.strip().lower().startswith(("pdf page", "slide "))
+    ):
         return seg.strip()[:255]
     return ""
 
@@ -1435,7 +1448,9 @@ def _passage_pick_from_hit(hit: dict[str, Any], *, vault_id: int) -> _PassagePic
     )
 
 
-def _source_ref_name_map(vault_source_refs: list[dict[str, Any]] | None) -> dict[tuple[int, int], str]:
+def _source_ref_name_map(
+    vault_source_refs: list[dict[str, Any]] | None,
+) -> dict[tuple[int, int], str]:
     out: dict[tuple[int, int], str] = {}
     for raw in vault_source_refs or []:
         if not isinstance(raw, dict):
@@ -1574,7 +1589,7 @@ async def augment_chat_messages_for_vault_rag(
     out = VaultRagOutcome(passage_count=0, profile_hits=0)
     profiles = [p for p in (vault_retrieval_profiles or []) if isinstance(p, dict)]
     if not profiles:
-        from oaao_orchestrator.slide_project.teaching_intent import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.teaching_intent import (
             text_signals_personal_record_lookup,
             text_signals_vault_grounding,
         )
@@ -1610,7 +1625,7 @@ async def augment_chat_messages_for_vault_rag(
     if not query:
         return out
 
-    from oaao_orchestrator.slide_project.teaching_intent import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.teaching_intent import (
         text_signals_vault_grounding,
     )
 
@@ -1643,7 +1658,9 @@ async def augment_chat_messages_for_vault_rag(
     if isinstance(ake, str) and ake.strip():
         ek = _resolve_secret(ake.strip())
 
-    embed_url = ensure_url_scheme(url_direct) if url_direct else openai_compat_embeddings_url_from_base(bu)
+    embed_url = (
+        ensure_url_scheme(url_direct) if url_direct else openai_compat_embeddings_url_from_base(bu)
+    )
     if wants_record:
         embed_query = _embedding_query_for_record_lookup(query)
     elif handbook_turn:
@@ -1777,7 +1794,9 @@ async def augment_chat_messages_for_vault_rag(
         if scroll_picks:
             all_picks = scroll_picks
             used_scope_scroll = True
-            out.profile_hits = max(out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1)
+            out.profile_hits = max(
+                out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1
+            )
 
     if not all_picks and handbook_turn:
         vault_scroll = await _handbook_passages_via_vault_scroll(
@@ -1790,7 +1809,9 @@ async def augment_chat_messages_for_vault_rag(
         if vault_scroll:
             all_picks = vault_scroll
             used_scope_scroll = True
-            out.profile_hits = max(out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1)
+            out.profile_hits = max(
+                out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1
+            )
 
     rerank_cfg = rerank if isinstance(rerank, dict) else None
     if all_picks and rerank_cfg:
@@ -1865,7 +1886,9 @@ async def augment_chat_messages_for_vault_rag(
     for profile in profiles:
         if int(profile.get("graph_mode") or 0) < 1:
             continue
-        extra = await _arango_bonus_lines(profile, query, sorted(doc_ids_hit), graph_limit=graph_limit)
+        extra = await _arango_bonus_lines(
+            profile, query, sorted(doc_ids_hit), graph_limit=graph_limit
+        )
         graph_lines.extend(extra)
 
     # Graph-only hit path: vector search missed but graph entities match the question.
@@ -1900,7 +1923,9 @@ async def augment_chat_messages_for_vault_rag(
             + "\n\n--- Vault excerpts (use for your answer) ---\n\n"
             + block,
         )
-        out.detail_lines = [_format_passage_detail_line(p) for p in (citation_picks or all_picks)[:8]]
+        out.detail_lines = [
+            _format_passage_detail_line(p) for p in (citation_picks or all_picks)[:8]
+        ]
         if graph_lines and len(out.detail_lines) < 8:
             for g in graph_lines[: max(0, 8 - len(out.detail_lines))]:
                 flat = re.sub(r"\s+", " ", str(g)).strip()
@@ -1960,7 +1985,9 @@ async def augment_chat_messages_for_vault_rag(
     return out
 
 
-def build_pipeline_snapshot_for_rag(outcome: VaultRagOutcome, base: dict[str, Any]) -> dict[str, Any]:
+def build_pipeline_snapshot_for_rag(
+    outcome: VaultRagOutcome, base: dict[str, Any]
+) -> dict[str, Any]:
     """Merge retrieval outcome into pipeline UI — vault step only (no stub artifacts)."""
 
     snap = dict(base)
@@ -1969,7 +1996,7 @@ def build_pipeline_snapshot_for_rag(outcome: VaultRagOutcome, base: dict[str, An
         lines.insert(0, ln)
     snap["activity"] = {"lines": lines[:24]}
 
-    if outcome.passage_count > 0:
+    if outcome.passage_count > 0:  # noqa: SIM108
         rail_badge = f"{outcome.passage_count} passages"
     else:
         rail_badge = "No matches"

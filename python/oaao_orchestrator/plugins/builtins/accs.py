@@ -11,5 +11,12 @@ from oaao_orchestrator.plugins.spec import PluginContext
 class AccsPlugin:
     plugin_id = "accs"
 
-    async def run(self, ctx: PluginContext, *, prompt_rendered: str, endpoint_snapshot: dict[str, Any]) -> None:
-        await run_scoring_plugin(self.plugin_id, ctx, prompt_rendered=prompt_rendered, endpoint_snapshot=endpoint_snapshot)
+    async def run(
+        self, ctx: PluginContext, *, prompt_rendered: str, endpoint_snapshot: dict[str, Any]
+    ) -> None:
+        await run_scoring_plugin(
+            self.plugin_id,
+            ctx,
+            prompt_rendered=prompt_rendered,
+            endpoint_snapshot=endpoint_snapshot,
+        )

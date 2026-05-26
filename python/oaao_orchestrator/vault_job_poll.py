@@ -13,15 +13,17 @@ from urllib.parse import urlparse
 import httpx
 
 from oaao_orchestrator.php_boundary import assert_php_http_allowed, vault_job_claim_via_postgres
+from oaao_orchestrator.vault_audio_asr import process_vault_audio_asr
 from oaao_orchestrator.vault_document_embed import process_vault_document_embed
 from oaao_orchestrator.vault_graph_index import process_vault_graph_index
-from oaao_orchestrator.vault_audio_asr import process_vault_audio_asr
 from oaao_orchestrator.vault_transcript_summary import process_vault_transcript_summary
 
 logger = logging.getLogger(__name__)
 
 _CONNECT_WARN_EVERY = 60
-_CONNECT_INFO_GRACE = 12  # Compose boot: log DNS failures to `web` at INFO before escalating to WARNING
+_CONNECT_INFO_GRACE = (
+    12  # Compose boot: log DNS failures to `web` at INFO before escalating to WARNING
+)
 _HTML_BODY_SNIP_LEN = 600
 
 
@@ -83,7 +85,9 @@ async def vault_job_poll_loop() -> None:
         logger.info("vault_job_poll: OAAO_VAULT_JOB_POLL_BASE_URL unset — background poll disabled")
         return
 
-    secret = os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
+    from oaao_orchestrator._internal_secret import require_internal_secret
+
+    secret = require_internal_secret()
     interval = float(os.environ.get("OAAO_VAULT_JOB_POLL_INTERVAL_SEC", "4"))
     claim_url = f"{base}/vault_job_claim"
     finish_url = f"{base}/vault_job_finish"
@@ -91,7 +95,7 @@ async def vault_job_poll_loop() -> None:
     try:
         parsed = urlparse(base)
         host = (parsed.hostname or "").strip() or "?"
-    except Exception:
+    except Exception:  # noqa: BLE001
         host = "?"
 
     logger.info("vault_job_poll: enabled (%s)", claim_url)
@@ -114,12 +118,17 @@ async def vault_job_poll_loop() -> None:
     use_pg_claim = vault_job_claim_via_postgres()
     if use_pg_claim:
         try:
-            from oaao_orchestrator.vault_job_pg import claim_next_job, reclaim_orphan_running_jobs  # noqa: PLC0415
+            from oaao_orchestrator.vault_job_pg import (
+                claim_next_job,
+                reclaim_orphan_running_jobs,
+            )
 
             reclaim_orphan_running_jobs()
             logger.info("vault_job_poll: claim mode=postgres (finish still via PHP)")
-        except Exception as exc:
-            logger.warning("vault_job_poll: postgres claim unavailable, falling back to PHP HTTP: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "vault_job_poll: postgres claim unavailable, falling back to PHP HTTP: %s", exc
+            )
             use_pg_claim = False
 
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -132,7 +141,9 @@ async def vault_job_poll_loop() -> None:
                     data = body.get("data") if isinstance(body, dict) else None
                     count = int(data.get("count", 0)) if isinstance(data, dict) else 0
                     if count > 0:
-                        logger.info("vault_job_poll: reclaimed %s orphaned running job(s) on startup", count)
+                        logger.info(
+                            "vault_job_poll: reclaimed %s orphaned running job(s) on startup", count
+                        )
                 else:
                     logger.warning(
                         "vault_job_poll: orphan reclaim HTTP %s — %s",
@@ -146,7 +157,7 @@ async def vault_job_poll_loop() -> None:
             try:
                 job = None
                 if use_pg_claim:
-                    from oaao_orchestrator.vault_job_pg import claim_next_job  # noqa: PLC0415
+                    from oaao_orchestrator.vault_job_pg import claim_next_job
 
                     job = await asyncio.to_thread(claim_next_job)
                 else:
@@ -157,7 +168,9 @@ async def vault_job_poll_loop() -> None:
                         json={},
                     )
                     if r.status_code >= 400:
-                        logger.warning("vault_job_poll: claim HTTP %s — %s", r.status_code, r.text[:500])
+                        logger.warning(
+                            "vault_job_poll: claim HTTP %s — %s", r.status_code, r.text[:500]
+                        )
                         await asyncio.sleep(interval)
                         continue
 
@@ -166,7 +179,11 @@ async def vault_job_poll_loop() -> None:
                     except (json_lib.JSONDecodeError, ValueError):
                         ct = (r.headers.get("content-type") or "").split(";")[0].strip()
                         raw = r.text or ""
-                        if "html" in ct.lower() or raw.lstrip().lower().startswith("<!doctype html") or "<html" in raw[:60].lower():
+                        if (
+                            "html" in ct.lower()
+                            or raw.lstrip().lower().startswith("<!doctype html")
+                            or "<html" in raw[:60].lower()
+                        ):
                             logger.warning(
                                 "vault_job_poll: claim returned HTML (%s), not JSON — hitting Razy PHP error/HTML page. "
                                 "Common causes: wrong URL (different app on port), Apache/Razy bootstrap failure, "

@@ -31,7 +31,9 @@ async def _fetch_page_html(
 ) -> str:
     if use_playwright:
         try:
-            from oaao_orchestrator.mine.playwright_fetch import fetch_html_playwright  # noqa: PLC0415
+            from oaao_orchestrator.mine.playwright_fetch import (
+                fetch_html_playwright,
+            )
 
             return await fetch_html_playwright(url, wait_ms=1500)
         except Exception as exc:  # noqa: BLE001
@@ -56,7 +58,9 @@ async def _classify_url(
     if use_llm and llm_cfg and (page_type == "unknown" or conf < 0.72):
         features = classification.get("features")
         if not isinstance(features, dict):
-            from oaao_orchestrator.page_router.features import extract_page_features  # noqa: PLC0415
+            from oaao_orchestrator.page_router.features import (
+                extract_page_features,
+            )
 
             features = extract_page_features(html, url)
         try:
@@ -140,7 +144,7 @@ async def discover_mine_source(
     if schema and rows:
         rows = project_rows_to_schema(rows, schema) if resolved_kind == "http_index" else rows
 
-    from oaao_orchestrator.page_router.features import extract_page_features  # noqa: PLC0415
+    from oaao_orchestrator.page_router.features import extract_page_features
 
     feat = extract_page_features(html, url)
 
@@ -197,7 +201,9 @@ async def discover_mine_sources(payload: dict[str, Any]) -> dict[str, Any]:
                 previews.append(prev)
                 if prev.get("resolved_kind") == "http_index":
                     index_count += 1
-                for row in prev.get("sample_rows") if isinstance(prev.get("sample_rows"), list) else []:
+                for row in (
+                    prev.get("sample_rows") if isinstance(prev.get("sample_rows"), list) else []
+                ):
                     if isinstance(row, dict):
                         all_rows.append(row)
             except Exception as exc:  # noqa: BLE001
@@ -212,9 +218,15 @@ async def discover_mine_sources(payload: dict[str, Any]) -> dict[str, Any]:
     if not suggested_schema and all_rows:
         table = "dataset"
         if len(previews) == 1 and previews[0].get("ok"):
-            host = str(previews[0].get("url") or "data").split("/")[2] if previews[0].get("url") else "data"
+            host = (
+                str(previews[0].get("url") or "data").split("/")[2]
+                if previews[0].get("url")
+                else "data"
+            )
             table = host.replace(".", "_")[:32]
-        suggested_schema = infer_schema_from_rows(merge_rows_for_schema([all_rows]), table_name=table)
+        suggested_schema = infer_schema_from_rows(
+            merge_rows_for_schema([all_rows]), table_name=table
+        )
 
     any_needs = any(p.get("needs_confirmation") for p in previews if p.get("ok"))
     if dominant_type == "index" and not suggested_schema:

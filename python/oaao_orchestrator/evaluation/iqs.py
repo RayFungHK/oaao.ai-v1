@@ -90,7 +90,7 @@ def _has_prior_turn_context(conversation_history: list[Any]) -> bool:
     msgs = _normalize_history(list(conversation_history or []))
     if len(msgs) <= 1:
         return False
-    for msg in msgs[:-1]:
+    for msg in msgs[:-1]:  # noqa: SIM110
         if str(msg.get("content") or "").strip():
             return True
     return False
@@ -146,7 +146,9 @@ def _finalize_iqs_result(
     conversation_history: list[Any],
     inline: bool = False,
 ) -> IQSResult:
-    from oaao_orchestrator.evaluation.coach_client import inline_iqs_clarify_enabled  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.coach_client import (
+        inline_iqs_clarify_enabled,
+    )
 
     history = list(conversation_history or [])
     if should_bypass_iqs_clarify(user_message, history):
@@ -204,7 +206,7 @@ async def _score_iqs_coach(
     coach_endpoint: dict[str, Any],
     inline: bool = False,
 ) -> IQSResult:
-    from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.coach_client import (
         CoachCallError,
         build_iqs_coach_prompt,
         call_coach_json,
@@ -258,13 +260,13 @@ async def score_iqs(
     inline: bool = False,
 ) -> IQSResult:
     """Score user input quality; on breaker open / timeout → degrade, do not block users."""
-    from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.coach_client import (
         CoachCallError,
         coach_call_timeout_s,
         coach_endpoint_ready,
         inline_iqs_coach_disabled,
     )
-    from oaao_orchestrator.safety.circuit_breaker import BreakerOpen, BreakerTimeout  # noqa: PLC0415
+    from oaao_orchestrator.safety.circuit_breaker import BreakerTimeout
 
     history = list(conversation_history or [])
     use_coach = coach_endpoint_ready(coach_endpoint)

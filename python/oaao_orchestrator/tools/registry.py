@@ -44,7 +44,9 @@ def list_tool_servers(*, purpose_id: str | None = None) -> list[ToolServerSpec]:
     rows = list(_REGISTRY.values())
     if not pid:
         return rows
-    return [s for s in rows if not s.allowed_purposes or pid in {p.lower() for p in s.allowed_purposes}]
+    return [
+        s for s in rows if not s.allowed_purposes or pid in {p.lower() for p in s.allowed_purposes}
+    ]
 
 
 def load_tool_servers_from_env() -> None:
@@ -52,14 +54,16 @@ def load_tool_servers_from_env() -> None:
     raw = (os.environ.get("OAAO_TOOL_SERVERS_JSON") or "").strip()
     path = (os.environ.get("OAAO_TOOL_SERVERS_PATH") or "").strip()
     if not raw and path and os.path.isfile(path):
-        raw = open(path, encoding="utf-8").read()
+        raw = open(path, encoding="utf-8").read()  # noqa: SIM115
     if not raw:
         return
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         return
-    servers = data if isinstance(data, list) else data.get("servers") if isinstance(data, dict) else None
+    servers = (
+        data if isinstance(data, list) else data.get("servers") if isinstance(data, dict) else None
+    )
     if not isinstance(servers, list):
         return
     for row in servers:
@@ -110,7 +114,9 @@ def merge_openai_tools(
             if not name or name in seen:
                 continue
             seen.add(name)
-            merged.append(tool if tool.get("type") == "function" else {"type": "function", "function": fn})
+            merged.append(
+                tool if tool.get("type") == "function" else {"type": "function", "function": fn}
+            )
     return merged
 
 

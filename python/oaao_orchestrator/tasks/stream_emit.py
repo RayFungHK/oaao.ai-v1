@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from oaao_orchestrator.streaming.events import KIND_END, KIND_START, KIND_STATUS, PHASE_TASK, StreamEnvelope
+from oaao_orchestrator.streaming.events import (
+    KIND_END,
+    KIND_START,
+    KIND_STATUS,
+    PHASE_TASK,
+    StreamEnvelope,
+)
 
 KIND_ASK = "ask"
-from oaao_orchestrator.streaming.session import StreamRun
-from oaao_orchestrator.tasks.models import (
+from oaao_orchestrator.streaming.session import StreamRun  # noqa: E402
+from oaao_orchestrator.tasks.models import (  # noqa: E402
     AgentStatus,
     AgentView,
     RunPlan,
@@ -123,9 +129,7 @@ def merge_slide_worker_row(
         if not merged:
             workers.append(row)
         item["agent_tasks"] = workers
-        agg = _aggregate_run_task_statuses(
-            [str(w.get("status") or "pending") for w in workers]
-        )
+        agg = _aggregate_run_task_statuses([str(w.get("status") or "pending") for w in workers])
         item["status"] = agg.value if hasattr(agg, "value") else str(agg)
         return
 

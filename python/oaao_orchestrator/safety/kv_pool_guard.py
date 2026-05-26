@@ -9,8 +9,9 @@ from __future__ import annotations
 import asyncio
 import functools
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -65,7 +66,7 @@ async def _effective_usage_gb() -> float:
     return _current_kv_usage_gb() + reserved
 
 
-def guarded_call(fn: F) -> F:
+def guarded_call(fn: F) -> F:  # noqa: UP047
     @functools.wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         global _in_flight

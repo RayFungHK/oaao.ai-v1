@@ -13,7 +13,9 @@ return function (): void {
     header('Content-Type: application/json; charset=UTF-8');
 
     $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-    $secret = ($secret !== false && trim((string) $secret) !== '') ? trim((string) $secret) : 'oaao_dev_shared_secret';
+    $secret = ($secret !== false && trim((string) $secret) !== '')
+        ? trim((string) $secret)
+        : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
     $hdr = isset($_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN']) ? trim((string) $_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN']) : '';
     if ($hdr === '' || ! hash_equals($secret, $hdr)) {
         http_response_code(403);

@@ -22,7 +22,7 @@ def skill_entry_from_template_row(row: dict[str, Any]) -> SkillEntry | None:
     label = str(row.get("label") or tid).strip()
     brief = str(micro.get("agent_brief") or "").strip()
     summary = brief or f"PPTX template layout, typography, and color rules for «{label}»."
-    from oaao_orchestrator.micro_skills.markdown import skill_preview_markdown  # noqa: PLC0415
+    from oaao_orchestrator.micro_skills.markdown import skill_preview_markdown
 
     preview = skill_preview_markdown(
         title=label,
@@ -46,8 +46,10 @@ def skill_entry_from_template_row(row: dict[str, Any]) -> SkillEntry | None:
 
 
 def load_bound_skill_payload(template_id: str) -> dict[str, Any] | None:
-    from oaao_orchestrator.slide_project.custom_templates import load_custom_template_by_id  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.custom_templates import (
+        load_custom_template_by_id,
+    )
+    from oaao_orchestrator.slide_project.template_micro_skills import (
         normalize_micro_skills,
     )
 

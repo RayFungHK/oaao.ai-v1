@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-
-from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +17,13 @@ _MEMORY_REPORTS: list[dict[str, Any]] = []
 
 
 async def _arango_cfg() -> dict[str, Any] | None:
-    from oaao_orchestrator.vault_arango import resolve_arango_from_profile  # noqa: PLC0415
+    from oaao_orchestrator.vault_arango import resolve_arango_from_profile
 
     return resolve_arango_from_profile({})
 
 
 async def _arango_post(collection: str, doc: dict[str, Any]) -> None:
-    from oaao_orchestrator.vault_arango import _arango_request  # noqa: PLC0415
+    from oaao_orchestrator.vault_arango import _arango_request
 
     cfg = await _arango_cfg()
     if not cfg:
@@ -45,44 +43,44 @@ async def _arango_post(collection: str, doc: dict[str, Any]) -> None:
 
 
 async def record_evolution_run(row: dict[str, Any]) -> None:
-    doc = {**row, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    doc = {**row, "recorded_at": datetime.now(UTC).isoformat()}
     _MEMORY_RUNS.append(doc)
     if len(_MEMORY_RUNS) > 5000:
         del _MEMORY_RUNS[:1000]
     try:
         await _arango_post("evolution_runs", doc)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("evolution_runs arango write skipped", exc_info=True)
 
 
 async def record_low_score_case(row: dict[str, Any]) -> None:
-    doc = {**row, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    doc = {**row, "recorded_at": datetime.now(UTC).isoformat()}
     _MEMORY_LOW_SCORE.append(doc)
     if len(_MEMORY_LOW_SCORE) > 2000:
         del _MEMORY_LOW_SCORE[:500]
     try:
         await _arango_post("low_score_cases", doc)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("low_score_cases arango write skipped", exc_info=True)
 
 
 async def record_evolution_patch(row: dict[str, Any]) -> None:
-    doc = {**row, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    doc = {**row, "recorded_at": datetime.now(UTC).isoformat()}
     _MEMORY_PATCHES.append(doc)
     try:
         await _arango_post("evolution_patches", doc)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("evolution_patches arango write skipped", exc_info=True)
 
 
 async def record_evolution_report(row: dict[str, Any]) -> None:
-    doc = {**row, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    doc = {**row, "recorded_at": datetime.now(UTC).isoformat()}
     _MEMORY_REPORTS.append(doc)
     if len(_MEMORY_REPORTS) > 200:
         del _MEMORY_REPORTS[:50]
     try:
         await _arango_post("evolution_reports", doc)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("evolution_reports arango write skipped", exc_info=True)
 
 
@@ -128,4 +126,3 @@ def iqs_action_distribution(*, limit: int = 500) -> dict[str, int]:
             continue
         counts[action] = counts.get(action, 0) + 1
     return counts
-

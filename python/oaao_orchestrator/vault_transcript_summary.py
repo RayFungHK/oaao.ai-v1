@@ -58,9 +58,13 @@ async def process_vault_transcript_summary(
         user_body = user_content
     else:
         user_prefix = str(summary_cfg.get("user_prefix") or "").strip()
-        user_body = f"{user_prefix}{source_text[:120000]}".strip() if user_prefix else source_text[:120000]
+        user_body = (
+            f"{user_prefix}{source_text[:120000]}".strip() if user_prefix else source_text[:120000]
+        )
 
-    api_key = _resolve_secret(llm.get("api_key_env") if isinstance(llm.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        llm.get("api_key_env") if isinstance(llm.get("api_key_env"), str) else None
+    )
     url = ensure_url_scheme(url_direct) if url_direct else openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -77,7 +81,9 @@ async def process_vault_transcript_summary(
     }
 
     try:
-        r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(180.0, connect=15.0))
+        r = await client.post(
+            url, headers=headers, json=body, timeout=httpx.Timeout(180.0, connect=15.0)
+        )
         if r.status_code >= 400:
             return "failed", f"summary_llm_http_{r.status_code}:{(r.text or '')[:400]}", {}
         data = r.json()

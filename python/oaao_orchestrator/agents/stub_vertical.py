@@ -140,7 +140,9 @@ class StubVerticalAgent:
         plan_raw = ctx.extra.get("run_plan")
         plan = plan_raw if isinstance(plan_raw, RunPlan) else RunPlan()
         pipeline_base = ctx.extra.get("pipeline_snap_base")
-        pipeline_snap: dict[str, Any] = dict(pipeline_base) if isinstance(pipeline_base, dict) else {}
+        pipeline_snap: dict[str, Any] = (
+            dict(pipeline_base) if isinstance(pipeline_base, dict) else {}
+        )
 
         agent = AgentSpec(
             id=f"ag-{run_task.id}",

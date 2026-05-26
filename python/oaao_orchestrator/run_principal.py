@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -16,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 def _shared_secret() -> str:
-    return os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
+    from oaao_orchestrator._internal_secret import require_internal_secret
+
+    return require_internal_secret()
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -54,9 +55,13 @@ class RunPrincipal:
             return False
         if uid != self.user_id or cid != self.conversation_id or amid != self.assistant_message_id:
             return False
-        if self.workspace_id is not None and workspace_id is not None and self.workspace_id != workspace_id:
+        if (
+            self.workspace_id is not None
+            and workspace_id is not None
+            and self.workspace_id != workspace_id
+        ):
             return False
-        if self.tenant_id is not None and tenant_id is not None and self.tenant_id != tenant_id:
+        if self.tenant_id is not None and tenant_id is not None and self.tenant_id != tenant_id:  # noqa: SIM103
             return False
         return True
 
@@ -82,7 +87,9 @@ def issue_token(
         payload["workspace_id"] = workspace_id
     if tenant_id is not None and tenant_id > 0:
         payload["tenant_id"] = tenant_id
-    body = _b64url_encode(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    body = _b64url_encode(
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    )
     key = (secret or _shared_secret()).encode("utf-8")
     sig = hmac.new(key, body.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{body}.{sig}"

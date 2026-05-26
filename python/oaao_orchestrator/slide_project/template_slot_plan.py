@@ -74,7 +74,7 @@ def is_placeholder_text(text: str) -> bool:
         return True
     if len(t) > 72:
         return True
-    if len(t) > 40 and t.count(" ") >= 6:
+    if len(t) > 40 and t.count(" ") >= 6:  # noqa: SIM103
         return True
     return False
 
@@ -208,7 +208,9 @@ def enrich_geometry_slots(
             inferred = _infer_slot_role_from_geometry(row)
             role = role or inferred
         role = role or "body"
-        kind = str(meta.get("kind") or row.get("kind") or _KIND_BY_ROLE.get(role, "paragraph")).strip()
+        kind = str(
+            meta.get("kind") or row.get("kind") or _KIND_BY_ROLE.get(role, "paragraph")
+        ).strip()
         try:
             max_chars = int(meta.get("max_chars") or row.get("max_chars") or 0)
         except (TypeError, ValueError):
@@ -255,18 +257,13 @@ def merge_llm_page_plan(
     Build one ``pages[]`` row: prefer ``pptx_master`` + enriched geometry when shapes exist.
     Catalog layouts only when geometry is unavailable (legacy / non-positioned decks).
     """
-    from oaao_orchestrator.slide_project.pptx_geometry import pptx_master_enabled  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.template_registry import (  # noqa: PLC0415
-        layout_ids,
+    from oaao_orchestrator.slide_project.pptx_geometry import pptx_master_enabled
+    from oaao_orchestrator.slide_project.template_registry import (
         resolve_layout_id,
     )
 
     geom = prof.get("geometry_slots")
-    use_master = (
-        pptx_master_enabled()
-        and isinstance(geom, list)
-        and len(geom) > 0
-    )
+    use_master = pptx_master_enabled() and isinstance(geom, list) and len(geom) > 0
 
     layout = ""
     seeds: dict[str, str] = {}
@@ -285,18 +282,14 @@ def merge_llm_page_plan(
                         seeds[str(key)] = s[:2000]
     else:
         if isinstance(llm_row, dict):
-            layout = str(
-                llm_row.get("layout") or llm_row.get("suggested_layout") or ""
-            ).strip()
+            layout = str(llm_row.get("layout") or llm_row.get("suggested_layout") or "").strip()
         if not layout or layout == "pptx_render":
             layout = _positional_catalog_layout(index, total, layout_hints)
         layout = resolve_layout_id(layout) or "title_content"
         if isinstance(llm_row, dict):
             raw_seeds = llm_row.get("slot_seeds")
             if isinstance(raw_seeds, dict):
-                seeds = {
-                    str(k): str(v) for k, v in raw_seeds.items() if str(v).strip()
-                }
+                seeds = {str(k): str(v) for k, v in raw_seeds.items() if str(v).strip()}
 
     row: dict[str, Any] = {
         "index": index,
@@ -331,14 +324,16 @@ def _positional_catalog_layout(
     layout_hints: list[str] | None = None,
 ) -> str:
     """No keyword regex — positional + optional LLM layout_hints when geometry missing."""
-    from oaao_orchestrator.slide_project.template_registry import layout_ids  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_registry import layout_ids
 
     if index == 1:
         return "title_hero"
     if total > 1 and index == total:
         return "summary"
     hints = [str(h).strip() for h in (layout_hints or []) if str(h).strip()]
-    hints = [h for h in hints if h in layout_ids() and h not in ("title_hero", "summary", "pptx_render")]
+    hints = [
+        h for h in hints if h in layout_ids() and h not in ("title_hero", "summary", "pptx_render")
+    ]
     if hints and index > 1:
         return hints[(index - 2) % len(hints)]
     return "title_content"
@@ -520,7 +515,10 @@ async def refine_pages_with_master_html_llm(
         logger.info("slot_refine_skip no_master_html")
         return None
 
-    from oaao_orchestrator.planner_llm import _extract_json_object, llm_chat_completion_text  # noqa: PLC0415
+    from oaao_orchestrator.planner_llm import (
+        _extract_json_object,
+        llm_chat_completion_text,
+    )
 
     user = build_slot_refine_user_message(
         profile=profile,

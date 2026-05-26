@@ -6,8 +6,8 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 

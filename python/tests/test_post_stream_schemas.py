@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from oaao_orchestrator.post_stream_schemas import AccsScoreResult, IqsScoreResult, parse_plugin_score
+from oaao_orchestrator.post_stream_schemas import (
+    AccsScoreResult,
+    IqsScoreResult,
+    parse_plugin_score,
+)
 
 
 def test_parse_iqs_and_accs() -> None:

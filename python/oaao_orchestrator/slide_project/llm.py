@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
@@ -75,7 +74,7 @@ Rules:
 def _outline_system_prompt(*, template_teaching: bool = False) -> str:
     if template_teaching:
         return _OUTLINE_TEMPLATE_TEACHING_SYSTEM
-    from oaao_orchestrator.slide_project.template_registry import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_registry import (
         layout_ids_for_outline_prompt,
         theme_ids,
     )
@@ -94,13 +93,15 @@ def _is_stub_markdown(body: str) -> bool:
     text = (body or "").strip()
     if not text or len(text) < 40:
         return True
-    if _STUB_MD_RE.search(text):
+    if _STUB_MD_RE.search(text):  # noqa: SIM103
         return True
     return False
 
 
 def _layout_markdown_recipe(layout: str) -> str:
-    from oaao_orchestrator.slide_project.template_registry import layout_content_recipe  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_registry import (
+        layout_content_recipe,
+    )
 
     return layout_content_recipe(layout)
 
@@ -231,8 +232,7 @@ async def generate_deck_outline(
 
     fixed_count = max(3, min(slide_count, 20))
     fallback_slides = [
-        {"index": i, "title": f"Slide {i}", "theme": "default"}
-        for i in range(1, fixed_count + 1)
+        {"index": i, "title": f"Slide {i}", "theme": "default"} for i in range(1, fixed_count + 1)
     ]
     fallback = {
         "title": "Presentation",
@@ -248,14 +248,19 @@ async def generate_deck_outline(
     if rag_block:
         user_parts.append("\n" + rag_block)
     if template_context and template_context.strip():
-        user_parts.append(f"\nTemplate structure (fixed layouts per slide):\n{template_context[:7500]}")
+        user_parts.append(
+            f"\nTemplate structure (fixed layouts per slide):\n{template_context[:7500]}"
+        )
     user = "\n".join(user_parts)
     text = await llm_chat_completion_text(
         url=url,
         api_key=api_key,
         model=model,
         messages=[
-            {"role": "system", "content": _outline_system_prompt(template_teaching=template_teaching)},
+            {
+                "role": "system",
+                "content": _outline_system_prompt(template_teaching=template_teaching),
+            },
             {"role": "user", "content": user},
         ],
         temperature=0.35,
@@ -267,7 +272,7 @@ async def generate_deck_outline(
         fallback["title"] = topic.split("\n")[0][:80] or fallback["title"]
         return fallback
 
-    from oaao_orchestrator.slide_project.outline_markdown import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.outline_markdown import (
         apply_outline_fields_from_llm_row,
         merge_manus_scripts_into_slides,
         parse_manus_presentation_slides,
@@ -321,8 +326,8 @@ async def generate_slide_markdown(
     slide_dir: Any = None,
     vault_grounding: str | None = None,
 ) -> str:
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.slot_content import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import infer_layout
+    from oaao_orchestrator.slide_project.slot_content import (
         generate_slide_markdown_via_slots,
         layout_has_slots,
         slot_content_enabled,
@@ -375,8 +380,8 @@ async def _generate_slide_markdown_monolith(
     theme = str(slide.get("theme") or "default")
     topic = _user_topic(messages, max_chars=2500)
 
-    from oaao_orchestrator.slide_project.deck_style import style_prompt_block  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.deck_style import style_prompt_block
+    from oaao_orchestrator.slide_project.layouts import infer_layout
 
     layout = str(slide.get("layout") or "").strip() or infer_layout(slide)
     recipe = _layout_markdown_recipe(layout)
@@ -401,9 +406,7 @@ async def _generate_slide_markdown_monolith(
         f"Outline context:\n{outline_excerpt[:3000]}\n\n"
         f"User request context:\n{topic[:2000]}"
     )
-    md_system = _SLIDE_MD_SYSTEM + (
-        "\n\n" + style_blk if style_blk else ""
-    )
+    md_system = _SLIDE_MD_SYSTEM + ("\n\n" + style_blk if style_blk else "")
     text = await llm_chat_completion_text(
         url=url,
         api_key=api_key,
@@ -436,9 +439,12 @@ async def generate_slide_html(
     project_dir: Any = None,
     template_asset_dir: Any = None,
 ) -> str:
-    from oaao_orchestrator.slide_project.async_bridge import run_blocking  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.html_sandbox import validate_slide_html  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.layouts import layout_html_prompt, render_layout_slide  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.async_bridge import run_blocking
+    from oaao_orchestrator.slide_project.html_sandbox import validate_slide_html
+    from oaao_orchestrator.slide_project.layouts import (
+        layout_html_prompt,
+        render_layout_slide,
+    )
 
     idx = int(slide.get("index") or 1)
     title = str(slide.get("title") or f"Slide {idx}")
@@ -477,7 +483,7 @@ async def generate_slide_html(
     if prior_errors:
         err_block = "Fix these validation errors:\n" + "\n".join(f"- {e}" for e in prior_errors[:8])
 
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import infer_layout
 
     layout_id = layout or infer_layout(slide, slide_count=slide_count)
     layout_hint = layout_html_prompt(layout_id, theme, deck_style)
@@ -496,7 +502,9 @@ async def generate_slide_html(
         temperature=0.35,
         timeout_s=90.0,
     )
-    from oaao_orchestrator.slide_project.canvas import normalize_slide_html  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.canvas import _strip_code_fences  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.canvas import (
+        _strip_code_fences,
+        normalize_slide_html,
+    )
 
     return normalize_slide_html(_strip_code_fences(_strip_fences(text or "")))

@@ -12,8 +12,8 @@ from oaao_orchestrator.tasks.models import (
     AgentStatus,
     AgentTaskSpec,
     AgentTaskStatus,
-    AgentView,
     AgentTaskView,
+    AgentView,
     RunPlan,
     RunTaskSpec,
 )
@@ -83,11 +83,7 @@ def _agent_payload(
         ).model_dump()
     if plan is not None:
         task_list = plan.task_list_payload(allowed_agents=allowed_agents)
-        if (
-            agent_tasks_accum
-            and run_task is not None
-            and isinstance(task_list, dict)
-        ):
+        if agent_tasks_accum and run_task is not None and isinstance(task_list, dict):
             merge_agent_tasks_into_task_list(task_list, run_task.id, agent_tasks_accum)
         payload["tasks"] = task_list
         if run_task is not None:

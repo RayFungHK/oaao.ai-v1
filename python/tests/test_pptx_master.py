@@ -7,11 +7,11 @@ from pathlib import Path
 
 from oaao_orchestrator.slide_project.pptx_master import (
     _ensure_pptx_decor_in_html,
+    _slot_content_html,
     build_master_html,
     fill_master_html,
     geometry_slots_typography_css,
     render_pptx_master_slide,
-    _slot_content_html,
 )
 from oaao_orchestrator.slide_project.template_pages import build_page_plan_row
 from oaao_orchestrator.slide_project.template_slot_plan import is_placeholder_text
@@ -62,7 +62,7 @@ def test_build_master_has_positioned_slots() -> None:
         },
     ]
     doc = build_master_html(geom, title="T", slot_values={"title": "Hi", "body": "- x\n- y"})
-    assert "data-slot-id=\"title\"" in doc
+    assert 'data-slot-id="title"' in doc
     assert "oaao-pptx-slot" in doc
     assert "oaao-slide-topbar" not in doc
     assert "flex-direction: column" not in doc or "display: block" in doc

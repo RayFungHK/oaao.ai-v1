@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -102,8 +101,8 @@ def build_stub_sentences(
         sentences.append(
             {
                 "text": text,
-                "begin_time": int(round(t * 1000)),
-                "end_time": int(round(end * 1000)),
+                "begin_time": int(round(t * 1000)),  # noqa: RUF046
+                "end_time": int(round(end * 1000)),  # noqa: RUF046
                 "speaker_id": sid,
             }
         )
@@ -114,7 +113,7 @@ def build_stub_sentences(
             {
                 "text": templates[0],
                 "begin_time": 0,
-                "end_time": int(round(min(duration_sec, 1.0) * 1000)),
+                "end_time": int(round(min(duration_sec, 1.0) * 1000)),  # noqa: RUF046
                 "speaker_id": 0,
             }
         )
@@ -277,7 +276,7 @@ async def transcribe(
             )
 
         body = wrap_dashscope_response(sentences)
-        body["duration_ms"] = int(round(dur * 1000))
+        body["duration_ms"] = int(round(dur * 1000))  # noqa: RUF046
         body["adapter_mode"] = mode if sentences else "stub"
         return JSONResponse(body)
     finally:

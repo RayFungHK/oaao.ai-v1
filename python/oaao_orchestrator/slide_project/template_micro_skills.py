@@ -284,7 +284,7 @@ async def pick_template_page_index_llm(
     used_s = ", ".join(str(i) for i in sorted(used_indices)) or "(none)"
     system = (
         "You pick one template master page for a deck outline slide. "
-        "Output ONLY JSON: {\"template_page_index\": <int>, \"reason\": \"short\"}\n"
+        'Output ONLY JSON: {"template_page_index": <int>, "reason": "short"}\n'
         "Use template micro skills and the master catalog. "
         "Do not use keyword lists — match user material intent to use_when / layout_role."
     )
@@ -334,7 +334,7 @@ async def plan_template_page_picks(
     model: str | None,
 ) -> dict[int, int]:
     """Map outline slide index → template_page_index using micro skills + LLM."""
-    from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_pages import (
         _pick_template_page_for_slide,
     )
 

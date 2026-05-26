@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def parse_pg_url(url: str) -> dict[str, Any] | None:
 
 
 def pg_dsn() -> str | None:
-    from oaao_orchestrator.php_boundary import pg_url  # noqa: PLC0415
+    from oaao_orchestrator.php_boundary import pg_url
 
     raw = pg_url()
     if not raw:
@@ -57,7 +58,7 @@ def _ensure_pool() -> Any:
     if dsn is None:
         raise RuntimeError("OAAO_PG_URL not configured")
     try:
-        from psycopg_pool import ConnectionPool  # noqa: PLC0415
+        from psycopg_pool import ConnectionPool
     except ImportError as exc:
         raise RuntimeError("psycopg_pool not installed") from exc
     min_size = max(1, int(os.environ.get("OAAO_PG_POOL_MIN", "1")))

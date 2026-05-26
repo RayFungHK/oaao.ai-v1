@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 def searxng_base_url() -> str:
-    return (os.environ.get("OAAO_SEARXNG_URL") or os.environ.get("OAAO_WEB_SEARCH_URL") or "").strip().rstrip("/")
+    return (
+        (os.environ.get("OAAO_SEARXNG_URL") or os.environ.get("OAAO_WEB_SEARCH_URL") or "")
+        .strip()
+        .rstrip("/")
+    )
 
 
 async def web_search(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
@@ -33,7 +37,7 @@ async def web_search(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
             if resp.status_code >= 400:
                 return []
             data = resp.json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("web_search request failed", exc_info=True)
         return []
     results = data.get("results") if isinstance(data, dict) else None

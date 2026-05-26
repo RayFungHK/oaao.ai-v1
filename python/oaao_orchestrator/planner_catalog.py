@@ -19,7 +19,9 @@ AGENT_CATALOG: dict[str, AbilityHint] = {
         description="Create and continue slide decks (outline, HTML, export)",
     ),
     "image_gen": AbilityHint(name="Images", description="Generate images from prompts"),
-    "web_search": AbilityHint(name="Web search", description="Search the public web for live information"),
+    "web_search": AbilityHint(
+        name="Web search", description="Search the public web for live information"
+    ),
     "mcp_tool": AbilityHint(name="Integrations", description="Call connected MCP tools"),
 }
 
@@ -105,7 +107,9 @@ def planner_agent_guide(
     return "\n".join(lines) if lines else "(none — do not use type=agent)"
 
 
-def agent_catalog_payload(catalog: dict[str, AbilityHint], allowed: list[str]) -> list[dict[str, Any]]:
+def agent_catalog_payload(
+    catalog: dict[str, AbilityHint], allowed: list[str]
+) -> list[dict[str, Any]]:
     """Serialize for debugging / SSE abilities (subset of allowed kinds)."""
     allow = {(a or "").strip() for a in allowed if (a or "").strip()}
     out: list[dict[str, Any]] = []

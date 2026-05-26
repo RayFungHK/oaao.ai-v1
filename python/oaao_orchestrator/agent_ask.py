@@ -8,7 +8,7 @@ from typing import Any
 
 from oaao_orchestrator.planner_catalog import catalog_from_request
 from oaao_orchestrator.streaming.session import StreamRun
-from oaao_orchestrator.tasks.models import RunTaskSpec, RunTaskStatus, RunTaskType
+from oaao_orchestrator.tasks.models import RunTaskSpec, RunTaskType
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,9 @@ ASK_DECISIONS = frozenset(
 ASK_TIMEOUT_SEC = 600.0
 
 
-def ask_meta_for_agent(agent_kind: str, *, catalog: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def ask_meta_for_agent(
+    agent_kind: str, *, catalog: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """Return ask_stage metadata when the agent registered ask_enabled."""
     kind = (agent_kind or "").strip()
     if not kind or catalog is None:
@@ -70,7 +72,7 @@ async def wait_for_agent_ask_decision(
     fut = run.register_agent_ask(run_task_id)
     try:
         return await asyncio.wait_for(fut, timeout=timeout_sec)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.info("agent_ask_timeout run_id=%s task_id=%s", run.run_id, run_task_id)
         run.discard_agent_ask(run_task_id)
         return ASK_DECISION_SKIP

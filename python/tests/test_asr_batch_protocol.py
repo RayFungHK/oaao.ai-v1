@@ -12,7 +12,10 @@ from oaao_orchestrator.live_meeting.qwen_asr_stream import segment_transcribe_as
 
 
 def test_resolve_batch_protocol_openai_default() -> None:
-    assert resolve_batch_protocol({"provider": "openai_compat", "base_url": "http://qwen.test"}) == BATCH_PROTOCOL_OPENAI
+    assert (
+        resolve_batch_protocol({"provider": "openai_compat", "base_url": "http://qwen.test"})
+        == BATCH_PROTOCOL_OPENAI
+    )
 
 
 def test_resolve_batch_protocol_json_explicit() -> None:
@@ -42,7 +45,11 @@ def test_segment_transcribe_prefers_asr_slot() -> None:
         "funasr_stream_url": "wss://dashscope.test/ws",
         "funasr_base_url": "https://funasr-nano.test",
     }
-    batch = {"provider": "openai_compat", "base_url": "http://qwen3-asr.test", "model": "Qwen/Qwen3-ASR-1.7B"}
+    batch = {
+        "provider": "openai_compat",
+        "base_url": "http://qwen3-asr.test",
+        "model": "Qwen/Qwen3-ASR-1.7B",
+    }
     picked = segment_transcribe_asr_cfg(live, batch)
     assert picked is batch
     assert has_batch_transcribe_config(picked)

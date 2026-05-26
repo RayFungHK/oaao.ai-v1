@@ -33,7 +33,9 @@ def openapi_to_openai_tools(spec: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             if not isinstance(op, dict):
                 continue
-            op_id = str(op.get("operationId") or f"{method}_{path.strip('/').replace('/', '_')}").strip()
+            op_id = str(
+                op.get("operationId") or f"{method}_{path.strip('/').replace('/', '_')}"
+            ).strip()
             if not op_id:
                 continue
             props: dict[str, Any] = {}

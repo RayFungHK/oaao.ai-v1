@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from oaao_orchestrator.streaming.events import StreamEnvelope
 from oaao_orchestrator.streaming.sse import encode_sse
@@ -90,7 +90,7 @@ class StreamRun:
         if len(pending) == 1:
             only = pending[0]
             group = tid[:-8] if tid.endswith("-outline") else tid
-            if only == tid or only == f"{group}-outline" or only == group:
+            if only == tid or only == f"{group}-outline" or only == group:  # noqa: SIM109
                 fut = self._agent_ask_futures.pop(only, None)
                 if fut is not None and not fut.done():
                     fut.set_result(dec)
@@ -135,7 +135,7 @@ class StreamRun:
             while True:
                 try:
                     sid, env = await asyncio.wait_for(queue.get(), timeout=keepalive_sec)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Prevent browser/proxy idle disconnect during long planner/agent/ask gaps.
                     yield ": keepalive\n\n"
                     continue

@@ -19,7 +19,7 @@ return function (): void {
     $secret = getenv('OAAO_ORCH_SHARED_SECRET');
     $secret = ($secret !== false && trim((string) $secret) !== '')
         ? trim((string) $secret)
-        : 'oaao_dev_shared_secret';
+        : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
     $hdr = $_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN'] ?? '';
     $internal = \is_string($hdr) && $hdr !== '' && hash_equals($secret, $hdr);
 

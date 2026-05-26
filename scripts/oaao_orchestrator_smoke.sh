@@ -3,7 +3,11 @@
 set -euo pipefail
 
 BASE="${OAAO_ORCHESTRATOR_INTERNAL_URL:-http://127.0.0.1:8103}"
-SECRET="${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}"
+SECRET="${OAAO_ORCH_SHARED_SECRET:-}"
+if [[ -z "${SECRET}" ]]; then
+  echo "OAAO_ORCH_SHARED_SECRET is required (W3-S1: default secret removed)" >&2
+  exit 2
+fi
 BASE="${BASE%/}"
 
 echo "== health =="

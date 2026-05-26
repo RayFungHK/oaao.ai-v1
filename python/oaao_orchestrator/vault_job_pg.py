@@ -132,13 +132,12 @@ def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
 def reclaim_orphan_running_jobs() -> int:
     if not pool_available():
         return 0
-    from psycopg.rows import dict_row  # noqa: PLC0415
+    from psycopg.rows import dict_row
 
-    with pg_connection() as conn:
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(_RECLAIM_SQL)
-            rows = cur.fetchall()
-            conn.commit()
+    with pg_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(_RECLAIM_SQL)
+        rows = cur.fetchall()
+        conn.commit()
     count = len(rows)
     if count:
         logger.info("vault_job_pg: reclaimed %s orphan running job(s)", count)
@@ -154,17 +153,16 @@ def claim_next_job(*, hook_id: str = "") -> dict[str, Any] | None:
         hook_filter = " AND hook_id = %s"
         params.append(hook_id.strip())
     sql = _CLAIM_SQL.format(hook_filter=hook_filter)
-    from psycopg.rows import dict_row  # noqa: PLC0415
+    from psycopg.rows import dict_row
 
-    with pg_connection() as conn:
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, params)
-            row = cur.fetchone()
-            if row is None:
-                conn.commit()
-                return None
-            if not isinstance(row, dict):
-                row = dict(row)
-            _apply_claim_side_effects(cur, row)
+    with pg_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        if row is None:
             conn.commit()
+            return None
+        if not isinstance(row, dict):
+            row = dict(row)
+        _apply_claim_side_effects(cur, row)
+        conn.commit()
     return _row_to_job(row)

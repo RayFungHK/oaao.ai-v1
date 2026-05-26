@@ -22,7 +22,7 @@ _GENERIC_USER_MESSAGES = frozenset(
 
 def normalize_conversation_title(raw: str | None) -> str:
     t = re.sub(r"\s+", " ", str(raw or "").strip())
-    t = t.strip("\"'""''`")
+    t = t.strip("\"'''`")  # noqa: B005
     if not t:
         return ""
     if len(t) > 80:
@@ -51,7 +51,7 @@ async def generate_conversation_title_via_chat(
     assistant_snippet: str = "",
 ) -> str | None:
     """Single chat-endpoint call — short title in the user's language."""
-    from oaao_orchestrator.planner_llm import llm_chat_completion_text  # noqa: PLC0415
+    from oaao_orchestrator.planner_llm import llm_chat_completion_text
 
     user = (user_message or "").strip()
     if not user:
@@ -88,7 +88,9 @@ async def generate_conversation_title_via_chat(
     return title
 
 
-def fallback_conversation_title(user_message: str, attachments: list[Any] | None = None) -> str | None:
+def fallback_conversation_title(
+    user_message: str, attachments: list[Any] | None = None
+) -> str | None:
     """Deterministic title when planner / LLM naming is unavailable."""
     msg = normalize_conversation_title(user_message)
     if msg and msg.lower() not in _GENERIC_USER_MESSAGES:

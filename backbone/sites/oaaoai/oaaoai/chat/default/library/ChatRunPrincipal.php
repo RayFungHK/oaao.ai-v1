@@ -103,7 +103,7 @@ final class ChatRunPrincipal
 
         return ($secret !== false && trim((string) $secret) !== '')
             ? trim((string) $secret)
-            : 'oaao_dev_shared_secret';
+            : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
     }
 
     private static function b64urlEncode(string $raw): string

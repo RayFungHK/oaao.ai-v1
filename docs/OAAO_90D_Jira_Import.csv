@@ -1,0 +1,35 @@
+Issue Type,Issue Key,Summary,Epic Name,Epic Link,Priority,Labels,Component,Assignee Role,Sprint,Description,Acceptance Criteria,Depends On
+Epic,EPIC-1,Standardization & Quick Wins,Standardization & Quick Wins,,P0,phase-1;refactor,Platform,cto,W1-W4,"統一代碼風格、移除明顯垃圾、消除預設弱密鑰與廣泛 broad exception。","Lint gate 上線；預設弱密鑰歸零；核心模組 silent pass 清零；錯誤碼字典 v1 完成。",
+Epic,EPIC-2,Refactoring & Decoupling,Refactoring & Decoupling,,P0,phase-2;refactor,Platform,cto,W5-W7,"拆分核心巨型檔案，PHP-Python 邊界契約化，佇列邊界抽象化。","app.py / run_executor.py / vault.php 拆分完成；契約測試覆蓋 >= 95%；queue 介面化。",EPIC-1
+Epic,EPIC-3,Optimization,Optimization,,P0,phase-3;performance,Platform,cto,W8-W9,"佇列後端可插拔；RAG/ASR/Slide 熱路徑優化與快取。","Redis queue 灰度上線；P95 下降 >= 25%；高峰積壓不失控。",EPIC-2
+Epic,EPIC-4,Security & Hardening,Security & Hardening,,P0,phase-4;security,Platform,security-lead,W10-W11,"修補 stream token、CORS、SQL 參數化、secrets 管理。","高危漏洞 0；CORS allowlist；secrets 輪替演練成功。",EPIC-1
+Epic,EPIC-5,Documentation & Delivery,Documentation & Delivery,,P1,phase-5;docs,Platform,qa-lead,W12,"運維手冊、API 文件統一入口、發布檢查表。","新人 2 小時內可啟動；發版檢查表完備。",EPIC-2
+Epic,EPIC-R,Release Buffer & Go/No-Go,Release Buffer & Go/No-Go,,P0,release,Platform,cto,W13,"壓測、回滾演練、最終 go/no-go。","壓測達標；回滾演練成功；go/no-go 簽核完成。",EPIC-3;EPIC-4;EPIC-5
+Story,W1-S1,建立全域技術債盤點與風險分級,,EPIC-1,P0,phase-1;debt,Platform,cto,W1,"盤點 Top 20 技術債並標註風險、ETA、證據檔案。","Top 20 清單完成；每項有 owner、風險等級、ETA 與證據路徑。",
+Story,W1-S2,建立基線 KPI 看板,,EPIC-1,P1,phase-1;observability,Platform,devops,W1,"定義可量測指標並產出每日快照。","錯誤率、P95、測試覆蓋、漏洞數可日級追蹤。",
+Story,W1-S3,W1 Owner 指派框架落地,,EPIC-1,P0,phase-1;process,Platform,cto,W1,"所有 Top 20 債務指派 DRI 與 due date。","100% Top 20 有 owner；P0 進入 active sprint。",W1-S1
+Story,W2-S1,Python lint/format/type gate 上線,,EPIC-1,P0,phase-1;ci;python,Orchestrator,python-lead,W2,"CI 阻擋未通過 lint 的 PR；既有噪音規則 baseline。","PR lint pass rate >= 95%；新違規不得進主幹。",W1-S3
+Story,W2-S2,PHP coding style gate 上線,,EPIC-1,P0,phase-1;ci;php,Backbone,php-lead,W2,"PR 必須通過 PHP style gate；提供本地檢查指令。","CI 阻擋未通過 PR；文件說明完整。",W1-S3
+Story,W2-S3,CI 品質關卡整合,,EPIC-1,P1,phase-1;ci,Platform,qa-lead,W2,"把 lint、syntax、contract tests 整合到單一 CI 視圖。","CI 流水線可一鍵看主要結果。",W2-S1;W2-S2
+Story,W3-S1,移除預設弱密鑰 fallback（全專案）,,EPIC-1,P0,phase-1;security,Platform,security-lead,W3,"全面移除 runtime 預設 shared secret fallback，未設定即 fail-fast。","grep 不到弱密鑰 fallback；啟動缺少 secret 時直接拒絕。",
+Story,W3-S2,.env 分級模板與 secrets 規範,,EPIC-1;EPIC-4,P0,phase-1;security;devops,Platform,devops,W3,"分 dev/stage/prod 模板；敏感值只留鍵名。","三套模板完成；文件清楚標示 secret manager 注入規則。",W3-S1
+Story,W3-S3,Dead code 標記與淘汰清單 v1,,EPIC-1,P1,phase-1;refactor,Platform,cto,W3,"標記策略與刪除窗口。","Dead code 標記表完成。",
+Story,W4-S1,核心路徑 exception hygiene,,EPIC-1,P0,phase-1;quality;python,Orchestrator,python-lead,W4,"關鍵模組 silent pass 清零，broad exception 轉成可觀測錯誤碼。","核心模組 silent pass 減少 >= 80%；錯誤碼覆蓋 >= 90%。",W2-S1
+Story,W4-S2,錯誤碼與錯誤訊息統一,,EPIC-1,P1,phase-1;quality;php,Backbone,php-lead,W4,"主要 API 錯誤碼字典與訊息規範完成。","錯誤碼字典 v1 落地；前端可使用。",W4-S1
+Story,W5-S1,拆分 orchestrator app 路由層,,EPIC-2,P0,phase-2;refactor;python,Orchestrator,python-lead,W5,"app.py 拆為 router/service/auth 中介，API 行為不變。","拆分完成；現有 API 測試全綠。",W4-S1
+Story,W5-S2,run executor 服務化切分（第一段）,,EPIC-2,P0,phase-2;refactor;python,Orchestrator,python-lead,W5,"planner / dispatcher / post-run hooks 分離。","核心模組圈複雜度下降 >= 20%。",W5-S1
+Story,W6-S1,vault controller 切分（第一段）,,EPIC-2,P0,phase-2;refactor;php,Backbone,php-lead,W6,"抽出 workspace scope、sidecar auth、job enqueue。","單檔行數下降 >= 30%；回歸測試全綠。",W4-S2
+Story,W6-S2,回歸測試擴充（vault/chat）,,EPIC-2,P1,phase-2;test,Platform,qa-lead,W6,"補強核心 API regression。","新增 regression cases 並通過。",W6-S1
+Story,W7-S1,PHP-Python 契約化（schema + contract tests）,,EPIC-2,P0,phase-2;contract,Platform,cto,W7,"Chat/Vault 核心 payload schema 與版本欄位。","契約測試覆蓋關鍵 API >= 95%。",W5-S1;W6-S1
+Story,W7-S2,Queue 邊界抽象化（介面層）,,EPIC-2,P1,phase-2;queue,Orchestrator,python-lead,W7,"in-process queue 可替換為 Redis backend 的介面層。","介面層完成；既有功能無回歸。",W5-S2
+Story,W8-S1,Redis queue backend 上線（灰度）,,EPIC-3,P0,phase-3;queue,Orchestrator,python-lead,W8,"支援雙模式切換 in-process / redis。","灰度開關可控；故障可降級。",W7-S2
+Story,W8-S2,Backpressure 與並發上限策略,,EPIC-3,P1,phase-3;performance,Platform,devops,W8,"高峰期任務不失控，含分池與限流。","高峰積壓在閾值內。",W8-S1
+Story,W9-S1,RAG/ASR/Slide 熱路徑 profiling 與優化,,EPIC-3,P0,phase-3;performance,Orchestrator,python-lead,W9,"產出 profiling 報告與優化前後對比。","P95 下降 >= 25%。",W8-S1
+Story,W9-S2,快取策略上線（query/result）,,EPIC-3,P1,phase-3;performance,Orchestrator,python-lead,W9,"短 TTL 與 key 策略。","命中率與延遲改善可量測。",W9-S1
+Story,W10-S1,stream token 強驗證修復,,EPIC-4,P0,phase-4;security,Orchestrator,security-lead,W10,"live stream endpoint 完整驗證 token。","未驗證情境一律拒絕；既有合法請求不受影響。",W3-S1
+Story,W10-S2,CORS allowlist 與來源收斂,,EPIC-4,P0,phase-4;security,Orchestrator,security-lead,W10,"以 env 配置 allowlist 與 preflight policy。","不再使用全開 origin。",W3-S2
+Story,W11-S1,Secrets manager 接入與輪替演練,,EPIC-4,P0,phase-4;security;devops,Platform,devops,W11,"接入 secret manager 並完成一次全流程輪替。","輪替演練成功；明文敏感值歸零。",W3-S2
+Story,W11-S2,SQL 參數化與輸入驗證掃尾,,EPIC-4,P0,phase-4;security;php,Backbone,php-lead,W11,"動態 SQL 風險點修補或白名單化。","動態 SQL 風險點清零或受控。",W6-S1
+Story,W12-S1,文件集完備（架構/Runbook/回滾）,,EPIC-5,P0,phase-5;docs,Platform,qa-lead,W12,"完成主要 runbook 與回滾流程。","新人 2 小時內可啟動並跑核心 smoke。",W11-S1;W11-S2
+Story,W12-S2,API 文件統一入口（FastAPI + PHP）,,EPIC-5,P1,phase-5;docs,Platform,tech-writer,W12,"FastAPI OpenAPI + PHP API 契約集中導航。","單一 docs index 可導航主要 API。",W7-S1
+Story,W13-S1,壓測、回滾、go/no-go,,EPIC-R,P0,release,Platform,cto,W13,"全流程壓測 + 回滾演練 + 發版簽核。","發布檢查表 100%；回滾演練成功。",W12-S1;W12-S2

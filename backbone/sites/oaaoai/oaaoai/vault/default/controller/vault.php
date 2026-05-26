@@ -15,6 +15,7 @@ use oaaoai\vault\VaultQdrantCollectionResolver;
 use oaaoai\vault\VaultQdrantPoints;
 use oaaoai\vault\VaultTranscriptSummaryLanguages;
 use oaaoai\vault\VaultRetrievalProfiles;
+use oaaoai\vault\VaultStorageUtil;
 use Razy\Agent;
 use Razy\Controller;
 use Razy\Database;
@@ -203,7 +204,7 @@ return new class extends Controller {
         $secret = getenv('OAAO_ORCH_SHARED_SECRET');
         $secret = ($secret !== false && trim((string) $secret) !== '')
             ? trim((string) $secret)
-            : 'oaao_dev_shared_secret';
+            : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
 
         $hdr = $_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN'] ?? '';
         if (! \is_string($hdr) || $hdr === '') {
@@ -1511,18 +1512,8 @@ SQL;
 
     protected function oaao_vault_unlink_storage_file(string $storageRoot, ?string $relativePath): void
     {
-        if ($relativePath === null || $relativePath === '') {
-            return;
-        }
-        $rel = str_replace(["\0"], '', (string) $relativePath);
-        $rel = ltrim($rel, '/');
-        if ($rel === '' || str_contains($rel, '..')) {
-            return;
-        }
-        $abs = rtrim($storageRoot, '/') . '/' . $rel;
-        if (is_file($abs)) {
-            @unlink($abs);
-        }
+        // W6-S1 phase 1 — delegated to VaultStorageUtil.
+        VaultStorageUtil::unlinkStorageFile($storageRoot, $relativePath);
     }
 
     /**
@@ -1530,57 +1521,8 @@ SQL;
      */
     protected function oaao_vault_stream_binary_file(string $absPath, string $mimeType, string $downloadName, int $size): void
     {
-        if ($size < 1) {
-            $probe = filesize($absPath);
-            $size = $probe !== false ? (int) $probe : 0;
-        }
-
-        $safeName = preg_replace('/[^\w.\-]+/u', '_', $downloadName) ?: 'audio';
-        header('Content-Type: ' . ($mimeType !== '' ? $mimeType : 'application/octet-stream'));
-        header('Accept-Ranges: bytes');
-        header('Cache-Control: private, max-age=3600');
-        header('Content-Disposition: inline; filename="' . str_replace('"', '', $safeName) . '"');
-
-        $rangeHdr = $_SERVER['HTTP_RANGE'] ?? '';
-        if (\is_string($rangeHdr) && preg_match('/bytes=(\d*)-(\d*)/', $rangeHdr, $m) === 1 && $size > 0) {
-            $start = $m[1] !== '' ? (int) $m[1] : 0;
-            $end = $m[2] !== '' ? (int) $m[2] : ($size - 1);
-            if ($start > $end || $start >= $size) {
-                http_response_code(416);
-                header("Content-Range: bytes */{$size}");
-
-                return;
-            }
-            $end = min($end, $size - 1);
-            $length = $end - $start + 1;
-
-            http_response_code(206);
-            header("Content-Range: bytes {$start}-{$end}/{$size}");
-            header('Content-Length: ' . (string) $length);
-
-            $fh = fopen($absPath, 'rb');
-            if ($fh === false) {
-                http_response_code(500);
-
-                return;
-            }
-            fseek($fh, $start);
-            $remaining = $length;
-            while ($remaining > 0 && ! feof($fh)) {
-                $chunk = fread($fh, min(8192, $remaining));
-                if ($chunk === false) {
-                    break;
-                }
-                echo $chunk;
-                $remaining -= \strlen($chunk);
-            }
-            fclose($fh);
-
-            return;
-        }
-
-        header('Content-Length: ' . (string) $size);
-        readfile($absPath);
+        // W6-S1 phase 1 — delegated to VaultStorageUtil.
+        VaultStorageUtil::streamBinaryFile($absPath, $mimeType, $downloadName, $size);
     }
 
     /**

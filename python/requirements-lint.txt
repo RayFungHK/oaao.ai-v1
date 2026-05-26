@@ -1,0 +1,4 @@
+# Lint / format / type-check tooling for CI.
+# Keep pinned majors to avoid surprise rule churn.
+ruff>=0.5,<1
+mypy>=1.10,<2

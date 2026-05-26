@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/vault-job.envelope.json",
+  "title": "VaultJobEnvelope",
+  "description": "W7-S1 — PHP→Python vault job poll envelope. Orchestrator pulls jobs from PHP /vault/api and posts results back. We lock the shared field set; PHP may add additive job-type-specific fields.",
+  "type": "object",
+  "required": ["protocol_version", "job_id", "kind", "status"],
+  "properties": {
+    "protocol_version": { "type": "string", "enum": ["1"] },
+    "job_id": { "type": "string", "minLength": 1 },
+    "kind": {
+      "type": "string",
+      "enum": ["embed", "asr", "ocr", "summarize", "research_fetch", "research_refetch"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "claimed", "processing", "completed", "failed", "cancelled"]
+    },
+    "vault_id": { "type": ["integer", "null"], "minimum": 1 },
+    "tenant_id": { "type": ["integer", "null"], "minimum": 0 },
+    "document_id": { "type": ["integer", "null"], "minimum": 1 },
+    "payload": { "type": "object" },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "https://oaao.ai/schemas/v1/error.json#/properties/error" }
+      ]
+    }
+  },
+  "additionalProperties": true
+}

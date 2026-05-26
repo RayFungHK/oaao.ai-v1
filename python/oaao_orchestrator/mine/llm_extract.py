@@ -29,7 +29,9 @@ async def extract_schema_and_rows(
     if not bu or not model:
         raise ValueError("llm_not_configured")
 
-    api_key = _resolve_secret(llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None
+    )
     url = openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -38,7 +40,9 @@ async def extract_schema_and_rows(
     domain = ""
     if hints and isinstance(hints.get("domain"), str):
         domain = hints["domain"].strip()
-    examples = hints.get("example_rows") if hints and isinstance(hints.get("example_rows"), list) else []
+    examples = (
+        hints.get("example_rows") if hints and isinstance(hints.get("example_rows"), list) else []
+    )
 
     system = (
         "You extract structured tabular data from raw API/CSV/HTML snippets. "
@@ -63,7 +67,9 @@ async def extract_schema_and_rows(
         "stream": False,
     }
 
-    r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0))
+    r = await client.post(
+        url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0)
+    )
     if r.status_code >= 400:
         raise RuntimeError(f"llm_http_{r.status_code}")
 
@@ -115,7 +121,9 @@ async def extract_rows_for_schema(
     if not bu or not model:
         raise ValueError("llm_not_configured")
 
-    api_key = _resolve_secret(llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None
+    )
     url = openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -149,7 +157,9 @@ async def extract_rows_for_schema(
         "stream": False,
     }
 
-    r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0))
+    r = await client.post(
+        url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0)
+    )
     if r.status_code >= 400:
         raise RuntimeError(f"llm_http_{r.status_code}")
 
@@ -163,7 +173,11 @@ async def extract_rows_for_schema(
                 content = msg["content"].strip()
 
     parsed = _parse_json_object(content)
-    raw_rows = parsed.get("rows") if isinstance(parsed, dict) and isinstance(parsed.get("rows"), list) else []
+    raw_rows = (
+        parsed.get("rows")
+        if isinstance(parsed, dict) and isinstance(parsed.get("rows"), list)
+        else []
+    )
     rows: list[dict[str, Any]] = []
     for row in raw_rows:
         if not isinstance(row, dict):

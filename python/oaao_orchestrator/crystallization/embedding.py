@@ -34,7 +34,7 @@ def _bow_embed(text: str, *, dim: int = _BOW_DIM) -> list[float]:
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b))  # noqa: B905
     na = math.sqrt(sum(x * x for x in a)) or 1.0
     nb = math.sqrt(sum(x * x for x in b)) or 1.0
     return max(0.0, min(1.0, dot / (na * nb)))
@@ -53,7 +53,9 @@ async def embed_intent(text: str, embedding_cfg: dict[str, Any] | None = None) -
         return _bow_embed(snippet)
 
     url = openai_compat_embeddings_url_from_base(base)
-    api_key = _resolve_secret(cfg.get("api_key_env") if isinstance(cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        cfg.get("api_key_env") if isinstance(cfg.get("api_key_env"), str) else None
+    )
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -68,11 +70,11 @@ async def embed_intent(text: str, embedding_cfg: dict[str, Any] | None = None) -
             if not vec_raw:
                 return _bow_embed(snippet)
             return [float(x) for x in vec_raw]
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("embed_intent failed — BOW fallback", exc_info=True)
         return _bow_embed(snippet)
 
 
 def skill_id_for_run(*, planner_output: dict[str, Any], final_answer: str) -> str:
-    payload = f"{planner_output}{final_answer[:200]}".encode("utf-8")
+    payload = f"{planner_output}{final_answer[:200]}".encode()
     return hashlib.sha256(payload).hexdigest()[:32]

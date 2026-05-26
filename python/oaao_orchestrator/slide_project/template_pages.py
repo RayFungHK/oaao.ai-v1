@@ -86,7 +86,9 @@ def slot_seeds_for_layout(layout: str, prof: dict[str, Any]) -> dict[str, str]:
     paragraphs = _paragraph_lines(text)
 
     if layout == "faq_split":
-        questions = [b for b in bullets if not b.startswith("答") and not b.lower().startswith("a:")]
+        questions = [
+            b for b in bullets if not b.startswith("答") and not b.lower().startswith("a:")
+        ]
         answers = [b for b in bullets if b.startswith("答") or b.lower().startswith("a:")]
         if not questions and bullets:
             questions = bullets[: max(2, len(bullets) // 2)]
@@ -94,10 +96,13 @@ def slot_seeds_for_layout(layout: str, prof: dict[str, Any]) -> dict[str, str]:
         if not answers and paragraphs:
             answers = [f"答：{paragraphs[0][:200]}"]
         q_md = "\n".join(f"- {q}" for q in questions[:4]) if questions else f"- 關於「{title}」？"
-        a_md = "\n".join(
-            (a if a.startswith("-") else f"- {a}" if a.startswith("答") else f"- 答：{a}")
-            for a in answers[:4]
-        ) or "- 答：請對照前述步驟逐項檢查。"
+        a_md = (
+            "\n".join(
+                (a if a.startswith("-") else f"- {a}" if a.startswith("答") else f"- 答：{a}")
+                for a in answers[:4]
+            )
+            or "- 答：請對照前述步驟逐項檢查。"
+        )
         return {"questions": q_md, "answers": a_md}
 
     if layout == "three_cards":
@@ -348,9 +353,7 @@ def slides_spec_from_template_pages(
             row["master_path"] = master
         seeds = page.get("slot_seeds")
         if isinstance(seeds, dict):
-            row["slot_seeds"] = {
-                str(k): str(v)[:2000] for k, v in seeds.items() if str(v).strip()
-            }
+            row["slot_seeds"] = {str(k): str(v)[:2000] for k, v in seeds.items() if str(v).strip()}
         hint = str(page.get("body_hint") or "").strip()
         if hint:
             row["template_body_hint"] = hint[:600]
@@ -372,11 +375,7 @@ def _page_agenda_likelihood(page: dict[str, Any]) -> float:
     for row in page.get("geometry_slots") or []:
         if not isinstance(row, dict):
             continue
-        blob = (
-            str(row.get("text") or "")
-            + " "
-            + str(row.get("slot_id") or "")
-        ).lower()
+        blob = (str(row.get("text") or "") + " " + str(row.get("slot_id") or "")).lower()
         if "agenda" in blob or "today agenda" in blob:
             score += 3.0
         if "callout" in blob:
@@ -491,11 +490,7 @@ def apply_template_pages_to_slides(
     if not slides_spec or not template_pages:
         return slides_spec
 
-    by_idx = {
-        int(p.get("index") or 0): p
-        for p in template_pages
-        if int(p.get("index") or 0) > 0
-    }
+    by_idx = {int(p.get("index") or 0): p for p in template_pages if int(p.get("index") or 0) > 0}
     sorted_pages = sorted(by_idx.values(), key=lambda p: int(p.get("index") or 0))
     out: list[dict[str, Any]] = []
     used_tpl_indices: set[int] = set()
@@ -555,7 +550,7 @@ def apply_template_pages_to_slides(
 
         out.append(row)
 
-    from oaao_orchestrator.slide_project.layout_plan import diversify_slide_layouts  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layout_plan import diversify_slide_layouts
 
     return diversify_slide_layouts(out)
 

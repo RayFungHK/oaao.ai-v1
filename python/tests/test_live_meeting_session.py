@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from oaao_orchestrator.live_meeting.hub import create_session, stop_session
 from oaao_orchestrator.live_meeting.session import LiveMeetingSession
 

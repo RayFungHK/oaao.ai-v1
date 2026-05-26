@@ -154,7 +154,7 @@ def compute_embedding_from_pcm(pcm: bytes) -> list[float] | None:
     )
 
     vec = np.concatenate([mel_mean, mel_std, stats])
-    if vec.size < EMBED_DIM:
+    if vec.size < EMBED_DIM:  # noqa: SIM108
         vec = np.pad(vec, (0, EMBED_DIM - vec.size))
     else:
         vec = vec[:EMBED_DIM]
@@ -167,7 +167,9 @@ def compute_embedding_from_pcm(pcm: bytes) -> list[float] | None:
     return [round(float(x), 6) for x in vec.tolist()]
 
 
-def _pick_clips_for_speaker(segments: list[dict[str, Any]], speaker_id: int) -> list[tuple[int, int]]:
+def _pick_clips_for_speaker(
+    segments: list[dict[str, Any]], speaker_id: int
+) -> list[tuple[int, int]]:
     """Return up to N (begin_ms, end_ms) clips, preferring longer utterances."""
     clips: list[tuple[int, int, int]] = []
     for seg in segments:

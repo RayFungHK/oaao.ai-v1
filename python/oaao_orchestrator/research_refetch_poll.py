@@ -63,7 +63,9 @@ def _refetch_counts(resp: dict[str, Any] | None) -> tuple[int, int]:
     return int(refetch.get("queued") or 0), int(refetch.get("running") or 0)
 
 
-async def _reset_orphan_refetch(client: httpx.AsyncClient, reset_url: str, *, max_age_sec: int = 0) -> bool:
+async def _reset_orphan_refetch(
+    client: httpx.AsyncClient, reset_url: str, *, max_age_sec: int = 0
+) -> bool:
     if not reset_url:
         return False
     resp = await _post_json(client, reset_url, {"max_age_sec": max_age_sec})
@@ -94,7 +96,7 @@ async def _ensure_orphan_refetch_reset(client: httpx.AsyncClient, reset_url: str
 
 async def _poll_one_refetch(client: httpx.AsyncClient, urls: dict[str, str]) -> bool:
     """Claim and process one queued refetch item. Returns True if work was attempted."""
-    global _idle_log_ticks  # noqa: PLW0603
+    global _idle_log_ticks
 
     claim_url = urls.get("refetch_item_claim_url") or ""
     finish_url = urls.get("refetch_item_finish_url") or ""
@@ -158,8 +160,12 @@ async def _poll_one_refetch(client: httpx.AsyncClient, urls: dict[str, str]) -> 
             return True
 
         llm_cfg = resp.get("summary_llm") if isinstance(resp.get("summary_llm"), dict) else None
-        match_llm_cfg = resp.get("match_llm") if isinstance(resp.get("match_llm"), dict) else llm_cfg
-        watch_config = resp.get("watch_config") if isinstance(resp.get("watch_config"), dict) else {}
+        match_llm_cfg = (
+            resp.get("match_llm") if isinstance(resp.get("match_llm"), dict) else llm_cfg
+        )
+        watch_config = (
+            resp.get("watch_config") if isinstance(resp.get("watch_config"), dict) else {}
+        )
         known_hashes = _known_hashes_from_items(resp.get("known_items"))
 
         job = {
@@ -192,7 +198,7 @@ async def _poll_one_refetch(client: httpx.AsyncClient, urls: dict[str, str]) -> 
                 ),
                 timeout=job_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             status = "failed"
             err = {"error": "refetch_timeout"}
             logger.warning(

@@ -20,7 +20,7 @@ final class ChatOrchestratorApi
             $env = getenv('OAAO_ORCH_SHARED_SECRET');
             $secret = ($env !== false && trim((string) $env) !== '')
                 ? trim((string) $env)
-                : 'oaao_dev_shared_secret';
+                : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
         }
 
         return [$base, $secret];

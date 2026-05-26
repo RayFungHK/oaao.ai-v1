@@ -37,7 +37,9 @@ def extract_pptx_profile(path: Path, *, max_slides: int = 12) -> dict[str, Any]:
                 has_table = True
                 tbl = shape.table  # type: ignore[attr-defined]
                 for row in tbl.rows:
-                    cells = [(c.text_frame.text or "").strip().replace("\n", " ") for c in row.cells]
+                    cells = [
+                        (c.text_frame.text or "").strip().replace("\n", " ") for c in row.cells
+                    ]
                     if any(cells):
                         parts.append(" | ".join(cells))
             elif hasattr(shape, "text"):
@@ -147,7 +149,11 @@ def _extract_palette_hints(prs: Any, *, max_slides: int = 6) -> dict[str, str]:
     by_lum = sorted(ranked, key=_luminance)
     bg = by_lum[0]
     fg = by_lum[-1] if len(by_lum) > 1 else "#0f172a"
-    accent = by_lum[len(by_lum) // 2] if len(by_lum) > 2 else (ranked[1] if len(ranked) > 1 else "#2563eb")
+    accent = (
+        by_lum[len(by_lum) // 2]
+        if len(by_lum) > 2
+        else (ranked[1] if len(ranked) > 1 else "#2563eb")
+    )
     if _luminance(accent) < 0.25:
         accent = by_lum[-1]
     muted = by_lum[len(by_lum) // 3] if len(by_lum) > 3 else "#64748b"

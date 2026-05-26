@@ -52,6 +52,8 @@ jobs:
         working-directory: python
         env:
           OAAO_SMOKE_START_CHAT_RUN: "1"
+          # Ephemeral CI secret; not used outside the runner. W3-S1: no default fallback.
+          OAAO_ORCH_SHARED_SECRET: ci_smoke_secret_do_not_reuse
         run: |
           python -m uvicorn oaao_orchestrator.app:app --host 127.0.0.1 --port 8103 &
           SIDECAR_PID=$!
@@ -72,3 +74,138 @@ jobs:
 
       - name: Full-tree cross-module audit
         run: bash scripts/audit_cross_module_requires.sh
+
+      - name: SQL injection guard (W11-S2)
+        run: bash scripts/sql_injection_guard.sh
+
+  php-style:
+    # W2-S2 — PHP-CS-Fixer style gate.
+    # Phase 1 (W2): advisory only (continue-on-error), establish baseline.
+    # Phase 2 (later): flip continue-on-error off after baseline is clean.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer:v2
+          coverage: none
+
+      - name: Install dev tooling
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHP-CS-Fixer (dry-run, advisory)
+        continue-on-error: true
+        run: vendor/bin/php-cs-fixer fix --dry-run --diff --using-cache=no
+
+  python-lint:
+    # W2-S1 — Python lint/format/type gate.
+    # W4-S1 Phase 2 (this commit): ruff lint + format → HARD FAIL.
+    # Mypy stays advisory (continue-on-error) until type-coverage migration completes.
+    # Baseline of 113 legacy violations captured via `ruff check --add-noqa`; new
+    # violations break the build. To clear a noqa, fix the issue and remove the marker.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint deps
+        run: pip install -r python/requirements-lint.txt
+
+      - name: Ruff format check
+        run: ruff format --check python
+
+      - name: Ruff lint
+        run: ruff check python
+
+      - name: Mypy (strict islands + base)
+        continue-on-error: true
+        run: mypy
+
+      - name: Forbid weak default secret literal (W3-S1 guard)
+        run: |
+          set -e
+          MATCHES=$(grep -RIn \
+            --exclude-dir=docs \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude='_internal_secret.py' \
+            --exclude='oaao-ci.yml' \
+            --exclude='env' \
+            'oaao_dev_shared_secret' . || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Weak default secret literal regressed (W3-S1)"
+            echo "$MATCHES"
+            exit 1
+          fi
+
+  # W2-S3 — Unified CI summary. Aggregates all upstream job results into a single
+  # check that PR reviewers can read at a glance. Required jobs failing → summary
+  # fails. Advisory jobs (php-style, python-lint) surface their status but do not
+  # block until their respective Phase-2 flip (W4-S1 Phase 2 etc).
+  ci-summary:
+    needs:
+      - bridge-and-contract
+      - orchestrator-smoke
+      - audit-full
+      - php-style
+      - python-lint
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Render summary
+        env:
+          BRIDGE: ${{ needs.bridge-and-contract.result }}
+          SMOKE: ${{ needs.orchestrator-smoke.result }}
+          AUDIT: ${{ needs.audit-full.result }}
+          STYLE: ${{ needs.php-style.result }}
+          LINT: ${{ needs.python-lint.result }}
+        run: |
+          set -eu
+          icon() {
+            case "$1" in
+              success) echo "✅";;
+              failure) echo "❌";;
+              cancelled) echo "🛑";;
+              skipped) echo "⏭️";;
+              *) echo "❓";;
+            esac
+          }
+          {
+            echo "# OAAO CI Summary"
+            echo ""
+            echo "| Job | Status | Gate |"
+            echo "| --- | --- | --- |"
+            echo "| bridge-and-contract | $(icon "$BRIDGE") $BRIDGE | required |"
+            echo "| orchestrator-smoke  | $(icon "$SMOKE")  $SMOKE  | required |"
+            echo "| audit-full          | $(icon "$AUDIT")  $AUDIT  | required |"
+            echo "| php-style           | $(icon "$STYLE")  $STYLE  | advisory (W2-S2) |"
+            echo "| python-lint         | $(icon "$LINT")   $LINT   | required (ruff hard-fail, W4-S1 P2) |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any required job failed
+        env:
+          BRIDGE: ${{ needs.bridge-and-contract.result }}
+          SMOKE: ${{ needs.orchestrator-smoke.result }}
+          AUDIT: ${{ needs.audit-full.result }}
+          LINT: ${{ needs.python-lint.result }}
+        run: |
+          set -eu
+          fail=0
+          for r in "$BRIDGE" "$SMOKE" "$AUDIT" "$LINT"; do
+            case "$r" in
+              success) ;;
+              skipped) ;;
+              *) fail=1;;
+            esac
+          done
+          if [ "$fail" = "1" ]; then
+            echo "::error::One or more required CI jobs failed"
+            exit 1
+          fi
+          echo "All required jobs passed."

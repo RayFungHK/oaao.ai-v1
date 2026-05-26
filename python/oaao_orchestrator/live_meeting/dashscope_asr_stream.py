@@ -15,7 +15,8 @@ import logging
 import os
 import secrets
 import uuid
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from oaao_orchestrator.live_meeting.audio_store import SAMPLE_RATE
 from oaao_orchestrator.live_meeting.glossary_hotwords import hotwords_json_for_dashscope
@@ -38,7 +39,9 @@ def _resolve_secret(env_name: str | None) -> str | None:
 
 
 def dashscope_api_key(asr_cfg: dict[str, Any]) -> str | None:
-    key = _resolve_secret(asr_cfg.get("api_key_env") if isinstance(asr_cfg.get("api_key_env"), str) else None)
+    key = _resolve_secret(
+        asr_cfg.get("api_key_env") if isinstance(asr_cfg.get("api_key_env"), str) else None
+    )
     if key:
         return key
     for env in ("DASHSCOPE_API_KEY", "ALIBABA_CLOUD_API_KEY"):
@@ -115,7 +118,7 @@ class DashscopeRealtimeAsrBridge:
         if not self._api_key:
             raise RuntimeError("dashscope_api_key_missing")
         try:
-            import websockets  # noqa: PLC0415
+            import websockets
         except ImportError as e:
             raise RuntimeError("websockets package required") from e
 
@@ -156,7 +159,9 @@ class DashscopeRealtimeAsrBridge:
         elif self._protocol == "qwen" and self._ws:
             try:
                 await self._ws.send(
-                    json.dumps({"type": "session.finish", "event_id": f"evt_{uuid.uuid4().hex[:12]}"})
+                    json.dumps(
+                        {"type": "session.finish", "event_id": f"evt_{uuid.uuid4().hex[:12]}"}
+                    )
                 )
             except Exception:  # noqa: BLE001
                 pass
@@ -221,7 +226,9 @@ class DashscopeRealtimeAsrBridge:
             if event == "result-generated":
                 payload = msg.get("payload") if isinstance(msg.get("payload"), dict) else {}
                 output = payload.get("output") if isinstance(payload.get("output"), dict) else {}
-                sentence = output.get("sentence") if isinstance(output.get("sentence"), dict) else {}
+                sentence = (
+                    output.get("sentence") if isinstance(output.get("sentence"), dict) else {}
+                )
                 text = str(sentence.get("text") or "").strip()
                 if not text:
                     return

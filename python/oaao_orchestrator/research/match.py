@@ -46,7 +46,9 @@ async def _chat_json(
     if not bu or not model:
         return None
 
-    api_key = _resolve_secret(llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None
+    )
     url = openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -63,7 +65,9 @@ async def _chat_json(
     }
 
     try:
-        r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0))
+        r = await client.post(
+            url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0)
+        )
         if r.status_code >= 400:
             logger.warning("research match llm http %s", r.status_code)
             return None

@@ -40,7 +40,7 @@ def is_weak_title(title: str) -> bool:
         return True
     if len(t) <= 3:
         return True
-    if re.fullmatch(r"\d+(?:-\w+)?", t):
+    if re.fullmatch(r"\d+(?:-\w+)?", t):  # noqa: SIM103
         return True
     return False
 

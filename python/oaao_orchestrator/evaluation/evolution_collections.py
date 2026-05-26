@@ -24,7 +24,11 @@ async def ensure_evolution_collections() -> dict[str, Any]:
     """Create document collections when Arango is configured (idempotent)."""
     cfg = await _arango_cfg()
     if not cfg:
-        return {"ok": False, "reason": "arango_not_configured", "collections": list(EVOLUTION_COLLECTIONS)}
+        return {
+            "ok": False,
+            "reason": "arango_not_configured",
+            "collections": list(EVOLUTION_COLLECTIONS),
+        }
     created: list[str] = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
         for name in EVOLUTION_COLLECTIONS:

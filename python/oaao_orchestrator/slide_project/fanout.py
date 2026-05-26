@@ -129,7 +129,9 @@ def expand_slide_designer_fanout(
     if continuation or not fanout_enabled():
         return tasks
 
-    slide_idxs = [i for i, t in enumerate(tasks) if _is_slide_designer_task(t) and not _already_fanout_task(t)]
+    slide_idxs = [
+        i for i, t in enumerate(tasks) if _is_slide_designer_task(t) and not _already_fanout_task(t)
+    ]
     if len(slide_idxs) != 1:
         return tasks
 
@@ -140,14 +142,21 @@ def expand_slide_designer_fanout(
         return tasks
 
     group = base.id
-    ask_params = {k: v for k, v in (base.params or {}).items() if k.startswith("ask") or k == "requires_ask"}
+    ask_params = {
+        k: v for k, v in (base.params or {}).items() if k.startswith("ask") or k == "requires_ask"
+    }
 
     outline = RunTaskSpec(
         id=f"{group}-outline",
         title=base.title or "Outline slide deck",
         type=RunTaskType.AGENT,
         agent_kind="slide_designer",
-        params={**ask_params, _SLIDE_PHASE_KEY: "outline", "slide_group": group, "slide_count": page_count},
+        params={
+            **ask_params,
+            _SLIDE_PHASE_KEY: "outline",
+            "slide_group": group,
+            "slide_count": page_count,
+        },
     )
 
     pages: list[RunTaskSpec] = []
@@ -176,5 +185,5 @@ def expand_slide_designer_fanout(
         params={_SLIDE_PHASE_KEY: "export", "slide_group": group, "slide_count": page_count},
     )
 
-    out = list(tasks[:idx]) + [outline] + pages + [export_task] + list(tasks[idx + 1 :])
+    out = list(tasks[:idx]) + [outline] + pages + [export_task] + list(tasks[idx + 1 :])  # noqa: RUF005
     return out

@@ -120,6 +120,6 @@ def _text_signals_handbook_teaching(text: str) -> bool:
     if teaching and (handbook or vol):
         return True
     # Citation / RAG blocks from vault often omit the word "handbook"
-    if teaching and ("【引用" in s or "[citation" in low or "passage" in low):
+    if teaching and ("【引用" in s or "[citation" in low or "passage" in low):  # noqa: SIM103
         return True
     return False

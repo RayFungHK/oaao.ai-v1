@@ -102,8 +102,8 @@ async def rescore_turn_item(
         "assistant_message_id": item.assistant_message_id,
         "turn_index": item.turn_index,
     }
-    from oaao_orchestrator.evaluation.accs import score_accs  # noqa: PLC0415
-    from oaao_orchestrator.evaluation.iqs import score_iqs  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.accs import score_accs
+    from oaao_orchestrator.evaluation.iqs import score_iqs
 
     iqs_action = item.iqs_action
     if item.needs_iqs:
@@ -208,7 +208,7 @@ async def try_schedule_conversation_rescore(
             "started_at": time.time(),
             "turn_count": len(turns),
         }
-    asyncio.create_task(
+    asyncio.create_task(  # noqa: RUF006
         _run_conversation_rescore_guarded(
             conversation_id=conversation_id,
             turns=turns,

@@ -5,9 +5,22 @@ from __future__ import annotations
 import re
 from html.parser import HTMLParser
 
-
 _VOID_TAGS = frozenset(
-    {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }
 )
 
 
@@ -78,7 +91,7 @@ def validate_slide_html(html: str) -> tuple[bool, list[str]]:
     try:
         parser.feed(raw)
         parser.close()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         errors.append(f"parse error: {exc}")
     errors.extend(parser.errors[:6])
     if parser.stack:

@@ -74,14 +74,30 @@ function float32ToPcm16(floats) {
 
 /**
  * @param {string} wsUrl ws:// or wss:// orchestrator audio endpoint
- * @param {{ signal?: AbortSignal, deviceId?: string, onState?: (state: string) => void, onError?: (message: string) => void, onLevel?: (level: number) => void, onDevice?: (info: { deviceId: string, label: string }) => void }} [opts]
+ * @param {{ signal?: AbortSignal, deviceId?: string, onState?: (state: string) => void, onError?: (message: string) => void, onLevel?: (level: number) => void, onDevice?: (info: { deviceId: string, label: string }) => void, authToken?: string }} [opts]
  * @returns {Promise<{ stop: () => void, ws: WebSocket, deviceId: string, deviceLabel: string, requestBubble: () => void, bubbleLookup: (opts: { text: string, bubble_id?: string }) => void }>}
  */
 export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
-    const { signal, deviceId, onState, onError, onLevel, onDevice } = opts;
-    const url = String(wsUrl || '').trim();
+    const { signal, deviceId, onState, onError, onLevel, onDevice, authToken } = opts;
+    let url = String(wsUrl || '').trim();
     if (!url) {
         throw new Error('ws_audio_url required');
+    }
+
+    // W10-S3: if caller supplies an explicit authToken, strip ?token= from the
+    // URL so the secret never appears in reverse-proxy access logs, and send
+    // it as a first JSON frame after open. The orchestrator hub accepts both
+    // modes; callers may upgrade incrementally.
+    const firstFrameAuth = typeof authToken === 'string' && authToken.length > 0;
+    if (firstFrameAuth) {
+        try {
+            const u = new URL(url);
+            u.searchParams.delete('token');
+            url = u.toString();
+        } catch (_e) {
+            // Non-absolute URL — best-effort regex strip.
+            url = url.replace(/([?&])token=[^&]*&?/, (_m, p1) => (p1 === '?' ? '?' : '')).replace(/[?&]$/, '');
+        }
     }
 
     const ws = new WebSocket(url);
@@ -98,6 +114,15 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         const t = setTimeout(() => reject(new Error('WebSocket connect timeout')), 12_000);
         ws.onopen = () => {
             clearTimeout(t);
+            if (firstFrameAuth) {
+                try {
+                    ws.send(JSON.stringify({ type: 'auth', token: authToken }));
+                } catch (_e) {
+                    fail('ws_auth_send_failed');
+                    reject(new Error('ws_auth_send_failed'));
+                    return;
+                }
+            }
             setState('ws_open');
             resolve();
         };

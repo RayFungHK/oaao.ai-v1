@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from oaao_orchestrator.streaming.events import StreamEnvelope
 from oaao_orchestrator.streaming.sse import encode_sse
@@ -59,7 +59,7 @@ class LiveStreamHub:
             while True:
                 try:
                     sid, env = await asyncio.wait_for(queue.get(), timeout=keepalive_sec)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"
                     continue
                 if sid < 0:

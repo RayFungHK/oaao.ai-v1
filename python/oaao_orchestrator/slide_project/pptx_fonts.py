@@ -22,7 +22,12 @@ FONTS_MANIFEST_REL = "materials/fonts/manifest.json"
 MEDIA_FONTS_PREFIX = "materials/fonts/"
 # Metric-compatible substitutes when the requested filename is missing on disk.
 _FONT_BASENAME_ALIASES: dict[str, list[str]] = {
-    "arial.ttf": ["calibri.ttf", "carlito.ttf", "liberation-sans.ttf", "liberationsans-regular.ttf"],
+    "arial.ttf": [
+        "calibri.ttf",
+        "carlito.ttf",
+        "liberation-sans.ttf",
+        "liberationsans-regular.ttf",
+    ],
     "arialbd.ttf": ["calibrib.ttf", "carlito-bold.ttf", "liberation-sans-bold.ttf"],
     "calibri.ttf": ["carlito.ttf", "liberation-sans.ttf", "arial.ttf"],
     "calibrib.ttf": ["carlito-bold.ttf", "liberation-sans-bold.ttf", "arialbd.ttf"],
@@ -88,9 +93,7 @@ def _extract_embedded_from_pptx(pptx_path: Path, dest_dir: Path) -> dict[str, Pa
     found: dict[str, Path] = {}
     try:
         with zipfile.ZipFile(pptx_path, "r") as zf:
-            font_xml = [
-                n for n in zf.namelist() if re.match(r"ppt/font\d+\.xml$", n)
-            ]
+            font_xml = [n for n in zf.namelist() if re.match(r"ppt/font\d+\.xml$", n)]
             for xml_name in font_xml:
                 root = ET.fromstring(zf.read(xml_name))
                 typeface = ""
@@ -134,7 +137,7 @@ def _download_google_font(typeface: str, cache_dir: Path) -> Path | None:
         return dest
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        with urlopen(url, timeout=60) as resp:  # noqa: S310
+        with urlopen(url, timeout=60) as resp:
             data = resp.read()
         if len(data) < 1000:
             return None
@@ -167,7 +170,9 @@ def _resolve_system_font_path(typeface: str) -> Path | None:
     return None
 
 
-def ensure_typeface_file(typeface: str, cache_dir: Path, pptx_path: Path | None = None) -> Path | None:
+def ensure_typeface_file(
+    typeface: str, cache_dir: Path, pptx_path: Path | None = None
+) -> Path | None:
     name = (typeface or "").strip()
     if not name:
         return None
@@ -298,7 +303,7 @@ def build_font_stack_from_entries(entries: list[dict[str, Any]], fallback: str) 
         families.append(f'"{escaped}"')
     if not families:
         return fallback
-    return ", ".join(families + [fallback])
+    return ", ".join(families + [fallback])  # noqa: RUF005
 
 
 def write_fontconfig_for_dirs(dirs: list[Path]) -> Path | None:
@@ -389,7 +394,9 @@ def apply_pptx_fonts(
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     try:
-        subprocess.run(["fc-cache", "-f", str(tpl_fonts_dir)], check=False, capture_output=True, timeout=30)
+        subprocess.run(
+            ["fc-cache", "-f", str(tpl_fonts_dir)], check=False, capture_output=True, timeout=30
+        )
         subprocess.run(["fc-cache", "-f", str(cache)], check=False, capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         pass

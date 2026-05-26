@@ -110,7 +110,12 @@ async def run_smoke_test(client: httpx.AsyncClient, base_url: str) -> dict[str, 
             }
         body = res.json()
         if not isinstance(body, dict):
-            return {"ok": False, "phase": "transcribe", "error": "invalid_transcribe_json", "health": health}
+            return {
+                "ok": False,
+                "phase": "transcribe",
+                "error": "invalid_transcribe_json",
+                "health": health,
+            }
         transcripts = (
             body.get("output", {}).get("transcripts")
             if isinstance(body.get("output"), dict)
@@ -120,7 +125,12 @@ async def run_smoke_test(client: httpx.AsyncClient, base_url: str) -> dict[str, 
         if isinstance(transcripts, list) and transcripts and isinstance(transcripts[0], dict):
             sentences = transcripts[0].get("sentences")
         if not isinstance(sentences, list) or len(sentences) < 1:
-            return {"ok": False, "phase": "transcribe", "error": "missing_sentences", "health": health}
+            return {
+                "ok": False,
+                "phase": "transcribe",
+                "error": "missing_sentences",
+                "health": health,
+            }
         return {
             "ok": True,
             "phase": "ready",
@@ -218,17 +228,29 @@ def _try_start_stopped_funasr() -> dict[str, Any]:
     }
 
 
-def _compose_up_sync(funasr_env: dict[str, str] | None = None, *, force_recreate: bool = False) -> dict[str, Any]:
+def _compose_up_sync(
+    funasr_env: dict[str, str] | None = None, *, force_recreate: bool = False
+) -> dict[str, Any]:
     if not compose_enabled():
         return {"attempted": False, "skipped": True, "reason": "compose_disabled"}
     sock = docker_socket_path()
     if not os.path.exists(sock):
-        return {"attempted": False, "skipped": True, "reason": "docker_socket_missing", "socket": sock}
+        return {
+            "attempted": False,
+            "skipped": True,
+            "reason": "docker_socket_missing",
+            "socket": sock,
+        }
 
     project_dir = compose_project_dir()
     compose_file, env_file_args = _compose_file_args(project_dir)
     if not os.path.isfile(compose_file):
-        return {"attempted": False, "skipped": True, "reason": "compose_file_missing", "path": compose_file}
+        return {
+            "attempted": False,
+            "skipped": True,
+            "reason": "compose_file_missing",
+            "path": compose_file,
+        }
 
     docker_bin = shutil.which("docker")
     docker_compose_bin = shutil.which("docker-compose")
@@ -314,8 +336,12 @@ def _compose_up_sync(funasr_env: dict[str, str] | None = None, *, force_recreate
             "ok": False,
             "method": method,
             "error": "compose_timeout",
-            "stdout_tail": (exc.stdout or b"")[-800:].decode(errors="replace") if exc.stdout else "",
-            "stderr_tail": (exc.stderr or b"")[-800:].decode(errors="replace") if exc.stderr else "",
+            "stdout_tail": (exc.stdout or b"")[-800:].decode(errors="replace")
+            if exc.stdout
+            else "",
+            "stderr_tail": (exc.stderr or b"")[-800:].decode(errors="replace")
+            if exc.stderr
+            else "",
         }
     except Exception as exc:  # noqa: BLE001
         return {"attempted": True, "ok": False, "method": method, "error": str(exc)}
@@ -390,9 +416,13 @@ async def ensure_funasr(
     start_result: dict[str, Any] | None = None
     env_clean: dict[str, str] | None = None
     if funasr_env:
-        env_clean = {str(k): str(v) for k, v in funasr_env.items() if str(k).strip() and str(v).strip() != ""}
+        env_clean = {
+            str(k): str(v) for k, v in funasr_env.items() if str(k).strip() and str(v).strip() != ""
+        }
         if "FUNASR_ADAPTER_MODE" in funasr_env:
-            env_clean["FUNASR_ADAPTER_MODE"] = str(funasr_env["FUNASR_ADAPTER_MODE"]).strip().lower() or "stub"
+            env_clean["FUNASR_ADAPTER_MODE"] = (
+                str(funasr_env["FUNASR_ADAPTER_MODE"]).strip().lower() or "stub"
+            )
     force_recreate = recreate
 
     if pull and compose_enabled():
@@ -416,7 +446,9 @@ async def ensure_funasr(
         "funasr_env": env_clean,
         "ready": bool(poll.get("ok")),
         "smoke": poll,
-        "message": _ensure_failure_message(compose_result=compose_result, start_result=start_result, poll=poll),
+        "message": _ensure_failure_message(
+            compose_result=compose_result, start_result=start_result, poll=poll
+        ),
     }
     return out
 
@@ -425,5 +457,9 @@ async def funasr_status() -> dict[str, Any]:
     base = funasr_base_url()
     async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
         health = await fetch_health(client, base)
-        smoke = await run_smoke_test(client, base) if health.get("ok") else {"ok": False, "phase": "health", "health": health}
+        smoke = (
+            await run_smoke_test(client, base)
+            if health.get("ok")
+            else {"ok": False, "phase": "health", "health": health}
+        )
     return {"base_url": base, "ready": bool(smoke.get("ok")), "health": health, "smoke": smoke}

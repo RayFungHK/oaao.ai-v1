@@ -69,7 +69,9 @@ class LiveMeetingSession:
                 "provider": self.asr_cfg.get("provider"),
                 "mode": self.asr_cfg.get("mode") or self.asr_cfg.get("asr_mode"),
             }
-        self.meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.meta_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     @classmethod
     def load(cls, session_id: str, *, root: Path | None = None) -> LiveMeetingSession | None:
@@ -91,7 +93,9 @@ class LiveMeetingSession:
             root=base,
             cadence=str(meta.get("cadence") or "1v1"),
             retention_mode=str(meta.get("retention_mode") or "disk_ttl"),
-            workspace_id=int(meta["workspace_id"]) if meta.get("workspace_id") is not None else None,
+            workspace_id=int(meta["workspace_id"])
+            if meta.get("workspace_id") is not None
+            else None,
             user_id=int(meta["user_id"]) if meta.get("user_id") is not None else None,
             status=str(meta.get("status") or "active"),
         )

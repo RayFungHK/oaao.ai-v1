@@ -48,7 +48,10 @@ def build_stub_pipeline_snapshot(*, task_id: str | None = None) -> dict[str, Any
             "state": "completed",
             "rail": {
                 "badge": "Planner routing",
-                "detail_lines": ["planning.stub · milestones seeded", "planning.stub · tasks aligned to slots"],
+                "detail_lines": [
+                    "planning.stub · milestones seeded",
+                    "planning.stub · tasks aligned to slots",
+                ],
             },
         },
         {

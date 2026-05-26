@@ -70,7 +70,9 @@ def render_pptx_to_pngs(
     max_n = max_slides if max_slides is not None else _env_int("OAAO_PPTX_RENDER_MAX_SLIDES", 30)
     max_n = max(1, min(max_n, 30))
     dpi_val = dpi if dpi is not None else _env_int("OAAO_PPTX_RENDER_DPI", 150)
-    timeout = timeout_s if timeout_s is not None else float(_env_int("OAAO_PPTX_RENDER_TIMEOUT_S", 180))
+    timeout = (
+        timeout_s if timeout_s is not None else float(_env_int("OAAO_PPTX_RENDER_TIMEOUT_S", 180))
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     soffice = _soffice_binary()
@@ -84,7 +86,7 @@ def render_pptx_to_pngs(
 
     if asset_dir is not None:
         try:
-            from oaao_orchestrator.slide_project.pptx_fonts import (  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.pptx_fonts import (
                 font_dirs_for_render,
                 write_fontconfig_for_dirs,
             )
@@ -92,7 +94,7 @@ def render_pptx_to_pngs(
             conf = write_fontconfig_for_dirs(font_dirs_for_render(asset_dir))
             if conf is not None:
                 env["FONTCONFIG_FILE"] = str(conf)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("pptx_render_fontconfig_failed path=%s", pptx_path)
 
     with tempfile.TemporaryDirectory(prefix="oaao-pptx-render-") as tmp:

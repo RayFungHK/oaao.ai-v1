@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +60,9 @@ def schema_signature(schema: dict[str, Any]) -> tuple[str, list[str], list[str]]
     return table, [f"{n} {t}" for n, t in columns], natural_key
 
 
-def ensure_table(conn: sqlite3.Connection, schema: dict[str, Any]) -> tuple[str, list[str], list[str]]:
+def ensure_table(
+    conn: sqlite3.Connection, schema: dict[str, Any]
+) -> tuple[str, list[str], list[str]]:
     table, col_defs, natural_key = schema_signature(schema)
     parts = [f"{n} {t}" for n, t in SYSTEM_COLUMNS]
     parts.extend(col_defs)
@@ -98,7 +100,7 @@ def upsert_rows(
     source_key: str,
     fetched_at: str | None = None,
 ) -> tuple[int, int]:
-    ts = fetched_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = fetched_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     inserted = 0
     updated = 0
     for row in rows:
@@ -107,21 +109,24 @@ def upsert_rows(
         values = {k: row.get(k) for k in col_names if k in row}
         if not values:
             continue
-        sys_vals = {"_fetched_at": ts, "_run_id": run_id, "_source_key": source_key}
+        sys_vals = {"_fetched_at": ts, "_run_id": run_id, "_source_key": source_key}  # noqa: F841
         if natural_key:
             where = " AND ".join(f"{k} = ?" for k in natural_key)
             params = [values.get(k) for k in natural_key]
             cur = conn.execute(f"SELECT _mine_row_id FROM {table} WHERE {where} LIMIT 1", params)
             existing = cur.fetchone()
             if existing:
-                set_clause = ", ".join(f"{k} = ?" for k in values) + ", _fetched_at = ?, _run_id = ?, _source_key = ?"
+                set_clause = (
+                    ", ".join(f"{k} = ?" for k in values)
+                    + ", _fetched_at = ?, _run_id = ?, _source_key = ?"
+                )
                 conn.execute(
                     f"UPDATE {table} SET {set_clause} WHERE _mine_row_id = ?",
                     [*values.values(), ts, run_id, source_key, existing[0]],
                 )
                 updated += 1
                 continue
-        keys = list(values.keys()) + ["_fetched_at", "_run_id", "_source_key"]
+        keys = list(values.keys()) + ["_fetched_at", "_run_id", "_source_key"]  # noqa: RUF005
         placeholders = ", ".join("?" for _ in keys)
         conn.execute(
             f"INSERT INTO {table} ({', '.join(keys)}) VALUES ({placeholders})",
@@ -144,7 +149,9 @@ def merge_rows_for_schema(batches: list[list[dict[str, Any]]]) -> list[dict[str,
     return out
 
 
-def infer_schema_from_rows(rows: list[dict[str, Any]], *, table_name: str = "data") -> dict[str, Any]:
+def infer_schema_from_rows(
+    rows: list[dict[str, Any]], *, table_name: str = "data"
+) -> dict[str, Any]:
     keys: list[str] = []
     for row in rows[:50]:
         if not isinstance(row, dict):

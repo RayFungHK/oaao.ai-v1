@@ -11,13 +11,14 @@ import re
 from pathlib import Path
 from typing import Any
 
-from oaao_orchestrator.slide_project.canvas import build_fallback_slide_document, normalize_slide_html
+from oaao_orchestrator.slide_project.canvas import (
+    normalize_slide_html,
+)
 from oaao_orchestrator.slide_project.template_registry import (
     build_layout_css,
     layout_component,
     layout_ids,
     middle_rotation,
-    palette as _palette,
     plan_rules,
     resolve_layout_id,
     theme_ids,
@@ -151,7 +152,10 @@ def _split_bullets_three(bullets: list[str]) -> list[dict[str, Any]]:
     cleaned = _clean_items(bullets)
     labels = ("重點一", "重點二", "重點三")
     if len(cleaned) < 3:
-        return [{"heading": labels[i], "bullets": cleaned[i : i + 1] if i < len(cleaned) else []} for i in range(3)]
+        return [
+            {"heading": labels[i], "bullets": cleaned[i : i + 1] if i < len(cleaned) else []}
+            for i in range(3)
+        ]
     per = max(2, len(cleaned) // 3)
     chunks: list[dict[str, Any]] = []
     for i in range(3):
@@ -236,7 +240,9 @@ def _render_inner(
 
     if component == "faq_split":
         clean_p = _clean_items(paragraphs)
-        qs = _clean_items(bullets[:4]) or _clean_items([str(s.get("heading") or "") for s in sections[:4]])
+        qs = _clean_items(bullets[:4]) or _clean_items(
+            [str(s.get("heading") or "") for s in sections[:4]]
+        )
         ans = _clean_items(bullets[4:8])
         if sections and not ans:
             for s in sections[:4]:
@@ -269,7 +275,7 @@ def _render_inner(
             metrics.append((f"重點 {len(metrics) + 1}", title[:40]))
         cards = "".join(
             f'<div class="oaao-metric"><div class="val">{_esc(v)}</div><div class="lbl">{_esc(l)}</div></div>'
-            for v, l in metrics[:3]
+            for v, l in metrics[:3]  # noqa: E741
         )
         return f"""
 <div class="oaao-slide-topbar"></div>
@@ -322,12 +328,16 @@ def render_layout_slide(
 ) -> str:
     """Build a full slide document from layout shell + parsed markdown."""
     theme = _resolve_theme(spec, deck_style)
-    layout = resolve_layout_id(str(spec.get("layout") or "")) or infer_layout(spec, slide_count=slide_count)
+    layout = resolve_layout_id(str(spec.get("layout") or "")) or infer_layout(
+        spec, slide_count=slide_count
+    )
 
     if layout == "pptx_master" or (
         isinstance(spec.get("geometry_slots"), list) and spec.get("geometry_slots")
     ):
-        from oaao_orchestrator.slide_project.pptx_master import render_pptx_master_slide  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_master import (
+            render_pptx_master_slide,
+        )
 
         pdir = project_dir if isinstance(project_dir, Path) else None
         tdir = template_asset_dir if isinstance(template_asset_dir, Path) else None
@@ -363,9 +373,10 @@ def render_layout_slide(
 
 def layout_html_prompt(layout: str, theme: str, deck_style: dict[str, Any] | None = None) -> str:
     """Extra LLM instructions when layout renderer did not pass validation."""
-    from oaao_orchestrator.slide_project.deck_style import style_prompt_block  # noqa: PLC0415
-
-    from oaao_orchestrator.slide_project.template_registry import layout_html_prompt as _registry_prompt  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.deck_style import style_prompt_block
+    from oaao_orchestrator.slide_project.template_registry import (
+        layout_html_prompt as _registry_prompt,
+    )
 
     style_blk = style_prompt_block(deck_style) if isinstance(deck_style, dict) else ""
     return f"{_registry_prompt(layout, theme)} {style_blk}".strip()

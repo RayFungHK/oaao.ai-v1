@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from oaao_orchestrator.crystallization.embedding import cosine_similarity, embed_intent
 from oaao_orchestrator.crystallization.models import CrystallizedSkill, RecallHit
-from oaao_orchestrator.crystallization.sealer import COLLECTION, _MEMORY, _MEMORY_VECTORS
+from oaao_orchestrator.crystallization.sealer import _MEMORY, _MEMORY_VECTORS, COLLECTION
 from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,13 @@ async def _bump_usage_count(skill_id: str) -> None:
     skill = _MEMORY.get(skill_id)
     if skill is not None:
         skill.usage_count += 1
-        skill.last_used_at = datetime.now(timezone.utc)
+        skill.last_used_at = datetime.now(UTC)
         _MEMORY[skill_id] = skill
 
 
-async def _qdrant_search(query_vec: list[float], *, limit: int = 1) -> list[tuple[float, str, dict[str, Any]]]:
+async def _qdrant_search(
+    query_vec: list[float], *, limit: int = 1
+) -> list[tuple[float, str, dict[str, Any]]]:
     base = os.environ.get("OAAO_QDRANT_URL", "").strip().rstrip("/")
     if not base or not query_vec:
         return []
@@ -43,7 +45,7 @@ async def _qdrant_search(query_vec: list[float], *, limit: int = 1) -> list[tupl
             if resp.status_code >= 400:
                 return []
             data = resp.json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("qdrant skill search failed", exc_info=True)
         return []
 
@@ -97,7 +99,9 @@ async def recall_skill(
                 trigger_intent=str(payload.get("trigger_intent") or (user_message or "")[:80]),
                 intent_embedding=query_vec,
                 tool_chain=chain,
-                success_score=float(payload.get("success_score") or 0.0) if isinstance(payload, dict) else 0.0,
+                success_score=float(payload.get("success_score") or 0.0)
+                if isinstance(payload, dict)
+                else 0.0,
             )
             _MEMORY[sid] = hit
         await _bump_usage_count(sid)

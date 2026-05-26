@@ -5,7 +5,6 @@ from __future__ import annotations
 from oaao_orchestrator.mine.html_table import parse_html_tables
 from oaao_orchestrator.mine.sqlite_store import merge_rows_for_schema
 
-
 SAMPLE_HTML = """
 <html><body>
 <table id="prices">

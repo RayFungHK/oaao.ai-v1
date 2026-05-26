@@ -29,7 +29,12 @@ def classify_page_rules(url: str) -> dict[str, Any] | None:
     if re.search(r"(/feed|/rss|\.xml$|feed\.xml|atom\.xml)", u):
         return {"page_type": "rss", "confidence": 0.95, "method": "rule", "reason": "RSS/feed URL"}
     if "arxiv.org/list/" in u:
-        return {"page_type": "index", "confidence": 0.98, "method": "rule", "reason": "arXiv list URL"}
+        return {
+            "page_type": "index",
+            "confidence": 0.98,
+            "method": "rule",
+            "reason": "arXiv list URL",
+        }
     if re.search(r"arxiv\.org/(abs|pdf)/", u):
         return {
             "page_type": "article",
@@ -68,14 +73,18 @@ async def classify_page_llm(
     if not bu or not model:
         raise ValueError("llm_not_configured")
 
-    api_key = _resolve_secret(llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None
+    )
     url = openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     link_lines = []
-    for ln in features.get("links_sample") if isinstance(features.get("links_sample"), list) else []:
+    for ln in (
+        features.get("links_sample") if isinstance(features.get("links_sample"), list) else []
+    ):
         if not isinstance(ln, dict):
             continue
         link_lines.append(f"- {ln.get('anchor', '')} -> {ln.get('url', '')}")
@@ -103,7 +112,9 @@ async def classify_page_llm(
         "temperature": 0.1,
         "stream": False,
     }
-    r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(60.0, connect=15.0))
+    r = await client.post(
+        url, headers=headers, json=body, timeout=httpx.Timeout(60.0, connect=15.0)
+    )
     if r.status_code >= 400:
         raise RuntimeError(f"llm_http_{r.status_code}")
     data = r.json()
@@ -172,9 +183,13 @@ async def filter_article_links_llm(
     bu = str(llm_cfg.get("base_url") or "").strip()
     model = str(llm_cfg.get("model") or "").strip()
     if not bu or not model:
-        return filter_article_links([{"url": ln["url"], "anchor": ln.get("title", "")} for ln in links], limit=limit)
+        return filter_article_links(
+            [{"url": ln["url"], "anchor": ln.get("title", "")} for ln in links], limit=limit
+        )
 
-    api_key = _resolve_secret(llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        llm_cfg.get("api_key_env") if isinstance(llm_cfg.get("api_key_env"), str) else None
+    )
     url = openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -197,9 +212,13 @@ async def filter_article_links_llm(
         "temperature": 0.1,
         "stream": False,
     }
-    r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(90.0, connect=15.0))
+    r = await client.post(
+        url, headers=headers, json=body, timeout=httpx.Timeout(90.0, connect=15.0)
+    )
     if r.status_code >= 400:
-        return filter_article_links([{"url": ln["url"], "anchor": ln.get("title", "")} for ln in links], limit=limit)
+        return filter_article_links(
+            [{"url": ln["url"], "anchor": ln.get("title", "")} for ln in links], limit=limit
+        )
     data = r.json()
     content = ""
     if isinstance(data, dict):
@@ -209,7 +228,11 @@ async def filter_article_links_llm(
             if isinstance(msg, dict) and isinstance(msg.get("content"), str):
                 content = msg["content"].strip()
     parsed = _parse_json_object(content)
-    items = parsed.get("items") if isinstance(parsed, dict) and isinstance(parsed.get("items"), list) else []
+    items = (
+        parsed.get("items")
+        if isinstance(parsed, dict) and isinstance(parsed.get("items"), list)
+        else []
+    )
     out: list[dict[str, str]] = []
     seen: set[str] = set()
     for it in items:
@@ -222,7 +245,9 @@ async def filter_article_links_llm(
         out.append({"url": u, "title": str(it.get("title") or u.rsplit("/", 1)[-1])[:200]})
         if len(out) >= limit:
             break
-    return out or filter_article_links([{"url": ln["url"], "anchor": ln.get("title", "")} for ln in links], limit=limit)
+    return out or filter_article_links(
+        [{"url": ln["url"], "anchor": ln.get("title", "")} for ln in links], limit=limit
+    )
 
 
 def resolve_research_kind(page_type: str) -> str:

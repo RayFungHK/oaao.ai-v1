@@ -11,7 +11,11 @@ from oaao_orchestrator.planner_llm import _extract_json_object, llm_chat_complet
 from oaao_orchestrator.slide_project.llm import _user_topic
 from oaao_orchestrator.slide_project.template_registry import (
     default_deck_style as _load_default_deck_style,
+)
+from oaao_orchestrator.slide_project.template_registry import (
     palette as registry_palette,
+)
+from oaao_orchestrator.slide_project.template_registry import (
     theme_ids,
 )
 
@@ -42,16 +46,24 @@ def _merge_palette(theme: str, colors: dict[str, Any] | None) -> dict[str, str]:
     return registry_palette(theme, overlay)
 
 
-def normalize_deck_style(raw: dict[str, Any] | None, *, fallback_theme: str = "default") -> dict[str, Any]:
+def normalize_deck_style(
+    raw: dict[str, Any] | None, *, fallback_theme: str = "default"
+) -> dict[str, Any]:
     out = dict(DEFAULT_DECK_STYLE)
     if not isinstance(raw, dict):
         raw = {}
-    from oaao_orchestrator.slide_project.custom_templates import load_custom_template_by_id  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.custom_templates import (
+        load_custom_template_by_id,
+    )
 
     theme = str(raw.get("deck_theme") or fallback_theme).strip()
     raw_colors = raw.get("colors") if isinstance(raw.get("colors"), dict) else {}
     has_import_colors = any(isinstance(v, str) and str(v).strip() for v in raw_colors.values())
-    if theme not in DECK_THEME_IDS and load_custom_template_by_id(theme) is None and not has_import_colors:
+    if (
+        theme not in DECK_THEME_IDS
+        and load_custom_template_by_id(theme) is None
+        and not has_import_colors
+    ):
         theme = str(DEFAULT_DECK_STYLE["deck_theme"])
     out["deck_theme"] = theme
     if isinstance(raw.get("tone"), str) and raw["tone"].strip():
@@ -61,7 +73,9 @@ def normalize_deck_style(raw: dict[str, Any] | None, *, fallback_theme: str = "d
         out["design_principles"] = [str(x).strip() for x in pr if str(x).strip()][:6]
     if isinstance(raw.get("typography"), dict):
         out["typography"] = {**dict(out.get("typography") or {}), **raw["typography"]}
-    out["colors"] = _merge_palette(theme, raw.get("colors") if isinstance(raw.get("colors"), dict) else None)
+    out["colors"] = _merge_palette(
+        theme, raw.get("colors") if isinstance(raw.get("colors"), dict) else None
+    )
     if isinstance(raw.get("slide_prompt"), str) and raw["slide_prompt"].strip():
         out["slide_prompt"] = raw["slide_prompt"].strip()
     return out
@@ -96,9 +110,11 @@ def save_deck_style(project_dir: Path, style: dict[str, Any]) -> None:
     )
 
 
-def apply_deck_style_to_slides(slides_spec: list[dict[str, Any]], style: dict[str, Any]) -> list[dict[str, Any]]:
+def apply_deck_style_to_slides(
+    slides_spec: list[dict[str, Any]], style: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Lock per-slide theme to deck-wide palette; assign varied layouts per slide."""
-    from oaao_orchestrator.slide_project.layout_plan import diversify_slide_layouts  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layout_plan import diversify_slide_layouts
 
     theme = str(style.get("deck_theme") or "default")
     out: list[dict[str, Any]] = []
@@ -123,7 +139,9 @@ def style_prompt_block(style: dict[str, Any]) -> str:
     if isinstance(colors, dict):
         lines.append(
             "Colors: "
-            + ", ".join(f"{k}={colors[k]}" for k in ("bg", "fg", "accent", "muted") if colors.get(k))
+            + ", ".join(
+                f"{k}={colors[k]}" for k in ("bg", "fg", "accent", "muted") if colors.get(k)
+            )
         )
     return "\n".join(lines)
 

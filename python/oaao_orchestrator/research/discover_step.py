@@ -24,7 +24,22 @@ logger = logging.getLogger(__name__)
 MAX_DISCOVER_DEPTH = 3
 _MIN_GOOD_FETCH = 2
 _AUTO_DRILL_MIN_SCORE = 0.12
-_DRILL_NOISE = frozenset({"login", "sign up", "sign in", "register", "ignoreme", "ignore", "about", "contact", "privacy", "terms", "home", "menu"})
+_DRILL_NOISE = frozenset(
+    {
+        "login",
+        "sign up",
+        "sign in",
+        "register",
+        "ignoreme",
+        "ignore",
+        "about",
+        "contact",
+        "privacy",
+        "terms",
+        "home",
+        "menu",
+    }
+)
 
 
 def _count_good_fetch(fetch_items: list[dict[str, Any]]) -> int:
@@ -41,7 +56,11 @@ def _pick_auto_drill_url(drill_items: list[dict[str, Any]]) -> str | None:
         score = float(row.get("article_score") or 0)
         if score < _AUTO_DRILL_MIN_SCORE:
             continue
-        anchor = str(row.get("anchor") or row.get("display_title") or row.get("title") or "").lower().strip()
+        anchor = (
+            str(row.get("anchor") or row.get("display_title") or row.get("title") or "")
+            .lower()
+            .strip()
+        )
         if anchor in _DRILL_NOISE:
             continue
         if any(tok in anchor for tok in ("login", "sign in", "sign up", "register", "password")):
@@ -53,7 +72,7 @@ def _pick_auto_drill_url(drill_items: list[dict[str, Any]]) -> str | None:
 
 
 def _arxiv_list_fetch_items(html: str) -> list[dict[str, Any]]:
-    from oaao_orchestrator.mine.arxiv_index import parse_arxiv_list_html  # noqa: PLC0415
+    from oaao_orchestrator.mine.arxiv_index import parse_arxiv_list_html
 
     rows = parse_arxiv_list_html(html, limit=40)
     out: list[dict[str, Any]] = []
@@ -157,7 +176,11 @@ async def discover_research_step(
     reason = str(classification.get("reason") or "")
 
     if use_llm and llm_cfg and (page_type == "unknown" or conf < 0.72):
-        features = classification.get("features") if isinstance(classification.get("features"), dict) else None
+        features = (
+            classification.get("features")
+            if isinstance(classification.get("features"), dict)
+            else None
+        )
         if features is None:
             features = extract_page_features(html, url)
         try:
@@ -169,11 +192,15 @@ async def discover_research_step(
         except Exception as exc:  # noqa: BLE001
             logger.warning("discover_step llm failed %s: %s", url, exc)
 
-    features = classification.get("features") if isinstance(classification.get("features"), dict) else None
+    features = (
+        classification.get("features") if isinstance(classification.get("features"), dict) else None
+    )
     if features is None:
         features = extract_page_features(html, url)
 
-    links_raw = features.get("links_sample") if isinstance(features.get("links_sample"), list) else []
+    links_raw = (
+        features.get("links_sample") if isinstance(features.get("links_sample"), list) else []
+    )
     fetch_items: list[dict[str, Any]] = []
     drill_items: list[dict[str, Any]] = []
 
@@ -240,12 +267,19 @@ async def discover_research_step(
         reason = reason or "arXiv HTML (experimental) full-text page"
 
     is_arxiv_list = "arxiv.org/list" in url.lower()
-    can_drill_hubs = depth < max_depth and page_type in ("index", "unknown") and len(drill_items) > 0
+    can_drill_hubs = (
+        depth < max_depth and page_type in ("index", "unknown") and len(drill_items) > 0
+    )
     can_drill_fetch_preview = (
         depth < max_depth and page_type in ("index", "unknown") and len(fetch_items) > 0
     )
-    can_drill_content = depth < max_depth and len(drill_items) > 0 and (
-        "arxiv.org/abs/" in url.lower() or any(str(d.get("layer") or "") == "fulltext" for d in drill_items)
+    can_drill_content = (
+        depth < max_depth
+        and len(drill_items) > 0
+        and (
+            "arxiv.org/abs/" in url.lower()
+            or any(str(d.get("layer") or "") == "fulltext" for d in drill_items)
+        )
     )
     can_drill = can_drill_hubs or can_drill_fetch_preview or can_drill_content
 
@@ -259,15 +293,13 @@ async def discover_research_step(
 
     good_fetch = _count_good_fetch(fetch_items)
     auto_sufficient = False
-    if page_type == "article" and "arxiv.org/html/" in url.lower():
-        auto_sufficient = True
-    elif page_type == "article" and "arxiv.org/abs/" in url.lower() and not drill_items:
+    if (page_type == "article" and "arxiv.org/html/" in url.lower()) or (
+        page_type == "article" and "arxiv.org/abs/" in url.lower() and not drill_items
+    ):
         auto_sufficient = True
     elif is_arxiv_list:
         auto_sufficient = False
-    elif good_fetch >= _MIN_GOOD_FETCH and not can_drill_fetch_preview:
-        auto_sufficient = True
-    elif page_type == "article":
+    elif (good_fetch >= _MIN_GOOD_FETCH and not can_drill_fetch_preview) or page_type == "article":
         auto_sufficient = True
 
     page_layer = "index"
@@ -284,17 +316,11 @@ async def discover_research_step(
         fetch_resolution_hint = "Full-text HTML page — saving watches the list/index and fetches all papers through /abs/ → HTML."
     elif page_layer == "metadata":
         if html_drill_available:
-            fetch_resolution_hint = (
-                "Queue uses /abs/ (metadata). At fetch time each job tries HTML (experimental) full text first."
-            )
+            fetch_resolution_hint = "Queue uses /abs/ (metadata). At fetch time each job tries HTML (experimental) full text first."
         else:
-            fetch_resolution_hint = (
-                "No HTML (experimental) link on this /abs/ page — fetch will use abstract/metadata only."
-            )
+            fetch_resolution_hint = "No HTML (experimental) link on this /abs/ page — fetch will use abstract/metadata only."
     elif is_arxiv_list:
-        fetch_resolution_hint = (
-            "Index list — papers queue as /abs/ URLs; fetch worker auto-resolves HTML (experimental) per paper."
-        )
+        fetch_resolution_hint = "Index list — papers queue as /abs/ URLs; fetch worker auto-resolves HTML (experimental) per paper."
 
     suggested = "confirm_fetch"
     if page_type == "article":

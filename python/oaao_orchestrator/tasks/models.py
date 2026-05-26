@@ -253,7 +253,7 @@ class RunPlan(BaseModel):
     )
 
     def task_list_payload(self, *, allowed_agents: list[str] | None = None) -> dict[str, Any]:
-        from oaao_orchestrator.tasks.stream_emit import resolve_run_task_agent_kind  # noqa: PLC0415
+        from oaao_orchestrator.tasks.stream_emit import resolve_run_task_agent_kind
 
         item_rows: list[TaskListItem] = []
         tasks = self.tasks

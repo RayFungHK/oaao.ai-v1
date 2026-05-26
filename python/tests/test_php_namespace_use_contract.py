@@ -93,7 +93,7 @@ def test_module_controllers_import_oaaoai_library_classes() -> None:
     for mod_dir in sorted(OAao.iterdir()):
         if not mod_dir.is_dir():
             continue
-        mod_name = mod_dir.name
+        mod_name = mod_dir.name  # noqa: F841
         lib_classes = _library_classes(mod_dir)
         if not lib_classes:
             continue

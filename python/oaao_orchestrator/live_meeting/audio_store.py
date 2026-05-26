@@ -41,15 +41,11 @@ class SegmentWriter:
         return self._total_bytes
 
     def _emit_segment_closed(self) -> None:
-        if (
-            self._on_segment_closed is None
-            or self._path is None
-            or self._bytes_in_segment <= 0
-        ):
+        if self._on_segment_closed is None or self._path is None or self._bytes_in_segment <= 0:
             return
         try:
             self._on_segment_closed(self._path, self._index)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("live_meeting on_segment_closed failed path=%s", self._path)
 
     def _open_next_segment(self) -> None:

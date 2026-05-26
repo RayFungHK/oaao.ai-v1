@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from oaao_orchestrator.agents.registry import (
     AgentResult,
     get_agent_registry,
@@ -22,7 +21,7 @@ async def test_failing_agent_returns_failed_result_not_exception() -> None:
     class _BoomAgent:
         agent_kind = "boom_test"
 
-        async def run(self, *, run, run_task, ctx) -> AgentResult:  # noqa: ANN001
+        async def run(self, *, run, run_task, ctx) -> AgentResult:
             raise RuntimeError("simulated agent failure")
 
     register_agent(_BoomAgent())

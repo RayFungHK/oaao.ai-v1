@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 
 import pytest
-
 from oaao_orchestrator.config_models import EndpointSnapshot, QueuePoolSettings
 from oaao_orchestrator.post_stream_pool import build_post_stream_plugin_ctx_meta
+from oaao_orchestrator.queue_backend import MemoryQueueBackend
 from oaao_orchestrator.queue_pool import QueuePool, load_pool_settings, spawn_post_stream_jobs
 
 _UIQE_EP = EndpointSnapshot(
@@ -44,14 +44,17 @@ async def test_spawn_post_stream_jobs_enqueues_iqs_and_accs(tmp_path: Path) -> N
         encoding="utf-8",
     )
     settings = load_pool_settings(cfg)
-    pool = QueuePool(settings[0])
+    backend = MemoryQueueBackend(maxsize=0)
+    pool = QueuePool(settings[0], backend=backend)
     await pool.start()
     try:
-        meta = build_post_stream_plugin_ctx_meta(_Req(), {"materials": [{}], "tasks": {"items": []}})
+        meta = build_post_stream_plugin_ctx_meta(
+            _Req(), {"materials": [{}], "tasks": {"items": []}}
+        )
         await spawn_post_stream_jobs(pool=pool, plugin_ctx_meta=meta, uiqe_endpoint=_UIQE_EP)
-        assert pool._queue.qsize() == 2
-        j1 = pool._queue.get_nowait()
-        j2 = pool._queue.get_nowait()
+        assert backend.qsize() == 2
+        j1 = backend._queue.get_nowait()
+        j2 = backend._queue.get_nowait()
         assert {j1.plugin_id, j2.plugin_id} == {"iqs", "accs"}
         assert j1.plugin_ctx_meta["conversation_id"] == "42"
         assert j1.endpoint.model == "mock-uiqe"
@@ -71,7 +74,7 @@ async def test_spawn_skips_without_uiqe_endpoint(tmp_path: Path) -> None:
     pool = QueuePool(load_pool_settings(cfg)[0])
     meta = build_post_stream_plugin_ctx_meta(_Req(), None)
     await spawn_post_stream_jobs(pool=pool, plugin_ctx_meta=meta, uiqe_endpoint=None)
-    assert pool._queue.qsize() == 0
+    assert pool.queue_depth() == 0
 
 
 def test_build_post_stream_plugin_ctx_meta() -> None:

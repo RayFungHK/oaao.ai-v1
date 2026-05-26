@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Smoke-test turn_score_upsert from orchestrator network."""
+
 from __future__ import annotations
 
 import json
@@ -9,7 +10,10 @@ import sys
 
 import httpx
 
-SECRET = (os.environ.get("OAAO_ORCH_SHARED_SECRET") or "oaao_dev_shared_secret").strip()
+_SECRET_RAW = (os.environ.get("OAAO_ORCH_SHARED_SECRET") or "").strip()
+if not _SECRET_RAW:
+    raise SystemExit("OAAO_ORCH_SHARED_SECRET must be set; refusing default secret.")
+SECRET = _SECRET_RAW
 BASE = (os.environ.get("OAAO_CHAT_INTERNAL_BASE_URL") or "http://web/chat/api").rstrip("/")
 
 

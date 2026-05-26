@@ -38,9 +38,11 @@ def use_remote_pcm_stream_bridge(asr_cfg: dict[str, Any] | None) -> bool:
     """True when payload includes a duplex WS URL for live streaming (any provider)."""
     if not is_streaming_asr_mode(asr_cfg) or not isinstance(asr_cfg, dict):
         return False
-    stream_protocol = str(
-        asr_cfg.get("stream_protocol") or asr_cfg.get("live_stream_protocol") or ""
-    ).strip().lower()
+    stream_protocol = (
+        str(asr_cfg.get("stream_protocol") or asr_cfg.get("live_stream_protocol") or "")
+        .strip()
+        .lower()
+    )
     if stream_protocol == "dashscope":
         return False
     return bool(resolve_live_stream_ws_url(asr_cfg))

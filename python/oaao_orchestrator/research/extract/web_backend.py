@@ -18,7 +18,9 @@ def web_extract_backend() -> str:
 
 
 async def fetch_html(client: httpx.AsyncClient, url: str) -> str:
-    r = await client.get(url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0)
+    r = await client.get(
+        url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0
+    )
     r.raise_for_status()
     return r.text
 
@@ -47,7 +49,9 @@ def _trafilatura_html(html: str, *, url: str) -> tuple[str, str, str]:
     use_arxiv = "ltx_document" in (html or "")[:120000].lower() or "arxiv.org/html/" in url.lower()
     if use_arxiv:
         try:
-            from oaao_orchestrator.research.arxiv_html_md import arxiv_html_to_markdown  # noqa: PLC0415
+            from oaao_orchestrator.research.arxiv_html_md import (
+                arxiv_html_to_markdown,
+            )
 
             converted = arxiv_html_to_markdown(html)
             if converted and converted.strip():
@@ -55,9 +59,11 @@ def _trafilatura_html(html: str, *, url: str) -> tuple[str, str, str]:
         except Exception as exc:  # noqa: BLE001
             logger.debug("arxiv html conversion failed: %s", exc)
     try:
-        import trafilatura  # noqa: PLC0415
+        import trafilatura
 
-        extracted = trafilatura.extract(html, include_comments=False, include_tables=True, output_format="markdown")
+        extracted = trafilatura.extract(
+            html, include_comments=False, include_tables=True, output_format="markdown"
+        )
         if extracted and extracted.strip():
             return title or url.rsplit("/", 1)[-1], extracted.strip(), "trafilatura"
     except Exception as exc:  # noqa: BLE001
@@ -95,8 +101,12 @@ async def _jina_reader(client: httpx.AsyncClient, url: str) -> tuple[str, str, s
 
 
 async def _firecrawl_scrape(client: httpx.AsyncClient, url: str) -> tuple[str, str, str] | None:
-    api = (os.environ.get("OAAO_FIRECRAWL_API_URL") or "https://api.firecrawl.dev/v1/scrape").strip()
-    key = (os.environ.get("OAAO_FIRECRAWL_API_KEY") or os.environ.get("FIRECRAWL_API_KEY") or "").strip()
+    api = (
+        os.environ.get("OAAO_FIRECRAWL_API_URL") or "https://api.firecrawl.dev/v1/scrape"
+    ).strip()
+    key = (
+        os.environ.get("OAAO_FIRECRAWL_API_KEY") or os.environ.get("FIRECRAWL_API_KEY") or ""
+    ).strip()
     if not key:
         logger.debug("firecrawl skipped — no API key")
         return None

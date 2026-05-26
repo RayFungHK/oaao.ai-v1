@@ -32,7 +32,7 @@ def _slot_content_html(raw: str) -> str:
         nonlocal bullets
         if bullets:
             lis = "".join(f"<li>{_esc(b)}</li>" for b in bullets[:12])
-            parts.append(f"<ul class=\"oaao-pptx-slot-ul\">{lis}</ul>")
+            parts.append(f'<ul class="oaao-pptx-slot-ul">{lis}</ul>')
             bullets = []
 
     for line in lines:
@@ -42,7 +42,7 @@ def _slot_content_html(raw: str) -> str:
             continue
         if s.startswith("###"):
             flush_bullets()
-            parts.append(f"<h3 class=\"oaao-pptx-slot-h3\">{_esc(s.lstrip('#').strip())}</h3>")
+            parts.append(f'<h3 class="oaao-pptx-slot-h3">{_esc(s.lstrip("#").strip())}</h3>')
             continue
         m = re.match(r"^[-*•]\s+(.+)$", s)
         if m:
@@ -56,8 +56,8 @@ def _slot_content_html(raw: str) -> str:
         paras.append(s)
     flush_bullets()
     for p in paras[:4]:
-        parts.append(f"<p class=\"oaao-pptx-slot-p\">{_esc(p)}</p>")
-    return "".join(parts) if parts else f"<p class=\"oaao-pptx-slot-p\">{_esc(text[:500])}</p>"
+        parts.append(f'<p class="oaao-pptx-slot-p">{_esc(p)}</p>')
+    return "".join(parts) if parts else f'<p class="oaao-pptx-slot-p">{_esc(text[:500])}</p>'
 
 
 def load_font_face_css_from_asset_dir(asset_dir: Path | None) -> tuple[str, str]:
@@ -70,7 +70,7 @@ def load_font_face_css_from_asset_dir(asset_dir: Path | None) -> tuple[str, str]
     try:
         import json
 
-        from oaao_orchestrator.slide_project.pptx_fonts import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_fonts import (
             build_font_face_css,
             build_font_stack_from_entries,
             verify_font_entries,
@@ -171,7 +171,10 @@ def _pptx_decor_layer_html(
     if not url:
         return ""
     slide_index = int(spec.get("index") or 0)
-    if template_asset_dir is not None and _pptx_render_png_path(template_asset_dir, slide_index) is None:
+    if (
+        template_asset_dir is not None
+        and _pptx_render_png_path(template_asset_dir, slide_index) is None
+    ):
         return ""
     return (
         '<div class="oaao-pptx-decor" aria-hidden="true">'
@@ -187,7 +190,7 @@ def _css_slot_inner_selector(slot_id: str) -> str:
 
 def _slot_font_size_css(slot: dict[str, Any], slot_text: str = "") -> str:
     """Scale type to fit the PPTX text box (avoid clipped glyphs)."""
-    from oaao_orchestrator.slide_project.pptx_typography import text_has_cjk  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.pptx_typography import text_has_cjk
 
     try:
         h_pct = float(slot.get("height_pct") or 10)
@@ -198,7 +201,7 @@ def _slot_font_size_css(slot: dict[str, Any], slot_text: str = "") -> str:
     except (TypeError, ValueError):
         w_pct = 20.0
     box_h_px = 720.0 * h_pct / 100.0
-    box_w_px = 1280.0 * w_pct / 100.0
+    box_w_px = 1280.0 * w_pct / 100.0  # noqa: F841
     # ~0.75 px per pt at 96dpi; cap so one line fits in ~82% of box height
     max_pt_fit = max(8.0, (box_h_px * 0.82) * 0.72)
     if h_pct < 6.0:
@@ -219,7 +222,7 @@ def _slot_font_size_css(slot: dict[str, Any], slot_text: str = "") -> str:
         pt = float(slot.get("font_pt") or 0)
     except (TypeError, ValueError):
         pt = 0.0
-    if pt > 0:
+    if pt > 0:  # noqa: SIM108
         pt = min(pt, max_pt_fit)
     else:
         pt = min(max_pt_fit, box_h_px * 0.34 * 0.72)
@@ -244,7 +247,7 @@ def geometry_slots_typography_css(
     slot_values: dict[str, str] | None = None,
 ) -> str:
     """Per-region CSS from PPTX run metadata + box size (overrides generic clamps)."""
-    from oaao_orchestrator.slide_project.pptx_typography import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.pptx_typography import (
         _is_latin_only_typeface,
         text_has_cjk,
     )
@@ -322,10 +325,16 @@ def _pptx_runtime_stylesheet(
 ) -> str:
     """Override imported/catalog CSS: template fonts, palette, per-slot typography."""
     p = palette(theme, deck_style)
-    bg = p.get("bg", "#f8fafc")
+    bg = p.get("bg", "#f8fafc")  # noqa: F841
     fg = p.get("fg", "#0f172a")
-    slide_index = int(spec.get("template_page_index") or spec.get("index") or 0) if isinstance(spec, dict) else 0
-    render_png = _pptx_render_png_path(template_asset_dir, slide_index) if use_render_decor else None
+    slide_index = (
+        int(spec.get("template_page_index") or spec.get("index") or 0)
+        if isinstance(spec, dict)
+        else 0
+    )
+    render_png = (
+        _pptx_render_png_path(template_asset_dir, slide_index) if use_render_decor else None
+    )
     # Transparent canvas only when LibreOffice decor PNG is present underneath.
     has_decor = render_png is not None
     locale_css, _ = pptx_master_locale_css(deck_style)
@@ -498,7 +507,7 @@ def build_master_html(
         height = float(slot.get("height_pct") or 10)
         raw_val = str(values.get(sid) or "").strip()
         if not raw_val:
-            from oaao_orchestrator.slide_project.template_slot_plan import (  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.template_slot_plan import (
                 is_placeholder_text,
             )
 
@@ -749,7 +758,9 @@ def render_pptx_master_slide(
     if isinstance(deck_style, dict):
         theme = str(deck_style.get("deck_theme") or theme)
 
-    from oaao_orchestrator.slide_project.template_slot_plan import is_placeholder_text  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_slot_plan import (
+        is_placeholder_text,
+    )
 
     slide_index = int(spec.get("index") or 0)
     slot_values = load_slot_values_from_slide_dir(project_dir, slide_index)
@@ -773,11 +784,13 @@ def render_pptx_master_slide(
         if isinstance(geom, list) and len(geom) == 1:
             slot_values = {str(geom[0].get("slot_id") or "body"): content_md}
         elif isinstance(geom, list) and geom:
-            slot_values.setdefault(str(geom[0].get("slot_id") or "title"), str(spec.get("title") or ""))
+            slot_values.setdefault(
+                str(geom[0].get("slot_id") or "title"), str(spec.get("title") or "")
+            )
 
     geom = spec.get("geometry_slots")
     if not isinstance(geom, list) or not geom:
-        from oaao_orchestrator.slide_project.layouts import render_layout_slide  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.layouts import render_layout_slide
 
         return render_layout_slide(
             spec=spec,
@@ -804,7 +817,7 @@ def render_pptx_master_slide(
         if sid and sid not in slot_values:
             slot_values[sid] = ""
 
-    from oaao_orchestrator.slide_project.slot_content import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.slot_content import (
         clamp_slot_values_to_geometry,
         normalize_pptx_slot_values,
     )

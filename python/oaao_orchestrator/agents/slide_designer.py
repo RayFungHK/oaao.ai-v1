@@ -53,9 +53,7 @@ _PAGE_STEPS: tuple[tuple[str, str, str], ...] = (
     ("page", "Build slide page (markdown + HTML)", PHASE_SANDBOX),
 )
 
-_EXPORT_STEPS: tuple[tuple[str, str, str], ...] = (
-    ("export", "Export deck artifact", PHASE_AGENT),
-)
+_EXPORT_STEPS: tuple[tuple[str, str, str], ...] = (("export", "Export deck artifact", PHASE_AGENT),)
 
 _CONTINUE_STEPS: tuple[tuple[str, str, str], ...] = (
     ("project", "Load slide project", PHASE_AGENT),
@@ -94,7 +92,7 @@ def _vault_grounding_from_ctx(ctx: RunContext) -> str:
     raw = ctx.extra.get("vault_grounding_for_slides")
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
-    from oaao_orchestrator.slide_project.rag_context import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.rag_context import (
         vault_grounding_from_messages,
     )
 
@@ -130,7 +128,9 @@ def _slide_designer_cfg(ctx: RunContext) -> dict[str, Any]:
 
 
 def _start_new_deck_from_template(sd_cfg: dict[str, Any]) -> bool:
-    return sd_cfg.get("start_new_deck") is True and bool(str(sd_cfg.get("template_id") or "").strip())
+    return sd_cfg.get("start_new_deck") is True and bool(
+        str(sd_cfg.get("template_id") or "").strip()
+    )
 
 
 def _regenerate_deck(sd_cfg: dict[str, Any]) -> bool:
@@ -171,16 +171,22 @@ class SlideDesignerAgent:
     ) -> AgentResult:
         phase = _slide_phase(run_task)
         if phase == "outline":
-            return await self._run_phased(run=run, run_task=run_task, ctx=ctx, steps=_OUTLINE_STEPS, mode="outline")
+            return await self._run_phased(
+                run=run, run_task=run_task, ctx=ctx, steps=_OUTLINE_STEPS, mode="outline"
+            )
         if phase == "page":
             return await self._run_page_worker(run=run, run_task=run_task, ctx=ctx)
         if phase == "export":
-            return await self._run_phased(run=run, run_task=run_task, ctx=ctx, steps=_EXPORT_STEPS, mode="export")
+            return await self._run_phased(
+                run=run, run_task=run_task, ctx=ctx, steps=_EXPORT_STEPS, mode="export"
+            )
         if phase == "continue":
             return await self._run_phased(
                 run=run, run_task=run_task, ctx=ctx, steps=_CONTINUE_STEPS, mode="continue"
             )
-        return await self._run_phased(run=run, run_task=run_task, ctx=ctx, steps=_FULL_STEPS, mode="full")
+        return await self._run_phased(
+            run=run, run_task=run_task, ctx=ctx, steps=_FULL_STEPS, mode="full"
+        )
 
     def _preview_from_progress(self, data: dict[str, Any]) -> dict[str, Any]:
         phase = str(data.get("phase") or "").strip().lower()
@@ -209,7 +215,9 @@ class SlideDesignerAgent:
         plan_raw = ctx.extra.get("run_plan")
         plan = plan_raw if isinstance(plan_raw, RunPlan) else RunPlan()
         pipeline_base = ctx.extra.get("pipeline_snap_base")
-        pipeline_snap: dict[str, Any] = dict(pipeline_base) if isinstance(pipeline_base, dict) else {}
+        pipeline_snap: dict[str, Any] = (
+            dict(pipeline_base) if isinstance(pipeline_base, dict) else {}
+        )
         allowed = ctx.extra.get("allowed_agents")
         allowed_agents = list(allowed) if isinstance(allowed, list) else []
 
@@ -252,8 +260,7 @@ class SlideDesignerAgent:
                 else None,
                 user_id=ctx.user_id,
                 workspace_id=int(ws)
-                if (ws := ctx.extra.get("workspace_id")) is not None
-                and str(ws).strip().isdigit()
+                if (ws := ctx.extra.get("workspace_id")) is not None and str(ws).strip().isdigit()
                 else None,
                 run_task_id=run_task.id,
                 resume_project_id=resume,
@@ -386,7 +393,9 @@ class SlideDesignerAgent:
         plan_raw = ctx.extra.get("run_plan")
         plan = plan_raw if isinstance(plan_raw, RunPlan) else RunPlan()
         pipeline_base = ctx.extra.get("pipeline_snap_base")
-        pipeline_snap: dict[str, Any] = dict(pipeline_base) if isinstance(pipeline_base, dict) else {}
+        pipeline_snap: dict[str, Any] = (
+            dict(pipeline_base) if isinstance(pipeline_base, dict) else {}
+        )
 
         agent = AgentSpec(
             id=f"ag-{run_task.id}",
@@ -564,23 +573,23 @@ class SlideDesignerAgent:
                         assert session is not None
 
                         async def on_outline(md: str) -> None:
-                            agent_task.params = {
-                                **(agent_task.params or {}),
+                            agent_task.params = {  # noqa: B023
+                                **(agent_task.params or {}),  # noqa: B023
                                 "preview": {
                                     "outline_md": md,
                                     "phase": "outline",
                                     "building": True,
                                 },
                             }
-                            agent_task.status = AgentTaskStatus.RUNNING
-                            _upsert_agent_task_row(agent_tasks_accum, agent_task)
+                            agent_task.status = AgentTaskStatus.RUNNING  # noqa: B023
+                            _upsert_agent_task_row(agent_tasks_accum, agent_task)  # noqa: B023
                             await emit_agent_task_progress(
                                 run,
-                                phase=phase_id,
+                                phase=phase_id,  # noqa: B023
                                 plan=plan,
                                 run_task=run_task,
                                 agent=agent,
-                                agent_task=agent_task,
+                                agent_task=agent_task,  # noqa: B023
                                 pipeline_snap=pipeline_snap or None,
                                 agent_tasks_accum=agent_tasks_accum,
                             )
@@ -594,8 +603,8 @@ class SlideDesignerAgent:
                             on_outline_progress=on_outline,
                         )
                         ctx.extra["slide_project_id"] = session.project_id
-                        agent_task.params = {
-                            **(agent_task.params or {}),
+                        agent_task.params = {  # noqa: B023
+                            **(agent_task.params or {}),  # noqa: B023
                             "preview": {
                                 "outline_md": session.outline_body,
                                 "phase": "outline",

@@ -114,7 +114,7 @@ async def _score_accs_coach(
     evidence: list[Any],
     coach_endpoint: dict[str, Any],
 ) -> ACCSResult:
-    from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.coach_client import (
         CoachCallError,
         build_accs_coach_prompt,
         call_coach_json,
@@ -155,12 +155,12 @@ async def score_accs(
     coach_endpoint: dict[str, Any] | None = None,
 ) -> ACCSResult:
     """Score assistant output; on breaker open → skip and ship."""
-    from oaao_orchestrator.evaluation.coach_client import (  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.coach_client import (
         CoachCallError,
         coach_call_timeout_s,
         coach_endpoint_ready,
     )
-    from oaao_orchestrator.safety.circuit_breaker import BreakerOpen, BreakerTimeout  # noqa: PLC0415
+    from oaao_orchestrator.safety.circuit_breaker import BreakerTimeout
 
     ev = list(evidence or [])
     coach_timeout = coach_call_timeout_s(inline=False)
@@ -224,4 +224,6 @@ async def score_accs(
             fallback.source = "heuristic_fallback"
             return fallback
 
-    return await _score_accs_heuristic(user_message=user_message, llm_output=llm_output, evidence=ev)
+    return await _score_accs_heuristic(
+        user_message=user_message, llm_output=llm_output, evidence=ev
+    )

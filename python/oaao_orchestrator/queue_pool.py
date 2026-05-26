@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from oaao_orchestrator.config_models import EndpointSnapshot, QueueJobPayload, QueuePoolSettings
+from oaao_orchestrator.plugins.registry import default_plugin_factories
+from oaao_orchestrator.plugins.spec import PluginContext
 from oaao_orchestrator.post_stream_llm import uiqe_endpoint_ready
 from oaao_orchestrator.post_stream_prompt import (
     build_prompt_variables,
@@ -14,8 +16,7 @@ from oaao_orchestrator.post_stream_prompt import (
     render_worker_prompt,
     resolve_prompt_path,
 )
-from oaao_orchestrator.plugins.registry import default_plugin_factories
-from oaao_orchestrator.plugins.spec import PluginContext
+from oaao_orchestrator.queue_backend import QueueBackend, build_queue_backend
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +29,33 @@ def load_pool_settings(path: Path) -> list[QueuePoolSettings]:
 
 
 class QueuePool:
-    """In-process asyncio queue — swap for Redis stream / RQ without changing Pipeline hooks."""
+    """In-process asyncio queue — swap for Redis stream / RQ without changing Pipeline hooks.
 
-    def __init__(self, settings: QueuePoolSettings) -> None:
+    W7-S2: FIFO operations now flow through a `QueueBackend` Protocol so the
+    storage substrate (memory / Redis stream) is selected by env at
+    construction time. Pipeline + plugin code is unchanged.
+    """
+
+    def __init__(
+        self,
+        settings: QueuePoolSettings,
+        *,
+        backend: QueueBackend | None = None,
+    ) -> None:
         self.settings = settings
-        self._queue: asyncio.Queue[QueueJobPayload] = asyncio.Queue()
+        self._backend: QueueBackend = backend or build_queue_backend(pool_id=settings.pool_id)
         self._workers: list[asyncio.Task[Any]] = []
         self._stopped = asyncio.Event()
 
     async def enqueue(self, job: QueueJobPayload) -> None:
-        await self._queue.put(job)
+        await self._backend.put(job)
+
+    async def try_enqueue(self, job: QueueJobPayload) -> bool:
+        """Non-blocking enqueue — returns False under backpressure (W8-S2)."""
+        return await self._backend.try_put(job)
 
     def queue_depth(self) -> int:
-        return int(self._queue.qsize())
+        return self._backend.qsize()
 
     def worker_count(self) -> int:
         return len(self._workers)
@@ -54,18 +69,23 @@ class QueuePool:
         for t in self._workers:
             t.cancel()
         self._workers.clear()
+        await self._backend.close()
 
     async def _worker_loop(self, worker_id: int) -> None:
         factories = default_plugin_factories()
         interval = float(self.settings.poll_interval_seconds)
         while not self._stopped.is_set():
-            try:
-                job = await asyncio.wait_for(self._queue.get(), timeout=interval)
-            except asyncio.TimeoutError:
+            job = await self._backend.get(timeout=interval)
+            if job is None:
                 continue
             handler = factories.get(job.plugin_id)
             if handler is None:
-                logger.warning("unknown plugin_id=%s pool=%s worker=%s", job.plugin_id, self.settings.pool_id, worker_id)
+                logger.warning(
+                    "unknown plugin_id=%s pool=%s worker=%s",
+                    job.plugin_id,
+                    self.settings.pool_id,
+                    worker_id,
+                )
                 continue
             plugin = handler()
             prompt = self.render_prompt(job)
@@ -80,9 +100,16 @@ class QueuePool:
                 meta=meta,
             )
             try:
-                await plugin.run(ctx, prompt_rendered=prompt, endpoint_snapshot=job.endpoint.model_dump())
+                await plugin.run(
+                    ctx, prompt_rendered=prompt, endpoint_snapshot=job.endpoint.model_dump()
+                )
             except Exception:
-                logger.exception("plugin %s failed pool=%s worker=%s", job.plugin_id, self.settings.pool_id, worker_id)
+                logger.exception(
+                    "plugin %s failed pool=%s worker=%s",
+                    job.plugin_id,
+                    self.settings.pool_id,
+                    worker_id,
+                )
 
     def render_prompt(self, job: QueueJobPayload) -> str:
         ref = job.prompt_material_ref or prompt_ref_for_plugin(

@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from typing import Any
 
 import httpx
 
 from oaao_orchestrator.research.extract import extract_document
-from oaao_orchestrator.research.fetch import ArticleCandidate, plan_source_candidates
-from oaao_orchestrator.research.fetch_throttle import research_fetch_max_concurrent, research_fetch_slot
+from oaao_orchestrator.research.fetch import plan_source_candidates
+from oaao_orchestrator.research.fetch_throttle import (
+    research_fetch_max_concurrent,
+    research_fetch_slot,
+)
 from oaao_orchestrator.research.match import evaluate_article_match, normalize_match_prompt
 from oaao_orchestrator.research.naming import filename_slug, resolve_article_title
 from oaao_orchestrator.research.summarize import summarize_markdown
@@ -21,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 def _internal_headers() -> dict[str, str]:
-    secret = os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
+    from oaao_orchestrator._internal_secret import require_internal_secret
+
+    secret = require_internal_secret()
     return {
         "X-OAAO-Internal-Token": secret,
         "Accept": "application/json",
@@ -43,11 +47,18 @@ def _parse_source_config(src: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-async def _post_json(client: httpx.AsyncClient, url: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+async def _post_json(
+    client: httpx.AsyncClient, url: str, payload: dict[str, Any]
+) -> dict[str, Any] | None:
     if not url:
         return None
     try:
-        r = await client.post(url, json=payload, headers=_internal_headers(), timeout=httpx.Timeout(120.0, connect=15.0))
+        r = await client.post(
+            url,
+            json=payload,
+            headers=_internal_headers(),
+            timeout=httpx.Timeout(120.0, connect=15.0),
+        )
         if r.status_code >= 400:
             logger.warning("research post %s -> %s %s", url, r.status_code, r.text[:200])
             return None
@@ -178,7 +189,11 @@ async def _process_article(
                 f"source_url: {url}",
                 f"summary_language: {summary_lang}",
                 f"summary_mode: {summary_result.mode}",
-                *( [f"summary_fallback_reason: {summary_result.reason}"] if summary_result.reason else [] ),
+                *(
+                    [f"summary_fallback_reason: {summary_result.reason}"]
+                    if summary_result.reason
+                    else []
+                ),
                 "---",
                 "",
                 summary.strip(),
@@ -343,7 +358,9 @@ def _refetch_jobs_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return jobs
 
 
-def _inline_run_job_limit(max_new: int, watch_config: dict[str, Any], *, force_refetch: bool) -> int:
+def _inline_run_job_limit(
+    max_new: int, watch_config: dict[str, Any], *, force_refetch: bool
+) -> int:
     """Jobs processed inline during /v1/research/run; rest drain via background poll."""
     cap = int(watch_config.get("run_inline_max") or max_new)
     cap = max(1, min(100, cap))
@@ -436,13 +453,13 @@ async def process_research_fetch_queue(
     run_id = int(payload.get("run_id") or 0)
     watch = payload.get("watch") if isinstance(payload.get("watch"), dict) else {}
     watch_id = int(watch.get("watch_id") or 0)
-    user_id = int(payload.get("user_id") or 0)
-    vault_id = int(watch.get("vault_id") or 0)
+    user_id = int(payload.get("user_id") or 0)  # noqa: F841
+    vault_id = int(watch.get("vault_id") or 0)  # noqa: F841
     container_raw = watch.get("container_id")
-    container_id = int(container_raw) if container_raw not in (None, "", 0) else None
+    container_id = int(container_raw) if container_raw not in (None, "", 0) else None  # noqa: F841
     workspace_raw = watch.get("workspace_id")
-    workspace_id = int(workspace_raw) if workspace_raw not in (None, "", 0) else None
-    summary_lang = str(watch.get("summary_language") or "zh-TW")
+    workspace_id = int(workspace_raw) if workspace_raw not in (None, "", 0) else None  # noqa: F841
+    summary_lang = str(watch.get("summary_language") or "zh-TW")  # noqa: F841
     upload_url = str(payload.get("vault_upload_url") or "").strip()
     item_url = str(payload.get("research_item_url") or "").strip()
     match_notify_url = str(payload.get("match_notify_url") or "").strip()
@@ -450,8 +467,10 @@ async def process_research_fetch_queue(
     finish_url = str(payload.get("fetch_job_finish_url") or "").strip()
     llm_cfg = payload.get("summary_llm") if isinstance(payload.get("summary_llm"), dict) else None
     match_llm_cfg = _resolve_match_llm(payload)
-    watch_config = payload.get("watch_config") if isinstance(payload.get("watch_config"), dict) else {}
-    normalized_match_prompt = str(
+    watch_config = (
+        payload.get("watch_config") if isinstance(payload.get("watch_config"), dict) else {}
+    )
+    normalized_match_prompt = str(  # noqa: F841
         watch_config.get("match_prompt_normalized") or watch_config.get("match_prompt") or "",
     ).strip()
 
@@ -486,7 +505,9 @@ async def process_research_fetch_queue(
         url = str(job.get("canonical_url") or "").strip()
         if job_id < 1 or not url:
             if job_id > 0:
-                await _finish_job(client, finish_url, job_id=job_id, status="failed", error_text="invalid_job")
+                await _finish_job(
+                    client, finish_url, job_id=job_id, status="failed", error_text="invalid_job"
+                )
             return
 
         status = "failed"
@@ -555,7 +576,9 @@ async def process_research_fetch_queue(
 async def run_research_job(payload: dict[str, Any]) -> dict[str, Any]:
     watch = payload.get("watch") if isinstance(payload.get("watch"), dict) else {}
     sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
-    watch_config = payload.get("watch_config") if isinstance(payload.get("watch_config"), dict) else {}
+    watch_config = (
+        payload.get("watch_config") if isinstance(payload.get("watch_config"), dict) else {}
+    )
     run_id = int(payload.get("run_id") or 0)
     watch_id = int(watch.get("watch_id") or 0)
     user_id = int(payload.get("user_id") or 0)

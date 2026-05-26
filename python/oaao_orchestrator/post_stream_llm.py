@@ -75,7 +75,9 @@ async def call_uiqe_chat(
     url_direct = str(endpoint_snapshot.get("url") or "").strip()
     model = str(endpoint_snapshot.get("model") or "").strip()
     api_key = _resolve_secret(
-        endpoint_snapshot.get("api_key_env") if isinstance(endpoint_snapshot.get("api_key_env"), str) else None
+        endpoint_snapshot.get("api_key_env")
+        if isinstance(endpoint_snapshot.get("api_key_env"), str)
+        else None
     )
     url = ensure_url_scheme(url_direct) if url_direct else openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -89,7 +91,9 @@ async def call_uiqe_chat(
         "stream": False,
     }
     try:
-        r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(90.0, connect=15.0))
+        r = await client.post(
+            url, headers=headers, json=body, timeout=httpx.Timeout(90.0, connect=15.0)
+        )
         if r.status_code >= 400:
             return None, f"uiqe_http_{r.status_code}:{r.text[:200]}"
         data = r.json()

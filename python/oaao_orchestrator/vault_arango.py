@@ -37,13 +37,24 @@ def resolve_arango_from_profile(profile: dict[str, Any]) -> dict[str, Any] | Non
     url = str(profile.get("url") or profile.get("arango_url") or "").strip()
     database = str(profile.get("database") or profile.get("arango_database") or "").strip()
     if not url:
-        url = _env("OAAO_ARANGO_URL", "http://arangodb:8529" if _env("OAAO_DOCKER", "") in ("1", "true", "yes") else "")
+        url = _env(
+            "OAAO_ARANGO_URL",
+            "http://arangodb:8529" if _env("OAAO_DOCKER", "") in ("1", "true", "yes") else "",
+        )
     if not database:
         database = _env("OAAO_ARANGO_DATABASE", "oaao_vault")
     user_env = profile.get("user_env") or profile.get("arango_user_env")
     pass_env = profile.get("password_env") or profile.get("arango_password_env")
-    user = _resolve_secret(str(user_env)) if user_env else _resolve_secret(_env("OAAO_ARANGO_USER", "root"))
-    password = _resolve_secret(str(pass_env)) if pass_env else _resolve_secret(_env("OAAO_ARANGO_PASSWORD", ""))
+    user = (
+        _resolve_secret(str(user_env))
+        if user_env
+        else _resolve_secret(_env("OAAO_ARANGO_USER", "root"))
+    )
+    password = (
+        _resolve_secret(str(pass_env))
+        if pass_env
+        else _resolve_secret(_env("OAAO_ARANGO_PASSWORD", ""))
+    )
     if not url or not database or not user:
         return None
     return {
@@ -56,7 +67,7 @@ def resolve_arango_from_profile(profile: dict[str, Any]) -> dict[str, Any] | Non
 
 def _entity_key(vault_id: int, document_id: int, name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")[:48] or "entity"
-    h = hashlib.sha1(f"{vault_id}|{document_id}|{name}".encode("utf-8")).hexdigest()[:10]
+    h = hashlib.sha1(f"{vault_id}|{document_id}|{name}".encode()).hexdigest()[:10]
     return f"v{vault_id}_d{document_id}_{slug}_{h}"[:254]
 
 
@@ -85,13 +96,15 @@ async def _arango_request(
     timeout: float = 45.0,
 ) -> httpx.Response | None:
     base = cfg["url"].rstrip("/")
-    if use_db:
+    if use_db:  # noqa: SIM108
         url = f"{base}/_db/{cfg['database']}{path}"
     else:
         url = f"{base}{path}"
     auth = (cfg["user"], cfg.get("password") or "")
     try:
-        r = await client.request(method, url, json=json_body, auth=auth, timeout=httpx.Timeout(timeout, connect=10.0))
+        r = await client.request(
+            method, url, json=json_body, auth=auth, timeout=httpx.Timeout(timeout, connect=10.0)
+        )
         return r
     except Exception as e:  # noqa: BLE001
         logger.warning("vault_arango: request %s %s failed — %s", method, path, e)
@@ -110,7 +123,9 @@ async def ensure_graph_schema(client: httpx.AsyncClient, cfg: dict[str, Any]) ->
         use_db=False,
     )
     if r_db is not None and r_db.status_code not in (200, 201, 409):
-        logger.warning("vault_arango: create database HTTP %s — %s", r_db.status_code, (r_db.text or "")[:300])
+        logger.warning(
+            "vault_arango: create database HTTP %s — %s", r_db.status_code, (r_db.text or "")[:300]
+        )
 
     for col, kind in ((ENTITY_COLLECTION, 2), (EDGE_COLLECTION, 3)):
         r_col = await _arango_request(
@@ -205,7 +220,11 @@ async def upsert_graph_batch(
         json_body=entity_docs if len(entity_docs) > 1 else entity_docs[0],
     )
     if r is None or r.status_code >= 400:
-        logger.warning("vault_arango: entity upsert HTTP %s — %s", r.status_code if r else "?", (r.text if r else "")[:400])
+        logger.warning(
+            "vault_arango: entity upsert HTTP %s — %s",
+            r.status_code if r else "?",
+            (r.text if r else "")[:400],
+        )
         return 0, 0
 
     edge_col = EDGE_COLLECTION
@@ -286,7 +305,9 @@ async def query_graph_context_lines(
     if vid < 1:
         return []
 
-    doc_ids = [int(x) for x in (document_ids or []) if isinstance(x, (int, str)) and str(x).isdigit()]
+    doc_ids = [
+        int(x) for x in (document_ids or []) if isinstance(x, (int, str)) and str(x).isdigit()
+    ]
     doc_ids = doc_ids[:48]
 
     if custom_aql:

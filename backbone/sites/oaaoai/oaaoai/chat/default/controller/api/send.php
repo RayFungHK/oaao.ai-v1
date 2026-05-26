@@ -513,7 +513,9 @@ return function (): void {
 
         if ($orchReady && $binding !== null) {
             $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-            $secret = ($secret !== false && trim((string) $secret) !== '') ? trim((string) $secret) : 'oaao_dev_shared_secret';
+            $secret = ($secret !== false && trim((string) $secret) !== '')
+                ? trim((string) $secret)
+                : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
 
             $publicBase = getenv('OAAO_ORCHESTRATOR_PUBLIC_BASE');
             $publicBase = ($publicBase !== false && trim((string) $publicBase) !== '')

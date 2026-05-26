@@ -127,7 +127,9 @@ async def _poll_one_job(client: httpx.AsyncClient, urls: dict[str, str]) -> bool
         return False
 
 
-async def _poll_worker(client: httpx.AsyncClient, urls: dict[str, str], idle_interval: float) -> None:
+async def _poll_worker(
+    client: httpx.AsyncClient, urls: dict[str, str], idle_interval: float
+) -> None:
     while True:
         worked = await _poll_one_job(client, urls)
         if not worked:

@@ -19,18 +19,22 @@ INDEX_HTML = """
 </body></html>
 """
 
-ARTICLE_HTML = """
+ARTICLE_HTML = (
+    """
 <html><head><title>My Article</title>
 <meta property="og:type" content="article">
 </head><body>
 <h1>My Article</h1>
 <article>
-<p>Lorem ipsum dolor sit amet. """ + ("word " * 200) + """</p>
+<p>Lorem ipsum dolor sit amet. """
+    + ("word " * 200)
+    + """</p>
 <p>More content here with substantial body text for classification.</p>
 </article>
 <a href="/about">About</a>
 </body></html>
 """
+)
 
 
 def test_classify_page_rules_arxiv_list() -> None:

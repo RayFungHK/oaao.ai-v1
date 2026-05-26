@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 import httpx
 
-from oaao_orchestrator.research.document_schema import ArticleMetadata, digest_body, wrap_standard_markdown
+from oaao_orchestrator.research.document_schema import (
+    ArticleMetadata,
+    digest_body,
+    wrap_standard_markdown,
+)
 from oaao_orchestrator.research.extract.types import ExtractResult
 from oaao_orchestrator.research.extract.web_backend import fetch_html, html_to_markdown
 from oaao_orchestrator.research.naming import arxiv_id_from_url, resolve_article_title
@@ -84,7 +87,9 @@ def parse_arxiv_abs_metadata(abs_html: str, *, source_url: str, paper_id: str) -
             title = re.sub(r"\s*\[.*?\]\s*$", "", title).strip()
 
     authors: list[str] = []
-    for m in re.finditer(r'<div[^>]*class="[^"]*authors[^"]*"[^>]*>(.*?)</div>', abs_html, re.I | re.S):
+    for m in re.finditer(
+        r'<div[^>]*class="[^"]*authors[^"]*"[^>]*>(.*?)</div>', abs_html, re.I | re.S
+    ):
         block = m.group(1)
         for a in re.finditer(r"<a[^>]*>([^<]+)</a>", block, re.I):
             name = _strip_tags(a.group(1))
@@ -179,7 +184,9 @@ async def extract_arxiv(
     if resolved:
         title, body, content_url, content_kind = resolved
     else:
-        from oaao_orchestrator.research.extract.pdf_backend import extract_arxiv_pdf  # noqa: PLC0415
+        from oaao_orchestrator.research.extract.pdf_backend import (
+            extract_arxiv_pdf,
+        )
 
         pdf_result = await extract_arxiv_pdf(client, paper_id or canonical_abs)
         if pdf_result:
@@ -215,4 +222,6 @@ async def extract_arxiv(
     content_hash = digest_body(body)
     meta.content_hash = content_hash
     markdown = wrap_standard_markdown(meta=meta, body=body)
-    return ExtractResult(title=title, body=body, metadata=meta, markdown=markdown, content_hash=content_hash)
+    return ExtractResult(
+        title=title, body=body, metadata=meta, markdown=markdown, content_hash=content_hash
+    )

@@ -20,7 +20,7 @@ def _get_soffice_mutex() -> asyncio.Lock:
     return _soffice_mutex
 
 
-async def run_blocking(
+async def run_blocking(  # noqa: UP047
     fn: Callable[..., T],
     /,
     *args: Any,
@@ -31,7 +31,7 @@ async def run_blocking(
     return await asyncio.to_thread(bound)
 
 
-async def run_soffice_job(
+async def run_soffice_job(  # noqa: UP047
     fn: Callable[..., T],
     /,
     *args: Any,

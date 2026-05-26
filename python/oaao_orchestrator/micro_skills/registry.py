@@ -22,7 +22,7 @@ def _row_to_entry(row: dict[str, Any]) -> SkillEntry | None:
         return None
     preview = str(row.get("preview_markdown") or "").strip()
     if not preview:
-        from oaao_orchestrator.micro_skills.markdown import skill_preview_markdown  # noqa: PLC0415
+        from oaao_orchestrator.micro_skills.markdown import skill_preview_markdown
 
         payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
         preview = skill_preview_markdown(
@@ -72,9 +72,7 @@ def catalog_summary_for_planner(entries: list[SkillEntry], *, max_items: int = 2
     lines: list[str] = []
     for e in entries[:max_items]:
         bind = f" bind={e.bind_ref}" if e.bind_ref else ""
-        lines.append(
-            f"- {e.skill_id} [{e.kind}]{bind}: {e.title} — {(e.summary or '')[:160]}"
-        )
+        lines.append(f"- {e.skill_id} [{e.kind}]{bind}: {e.title} — {(e.summary or '')[:160]}")
     return "\n".join(lines)
 
 

@@ -2,7 +2,6 @@
 
 from oaao_orchestrator.research.fetch import _extract_arxiv_abs_urls
 
-
 SAMPLE_ARXIV_LIST_SNIPPET = """
 <dt>[1]</dt>
 <dd><a href="https://arxiv.org/abs/2605.23904">arXiv:2605.23904</a></dd>
@@ -22,8 +21,7 @@ def test_extract_arxiv_abs_urls_dedupes_and_normalizes():
 
 def test_extract_arxiv_abs_urls_respects_limit():
     html = "\n".join(
-        f'<a href="https://arxiv.org/abs/2605.{10000 + i:05d}">x</a>'
-        for i in range(20)
+        f'<a href="https://arxiv.org/abs/2605.{10000 + i:05d}">x</a>' for i in range(20)
     )
     urls = _extract_arxiv_abs_urls(html, limit=3)
     assert len(urls) == 3

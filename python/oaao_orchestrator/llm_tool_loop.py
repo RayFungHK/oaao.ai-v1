@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 
@@ -63,7 +64,7 @@ async def stream_chat_with_tools(
 
         async with client.stream("POST", url, headers=headers, json=round_body) as resp:
             if resp.status_code < 200 or resp.status_code >= 300:
-                txt = await resp.aread()
+                txt = await resp.aread()  # noqa: F841
                 raise httpx.HTTPStatusError(
                     f"upstream_http_{resp.status_code}",
                     request=resp.request,
@@ -119,7 +120,10 @@ async def stream_chat_with_tools(
                         {
                             "id": row.get("id") or f"call_{idx}",
                             "type": "function",
-                            "function": {"name": row.get("name"), "arguments": row.get("arguments") or "{}"},
+                            "function": {
+                                "name": row.get("name"),
+                                "arguments": row.get("arguments") or "{}",
+                            },
                         }
                         for idx, row in sorted(tool_acc.items())
                         if row.get("name")

@@ -9,7 +9,11 @@ from typing import Any
 import httpx
 
 from oaao_orchestrator.crystallization.models import CrystallizedSkill
-from oaao_orchestrator.crystallization.sealer import COLLECTION, _MEMORY, _MEMORY_VECTORS, _register_in_memory
+from oaao_orchestrator.crystallization.sealer import (
+    _MEMORY,
+    COLLECTION,
+    _register_in_memory,
+)
 from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
@@ -33,7 +37,7 @@ async def bootstrap_crystallized_skills(*, limit: int = 200) -> dict[str, Any]:
             if resp.status_code >= 400:
                 return {"ok": False, "reason": f"qdrant_http_{resp.status_code}", "loaded": 0}
             data = resp.json()
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.debug("crystallization bootstrap failed", exc_info=True)
         return {"ok": False, "reason": "qdrant_scroll_failed", "loaded": 0}
 

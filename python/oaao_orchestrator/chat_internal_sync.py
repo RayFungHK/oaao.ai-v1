@@ -22,14 +22,16 @@ async def sync_adjunct_via_php(
     """Call PHP internal route — slide_project + materials sync only (no content rewrite)."""
     if not meta:
         return False
-    needs = bool(meta.get("slide_project")) or bool(meta.get("materials")) or bool(
-        (meta.get("conversation_title") or "").strip()
+    needs = (
+        bool(meta.get("slide_project"))
+        or bool(meta.get("materials"))
+        or bool((meta.get("conversation_title") or "").strip())
     )
     if not needs:
         return False
     url = f"{php_chat_api_base()}/assistant_internal_sync"
     assert_php_http_allowed(url, context="assistant_internal_sync")
-    from oaao_orchestrator.run_principal import issue_token  # noqa: PLC0415
+    from oaao_orchestrator.run_principal import issue_token
 
     body = {
         "conversation_id": principal.conversation_id,

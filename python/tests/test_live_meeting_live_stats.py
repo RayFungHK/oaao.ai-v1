@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oaao_orchestrator.live_meeting.hub import _SessionRuntime, _live_stats_payload
+from oaao_orchestrator.live_meeting.hub import _live_stats_payload, _SessionRuntime
 from oaao_orchestrator.live_meeting.session import LiveMeetingSession
 
 

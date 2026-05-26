@@ -16,7 +16,11 @@ from oaao_orchestrator.page_router.classify import (
     needs_confirmation,
     resolve_research_kind,
 )
-from oaao_orchestrator.research.fetch import _candidates_arxiv_list, _candidates_index_page, _fetch_html
+from oaao_orchestrator.research.fetch import (
+    _candidates_arxiv_list,
+    _candidates_index_page,
+    _fetch_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +33,9 @@ async def _fetch_page_html(
 ) -> str:
     if use_playwright:
         try:
-            from oaao_orchestrator.mine.playwright_fetch import fetch_html_playwright  # noqa: PLC0415
+            from oaao_orchestrator.mine.playwright_fetch import (
+                fetch_html_playwright,
+            )
 
             return await fetch_html_playwright(url, wait_ms=1500)
         except Exception as exc:  # noqa: BLE001
@@ -56,7 +62,7 @@ async def discover_research_source(
     usage: dict[str, Any] | None = None
 
     if ruled and ruled.get("page_type") == "rss":
-        from oaao_orchestrator.research.fetch import _candidates_rss  # noqa: PLC0415
+        from oaao_orchestrator.research.fetch import _candidates_rss
 
         items_raw = await _candidates_rss(client, url)
         items = [{"url": c.url, "title": c.title or c.url} for c in items_raw[:50]]
@@ -83,9 +89,15 @@ async def discover_research_source(
     reason = str(classification.get("reason") or "")
 
     if use_llm and llm_cfg and (page_type == "unknown" or conf < 0.72):
-        features = classification.get("features") if isinstance(classification.get("features"), dict) else None
+        features = (
+            classification.get("features")
+            if isinstance(classification.get("features"), dict)
+            else None
+        )
         if features is None:
-            from oaao_orchestrator.page_router.features import extract_page_features  # noqa: PLC0415
+            from oaao_orchestrator.page_router.features import (
+                extract_page_features,
+            )
 
             features = extract_page_features(html, url)
         try:
@@ -111,7 +123,7 @@ async def discover_research_source(
         else:
             cands = await _candidates_index_page(client, url, {"url": url, "max_items": 80})
             raw_links = [{"url": c.url, "anchor": c.title or c.url} for c in cands]
-            from oaao_orchestrator.page_router.link_scoring import score_page_links  # noqa: PLC0415
+            from oaao_orchestrator.page_router.link_scoring import score_page_links
 
             scored = score_page_links(html, url, raw_links, limit=50)
             if scored:
@@ -135,8 +147,8 @@ async def discover_research_source(
             else:
                 items = filter_article_links(raw_links, keyword_filter=keyword_filter, limit=50)
     elif page_type == "article" or resolved_kind == "static":
-        from oaao_orchestrator.page_router.features import extract_page_features  # noqa: PLC0415
-        from oaao_orchestrator.research.fetch import resolve_arxiv_content_preview  # noqa: PLC0415
+        from oaao_orchestrator.page_router.features import extract_page_features
+        from oaao_orchestrator.research.fetch import resolve_arxiv_content_preview
 
         feat = extract_page_features(html, url)
         title = str(feat.get("title") or feat.get("h1") or url)
@@ -145,9 +157,11 @@ async def discover_research_source(
             item.update(resolve_arxiv_content_preview(html, url))
         items = [item]
 
-    features = classification.get("features") if isinstance(classification.get("features"), dict) else None
+    features = (
+        classification.get("features") if isinstance(classification.get("features"), dict) else None
+    )
     if features is None:
-        from oaao_orchestrator.page_router.features import extract_page_features  # noqa: PLC0415
+        from oaao_orchestrator.page_router.features import extract_page_features
 
         features = extract_page_features(html, url)
 

@@ -9,7 +9,13 @@ from oaao_orchestrator.pipeline import RunContext
 from oaao_orchestrator.streaming.events import PHASE_WEB
 from oaao_orchestrator.streaming.session import StreamRun
 from oaao_orchestrator.tasks.agent_emit import emit_agent_end, emit_agent_start, run_agent_task_step
-from oaao_orchestrator.tasks.models import AgentResult, AgentSpec, AgentStatus, AgentTaskSpec, RunTaskSpec
+from oaao_orchestrator.tasks.models import (
+    AgentResult,
+    AgentSpec,
+    AgentStatus,
+    AgentTaskSpec,
+    RunTaskSpec,
+)
 from oaao_orchestrator.tools.web_search import web_search
 from oaao_orchestrator.vault_graph_rag import inject_system_message, last_user_query
 
@@ -49,13 +55,17 @@ class WebSearchAgent:
         if hits:
             lines = ["--- Web search results ---"]
             for i, h in enumerate(hits, start=1):
-                lines.append(f"[W{i}] {h.get('title', '')} — {h.get('url', '')}\n{h.get('snippet', '')}")
+                lines.append(
+                    f"[W{i}] {h.get('title', '')} — {h.get('url', '')}\n{h.get('snippet', '')}"
+                )
             inject_system_message(list(ctx.messages), "\n\n".join(lines))
             ctx.messages = list(ctx.messages)
         await run_agent_task_step(
             run,
             agent=agent,
-            task=AgentTaskSpec(id=f"at-{run_task.id}-m", title="Merge into context", index=3, total=3),
+            task=AgentTaskSpec(
+                id=f"at-{run_task.id}-m", title="Merge into context", index=3, total=3
+            ),
             status=AgentStatus.DONE,
             phase=PHASE_WEB,
         )

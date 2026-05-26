@@ -95,8 +95,7 @@ async def _tot_alternative_drafts(
     model: str,
     allowed_agents: list[str],
 ) -> list[PlannerOutputDraft]:
-    from oaao_orchestrator.planner import _vault_rag_needed  # noqa: PLC0415
-    from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+    from oaao_orchestrator.planner_llm import _last_user_message
 
     user_msg = _last_user_message(getattr(req, "messages", []) or [])
     base_json = base.model_dump()
@@ -131,7 +130,7 @@ async def _tot_alternative_drafts(
                 {"tasks": tasks_raw, "abilities": base.abilities, "report_after": base.report_after}
             )
             out.append(draft)
-        except Exception:
+        except Exception:  # noqa: BLE001
             continue
     return out[:TOT_CANDIDATES]
 
@@ -143,8 +142,8 @@ async def _ddtree_pick_branch(
     api_key: str | None,
     model: str,
 ) -> tuple[str, float]:
-    from oaao_orchestrator.evaluation.iqs import score_iqs  # noqa: PLC0415
-    from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+    from oaao_orchestrator.evaluation.iqs import score_iqs
+    from oaao_orchestrator.planner_llm import _last_user_message
 
     user_msg = _last_user_message(getattr(req, "messages", []) or [])
     system = (
@@ -194,8 +193,8 @@ async def refine_plan_for_mode(
     if mode not in ("tot", "ddtree"):
         return plan, meta
 
-    from oaao_orchestrator.planner import _vault_rag_needed  # noqa: PLC0415
-    from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+    from oaao_orchestrator.planner import _vault_rag_needed
+    from oaao_orchestrator.planner_llm import _last_user_message
 
     require_vault = _vault_rag_needed(req)
     require_attachments = bool(getattr(req, "chat_attachments", None) or [])
@@ -241,7 +240,9 @@ async def refine_plan_for_mode(
                 "tot_selected_score": round(best_score, 4),
             }
         )
-        logger.info("planner_tot selected=%s score=%.3f of %s", best_idx, best_score, len(candidates))
+        logger.info(
+            "planner_tot selected=%s score=%.3f of %s", best_idx, best_score, len(candidates)
+        )
         return best_plan, meta
 
     # ddtree — IQS-filter branches then replan with winning angle
@@ -253,6 +254,7 @@ async def refine_plan_for_mode(
     )
     meta["ddtree_branch_iqs"] = round(branch_iqs, 4)
     if branch_msg != user_msg:
+
         class _ReqMessagesProxy:
             __slots__ = ("_base", "_messages")
 
@@ -272,7 +274,7 @@ async def refine_plan_for_mode(
             patched[-1] = {**patched[-1], "content": branch_msg}
         else:
             patched.append({"role": "user", "content": branch_msg})
-        from oaao_orchestrator.planner import build_run_plan  # noqa: PLC0415
+        from oaao_orchestrator.planner import build_run_plan
 
         replanned = await build_run_plan(
             _ReqMessagesProxy(req, patched),

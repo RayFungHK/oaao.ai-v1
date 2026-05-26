@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import re
-
 import httpx
 
+from oaao_orchestrator.research.document_schema import (
+    ArticleMetadata,
+    digest_body,
+    wrap_standard_markdown,
+)
 from oaao_orchestrator.research.extract.arxiv_backend import extract_arxiv
 from oaao_orchestrator.research.extract.types import ExtractResult
 from oaao_orchestrator.research.extract.web_backend import fetch_html, html_to_markdown
-from oaao_orchestrator.research.document_schema import ArticleMetadata, digest_body, wrap_standard_markdown
 from oaao_orchestrator.research.naming import resolve_article_title
 
 
@@ -40,7 +42,9 @@ async def extract_document(
         return await extract_arxiv(client, canonical, title_hint=title_hint)
 
     if kind == "pdf":
-        from oaao_orchestrator.research.extract.pdf_backend import extract_pdf_bytes  # noqa: PLC0415
+        from oaao_orchestrator.research.extract.pdf_backend import (
+            extract_pdf_bytes,
+        )
 
         r = await client.get(canonical, follow_redirects=True, timeout=120.0)
         r.raise_for_status()
@@ -68,4 +72,6 @@ async def extract_document(
     content_hash = digest_body(body)
     meta.content_hash = content_hash
     markdown = wrap_standard_markdown(meta=meta, body=body)
-    return ExtractResult(title=title, body=body, metadata=meta, markdown=markdown, content_hash=content_hash)
+    return ExtractResult(
+        title=title, body=body, metadata=meta, markdown=markdown, content_hash=content_hash
+    )

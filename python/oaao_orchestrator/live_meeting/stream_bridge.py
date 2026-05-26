@@ -8,7 +8,8 @@ Add new upstream WS providers by implementing ``LiveStreamAsrBridge`` and extend
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from oaao_orchestrator.live_meeting.qwen_asr_stream import (
@@ -89,9 +90,11 @@ def resolve_stream_driver(asr_cfg: dict[str, Any] | None) -> str | None:
     if not is_streaming_asr_mode(asr_cfg) or not isinstance(asr_cfg, dict):
         return None
 
-    explicit = str(
-        asr_cfg.get("stream_protocol") or asr_cfg.get("live_stream_protocol") or ""
-    ).strip().lower()
+    explicit = (
+        str(asr_cfg.get("stream_protocol") or asr_cfg.get("live_stream_protocol") or "")
+        .strip()
+        .lower()
+    )
     if explicit:
         return explicit
 

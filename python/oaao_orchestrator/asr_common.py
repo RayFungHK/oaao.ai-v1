@@ -7,7 +7,6 @@ import base64
 import json
 import logging
 import os
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -85,11 +84,17 @@ def resolve_batch_protocol(asr_cfg: dict[str, Any] | None) -> str:
     """HTTP batch transcribe adapter — independent of live streaming provider."""
     if not isinstance(asr_cfg, dict):
         return BATCH_PROTOCOL_OPENAI
-    explicit = str(
-        asr_cfg.get("batch_protocol") or asr_cfg.get("transcribe_protocol") or ""
-    ).strip().lower()
+    explicit = (
+        str(asr_cfg.get("batch_protocol") or asr_cfg.get("transcribe_protocol") or "")
+        .strip()
+        .lower()
+    )
     if explicit in (BATCH_PROTOCOL_OPENAI, BATCH_PROTOCOL_JSON, "json", "nano_transcribe"):
-        return BATCH_PROTOCOL_JSON if explicit in (BATCH_PROTOCOL_JSON, "json", "nano_transcribe") else BATCH_PROTOCOL_OPENAI
+        return (
+            BATCH_PROTOCOL_JSON
+            if explicit in (BATCH_PROTOCOL_JSON, "json", "nano_transcribe")
+            else BATCH_PROTOCOL_OPENAI
+        )
     provider = str(asr_cfg.get("provider") or "").strip().lower()
     if provider in ("funasr_nano", "funasr-nano", "funasr_nano_remote"):
         return BATCH_PROTOCOL_JSON
@@ -305,7 +310,9 @@ def _resolve_chunk_buffers(asr_cfg: dict[str, Any] | None) -> tuple[float, float
     return before, after
 
 
-def _core_segment_seconds(max_upload_bytes: int, buffer_before: float, buffer_after: float) -> float:
+def _core_segment_seconds(
+    max_upload_bytes: int, buffer_before: float, buffer_after: float
+) -> float:
     """Core window length so padded extract (core + buffers) stays under upload cap."""
     max_dur = max_upload_bytes / _WAV_MONO16K_BPS
     pad = buffer_before + buffer_after
@@ -542,7 +549,11 @@ async def ffmpeg_to_wav_mono16k(src_path: str) -> str | None:
         )
         _, err = await proc.communicate()
         if proc.returncode != 0:
-            logger.warning("ffmpeg failed rc=%s: %s", proc.returncode, (err or b"")[:400].decode(errors="replace"))
+            logger.warning(
+                "ffmpeg failed rc=%s: %s",
+                proc.returncode,
+                (err or b"")[:400].decode(errors="replace"),
+            )
             Path(out).unlink(missing_ok=True)
             return None
         return out
@@ -572,7 +583,7 @@ def _merge_chunk_transcripts(parts: list[str], buffer_before: float, buffer_afte
             if prev[-k:].strip().lower() == nxt[:k].strip().lower():
                 best = k
                 break
-        if best > 0:
+        if best > 0:  # noqa: SIM108
             merged = prev + nxt[best:].lstrip()
         else:
             merged = prev.rstrip() + "\n\n" + nxt.lstrip()
@@ -603,7 +614,9 @@ async def transcribe_audio_file(
     if not url_direct and not bu:
         return None, "asr_endpoint_missing"
 
-    api_key = _resolve_secret(asr_cfg.get("api_key_env") if isinstance(asr_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        asr_cfg.get("api_key_env") if isinstance(asr_cfg.get("api_key_env"), str) else None
+    )
     url = ensure_url_scheme(url_direct) if url_direct else openai_compat_transcriptions_url(bu)
     headers: dict[str, str] = {}
     if api_key:
@@ -743,7 +756,9 @@ async def polish_transcript(
     if not model or (not url_direct and not bu):
         return raw, None
 
-    api_key = _resolve_secret(polish_cfg.get("api_key_env") if isinstance(polish_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        polish_cfg.get("api_key_env") if isinstance(polish_cfg.get("api_key_env"), str) else None
+    )
     url = ensure_url_scheme(url_direct) if url_direct else openai_compat_chat_url(bu)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -774,7 +789,9 @@ async def polish_transcript(
         "stream": False,
     }
     try:
-        r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0))
+        r = await client.post(
+            url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0)
+        )
         if r.status_code >= 400:
             return raw, f"polish_http_{r.status_code}"
         data = r.json()

@@ -1,8 +1,8 @@
 """Research pipeline P0-P4 unit tests."""
 
+from oaao_orchestrator.research.arxiv_html_md import _replace_latexml_math
 from oaao_orchestrator.research.document_schema import ArticleMetadata, wrap_standard_markdown
 from oaao_orchestrator.research.extract.dispatcher import detect_source_kind
-from oaao_orchestrator.research.arxiv_html_md import _replace_latexml_math
 from oaao_orchestrator.vault_document_extract import chunk_plain_text
 from oaao_orchestrator.vault_rerank import _parse_index_scores
 

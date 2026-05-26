@@ -89,7 +89,7 @@ services:
       OAAO_ORCHESTRATOR_PUBLIC_BASE: ${OAAO_ORCHESTRATOR_PUBLIC_BASE:-http://localhost:${OAAO_SIDECAR_PORT:-8103}}
       OAAO_ORCHESTRATOR_SIDECAR_PATH: ${OAAO_ORCHESTRATOR_SIDECAR_PATH:-/sidecar}
       OAAO_PUBLIC_HTTPS: ${OAAO_PUBLIC_HTTPS:-}
-      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
+      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:?OAAO_ORCH_SHARED_SECRET is required (set in docker/env or your secret manager)}
       # Host routing (OAAO_APEX_DOMAIN, OAAO_CUSTOMER_HOSTS, OAAO_PLATFORM_*): set in docker/env — do not override here with empty defaults.
       OAAO_VAULT_STORAGE: ${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
       OAAO_MINE_DATA_ROOT: ${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
@@ -135,7 +135,7 @@ services:
       - '${OAAO_SIDECAR_PORT:-8103}:8103'
     environment:
       OAAO_DOCKER: '1'
-      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
+      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:?OAAO_ORCH_SHARED_SECRET is required (set in docker/env or your secret manager)}
       OAAO_VAULT_JOB_POLL_BASE_URL: ${OAAO_VAULT_JOB_POLL_BASE_URL:-http://web/vault/api}
       OAAO_VAULT_JOB_POLL_INTERVAL_SEC: ${OAAO_VAULT_JOB_POLL_INTERVAL_SEC:-4}
       OAAO_VAULT_JOB_STUB_MODE: ${OAAO_VAULT_JOB_STUB_MODE:-fail}

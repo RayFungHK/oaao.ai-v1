@@ -53,6 +53,6 @@ def parse_plugin_score(plugin_id: str, raw: Any) -> IqsScoreResult | AccsScoreRe
             return IqsScoreResult.model_validate(raw)
         if plugin_id == "accs":
             return AccsScoreResult.model_validate(raw)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     return None

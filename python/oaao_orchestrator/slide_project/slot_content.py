@@ -34,9 +34,10 @@ from oaao_orchestrator.slide_project.template_registry import (
 
 logger = logging.getLogger(__name__)
 
+
 def _is_placeholder_seed(text: str) -> bool:
     """Imported PPTX placeholder / vertical-letter garbage — do not treat as content to expand."""
-    from oaao_orchestrator.slide_project.template_slot_plan import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_slot_plan import (
         is_placeholder_text,
     )
 
@@ -56,7 +57,7 @@ def geometry_slot_char_budget(slide: dict[str, Any], slot_id: str) -> int | None
             mc = 0
         if mc > 0:
             return mc
-        from oaao_orchestrator.slide_project.template_slot_plan import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.template_slot_plan import (
             estimate_max_chars_from_geometry_slot,
             is_placeholder_text,
         )
@@ -88,9 +89,7 @@ def _geometry_row(spec: dict[str, Any], slot_id: str) -> dict[str, Any] | None:
     return None
 
 
-def normalize_pptx_slot_values(
-    spec: dict[str, Any], slot_values: dict[str, str]
-) -> dict[str, str]:
+def normalize_pptx_slot_values(spec: dict[str, Any], slot_values: dict[str, str]) -> dict[str, str]:
     """Unique per-region copy; headline slots use slide title; drop duplicate bodies."""
     title = str(spec.get("title") or "").strip()
     out: dict[str, str] = {}
@@ -161,9 +160,7 @@ _SLOT_KIND_SYSTEM: dict[str, str] = {
         "You write ONLY markdown bullet lines starting with '- '. "
         "No title, no ## headings, no code fences, no HTML."
     ),
-    "paragraph": (
-        "You write ONLY 1–2 plain sentences (no bullets, no headings, no fences)."
-    ),
+    "paragraph": ("You write ONLY 1–2 plain sentences (no bullets, no headings, no fences)."),
     "section": (
         "You write ONE section: first line ### heading, then 2–3 lines starting with '- '. "
         "No code fences."
@@ -180,7 +177,9 @@ def slot_content_enabled() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
-def layout_slot_defs(layout_id: str, slide_spec: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def layout_slot_defs(
+    layout_id: str, slide_spec: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Return slot definitions for a layout (from JSON, PPTX geometry, or component defaults)."""
     lid = resolve_layout_id(layout_id) or (layout_id or "").strip()
     if lid == "pptx_master" and isinstance(slide_spec, dict):
@@ -196,16 +195,10 @@ def layout_slot_defs(layout_id: str, slide_spec: dict[str, Any] | None = None) -
                 text = str(row.get("text") or "")
                 kind = str(row.get("kind") or "").strip()
                 if not kind:
-                    kind = (
-                        "bullets"
-                        if text.count("\n") >= 2 or "- " in text
-                        else "paragraph"
-                    )
+                    kind = "bullets" if text.count("\n") >= 2 or "- " in text else "paragraph"
                 recipe = str(row.get("recipe") or "").strip()
                 if not recipe:
-                    recipe = (
-                        f"Content for positioned region «{sid}» (match imported deck tone)."
-                    )
+                    recipe = f"Content for positioned region «{sid}» (match imported deck tone)."
                 out.append(
                     {
                         "id": sid,
@@ -274,9 +267,24 @@ def _default_slots_for_component(component: str) -> list[dict[str, Any]]:
             },
         ],
         "three_cards": [
-            {"id": "card_1", "kind": "section", "label": "Card 1", "recipe": "### 區塊一 + 2–3 bullets."},
-            {"id": "card_2", "kind": "section", "label": "Card 2", "recipe": "### 區塊二 + 2–3 bullets."},
-            {"id": "card_3", "kind": "section", "label": "Card 3", "recipe": "### 區塊三 + 2–3 bullets."},
+            {
+                "id": "card_1",
+                "kind": "section",
+                "label": "Card 1",
+                "recipe": "### 區塊一 + 2–3 bullets.",
+            },
+            {
+                "id": "card_2",
+                "kind": "section",
+                "label": "Card 2",
+                "recipe": "### 區塊二 + 2–3 bullets.",
+            },
+            {
+                "id": "card_3",
+                "kind": "section",
+                "label": "Card 3",
+                "recipe": "### 區塊三 + 2–3 bullets.",
+            },
         ],
         "two_column": [
             {
@@ -375,24 +383,15 @@ def _slot_fallback(
         h = labels.get(sid, sid)
         return f"### {h}\n- 與「{title}」相關的要點\n- 可立即採用的做法"
     if kind == "metrics":
-        return (
-            f"- 完成度：依「{title}」檢核\n"
-            f"- 效率：相較導入前的改善\n"
-            f"- 風險：待處理項目數"
-        )
+        return f"- 完成度：依「{title}」檢核\n- 效率：相較導入前的改善\n- 風險：待處理項目數"
     if sid == "answers":
-        return (
-            f"- 答：先對照 {topic[:80]} 的步驟逐項檢查。\n"
-            f"- 答：記錄例外並納入下一輪改進。"
-        )
+        return f"- 答：先對照 {topic[:80]} 的步驟逐項檢查。\n- 答：記錄例外並納入下一輪改進。"
     if sid == "questions":
-        return (
-            f"- 什麼時候需要關注「{title}」？\n"
-            f"- 最常見的錯誤是什麼？\n"
-            f"- 如何判斷是否做對？"
-        )
+        return f"- 什麼時候需要關注「{title}」？\n- 最常見的錯誤是什麼？\n- 如何判斷是否做對？"
     # bullets default
-    mono = _rich_fallback_markdown(title=title, deck_title=deck_title, layout=layout, idx=1, topic=topic)
+    mono = _rich_fallback_markdown(
+        title=title, deck_title=deck_title, layout=layout, idx=1, topic=topic
+    )
     lines = [ln for ln in mono.split("\n") if ln.strip().startswith("-")]
     return "\n".join(lines[:6]) if lines else f"- {title}：重點一\n- 重點二\n- 重點三"
 
@@ -474,19 +473,23 @@ async def generate_slot_content(
     if not url or not model:
         return fallback
 
-    from oaao_orchestrator.slide_project.deck_style import style_prompt_block  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.deck_style import style_prompt_block
 
     style_blk = style_prompt_block(deck_style) if isinstance(deck_style, dict) else ""
     peer = ""
     if other_slots:
-        peer_lines = [f"- {k}: {(v or '')[:120]}…" for k, v in other_slots.items() if v and k != sid]
+        peer_lines = [
+            f"- {k}: {(v or '')[:120]}…" for k, v in other_slots.items() if v and k != sid
+        ]
         if peer_lines:
-            peer = "Already drafted (do not repeat verbatim):\n" + "\n".join(peer_lines[:4]) + "\n\n"
+            peer = (
+                "Already drafted (do not repeat verbatim):\n" + "\n".join(peer_lines[:4]) + "\n\n"
+            )
 
     system = _SLOT_KIND_SYSTEM.get(kind, _SLOT_KIND_SYSTEM["bullets"])
     if style_blk:
         system += "\n\n" + style_blk
-    from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_micro_skills import (
         micro_skills_prompt_block,
     )
 
@@ -632,8 +635,8 @@ async def generate_pptx_slots_batch(
     if not url or not model or len(slots) < 3:
         return None
 
-    from oaao_orchestrator.planner_llm import _extract_json_object  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.deck_style import style_prompt_block  # noqa: PLC0415
+    from oaao_orchestrator.planner_llm import _extract_json_object
+    from oaao_orchestrator.slide_project.deck_style import style_prompt_block
 
     idx = int(slide.get("index") or 1)
     title = str(slide.get("title") or f"Slide {idx}")
@@ -717,12 +720,14 @@ async def generate_slide_markdown_via_slots(
     vault_grounding: str | None = None,
 ) -> str:
     """Run one LLM call per slot, merge to markdown, optionally persist slots.json."""
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import infer_layout
 
     layout = str(slide.get("layout") or "").strip() or infer_layout(slide)
     slots = layout_slot_defs(layout, slide)
     if not slots:
-        from oaao_orchestrator.slide_project.llm import _generate_slide_markdown_monolith  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.llm import (
+            _generate_slide_markdown_monolith,
+        )
 
         return await _generate_slide_markdown_monolith(
             url=url,
@@ -761,8 +766,12 @@ async def generate_slide_markdown_via_slots(
     if not values:
         for slot in slots:
             sid = str(slot["id"])
-            spec_seeds = slide.get("slot_seeds") if isinstance(slide.get("slot_seeds"), dict) else {}
-            seed_val = str(spec_seeds.get(sid) or "").strip() if isinstance(spec_seeds, dict) else ""
+            spec_seeds = (
+                slide.get("slot_seeds") if isinstance(slide.get("slot_seeds"), dict) else {}
+            )
+            seed_val = (
+                str(spec_seeds.get(sid) or "").strip() if isinstance(spec_seeds, dict) else ""
+            )
             values[sid] = await generate_slot_content(
                 url=url,
                 api_key=api_key,
@@ -825,7 +834,7 @@ async def regenerate_slot_content(
     Regenerate one slot and re-merge markdown. Loads existing slots.json when present.
     Returns (content_md, slot_values).
     """
-    from oaao_orchestrator.slide_project.layouts import infer_layout  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.layouts import infer_layout
 
     layout = str(slide.get("layout") or "").strip() or infer_layout(slide)
     slots = layout_slot_defs(layout, slide)

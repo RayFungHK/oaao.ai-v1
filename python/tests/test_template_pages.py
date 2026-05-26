@@ -62,7 +62,12 @@ def test_apply_template_pages_locks_layout() -> None:
         {
             "slides": [
                 {"index": 1, "title_guess": "Intro", "text_sample": "x", "bullet_count": 1},
-                {"index": 2, "title_guess": "FAQ 常見問題", "text_sample": "- Q\n- 答：A", "bullet_count": 2},
+                {
+                    "index": 2,
+                    "title_guess": "FAQ 常見問題",
+                    "text_sample": "- Q\n- 答：A",
+                    "bullet_count": 2,
+                },
             ]
         }
     )

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from oaao_orchestrator.agents.registry import get_agent_registry, reset_agent_registry_for_tests
 from oaao_orchestrator.agents.vault_rag import VaultRagAgent
 from oaao_orchestrator.pipeline import RunContext
@@ -109,7 +108,9 @@ async def test_vault_rag_agent_emits_agent_tasks(monkeypatch: pytest.MonkeyPatch
     progress = [
         e
         for _, e in run._events
-        if e.phase == PHASE_RAG and e.kind == KIND_PROGRESS and isinstance(e.payload.get("agent_task"), dict)
+        if e.phase == PHASE_RAG
+        and e.kind == KIND_PROGRESS
+        and isinstance(e.payload.get("agent_task"), dict)
     ]
     assert len(progress) >= 1
     titles = {str(p.payload["agent_task"].get("title") or "") for p in progress}

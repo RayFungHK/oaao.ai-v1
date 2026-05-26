@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 
@@ -55,16 +54,24 @@ async def rerank_passages(
     if isinstance(ake, str) and ake.strip():
         api_key = os.environ.get(ake.strip())
 
-    style = _detect_style(bu, str(cfg.get("api_style") or os.environ.get("OAAO_RERANK_API_STYLE") or "").strip())
+    style = _detect_style(
+        bu, str(cfg.get("api_style") or os.environ.get("OAAO_RERANK_API_STYLE") or "").strip()
+    )
     top_n = max(1, min(top_n, len(passages)))
 
     try:
         if style == "jina":
-            scores = await _jina_rerank(query, passages, base_url=bu, model=model, api_key=api_key, top_n=top_n)
+            scores = await _jina_rerank(
+                query, passages, base_url=bu, model=model, api_key=api_key, top_n=top_n
+            )
         elif style == "cohere":
-            scores = await _cohere_rerank(query, passages, base_url=bu, model=model, api_key=api_key, top_n=top_n)
+            scores = await _cohere_rerank(
+                query, passages, base_url=bu, model=model, api_key=api_key, top_n=top_n
+            )
         else:
-            scores = await _tei_rerank(query, passages, base_url=bu, model=model, api_key=api_key, top_n=top_n)
+            scores = await _tei_rerank(
+                query, passages, base_url=bu, model=model, api_key=api_key, top_n=top_n
+            )
         if scores:
             return scores
     except Exception as exc:  # noqa: BLE001
@@ -134,7 +141,12 @@ async def _cohere_rerank(
     url = base_url.rstrip("/")
     if not url.endswith("/rerank"):
         url = f"{url}/rerank"
-    payload = {"model": model, "query": query, "documents": [{"text": p} for p in passages], "top_n": top_n}
+    payload = {
+        "model": model,
+        "query": query,
+        "documents": [{"text": p} for p in passages],
+        "top_n": top_n,
+    }
     async with httpx.AsyncClient() as client:
         r = await client.post(url, json=payload, headers=_auth_headers(api_key), timeout=45.0)
         r.raise_for_status()

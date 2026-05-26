@@ -78,7 +78,7 @@ def _is_format_sidecar_link(url: str, anchor: str) -> bool:
     """Drop arXiv html/pdf side links when anchor is just a format label."""
     u = (url or "").lower()
     a = (anchor or "").strip().lower()
-    if a in {"html", "pdf", "ps"} and ("arxiv.org/html/" in u or "arxiv.org/pdf/" in u):
+    if a in {"html", "pdf", "ps"} and ("arxiv.org/html/" in u or "arxiv.org/pdf/" in u):  # noqa: SIM103
         return True
     return False
 

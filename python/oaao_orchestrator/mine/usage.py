@@ -14,11 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 def _shared_secret() -> str:
-    return os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
+    from oaao_orchestrator._internal_secret import require_internal_secret
+
+    return require_internal_secret()
 
 
 def _php_api_base() -> str:
-    return os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL", "http://web/vault/api").strip().rstrip("/")
+    return (
+        os.environ.get("OAAO_VAULT_JOB_POLL_BASE_URL", "http://web/vault/api").strip().rstrip("/")
+    )
 
 
 async def report_mine_llm_usage(

@@ -7,7 +7,11 @@ from oaao_orchestrator.research.worker import (
 def test_refetch_jobs_from_payload() -> None:
     payload = {
         "refetch_items": [
-            {"canonical_url": "https://arxiv.org/abs/2605.23610", "title": "Paper A", "source_id": 3},
+            {
+                "canonical_url": "https://arxiv.org/abs/2605.23610",
+                "title": "Paper A",
+                "source_id": 3,
+            },
             {"canonical_url": "https://arxiv.org/abs/2605.11111", "title": "", "source_id": None},
             {"canonical_url": "  ", "title": "skip"},
         ],

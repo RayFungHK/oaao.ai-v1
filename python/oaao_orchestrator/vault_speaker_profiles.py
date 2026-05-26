@@ -20,7 +20,9 @@ def _vault_api_base() -> str:
 
 
 def _internal_headers() -> dict[str, str]:
-    secret = os.environ.get("OAAO_ORCH_SHARED_SECRET", "oaao_dev_shared_secret").strip()
+    from oaao_orchestrator._internal_secret import require_internal_secret
+
+    secret = require_internal_secret()
     return {
         "X-OAAO-Internal-Token": secret,
         "Accept": "application/json",
@@ -55,7 +57,9 @@ async def apply_voiceprint_matching(
     if asr_meta.get("pseudo_diarization"):
         logger.info(
             "voiceprint: skip auto-match — pseudo diarization doc=%s",
-            job.get("payload", {}).get("document_id") if isinstance(job.get("payload"), dict) else None,
+            job.get("payload", {}).get("document_id")
+            if isinstance(job.get("payload"), dict)
+            else None,
         )
         return None
 
@@ -91,7 +95,9 @@ async def apply_voiceprint_matching(
         return None
 
     if r.status_code >= 400:
-        logger.warning("voiceprint: match HTTP %s doc=%s — %s", r.status_code, doc_id_i, r.text[:300])
+        logger.warning(
+            "voiceprint: match HTTP %s doc=%s — %s", r.status_code, doc_id_i, r.text[:300]
+        )
         return None
 
     try:

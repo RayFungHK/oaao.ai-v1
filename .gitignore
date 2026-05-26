@@ -28,3 +28,10 @@ development-razy0.4/
 # OS
 .DS_Store
 Thumbs.db
+
+# W2-S2 PHP tooling (dev-only; backbone uses Razy autoloader, not composer at runtime)
+/.php-cs-fixer.cache
+/vendor/
+/composer.lock
+docker/env
+docker/env.bak.*

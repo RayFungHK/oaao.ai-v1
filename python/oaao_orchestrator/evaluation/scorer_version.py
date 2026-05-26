@@ -42,7 +42,7 @@ def scorer_versions_payload() -> dict[str, str]:
 def _dims_match(keys: frozenset[str], dims: dict | None) -> bool:
     if not dims:
         return False
-    return frozenset(str(k) for k in dims.keys()) == keys
+    return frozenset(str(k) for k in dims.keys()) == keys  # noqa: SIM118
 
 
 def needs_iqs_rescore(

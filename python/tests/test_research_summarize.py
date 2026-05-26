@@ -1,8 +1,8 @@
 from oaao_orchestrator.research.summarize import (
-    article_body_for_summary,
-    normalize_summary_language,
     _extract_abstract_excerpt,
     _fallback_summary,
+    article_body_for_summary,
+    normalize_summary_language,
 )
 
 

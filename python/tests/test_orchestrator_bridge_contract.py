@@ -31,7 +31,9 @@ def test_vault_retrieval_profiles_module_local() -> None:
 
 
 def test_send_does_not_require_vault_glossary_library() -> None:
-    text = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(encoding="utf-8")
+    text = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(
+        encoding="utf-8"
+    )
     assert "VaultGlossary.php" not in text
     assert "vaultRetrievalProfilesForVaultIds" in text
 
@@ -62,6 +64,8 @@ def test_assistant_patch_uses_slide_api() -> None:
 
 
 def test_send_uses_endpoints_api() -> None:
-    text = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(encoding="utf-8")
+    text = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(
+        encoding="utf-8"
+    )
     assert "resolveOrchestratorVaultRagConfig" in text
     assert "CanonicalEndpointsRepository" not in text

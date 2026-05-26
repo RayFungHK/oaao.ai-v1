@@ -92,10 +92,14 @@ def _is_audio_file(mime_type: str, path: Path, original_name: str = "") -> bool:
     return False
 
 
-async def _qdrant_collection_exists(client: httpx.AsyncClient, base_url: str, collection: str, api_key: str | None) -> bool:
+async def _qdrant_collection_exists(
+    client: httpx.AsyncClient, base_url: str, collection: str, api_key: str | None
+) -> bool:
     bu = base_url.rstrip("/")
     headers = _qdrant_headers(api_key)
-    r = await client.get(f"{bu}/collections/{collection}", headers=headers, timeout=httpx.Timeout(30.0, connect=12.0))
+    r = await client.get(
+        f"{bu}/collections/{collection}", headers=headers, timeout=httpx.Timeout(30.0, connect=12.0)
+    )
     return bool(r.status_code == 200)
 
 
@@ -207,15 +211,30 @@ async def _qdrant_upsert_points(
                 for k, v in extra.items():
                     if v is not None and v != "":
                         payload[str(k)] = v
-            points.append({"id": _stable_point_uuid(vault_id, document_id, idx), "vector": vector, "payload": payload})
-        r = await client.put(url, headers=headers, json={"points": points}, timeout=httpx.Timeout(120.0, connect=15.0))
+            points.append(
+                {
+                    "id": _stable_point_uuid(vault_id, document_id, idx),
+                    "vector": vector,
+                    "payload": payload,
+                }
+            )
+        r = await client.put(
+            url,
+            headers=headers,
+            json={"points": points},
+            timeout=httpx.Timeout(120.0, connect=15.0),
+        )
         if r.status_code >= 400:
-            logger.warning("vault_document_embed: qdrant upsert HTTP %s — %s", r.status_code, r.text[:500])
+            logger.warning(
+                "vault_document_embed: qdrant upsert HTTP %s — %s", r.status_code, r.text[:500]
+            )
             return False
     return True
 
 
-async def process_vault_document_embed(client: httpx.AsyncClient, job: dict[str, Any]) -> tuple[str, str | None, dict[str, Any]]:
+async def process_vault_document_embed(
+    client: httpx.AsyncClient, job: dict[str, Any]
+) -> tuple[str, str | None, dict[str, Any]]:
     """
     Embed one claimed job.
 
@@ -274,7 +293,9 @@ async def process_vault_document_embed(client: httpx.AsyncClient, job: dict[str,
     if not url_direct and not bu:
         return "failed", "vault_embed_missing_embedding_purpose_endpoint", {}
 
-    embed_url_final = ensure_url_scheme(url_direct) if url_direct else openai_compat_embeddings_url_from_base(bu)
+    embed_url_final = (
+        ensure_url_scheme(url_direct) if url_direct else openai_compat_embeddings_url_from_base(bu)
+    )
 
     ek: str | None = None
     ake = emb_cfg.get("api_key_env")
@@ -295,7 +316,11 @@ async def process_vault_document_embed(client: httpx.AsyncClient, job: dict[str,
     summary_text = summary_text_raw.strip() if isinstance(summary_text_raw, str) else ""
     summary_label_raw = payload.get("embed_summary_label") if isinstance(payload, dict) else None
     summary_label = summary_label_raw.strip() if isinstance(summary_label_raw, str) else "Summary"
-    summary_meta = payload.get("embed_summary_meta") if isinstance(payload.get("embed_summary_meta"), dict) else {}
+    summary_meta = (
+        payload.get("embed_summary_meta")
+        if isinstance(payload.get("embed_summary_meta"), dict)
+        else {}
+    )
     original_name_raw = payload.get("original_name") if isinstance(payload, dict) else None
     original_name = original_name_raw.strip() if isinstance(original_name_raw, str) else ""
     mime_l = (mime or "").lower()
@@ -326,7 +351,12 @@ async def process_vault_document_embed(client: httpx.AsyncClient, job: dict[str,
     use_asr_segment_chunks = len(asr_segments) > 0
     if source_text and not use_asr_segment_chunks:
         segments.append(
-            TextSegment(scope="plain", label=(path.name or "transcript"), body=source_text, meta={"from_asr": True}),
+            TextSegment(
+                scope="plain",
+                label=(path.name or "transcript"),
+                body=source_text,
+                meta={"from_asr": True},
+            ),
         )
     elif not segments and not use_asr_segment_chunks:
         if is_audio:
@@ -343,13 +373,19 @@ async def process_vault_document_embed(client: httpx.AsyncClient, job: dict[str,
             )
 
     chunk_size = max(512, min(12000, int(_env("OAAO_VAULT_INGEST_CHUNK_SIZE", "2800") or "2800")))
-    overlap = max(0, min(chunk_size // 2, int(_env("OAAO_VAULT_INGEST_CHUNK_OVERLAP", "260") or "260")))
+    overlap = max(
+        0, min(chunk_size // 2, int(_env("OAAO_VAULT_INGEST_CHUNK_OVERLAP", "260") or "260"))
+    )
     max_chunks = max(1, min(5000, int(_env("OAAO_VAULT_INGEST_MAX_CHUNKS", "500") or "500")))
     pieces_meta: list[tuple[str, dict[str, Any]]] = []
     if segments:
-        pieces_meta = build_embedding_pieces(segments, chunk_size=chunk_size, overlap=overlap, max_chunks=max_chunks)
+        pieces_meta = build_embedding_pieces(
+            segments, chunk_size=chunk_size, overlap=overlap, max_chunks=max_chunks
+        )
     if use_asr_segment_chunks:
-        asr_pieces = build_asr_segment_pieces(asr_segments, chunk_size=chunk_size, max_chunks=max_chunks - len(pieces_meta))
+        asr_pieces = build_asr_segment_pieces(
+            asr_segments, chunk_size=chunk_size, max_chunks=max_chunks - len(pieces_meta)
+        )
         pieces_meta.extend(asr_pieces)
     if not pieces_meta:
         if is_audio:
@@ -357,7 +393,11 @@ async def process_vault_document_embed(client: httpx.AsyncClient, job: dict[str,
         reason = (
             "no_extractable_text (supported: OOXML docs, text/markdown/pdf/json, plaintext — install python-docx, openpyxl, python-pptx, pypdf)"
             if mime_l
-            and ("spreadsheetml" in mime_l or "presentationml" in mime_l or "wordprocessingml" in mime_l)
+            and (
+                "spreadsheetml" in mime_l
+                or "presentationml" in mime_l
+                or "wordprocessingml" in mime_l
+            )
             else "no_extractable_text"
         )
         return "failed", reason, {}

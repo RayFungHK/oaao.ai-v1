@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from oaao_orchestrator.planner_catalog import (
     DEFAULT_ALLOWED_AGENTS,
@@ -38,7 +37,7 @@ def _vault_rag_needed(req: object) -> bool:
     scope = getattr(req, "vault_scope_documents", None) or {}
     if scope:
         return True
-    from oaao_orchestrator.slide_project.teaching_intent import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.teaching_intent import (
         text_signals_personal_record_lookup,
         text_signals_vault_grounding,
     )
@@ -74,7 +73,7 @@ def needs_multi_agent_turn(req: object) -> bool:
             if sd.get(key):
                 return True
     user_msg = _last_user_message(getattr(req, "messages", []) or [])
-    if _user_wants_handbook_teaching_slides(user_msg):
+    if _user_wants_handbook_teaching_slides(user_msg):  # noqa: SIM103
         return True
     return False
 

@@ -7,7 +7,7 @@ import logging
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from oaao_orchestrator.php_boundary import chat_persist_enabled, sqlite_adjunct_path
@@ -37,7 +37,7 @@ def persist_assistant_message(
             meta_json = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
         except (TypeError, ValueError):
             meta_json = None
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn = sqlite3.connect(path, timeout=12.0)
         try:
@@ -95,7 +95,7 @@ def _maybe_update_conversation_title(
     raw = meta.get("conversation_title")
     if not isinstance(raw, str):
         return
-    title = re.sub(r"\s+", " ", raw.strip()).strip("\"'""''`")
+    title = re.sub(r"\s+", " ", raw.strip()).strip("\"'''`")  # noqa: B005
     if not title or title.lower() in ("", "new chat", "new conversation"):
         return
     if len(title) > 80:
@@ -110,7 +110,7 @@ def _maybe_update_conversation_title(
     cur_title = str(row[0] or "").strip()
     if cur_title and cur_title.lower() not in ("", "new chat", "new conversation"):
         return
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     cur.execute(
         "UPDATE oaao_conversation SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
         (title, now, conversation_id, user_id),

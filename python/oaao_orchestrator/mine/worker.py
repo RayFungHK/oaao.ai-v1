@@ -61,7 +61,9 @@ def _merge_llm_usage(a: dict[str, Any] | None, b: dict[str, Any] | None) -> dict
     return out
 
 
-def _try_arxiv_index_rows(url: str, raw_snippet: str, schema: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _try_arxiv_index_rows(
+    url: str, raw_snippet: str, schema: dict[str, Any] | None
+) -> list[dict[str, Any]]:
     if "arxiv.org/list" not in url.lower() and "arxiv.org/list" not in raw_snippet.lower():
         return []
     rows = parse_arxiv_list_html(raw_snippet)
@@ -104,7 +106,7 @@ async def _resolve_index_batch_rows(
 async def _report_mine_usage(payload: dict[str, Any], usage: dict[str, Any] | None) -> None:
     if not usage:
         return
-    from oaao_orchestrator.mine.usage import report_mine_llm_usage  # noqa: PLC0415
+    from oaao_orchestrator.mine.usage import report_mine_llm_usage
 
     tenant_id = int(payload.get("tenant_id") or 0)
     user_id = int(payload.get("user_id") or 0)
@@ -122,7 +124,9 @@ async def run_mine_job(payload: dict[str, Any]) -> dict[str, Any]:
     mine = payload.get("mine") if isinstance(payload.get("mine"), dict) else {}
     sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
     run_id = int(payload.get("run_id") or 0)
-    sqlite_root = str(payload.get("sqlite_root") or os.environ.get("OAAO_MINE_DATA_ROOT") or "/tmp/oaao-mine").strip()
+    sqlite_root = str(
+        payload.get("sqlite_root") or os.environ.get("OAAO_MINE_DATA_ROOT") or "/tmp/oaao-mine"
+    ).strip()
     sqlite_rel = str(payload.get("sqlite_path") or "").strip()
     llm_cfg = payload.get("mine_llm") if isinstance(payload.get("mine_llm"), dict) else None
     llm_hints = _parse_json_field(mine.get("llm_hints_json"))
@@ -164,7 +168,9 @@ async def run_mine_job(payload: dict[str, Any]) -> dict[str, Any]:
                 source_key = str(src.get("source_id") or url)[:120]
                 try:
                     rows, raw_snippet = await fetch_source_rows(client, src, cfg)
-                    column_map = cfg.get("column_map") if isinstance(cfg.get("column_map"), dict) else None
+                    column_map = (
+                        cfg.get("column_map") if isinstance(cfg.get("column_map"), dict) else None
+                    )
                     if column_map:
                         remapped: list[dict[str, Any]] = []
                         for row in rows:

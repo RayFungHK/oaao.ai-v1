@@ -7,7 +7,7 @@ function oaao_research_internal_token_ok(): bool
     $secret = getenv('OAAO_ORCH_SHARED_SECRET');
     $secret = ($secret !== false && trim((string) $secret) !== '')
         ? trim((string) $secret)
-        : 'oaao_dev_shared_secret';
+        : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
     $hdr = isset($_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN'])
         ? trim((string) $_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN'])
         : '';

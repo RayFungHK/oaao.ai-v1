@@ -83,10 +83,10 @@ async def maybe_reflect_and_revise(
             meta["crystallization_candidate"] = True
         return assistant_text, meta
 
-    from oaao_orchestrator.planner_llm import llm_chat_completion_text  # noqa: PLC0415
+    from oaao_orchestrator.planner_llm import llm_chat_completion_text
 
     async def _regenerate(critique: str, accs_result: ACCSResult) -> str | None:
-        reflection_messages = list(messages_for_llm) + [
+        reflection_messages = list(messages_for_llm) + [  # noqa: RUF005
             {"role": "assistant", "content": assistant_text},
             {"role": "user", "content": critique},
         ]

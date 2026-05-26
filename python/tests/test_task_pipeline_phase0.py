@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from oaao_orchestrator.agents.registry import (
     AgentRegistry,
     AgentResult,
@@ -54,7 +53,9 @@ async def test_agent_registry_unknown_kind() -> None:
     from oaao_orchestrator.streaming.session import StreamRun
 
     run = StreamRun("test-run")
-    spec = RunTaskSpec(id="rt-1", title="Unknown", type=RunTaskType.AGENT, agent_kind="not_registered_agent")
+    spec = RunTaskSpec(
+        id="rt-1", title="Unknown", type=RunTaskType.AGENT, agent_kind="not_registered_agent"
+    )
     result = await reg.run(run=run, run_task=spec, ctx=RunContext())
     assert result.success is False
     assert "unknown_agent_kind" in (result.error or "")
@@ -67,7 +68,7 @@ async def test_register_agent_hook() -> None:
     class _StubSlides:
         agent_kind = "slides"
 
-        async def run(self, *, run, run_task, ctx) -> AgentResult:  # noqa: ANN001
+        async def run(self, *, run, run_task, ctx) -> AgentResult:
             return AgentResult(success=True, extra={"slides": 1})
 
     register_agent(_StubSlides())

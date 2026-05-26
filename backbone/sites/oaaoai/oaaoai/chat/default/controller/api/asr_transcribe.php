@@ -57,7 +57,9 @@ return function (): void {
     }
 
     $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-    $secret = ($secret !== false && trim((string) $secret) !== '') ? trim((string) $secret) : 'oaao_dev_shared_secret';
+    $secret = ($secret !== false && trim((string) $secret) !== '')
+        ? trim((string) $secret)
+        : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
 
     $polishEnabled = true;
     if (isset($body['polish_enabled'])) {

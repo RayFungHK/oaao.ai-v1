@@ -1,0 +1,103 @@
+[build-system]
+# Placeholder; oaao.ai-v1 is not packaged as a Python distribution.
+# This pyproject.toml exists to centralise tool configuration.
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oaao-ai-v1-tooling"
+version = "0.0.0"
+description = "Tooling-only pyproject for oaao.ai-v1 (ruff, mypy, pytest)."
+requires-python = ">=3.12"
+
+# ---------------------------------------------------------------------------
+# Ruff: linter + formatter (replaces flake8/black/isort)
+# Docs: https://docs.astral.sh/ruff/
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+  "python/oaao_orchestrator/research/_third_party",
+  "**/__pycache__",
+  "**/.venv",
+  "**/node_modules",
+]
+
+[tool.ruff.lint]
+# Start strict-but-pragmatic. We can tighten over W2-W4.
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "W",   # pycodestyle warnings
+  "I",   # isort
+  "B",   # flake8-bugbear
+  "UP",  # pyupgrade
+  "SIM", # flake8-simplify
+  "RUF", # ruff-specific
+  # W4-S1 — exception hygiene. Broad `except Exception:` must either be narrowed
+  # to specific types, paired with `logger.exception(...)`, or explicitly
+  # acknowledged with `# noqa: BLE001` plus a one-line comment justifying the
+  # swallow. Phase 1 (this commit) is advisory via the python-lint job's
+  # continue-on-error flag; Phase 2 will flip it to hard-fail once the baseline
+  # is annotated.
+  "BLE", # flake8-blind-except — flags bare `except:` and `except Exception:` without re-raise
+]
+ignore = [
+  "E501",  # line length handled by formatter
+  "B008",  # FastAPI Depends() in defaults is idiomatic
+  "SIM105", # contextlib.suppress can hurt readability for hot paths
+  # W4-S1 P2: Chinese punctuation rules (RUF001/002/003) flag intentional
+  # full-width chars that are part of the product's bilingual UX strings,
+  # docstrings, and inline comments. Ignored globally — they are not bugs.
+  "RUF001",
+  "RUF002",
+  "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"python/tests/**" = ["B011", "F401", "F811"]
+"python/scripts/**" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------------------------------------------------------------------
+# Mypy: gradual typing. Start permissive, tighten module-by-module.
+# Docs: https://mypy.readthedocs.io/
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "python"
+files = ["python/oaao_orchestrator"]
+exclude = "(?x)(/research/_third_party/|/tests/)"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+strict_equality = true
+no_implicit_optional = true
+check_untyped_defs = true
+# Gradual: do not enable disallow_untyped_defs globally yet.
+
+# Strict islands — modules already typed well enough to enforce.
+[[tool.mypy.overrides]]
+module = [
+  "oaao_orchestrator._internal_secret",
+  "oaao_orchestrator.queue_pool",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]

@@ -81,7 +81,9 @@ def reload_templates() -> None:
 
 
 def theme_ids() -> frozenset[str]:
-    from oaao_orchestrator.slide_project.custom_templates import list_published_template_ids  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.custom_templates import (
+        list_published_template_ids,
+    )
 
     themes = themes_data().get("themes")
     builtin: set[str] = set()
@@ -131,7 +133,9 @@ def resolve_layout_id(raw: str) -> str | None:
 
 
 def palette(theme: str, deck_style: dict[str, Any] | None = None) -> dict[str, str]:
-    from oaao_orchestrator.slide_project.custom_templates import load_custom_template_by_id  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.custom_templates import (
+        load_custom_template_by_id,
+    )
 
     themes = themes_data().get("themes")
     base: dict[str, str] = {}
@@ -179,7 +183,7 @@ def build_layout_css(
 
 def layout_slots(layout_id: str) -> list[dict[str, Any]]:
     """Named content slots for per-slot LLM generation ({@see slot_content})."""
-    from oaao_orchestrator.slide_project.slot_content import layout_slot_defs  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.slot_content import layout_slot_defs
 
     return layout_slot_defs(layout_id)
 

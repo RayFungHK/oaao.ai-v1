@@ -63,7 +63,7 @@ def _math_protected_ranges(text: str) -> list[tuple[int, int]]:
 
 
 def _inside_protected(idx: int, protected: list[tuple[int, int]]) -> bool:
-    for start, end in protected:
+    for start, end in protected:  # noqa: SIM110
         if start <= idx < end:
             return True
     return False
@@ -152,7 +152,9 @@ def build_asr_segment_pieces(
         speaker_id = max(0, int(raw.get("speaker_id") or 0))
         begin_ms = max(0, int(raw.get("begin_ms") or 0))
         end_ms = max(begin_ms, int(raw.get("end_ms") or begin_ms + 500))
-        speaker_label = _sanitize_label(str(raw.get("speaker_label") or f"Speaker {speaker_id + 1}"), maxlen=128)
+        speaker_label = _sanitize_label(
+            str(raw.get("speaker_label") or f"Speaker {speaker_id + 1}"), maxlen=128
+        )
         stamp = _format_timestamp_hms(begin_ms)
         header = f"[{speaker_label} @ {stamp}]"
         to_chunk = f"{header}\n{text}"
@@ -178,7 +180,9 @@ def build_asr_segment_pieces(
     return out
 
 
-def _semantic_merge_segments(segments: list[TextSegment], *, min_chars: int = 480) -> list[TextSegment]:
+def _semantic_merge_segments(
+    segments: list[TextSegment], *, min_chars: int = 480
+) -> list[TextSegment]:
     """Merge adjacent small markdown sections to reduce over-fragmentation before chunking."""
     if not segments:
         return segments
@@ -345,7 +349,9 @@ def _extract_pdf_segments(path: Path) -> list[TextSegment] | None:
 
         fitz_doc = fitz.open(str(path))
     except ImportError:
-        logger.info("vault_document_extract: pymupdf not installed — PDF OCR/text fallback unavailable")
+        logger.info(
+            "vault_document_extract: pymupdf not installed — PDF OCR/text fallback unavailable"
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("vault_document_extract: fitz open failed — %s", e)
 
@@ -462,7 +468,9 @@ def _extract_markdown_segments(path: Path) -> list[TextSegment] | None:
         meta: dict[str, Any] = {}
         if level:
             meta["heading_level"] = level
-        out.append(TextSegment(scope="md_section", label=_sanitize_label(label), body=body, meta=meta))
+        out.append(
+            TextSegment(scope="md_section", label=_sanitize_label(label), body=body, meta=meta)
+        )
 
     for line in lines:
         m = _HEADING_MD.match(line.rstrip())
@@ -579,7 +587,9 @@ def _extract_xlsx_segments(path: Path) -> list[TextSegment] | None:
         return None
 
     try:
-        max_rows = max(512, min(500_000, int((os.environ.get("OAAO_VAULT_XLSX_MAX_ROWS", "25000") or "25000"))))
+        max_rows = max(
+            512, min(500_000, int(os.environ.get("OAAO_VAULT_XLSX_MAX_ROWS", "25000") or "25000"))
+        )
         wb = load_workbook(str(path), read_only=True, data_only=True)
         out: list[TextSegment] = []
         try:
@@ -638,7 +648,9 @@ def _extract_pptx_segments(path: Path) -> list[TextSegment] | None:
                 if shape.shape_type == MSO_SHAPE_TYPE.TABLE:
                     tbl = shape.table  # type: ignore[attr-defined]
                     for row in tbl.rows:
-                        cells = [(c.text_frame.text or "").strip().replace("\n", " ") for c in row.cells]
+                        cells = [
+                            (c.text_frame.text or "").strip().replace("\n", " ") for c in row.cells
+                        ]
                         if any(cells):
                             parts.append(" | ".join(cells))
                 elif hasattr(shape, "text"):

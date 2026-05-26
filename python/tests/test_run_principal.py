@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from oaao_orchestrator.run_principal import issue_token, require_for_request, verify_token
 from types import SimpleNamespace
+
+from oaao_orchestrator.run_principal import issue_token, require_for_request, verify_token
 
 
 def test_issue_and_verify_roundtrip() -> None:

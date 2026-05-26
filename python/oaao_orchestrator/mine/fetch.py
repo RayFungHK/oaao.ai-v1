@@ -38,7 +38,9 @@ def assert_url_allowed(url: str) -> None:
 async def fetch_text(client: httpx.AsyncClient, url: str, *, method: str = "GET") -> str:
     assert_url_allowed(url)
     m = (method or "GET").upper()
-    r = await client.request(m, url, timeout=httpx.Timeout(60.0, connect=15.0), follow_redirects=True)
+    r = await client.request(
+        m, url, timeout=httpx.Timeout(60.0, connect=15.0), follow_redirects=True
+    )
     if r.status_code >= 400:
         raise RuntimeError(f"http_{r.status_code}")
     content = r.content

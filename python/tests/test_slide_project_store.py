@@ -6,7 +6,6 @@ import asyncio
 from pathlib import Path
 
 import pytest
-
 from oaao_orchestrator.slide_project.store import SlideProjectStore
 
 

@@ -25,10 +25,14 @@ class QueuePoolSettings(BaseModel):
     """Loaded from JSON — one pool isolates worker concurrency & polling."""
 
     pool_id: str = "default_post_stream"
-    worker_number: PositiveInt = Field(default=2, description="Concurrent asyncio/RQ workers for this pool")
+    worker_number: PositiveInt = Field(
+        default=2, description="Concurrent asyncio/RQ workers for this pool"
+    )
     poll_interval_seconds: PositiveFloat = Field(default=0.25)
     purpose_id: str = "default_chat"
-    mode_id: str = Field(default="default", description="Mode hooks unrelated to queue — copied into PluginContext")
+    mode_id: str = Field(
+        default="default", description="Mode hooks unrelated to queue — copied into PluginContext"
+    )
     prompt_bundle_ref: str = ""
     endpoint: EndpointSnapshot = Field(default_factory=EndpointSnapshot)
     plugins_after_stream: list[str] = Field(

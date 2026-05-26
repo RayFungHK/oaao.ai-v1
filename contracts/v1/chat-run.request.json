@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/chat-run.request.json",
+  "title": "ChatRunRequest",
+  "description": "W7-S1 — minimal cross-tier chat run payload (orchestrator entry / PHP relay). Subset of fields currently exchanged; we lock the wire format here and grow the schema in additive-only revisions.",
+  "type": "object",
+  "required": ["protocol_version", "endpoint", "user_message"],
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "enum": ["1"],
+      "description": "Bump only on breaking changes; additive fields stay on v1."
+    },
+    "run_id": {
+      "type": ["string", "null"],
+      "description": "Caller-supplied idempotency key; orchestrator generates when null."
+    },
+    "task_id": {
+      "type": ["string", "null"]
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["base_url", "model"],
+      "properties": {
+        "endpoint_ref": { "type": "string" },
+        "endpoint_id": { "type": ["integer", "null"], "minimum": 1 },
+        "base_url": { "type": "string" },
+        "model": { "type": "string" },
+        "api_key_env": { "type": ["string", "null"] },
+        "api_key_ref": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "user_message": { "type": "string" },
+    "conversation_excerpt": {
+      "type": ["array", "null"],
+      "items": { "type": "object" }
+    },
+    "tenant_id": { "type": ["integer", "null"], "minimum": 0 }
+  },
+  "additionalProperties": true
+}

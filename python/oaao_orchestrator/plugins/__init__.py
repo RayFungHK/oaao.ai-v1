@@ -1,3 +1,3 @@
-from oaao_orchestrator.plugins.spec import PostStreamPlugin, PluginContext
+from oaao_orchestrator.plugins.spec import PluginContext, PostStreamPlugin
 
-__all__ = ["PostStreamPlugin", "PluginContext"]
+__all__ = ["PluginContext", "PostStreamPlugin"]

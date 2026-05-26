@@ -58,7 +58,7 @@ def schedule_evolution_post_stream(
         return
     if getattr(req, "cancelled", False):
         return
-    asyncio.create_task(
+    asyncio.create_task(  # noqa: RUF006
         _run_evolution_post_stream(
             req=req,
             metrics_payload=metrics_payload,
@@ -89,9 +89,9 @@ async def _run_evolution_post_stream(
 ) -> None:
     meta = build_post_stream_plugin_ctx_meta(req, metrics_payload)
     try:
-        from oaao_orchestrator.evaluation.coach_client import coach_endpoint_ready  # noqa: PLC0415
-        from oaao_orchestrator.evaluation.iqs import score_iqs  # noqa: PLC0415
-        from oaao_orchestrator.planner_llm import _last_user_message  # noqa: PLC0415
+        from oaao_orchestrator.evaluation.coach_client import coach_endpoint_ready
+        from oaao_orchestrator.evaluation.iqs import score_iqs
+        from oaao_orchestrator.planner_llm import _last_user_message
 
         user_msg = _last_user_message(messages_for_llm)
         if (
@@ -161,7 +161,7 @@ async def _run_evolution_post_stream(
         if iqs_snap and iqs_snap.get("iqs_action") in ("clarify", "hard_clarify"):
             return
 
-        from oaao_orchestrator.evaluation.accs import score_accs  # noqa: PLC0415
+        from oaao_orchestrator.evaluation.accs import score_accs
 
         evidence: list[Any] = []
         if pipeline_snap and isinstance(pipeline_snap.get("vault_rag"), dict):
@@ -176,7 +176,7 @@ async def _run_evolution_post_stream(
             coach_endpoint=coach_endpoint,
         )
         if accs_result.skipped or accs_result.score <= 0:
-            from oaao_orchestrator.evaluation.accs import _score_accs_heuristic  # noqa: PLC0415
+            from oaao_orchestrator.evaluation.accs import _score_accs_heuristic
 
             accs_result = await _score_accs_heuristic(
                 user_message=user_msg,
@@ -201,7 +201,7 @@ async def _run_evolution_post_stream(
             and not accs_result.degraded
             and not accs_result.skipped
         ):
-            from oaao_orchestrator.crystallization.sealer import try_seal_skill  # noqa: PLC0415
+            from oaao_orchestrator.crystallization.sealer import try_seal_skill
 
             await try_seal_skill(
                 run_id=run_id,
@@ -215,7 +215,9 @@ async def _run_evolution_post_stream(
                     "iqs_skipped": bool(iqs_snap and iqs_snap.get("iqs_skipped")),
                     "accs_skipped": bool(accs_result.skipped),
                 },
-                embedding_cfg=getattr(req, "embedding", None) if isinstance(getattr(req, "embedding", None), dict) else None,
+                embedding_cfg=getattr(req, "embedding", None)
+                if isinstance(getattr(req, "embedding", None), dict)
+                else None,
             )
 
         logger.info(
@@ -225,7 +227,7 @@ async def _run_evolution_post_stream(
             iqs_persisted,
             accs_result.score,
         )
-        from oaao_orchestrator.evaluation.evolution_store import (  # noqa: PLC0415
+        from oaao_orchestrator.evaluation.evolution_store import (
             record_evolution_run,
             record_low_score_case,
         )
@@ -248,7 +250,9 @@ async def _run_evolution_post_stream(
                     "run_id": run_id,
                     "kind": "iqs",
                     "iqs_score": iqs_score,
-                    "iqs_action": iqs_snap.get("iqs_action") if isinstance(iqs_snap, dict) else None,
+                    "iqs_action": iqs_snap.get("iqs_action")
+                    if isinstance(iqs_snap, dict)
+                    else None,
                     "tool_chain": _tool_chain_from_plan(plan),
                 }
             )

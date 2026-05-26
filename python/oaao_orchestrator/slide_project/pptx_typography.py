@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import zipfile
-from collections import Counter
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -73,21 +72,16 @@ _CJK_TYPEFACE_MARKERS = (
 
 _FONT_STACKS: dict[str, str] = {
     "zh-Hant": (
-        '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", '
-        '"Segoe UI", system-ui, sans-serif'
+        '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Segoe UI", system-ui, sans-serif'
     ),
     "zh-Hans": (
-        '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", '
-        '"Segoe UI", system-ui, sans-serif'
+        '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Segoe UI", system-ui, sans-serif'
     ),
-    "en": (
-        'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
-    ),
+    "en": ('system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'),
     "ja": ('"Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif'),
     "ko": ('"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif'),
     "mixed": (
-        '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", '
-        '"Segoe UI", system-ui, sans-serif'
+        '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Segoe UI", system-ui, sans-serif'
     ),
 }
 
@@ -199,9 +193,7 @@ def _is_cjk_capable_typeface(name: str) -> bool:
 
 def _is_latin_only_typeface(name: str) -> bool:
     low = (name or "").strip().lower()
-    return low in _LATIN_ONLY_TYPEFACES or (
-        low.startswith("arial") and "unicode" not in low
-    )
+    return low in _LATIN_ONLY_TYPEFACES or (low.startswith("arial") and "unicode" not in low)
 
 
 def extract_font_typefaces(pptx_path: Path) -> dict[str, Any]:
@@ -218,7 +210,9 @@ def extract_font_typefaces(pptx_path: Path) -> dict[str, Any]:
                 if name.startswith("ppt/fonts/") and name.endswith(".fntdata"):
                     has_embedded = True
                     pptx_font_files.append(Path(name).name)
-            theme_paths = sorted(p for p in zf.namelist() if p.startswith("ppt/theme/theme") and p.endswith(".xml"))
+            theme_paths = sorted(
+                p for p in zf.namelist() if p.startswith("ppt/theme/theme") and p.endswith(".xml")
+            )
             if theme_paths:
                 root = ET.fromstring(zf.read(theme_paths[0]))
                 for tag, key in (("majorFont", "theme_major"), ("minorFont", "theme_minor")):
@@ -262,7 +256,7 @@ def extract_font_typefaces(pptx_path: Path) -> dict[str, Any]:
                     continue
     except ImportError:
         logger.info("python-pptx unavailable for font run scan")
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("pptx_font_run_scan_failed path=%s", pptx_path)
 
     ranked = sorted(used, key=str.lower)
@@ -404,7 +398,9 @@ def pptx_master_locale_css(deck_style: dict[str, Any] | None) -> str:
         line_height = 1.35
     stack = str(typo.get("font_stack") or "").strip()
     if not stack and primary.startswith("zh"):
-        stack = _FONT_STACKS.get("zh-Hant" if primary == "zh-Hant" else "zh-Hans", _FONT_STACKS["zh-Hant"])
+        stack = _FONT_STACKS.get(
+            "zh-Hant" if primary == "zh-Hant" else "zh-Hans", _FONT_STACKS["zh-Hant"]
+        )
     elif not stack and primary in ("ja", "ko"):
         stack = _FONT_STACKS.get(primary, _FONT_STACKS["zh-Hant"])
 

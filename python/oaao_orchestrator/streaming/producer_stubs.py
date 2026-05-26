@@ -20,7 +20,9 @@ async def demo_fill_run(run: StreamRun) -> None:
     await run.append(StreamEnvelope(phase=PHASE_AGENT, kind="status", text="Planning next steps…"))
     await run.append(StreamEnvelope(phase=PHASE_RAG, kind="start", text="Retrieving context"))
     await run.append(StreamEnvelope(phase=PHASE_RAG, kind="end", text="Retrieval complete"))
-    await run.append(StreamEnvelope(phase=PHASE_SANDBOX, kind="status", text="Running sandbox command"))
+    await run.append(
+        StreamEnvelope(phase=PHASE_SANDBOX, kind="status", text="Running sandbox command")
+    )
     await run.append(StreamEnvelope(phase=PHASE_LLM, kind="delta", text="Hello "))
     await run.append(StreamEnvelope(phase=PHASE_LLM, kind="delta", text="world"))
     run.mark_done()

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from oaao_orchestrator.pipeline import RunContext
 from oaao_orchestrator.streaming.session import StreamRun
@@ -31,8 +31,7 @@ class AgentRunner(Protocol):
         run: StreamRun,
         run_task: RunTaskSpec,
         ctx: RunContext,
-    ) -> AgentResult:
-        ...
+    ) -> AgentResult: ...
 
 
 class AgentRegistry:
@@ -82,13 +81,18 @@ def default_agent_factories() -> dict[str, AgentFactory]:
     """Built-in agents — vault_rag (Phase 3) + vertical stubs (Phase 4)."""
 
     def _vault_rag_factory() -> AgentRunner:
-        from oaao_orchestrator.agents.vault_rag import VaultRagAgent  # noqa: PLC0415
+        from oaao_orchestrator.agents.vault_rag import VaultRagAgent
 
         return VaultRagAgent()
 
-    from oaao_orchestrator.agents import slide_designer as _slide_designer_mod  # noqa: F401, PLC0415
-    from oaao_orchestrator.agents.stub_vertical import STUB_AGENT_DEFS, stub_agent_factory  # noqa: PLC0415
-    from oaao_orchestrator.agents.web_search import WebSearchAgent  # noqa: PLC0415
+    from oaao_orchestrator.agents import (
+        slide_designer as _slide_designer_mod,
+    )
+    from oaao_orchestrator.agents.stub_vertical import (
+        STUB_AGENT_DEFS,
+        stub_agent_factory,
+    )
+    from oaao_orchestrator.agents.web_search import WebSearchAgent
 
     factories: dict[str, AgentFactory] = {
         "vault_rag": _vault_rag_factory,
@@ -102,7 +106,9 @@ def default_agent_factories() -> dict[str, AgentFactory]:
     return factories
 
 
-def build_agent_registry(*, extra_factories: dict[str, AgentFactory] | None = None) -> AgentRegistry:
+def build_agent_registry(
+    *, extra_factories: dict[str, AgentFactory] | None = None
+) -> AgentRegistry:
     registry = AgentRegistry()
     merged: dict[str, AgentFactory] = {**default_agent_factories()}
     if extra_factories:

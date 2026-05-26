@@ -14,7 +14,12 @@ def test_openapi_get_path_converts() -> None:
                     "operationId": "webSearch",
                     "summary": "Search the web",
                     "parameters": [
-                        {"name": "q", "in": "query", "required": True, "schema": {"type": "string"}},
+                        {
+                            "name": "q",
+                            "in": "query",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        },
                     ],
                 }
             }

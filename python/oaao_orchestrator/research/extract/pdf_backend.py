@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 import os
 import re
-import tempfile
 from pathlib import Path
 
 import httpx
 
-from oaao_orchestrator.research.document_schema import ArticleMetadata, digest_body, wrap_standard_markdown
+from oaao_orchestrator.research.document_schema import (
+    ArticleMetadata,
+    digest_body,
+    wrap_standard_markdown,
+)
 from oaao_orchestrator.research.extract.types import ExtractResult
 from oaao_orchestrator.research.naming import arxiv_id_from_url
 
@@ -19,13 +22,17 @@ logger = logging.getLogger(__name__)
 _USER_AGENT = "OAAO-Research/1.0 (+https://oaao.ai)"
 
 
-async def extract_arxiv_pdf(client: httpx.AsyncClient, paper_id_or_url: str) -> ExtractResult | None:
+async def extract_arxiv_pdf(
+    client: httpx.AsyncClient, paper_id_or_url: str
+) -> ExtractResult | None:
     pid = _paper_id(paper_id_or_url)
     if not pid:
         return None
     pdf_url = f"https://arxiv.org/pdf/{pid}.pdf"
     try:
-        r = await client.get(pdf_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=120.0)
+        r = await client.get(
+            pdf_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=120.0
+        )
         r.raise_for_status()
         data = r.content
     except Exception as exc:  # noqa: BLE001
@@ -79,13 +86,16 @@ async def extract_pdf_bytes(
     content_hash = digest_body(body)
     meta.content_hash = content_hash
     markdown = wrap_standard_markdown(meta=meta, body=body)
-    return ExtractResult(title=title, body=body, metadata=meta, markdown=markdown, content_hash=content_hash)
+    return ExtractResult(
+        title=title, body=body, metadata=meta, markdown=markdown, content_hash=content_hash
+    )
 
 
 def _pypdf_text(pdf_bytes: bytes) -> str:
     try:
-        from pypdf import PdfReader  # noqa: PLC0415
         import io
+
+        from pypdf import PdfReader
 
         reader = PdfReader(io.BytesIO(pdf_bytes))
         parts: list[str] = []
@@ -105,7 +115,9 @@ async def _marker_markdown(
     *,
     filename: str,
 ) -> tuple[str, str] | None:
-    api = (os.environ.get("OAAO_MARKER_API_URL") or os.environ.get("OAAO_RESEARCH_MARKER_URL") or "").strip()
+    api = (
+        os.environ.get("OAAO_MARKER_API_URL") or os.environ.get("OAAO_RESEARCH_MARKER_URL") or ""
+    ).strip()
     if not api:
         return None
     key = (os.environ.get("OAAO_MARKER_API_KEY") or "").strip()
@@ -120,7 +132,9 @@ async def _marker_markdown(
             timeout=300.0,
         )
         r.raise_for_status()
-        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else None
+        data = (
+            r.json() if r.headers.get("content-type", "").startswith("application/json") else None
+        )
         if isinstance(data, dict):
             md = str(data.get("markdown") or data.get("text") or "").strip()
             title = str(data.get("title") or "").strip()
@@ -134,7 +148,9 @@ async def _marker_markdown(
     return None
 
 
-async def extract_pdf_file(client: httpx.AsyncClient, path: Path, *, source_url: str) -> ExtractResult | None:
+async def extract_pdf_file(
+    client: httpx.AsyncClient, path: Path, *, source_url: str
+) -> ExtractResult | None:
     try:
         data = path.read_bytes()
     except OSError as exc:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from oaao_orchestrator.live_meeting.funasr_nano_ws_stream import (
     FunasrNanoWsStreamBridge,
     parse_funasr_nano_ws_message,
@@ -10,7 +9,10 @@ from oaao_orchestrator.live_meeting.funasr_runtime_stream import (
     FunasrRuntimeStreamBridge,
     parse_funasr_runtime_message,
 )
-from oaao_orchestrator.live_meeting.stream_bridge import infer_funasr_stream_driver, resolve_stream_driver
+from oaao_orchestrator.live_meeting.stream_bridge import (
+    infer_funasr_stream_driver,
+    resolve_stream_driver,
+)
 
 
 def test_infer_funasr_stream_driver_nano_ws() -> None:

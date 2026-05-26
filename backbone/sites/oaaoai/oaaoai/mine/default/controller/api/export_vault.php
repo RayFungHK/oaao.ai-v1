@@ -104,7 +104,7 @@ return function (): void {
     $secret = getenv('OAAO_ORCH_SHARED_SECRET');
     $secret = ($secret !== false && trim((string) $secret) !== '')
         ? trim((string) $secret)
-        : 'oaao_dev_shared_secret';
+        : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
 
     $vaultJobBase = getenv('OAAO_VAULT_JOB_POLL_BASE_URL');
     if (! \is_string($vaultJobBase) || trim($vaultJobBase) === '') {

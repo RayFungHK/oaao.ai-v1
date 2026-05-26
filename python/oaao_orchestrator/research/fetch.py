@@ -7,9 +7,9 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse, urljoin
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -133,7 +133,9 @@ def _is_arxiv_latexml_html(html: str) -> bool:
 
 
 async def _fetch_html(client: httpx.AsyncClient, url: str) -> str:
-    r = await client.get(url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0)
+    r = await client.get(
+        url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0
+    )
     r.raise_for_status()
     return r.text
 
@@ -151,7 +153,9 @@ def _html_to_text(html: str, *, content_url: str | None = None) -> tuple[str, st
     )
     if use_arxiv_html:
         try:
-            from oaao_orchestrator.research.arxiv_html_md import arxiv_html_to_markdown  # noqa: PLC0415
+            from oaao_orchestrator.research.arxiv_html_md import (
+                arxiv_html_to_markdown,
+            )
 
             converted = arxiv_html_to_markdown(html)
             if converted and _body_word_count(converted) >= 120:
@@ -160,9 +164,11 @@ def _html_to_text(html: str, *, content_url: str | None = None) -> tuple[str, st
             logger.debug("arxiv html markdown conversion failed: %s", exc)
 
     try:
-        import trafilatura  # noqa: PLC0415
+        import trafilatura
 
-        extracted = trafilatura.extract(html, include_comments=False, include_tables=True, output_format="markdown")
+        extracted = trafilatura.extract(
+            html, include_comments=False, include_tables=True, output_format="markdown"
+        )
         if extracted and extracted.strip():
             return title, extracted.strip()
     except Exception as exc:  # noqa: BLE001
@@ -178,14 +184,14 @@ def _html_to_text(html: str, *, content_url: str | None = None) -> tuple[str, st
 
 
 async def extract_article(client: httpx.AsyncClient, url: str) -> tuple[str, str, str]:
-    from oaao_orchestrator.research.extract.dispatcher import extract_document  # noqa: PLC0415
+    from oaao_orchestrator.research.extract.dispatcher import extract_document
 
     result = await extract_document(client, url)
     return result.title, result.markdown, result.content_hash
 
 
 async def fetch_arxiv_markdown(client: httpx.AsyncClient, abs_url: str) -> tuple[str, str, str]:
-    from oaao_orchestrator.research.extract.arxiv_backend import extract_arxiv  # noqa: PLC0415
+    from oaao_orchestrator.research.extract.arxiv_backend import extract_arxiv
 
     result = await extract_arxiv(client, abs_url)
     return result.title, result.markdown, result.content_hash
@@ -233,7 +239,7 @@ def _resolve_source_kind(kind: str, config: dict[str, Any]) -> str:
     if dm == "rss":
         return "rss"
     try:
-        from oaao_orchestrator.page_router.classify import classify_page_rules  # noqa: PLC0415
+        from oaao_orchestrator.page_router.classify import classify_page_rules
 
         ruled = classify_page_rules(str(config.get("url") or ""))
         if ruled and ruled.get("page_type") == "rss":
@@ -304,13 +310,12 @@ def _extract_arxiv_abs_urls(html: str, *, limit: int = 50) -> list[str]:
     return out
 
 
-async def _candidates_arxiv_list(client: httpx.AsyncClient, list_url: str) -> list[ArticleCandidate]:
+async def _candidates_arxiv_list(
+    client: httpx.AsyncClient, list_url: str
+) -> list[ArticleCandidate]:
     html = await _fetch_html(client, list_url)
     urls = _extract_arxiv_abs_urls(html)
-    return [
-        ArticleCandidate(url=u, title=f"arXiv {u.rsplit('/', 1)[-1]}")
-        for u in urls
-    ]
+    return [ArticleCandidate(url=u, title=f"arXiv {u.rsplit('/', 1)[-1]}") for u in urls]
 
 
 async def _candidates_index_page(
@@ -327,9 +332,11 @@ async def _candidates_index_page(
 
 async def _candidates_rss(client: httpx.AsyncClient, feed_url: str) -> list[ArticleCandidate]:
     try:
-        import feedparser  # noqa: PLC0415
+        import feedparser
 
-        r = await client.get(feed_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0)
+        r = await client.get(
+            feed_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0
+        )
         r.raise_for_status()
         parsed = feedparser.parse(r.content)
         out: list[ArticleCandidate] = []
@@ -344,7 +351,9 @@ async def _candidates_rss(client: httpx.AsyncClient, feed_url: str) -> list[Arti
         logger.warning("rss parse failed %s: %s", feed_url, exc)
 
     try:
-        r = await client.get(feed_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0)
+        r = await client.get(
+            feed_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0
+        )
         r.raise_for_status()
         root = ET.fromstring(r.content)
         out = []
@@ -378,8 +387,8 @@ def _entry_within_days(entry: Any, max_days: int) -> bool:
     if not published:
         return True
     try:
-        dt = datetime(*published[:6], tzinfo=timezone.utc)
-        return dt >= datetime.now(timezone.utc) - timedelta(days=max_days)
+        dt = datetime(*published[:6], tzinfo=UTC)
+        return dt >= datetime.now(UTC) - timedelta(days=max_days)
     except Exception:  # noqa: BLE001
         return True
 
@@ -394,9 +403,11 @@ async def _candidates_rss_filtered(
     if max_days is None or max_days < 1:
         return cands
     try:
-        import feedparser  # noqa: PLC0415
+        import feedparser
 
-        r = await client.get(feed_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0)
+        r = await client.get(
+            feed_url, headers={"User-Agent": _USER_AGENT}, follow_redirects=True, timeout=45.0
+        )
         r.raise_for_status()
         parsed = feedparser.parse(r.content)
         out: list[ArticleCandidate] = []
@@ -459,7 +470,9 @@ async def plan_source_candidates(
 
     if k == "rss":
         days = max_days if backfill else None
-        return SourcePlanResult(candidates=await _candidates_rss_filtered(client, page_url, max_days=days))
+        return SourcePlanResult(
+            candidates=await _candidates_rss_filtered(client, page_url, max_days=days)
+        )
 
     if k in ("static", "url", "blog"):
         if "arxiv.org/list" in page_url.lower():
@@ -503,10 +516,12 @@ async def plan_source_candidates(
 
     candidates = await _candidates_index_page_from_html(client, fetch_url, html, config)
     if backfill and max_days > 0:
-        candidates = candidates[: int(config.get("max_items") or config.get("max_items_per_run") or 50)]
+        candidates = candidates[
+            : int(config.get("max_items") or config.get("max_items_per_run") or 50)
+        ]
 
     state_patch: dict[str, Any] = {
-        "last_fetched_at": datetime.now(timezone.utc).isoformat(),
+        "last_fetched_at": datetime.now(UTC).isoformat(),
     }
     if fetch_url == page_url:
         state_patch["last_index_hash"] = html_hash
@@ -524,7 +539,11 @@ async def plan_source_candidates(
                 "last_page_url": fetch_url,
             }
 
-    return SourcePlanResult(candidates=candidates, index_html_hash=html_hash if fetch_url == page_url else last_hash or html_hash, state_patch=state_patch)
+    return SourcePlanResult(
+        candidates=candidates,
+        index_html_hash=html_hash if fetch_url == page_url else last_hash or html_hash,
+        state_patch=state_patch,
+    )
 
 
 async def _candidates_index_page_from_html(
@@ -541,7 +560,9 @@ async def _candidates_index_page_from_html(
     if not pattern:
         samples = config.get("confirmed_sample_urls")
         if isinstance(samples, list) and samples:
-            from oaao_orchestrator.page_router.link_scoring import infer_item_url_pattern  # noqa: PLC0415
+            from oaao_orchestrator.page_router.link_scoring import (
+                infer_item_url_pattern,
+            )
 
             pattern = infer_item_url_pattern([str(u) for u in samples if str(u).strip()]) or ""
     limit = int(config.get("max_items") or config.get("max_items_per_run") or 50)

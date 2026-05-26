@@ -31,5 +31,6 @@ class PostStreamPlugin(Protocol):
 
     plugin_id: str
 
-    async def run(self, ctx: PluginContext, *, prompt_rendered: str, endpoint_snapshot: dict[str, Any]) -> None:
-        ...
+    async def run(
+        self, ctx: PluginContext, *, prompt_rendered: str, endpoint_snapshot: dict[str, Any]
+    ) -> None: ...

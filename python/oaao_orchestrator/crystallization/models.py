@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -16,7 +16,7 @@ class CrystallizedSkill(BaseModel):
     param_template: dict[str, Any] = Field(default_factory=dict)
     success_score: float = Field(ge=0.0, le=1.0)
     usage_count: int = 0
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = None
     source_run_id: str = ""
 

@@ -42,7 +42,9 @@ class TemplateScopeContext:
         }
 
 
-def normalize_scope(raw: str | None, *, default: TemplateScopeLevel = "personal") -> TemplateScopeLevel:
+def normalize_scope(
+    raw: str | None, *, default: TemplateScopeLevel = "personal"
+) -> TemplateScopeLevel:
     s = (raw or "").strip().lower()
     if s in SCOPES:
         return s  # type: ignore[return-value]
@@ -92,6 +94,6 @@ def can_read_template(ctx: TemplateScopeContext, row: dict[str, Any]) -> bool:
             return True
         return owner == ctx.user_id or ctx.is_platform_operator
 
-    if owner != ctx.user_id:
+    if owner != ctx.user_id:  # noqa: SIM103
         return False
     return True

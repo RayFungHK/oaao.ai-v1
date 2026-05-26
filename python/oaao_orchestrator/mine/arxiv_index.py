@@ -35,7 +35,9 @@ def _title_for_arxiv_id(html: str, arxiv_id: str) -> str:
     return ""
 
 
-def project_rows_to_schema(rows: list[dict[str, Any]], schema: dict[str, Any]) -> list[dict[str, Any]]:
+def project_rows_to_schema(
+    rows: list[dict[str, Any]], schema: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Keep only columns declared in schema; drop empty rows."""
     columns = schema.get("columns") if isinstance(schema.get("columns"), list) else []
     names = [str(c.get("name")) for c in columns if isinstance(c, dict) and c.get("name")]

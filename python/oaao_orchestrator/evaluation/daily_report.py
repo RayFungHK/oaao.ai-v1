@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from oaao_orchestrator.evaluation.evolution_store import (
@@ -38,10 +38,10 @@ async def run_daily_report(*, sample_limit: int = 20) -> dict[str, Any]:
         if action:
             iqs_killers[action] = iqs_killers.get(action, 0) + 1
 
-    report_id = f"daily-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    report_id = f"daily-{datetime.now(UTC).strftime('%Y-%m-%d')}"
     report = {
         "report_id": report_id,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "sample_count": len(cases),
         "top_iqs_killers": sorted(iqs_killers.items(), key=lambda x: -x[1])[:10],
         "top_accs_agent_kinds": sorted(accs_by_agent.items(), key=lambda x: -x[1])[:10],
@@ -75,13 +75,13 @@ async def run_weekly_auto_apply(*, min_repeat: int = 5) -> dict[str, Any]:
         diff = str(patch.get("diff") or "")
         if diff.count("\n") > 5:
             continue
-        patch_id = f"auto-{datetime.now(timezone.utc).strftime('%Y%m%d')}-iqs-clarity"
+        patch_id = f"auto-{datetime.now(UTC).strftime('%Y%m%d')}-iqs-clarity"
         await record_evolution_patch(
             {
                 "patch_id": patch_id,
                 "type": "system_prompt",
                 "status": "applied",
-                "applied_at": datetime.now(timezone.utc).isoformat(),
+                "applied_at": datetime.now(UTC).isoformat(),
                 "diff": diff,
                 "source_report_id": report.get("report_id"),
                 "auto_generated": True,

@@ -128,7 +128,9 @@ def _extract_links(html: str, base_url: str, *, limit: int) -> list[dict[str, st
     base_host = urlparse(base_url).netloc.lower()
     seen: set[str] = set()
     out: list[dict[str, str | bool]] = []
-    for m in re.finditer(r'<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>([\s\S]{0,120}?)</a>', html, re.I):
+    for m in re.finditer(
+        r'<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>([\s\S]{0,120}?)</a>', html, re.I
+    ):
         href = m.group(1).strip()
         if not href or href.startswith("#") or href.lower().startswith(("javascript:", "mailto:")):
             continue

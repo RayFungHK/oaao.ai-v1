@@ -53,8 +53,11 @@ python -m pytest tests/test_orchestrator_bridge_contract.py -q
 
 ```bash
 chmod +x scripts/oaao_orchestrator_smoke.sh
+# Source your local docker/env (gitignored). To rotate the dev secret first:
+#   ./scripts/rotate_dev_secret.sh        # Linux / macOS / WSL
+#   ./scripts/rotate_dev_secret.ps1       # Windows PowerShell
 OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 \
-OAAO_ORCH_SHARED_SECRET=oaao_dev_shared_secret \
+OAAO_ORCH_SHARED_SECRET="$(grep -E '^OAAO_ORCH_SHARED_SECRET=' docker/env | cut -d= -f2-)" \
 ./scripts/oaao_orchestrator_smoke.sh
 
 # 可選：啟動最小 chat run

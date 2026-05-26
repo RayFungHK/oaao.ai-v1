@@ -61,7 +61,9 @@ def _chat_completions_url(base_url: str) -> str:
     return f"{bu}/v1/chat/completions"
 
 
-def _segment_batches(segments: list[TextSegment], *, max_chars: int) -> list[tuple[str, str, dict[str, Any]]]:
+def _segment_batches(
+    segments: list[TextSegment], *, max_chars: int
+) -> list[tuple[str, str, dict[str, Any]]]:
     """Group consecutive segments into LLM batches: (label, body, meta)."""
     out: list[tuple[str, str, dict[str, Any]]] = []
     buf: list[str] = []
@@ -141,7 +143,9 @@ async def _llm_extract_graph(
     if not bu or not mo:
         return [], [], "graph_model_unconfigured"
     url = _chat_completions_url(bu)
-    api_key = _resolve_secret(graph_cfg.get("api_key_env") if isinstance(graph_cfg.get("api_key_env"), str) else None)
+    api_key = _resolve_secret(
+        graph_cfg.get("api_key_env") if isinstance(graph_cfg.get("api_key_env"), str) else None
+    )
 
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
@@ -158,7 +162,9 @@ async def _llm_extract_graph(
     }
 
     try:
-        r = await client.post(url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0))
+        r = await client.post(
+            url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0)
+        )
     except httpx.TimeoutException as e:
         return [], [], f"graph_llm_timeout:{e}"
     except httpx.RequestError as e:
@@ -187,14 +193,20 @@ async def _llm_extract_graph(
     return entities, relations, None
 
 
-async def process_vault_graph_index(client: httpx.AsyncClient, job: dict[str, Any]) -> tuple[str, str | None, dict[str, Any]]:
+async def process_vault_graph_index(
+    client: httpx.AsyncClient, job: dict[str, Any]
+) -> tuple[str, str | None, dict[str, Any]]:
     hook = str(job.get("hook_id") or "")
     if hook != "vh.rag.graph_index":
         return "failed", f"unsupported_hook:{hook}", {}
 
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-    vault_id = int(payload.get("vault_id") if isinstance(payload, dict) else job.get("vault_id") or 0)
-    document_id = int(payload.get("document_id") if isinstance(payload, dict) else job.get("document_id") or 0)
+    vault_id = int(
+        payload.get("vault_id") if isinstance(payload, dict) else job.get("vault_id") or 0
+    )
+    document_id = int(
+        payload.get("document_id") if isinstance(payload, dict) else job.get("document_id") or 0
+    )
     if vault_id < 1 or document_id < 1:
         return "failed", "missing_vault_or_document_id", {}
 
@@ -276,4 +288,8 @@ async def process_vault_graph_index(client: httpx.AsyncClient, job: dict[str, An
         total_edges,
         len(batches),
     )
-    return "completed", None, {"usage": {"entities": total_entities, "edges": total_edges, "batches": len(batches)}}
+    return (
+        "completed",
+        None,
+        {"usage": {"entities": total_entities, "edges": total_edges, "batches": len(batches)}},
+    )

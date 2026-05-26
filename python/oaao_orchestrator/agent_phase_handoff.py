@@ -203,7 +203,7 @@ def resolve_agent_ask_prompt(
 
     Combines planner ``requires_ask`` and runtime inter-agent handoff (Phase B/C).
     """
-    from oaao_orchestrator.agent_ask import task_needs_user_ask  # noqa: PLC0415
+    from oaao_orchestrator.agent_ask import task_needs_user_ask
 
     if run_task.type != RunTaskType.AGENT:
         return False, "", None

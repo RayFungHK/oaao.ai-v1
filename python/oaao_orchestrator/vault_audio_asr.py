@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -45,7 +44,9 @@ def _build_asr_meta_json(meta: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-async def process_vault_audio_asr(client: httpx.AsyncClient, job: dict[str, Any]) -> tuple[str, str | None, dict[str, Any]]:
+async def process_vault_audio_asr(
+    client: httpx.AsyncClient, job: dict[str, Any]
+) -> tuple[str, str | None, dict[str, Any]]:
     """
     Process one audio ASR job.
 

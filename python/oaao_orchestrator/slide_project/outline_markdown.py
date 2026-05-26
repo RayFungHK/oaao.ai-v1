@@ -57,11 +57,7 @@ def format_slide_outline_lines(spec: dict[str, Any]) -> list[str]:
     title = str(spec.get("title") or f"Slide {idx}").strip()
     lines: list[str] = [f"### Slide {idx}: {title}", ""]
 
-    script = str(
-        spec.get("slide_script")
-        or spec.get("speaker_notes")
-        or ""
-    ).strip()
+    script = str(spec.get("slide_script") or spec.get("speaker_notes") or "").strip()
     if script:
         lines.append(script)
         lines.append("")

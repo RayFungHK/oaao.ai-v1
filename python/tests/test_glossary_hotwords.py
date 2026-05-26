@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from oaao_orchestrator.live_meeting.glossary_hotwords import hotwords_from_glossary, hotwords_json_for_dashscope
+from oaao_orchestrator.live_meeting.glossary_hotwords import (
+    hotwords_from_glossary,
+    hotwords_json_for_dashscope,
+)
 
 
 def test_hotwords_from_glossary() -> None:

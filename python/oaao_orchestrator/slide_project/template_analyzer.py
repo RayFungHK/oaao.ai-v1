@@ -8,15 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from oaao_orchestrator.planner_llm import _extract_json_object, llm_chat_completion_text
+from oaao_orchestrator.slide_project.async_bridge import run_blocking, run_soffice_job
 from oaao_orchestrator.slide_project.custom_templates import (
     allocate_import_template_id,
-    safe_template_id,
     save_custom_template,
-)
-from oaao_orchestrator.slide_project.template_scope import (
-    TemplateScopeContext,
-    can_write_scope,
-    normalize_scope,
 )
 from oaao_orchestrator.slide_project.deck_style import normalize_deck_style
 from oaao_orchestrator.slide_project.pptx_profile import extract_pptx_profile, theme_from_profile
@@ -24,8 +19,15 @@ from oaao_orchestrator.slide_project.pptx_typography import (
     apply_typography_to_deck_style,
     enrich_profile_typography,
 )
-from oaao_orchestrator.slide_project.template_registry import catalog_version, layout_ids_for_outline_prompt, theme_ids
-from oaao_orchestrator.slide_project.async_bridge import run_blocking, run_soffice_job
+from oaao_orchestrator.slide_project.template_registry import (
+    catalog_version,
+    layout_ids_for_outline_prompt,
+    theme_ids,
+)
+from oaao_orchestrator.slide_project.template_scope import (
+    TemplateScopeContext,
+    normalize_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +36,16 @@ def _load_pptx_profile_bundle(pptx_path: Path) -> dict[str, Any]:
     """Blocking PPTX parse — python-pptx + geometry + typography."""
     profile = extract_pptx_profile(pptx_path)
     try:
-        from oaao_orchestrator.slide_project.pptx_geometry import enrich_profile_with_geometry  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.pptx_geometry import (
+            enrich_profile_with_geometry,
+        )
 
         profile = enrich_profile_with_geometry(pptx_path, profile)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("template_analyze_geometry_enrich_failed")
     try:
         profile = enrich_profile_typography(pptx_path, profile)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("template_analyze_typography_enrich_failed")
     return profile
 
@@ -52,8 +56,13 @@ def _apply_template_fonts_sync(
     scope_ctx: TemplateScopeContext,
     scope_level: str,
 ) -> dict[str, Any]:
-    from oaao_orchestrator.slide_project.template_pptx_preview import template_asset_dir  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.pptx_fonts import apply_pptx_fonts, verify_font_entries  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.pptx_fonts import (
+        apply_pptx_fonts,
+        verify_font_entries,
+    )
+    from oaao_orchestrator.slide_project.template_pptx_preview import (
+        template_asset_dir,
+    )
 
     asset = template_asset_dir(result, scope_ctx)
     if asset is None:
@@ -84,7 +93,9 @@ def _apply_pptx_render_preview_sync(
     result: dict[str, Any],
     scope_ctx: TemplateScopeContext,
 ) -> dict[str, Any] | None:
-    from oaao_orchestrator.slide_project.template_pptx_preview import apply_pptx_render_preview  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_pptx_preview import (
+        apply_pptx_render_preview,
+    )
 
     return apply_pptx_render_preview(pptx_path=pptx_path, row=result, ctx=scope_ctx)
 
@@ -94,8 +105,10 @@ def _save_template_masters_sync(
     scope_ctx: TemplateScopeContext,
     scope_level: str,
 ) -> dict[str, Any]:
-    from oaao_orchestrator.slide_project.template_pptx_preview import template_asset_dir  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.pptx_master import save_template_masters  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.pptx_master import save_template_masters
+    from oaao_orchestrator.slide_project.template_pptx_preview import (
+        template_asset_dir,
+    )
 
     asset = template_asset_dir(result, scope_ctx)
     pages = result.get("pages")
@@ -119,8 +132,10 @@ def _apply_pptx_materials_sync(
     scope_ctx: TemplateScopeContext,
     scope_level: str,
 ) -> dict[str, Any]:
-    from oaao_orchestrator.slide_project.pptx_materials import apply_pptx_materials  # noqa: PLC0415
-    from oaao_orchestrator.slide_project.template_pptx_preview import template_asset_dir  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.pptx_materials import apply_pptx_materials
+    from oaao_orchestrator.slide_project.template_pptx_preview import (
+        template_asset_dir,
+    )
 
     asset = template_asset_dir(result, scope_ctx)
     if asset is None:
@@ -130,6 +145,7 @@ def _apply_pptx_materials_sync(
         src = pptx_path
     apply_pptx_materials(src, result, asset)
     return save_custom_template(result, scope_ctx, write_scope=scope_level)
+
 
 _ANALYZE_SYSTEM = """You are a presentation template analyst. Output ONLY valid JSON (no fences):
 {
@@ -239,7 +255,7 @@ def _heuristic_template(
     )
     deck_style = apply_typography_to_deck_style(deck_style, profile)
     deck_style["deck_theme"] = tid
-    from oaao_orchestrator.slide_project.template_pages import build_template_pages  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_pages import build_template_pages
 
     layout_hints = ["two_column", "title_content", "three_cards"]
     return {
@@ -324,7 +340,9 @@ async def analyze_pptx_template(
         deck_raw = obj.get("deck_style") if isinstance(obj.get("deck_style"), dict) else {}
         profile_theme = theme_from_profile(profile)
         deck_style = normalize_deck_style(deck_raw, fallback_theme=tid)
-        llm_typo = deck_raw.get("typography") if isinstance(deck_raw.get("typography"), dict) else None
+        llm_typo = (
+            deck_raw.get("typography") if isinstance(deck_raw.get("typography"), dict) else None
+        )
         deck_style = apply_typography_to_deck_style(
             deck_style,
             profile,
@@ -340,7 +358,9 @@ async def analyze_pptx_template(
         layout_hints = [str(x) for x in hints][:8] if isinstance(hints, list) else []
         llm_label = str(obj.get("label") or "").strip()
         llm_pages = obj.get("pages") if isinstance(obj.get("pages"), list) else None
-        from oaao_orchestrator.slide_project.template_pages import build_template_pages  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.template_pages import (
+            build_template_pages,
+        )
 
         pages = build_template_pages(profile, layout_hints=layout_hints, llm_pages=llm_pages)
         notes = str(obj.get("notes") or "").strip()
@@ -349,7 +369,7 @@ async def analyze_pptx_template(
             warn = typo.get("locale_font_warning")
             if isinstance(warn, str) and warn.strip() and warn not in notes:
                 notes = f"{notes} {warn}".strip() if notes else warn.strip()
-        from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+        from oaao_orchestrator.slide_project.template_micro_skills import (
             normalize_micro_skills,
         )
 
@@ -389,7 +409,7 @@ async def analyze_pptx_template(
                 scope_ctx,
                 scope_level,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("template_pptx_fonts_before_render_failed")
         try:
             render_summary = await run_soffice_job(
@@ -403,7 +423,7 @@ async def analyze_pptx_template(
                 result["thumbnail_source"] = "pptx_render"
                 result["preview_pages"] = render_summary.get("pages") or []
                 result["status"] = "preview"
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("template_pptx_render_after_analyze_failed")
         try:
             result = await run_blocking(
@@ -412,8 +432,10 @@ async def analyze_pptx_template(
                 scope_ctx,
                 scope_level,
             )
-            from oaao_orchestrator.slide_project.template_pptx_preview import template_asset_dir  # noqa: PLC0415
-            from oaao_orchestrator.slide_project.template_slot_plan import (  # noqa: PLC0415
+            from oaao_orchestrator.slide_project.template_pptx_preview import (
+                template_asset_dir,
+            )
+            from oaao_orchestrator.slide_project.template_slot_plan import (
                 refine_pages_with_master_html_llm,
             )
 
@@ -440,7 +462,7 @@ async def analyze_pptx_template(
                         scope_ctx,
                         write_scope=scope_level,
                     )
-                from oaao_orchestrator.slide_project.template_micro_skills import (  # noqa: PLC0415
+                from oaao_orchestrator.slide_project.template_micro_skills import (
                     generate_micro_skills_llm,
                     normalize_micro_skills,
                 )
@@ -471,7 +493,7 @@ async def analyze_pptx_template(
                         result["micro_skills"] = merged
                 preview_pages = result.get("preview_pages")
                 if isinstance(preview_pages, list):
-                    from oaao_orchestrator.slide_project.template_pages import (  # noqa: PLC0415
+                    from oaao_orchestrator.slide_project.template_pages import (
                         merge_pages_into_preview_rows,
                     )
 
@@ -486,7 +508,7 @@ async def analyze_pptx_template(
                         scope_ctx,
                         write_scope=scope_level,
                     )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("template_pptx_master_save_failed")
         try:
             result = await run_blocking(
@@ -496,6 +518,6 @@ async def analyze_pptx_template(
                 scope_ctx,
                 scope_level,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("template_pptx_materials_failed")
     return result

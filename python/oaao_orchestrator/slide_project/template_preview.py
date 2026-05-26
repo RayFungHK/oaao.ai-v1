@@ -44,7 +44,9 @@ def _enrich_preview_pages(template_id: str, pages: list[dict[str, Any]]) -> list
     return out
 
 
-def _load_manifest(template_id: str, ctx: TemplateScopeContext) -> tuple[dict[str, Any], dict[str, Any]]:
+def _load_manifest(
+    template_id: str, ctx: TemplateScopeContext
+) -> tuple[dict[str, Any], dict[str, Any]]:
     template = load_custom_template(template_id, ctx)
     if template is None:
         raise FileNotFoundError(f"template not found: {template_id}")
@@ -145,7 +147,7 @@ def _preview_specs(template: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _preview_root_for_row(row: dict[str, Any], template_id: str):
-    from oaao_orchestrator.slide_project.template_scope import normalize_scope  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_scope import normalize_scope
 
     scope = normalize_scope(str(row.get("scope") or "personal"))
     tenant_id = row.get("tenant_id")
@@ -173,7 +175,7 @@ async def generate_template_preview(
     if template is None:
         raise FileNotFoundError(f"template not found: {template_id}")
 
-    from oaao_orchestrator.slide_project.template_pptx_preview import (  # noqa: PLC0415
+    from oaao_orchestrator.slide_project.template_pptx_preview import (
         try_regenerate_pptx_render_preview,
     )
 
@@ -321,7 +323,9 @@ async def fix_template_preview_slide(
 ) -> dict[str, Any]:
     """Re-run validate → LLM fix for one preview slide."""
     template, manifest = _load_manifest(template_id, ctx)
-    page = next((p for p in manifest.get("pages") or [] if int(p.get("index") or 0) == slide_index), None)
+    page = next(
+        (p for p in manifest.get("pages") or [] if int(p.get("index") or 0) == slide_index), None
+    )
     if page is None:
         raise ValueError("preview_slide_not_found")
 
@@ -426,8 +430,12 @@ async def fix_all_template_previews(
         )
     template = load_custom_template(template_id, ctx)
     _, manifest = _load_manifest(template_id, ctx)
-    issues = [p for p in manifest.get("pages") or [] if isinstance(p, dict) and not p.get("verified")]
-    pages = _enrich_preview_pages(template_id, [p for p in manifest.get("pages") or [] if isinstance(p, dict)])
+    issues = [
+        p for p in manifest.get("pages") or [] if isinstance(p, dict) and not p.get("verified")
+    ]
+    pages = _enrich_preview_pages(
+        template_id, [p for p in manifest.get("pages") or [] if isinstance(p, dict)]
+    )
     return {
         "ok": len(issues) == 0,
         "template": template,
@@ -447,7 +455,7 @@ async def publish_template(
     auto_fix: bool = True,
 ) -> dict[str, Any]:
     """Verify all preview slides; optional fix pass; then status=published."""
-    template, manifest = _load_manifest(template_id, ctx)
+    template, manifest = _load_manifest(template_id, ctx)  # noqa: RUF059
     pages = manifest.get("pages") or []
     if not pages:
         raise ValueError("preview_required_before_publish")
@@ -476,7 +484,9 @@ async def publish_template(
         template_id,
         {
             "status": "published",
-            "preview_pages": _enrich_preview_pages(template_id, [p for p in pages if isinstance(p, dict)]),
+            "preview_pages": _enrich_preview_pages(
+                template_id, [p for p in pages if isinstance(p, dict)]
+            ),
             "preview_issues": [],
         },
         ctx,

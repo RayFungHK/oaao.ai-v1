@@ -6,14 +6,14 @@ import base64
 import logging
 import mimetypes
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
-from oaao_orchestrator.vault_document_extract import extract_text_segments, build_embedding_pieces
+from oaao_orchestrator.vault_document_extract import build_embedding_pieces, extract_text_segments
 
 logger = logging.getLogger(__name__)
 

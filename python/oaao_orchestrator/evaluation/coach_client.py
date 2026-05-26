@@ -129,7 +129,7 @@ def _evidence_excerpt(evidence: list[Any], *, limit: int = 3000) -> str:
     if not evidence:
         return "(none)"
     parts: list[str] = []
-    for i, item in enumerate(evidence[:8], start=1):
+    for i, item in enumerate(evidence[:8], start=1):  # noqa: B007
         if isinstance(item, dict):
             parts.append(json.dumps(item, ensure_ascii=False)[:500])
         else:
@@ -189,7 +189,7 @@ async def call_coach_json(
 
     try:
         parsed, err = await asyncio.wait_for(_post(), timeout=limit)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise CoachCallError("coach_timeout") from exc
 
     if err or not parsed:

@@ -103,7 +103,9 @@ return new class extends Controller {
         }
 
         $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-        $secret = \is_string($secret) && trim($secret) !== '' ? trim($secret) : 'oaao_dev_shared_secret';
+        $secret = \is_string($secret) && trim($secret) !== ''
+            ? trim($secret)
+            : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
 
         return [$internalBase, $secret];
     }

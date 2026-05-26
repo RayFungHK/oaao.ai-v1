@@ -8,9 +8,10 @@ import os
 import re
 import shutil
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from oaao_orchestrator.slide_project.template_scope import (
     TemplateScopeContext,
@@ -56,7 +57,9 @@ def incoming_dir() -> Path:
     return path
 
 
-def _scope_base(scope: TemplateScopeLevel, tenant_id: int | None, owner_user_id: int | None) -> Path:
+def _scope_base(
+    scope: TemplateScopeLevel, tenant_id: int | None, owner_user_id: int | None
+) -> Path:
     root = custom_templates_root()
     if scope == "global":
         return root / "global"
@@ -114,7 +117,7 @@ def allocate_import_template_id(*, label: str | None = None, pptx_stem: str | No
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _iter_json_paths(ctx: TemplateScopeContext) -> Iterator[Path]:
@@ -238,7 +241,9 @@ def _enrich_summary(data: dict[str, Any], stem: str) -> dict[str, Any]:
     data.setdefault("thumbnail_source", "auto")
     data.setdefault("thumbnail_page", 1)
     manifest = _load_preview_manifest_for_row(data)
-    if not str(data.get("preview_mode") or "").strip() and isinstance(manifest.get("preview_mode"), str):
+    if not str(data.get("preview_mode") or "").strip() and isinstance(
+        manifest.get("preview_mode"), str
+    ):
         data["preview_mode"] = manifest["preview_mode"]
     pages = data.get("preview_pages")
     if not isinstance(pages, list):
@@ -385,7 +390,7 @@ def update_template_fields(
     if resolved is None:
         return None
     current, _path = resolved
-    if not can_write_scope(ctx, normalize_scope(str(current.get("scope") or "personal"))):
+    if not can_write_scope(ctx, normalize_scope(str(current.get("scope") or "personal"))):  # noqa: SIM102
         if int(current.get("created_by") or 0) != ctx.user_id and not ctx.is_platform_operator:
             raise PermissionError("cannot_update_template")
     merged = {**current, **patch, "template_id": current["template_id"]}
@@ -428,12 +433,15 @@ def preview_manifest_path(
     tenant_id: int | None = None,
     owner_user_id: int | None = None,
 ) -> Path:
-    return template_preview_root(
-        template_id,
-        scope=scope,
-        tenant_id=tenant_id,
-        owner_user_id=owner_user_id,
-    ) / "preview_manifest.json"
+    return (
+        template_preview_root(
+            template_id,
+            scope=scope,
+            tenant_id=tenant_id,
+            owner_user_id=owner_user_id,
+        )
+        / "preview_manifest.json"
+    )
 
 
 def _load_preview_manifest(
@@ -485,15 +493,20 @@ def preview_slide_path(template_id: str, page: int, row: dict[str, Any]) -> Path
     owner = row.get("owner_user_id")
     tid_i = int(tenant_id) if tenant_id is not None and str(tenant_id).strip().isdigit() else None
     owner_i = int(owner) if owner is not None and str(owner).strip().isdigit() else None
-    return template_preview_root(
-        template_id,
-        scope=scope,
-        tenant_id=tid_i,
-        owner_user_id=owner_i,
-    ) / f"slides/{page:02d}/slide.html"
+    return (
+        template_preview_root(
+            template_id,
+            scope=scope,
+            tenant_id=tid_i,
+            owner_user_id=owner_i,
+        )
+        / f"slides/{page:02d}/slide.html"
+    )
 
 
-def resolve_preview_html_path(template_id: str, page: int, ctx: TemplateScopeContext) -> Path | None:
+def resolve_preview_html_path(
+    template_id: str, page: int, ctx: TemplateScopeContext
+) -> Path | None:
     resolved = resolve_template_record(template_id, ctx)
     if resolved is None:
         return None
