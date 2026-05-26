@@ -10,11 +10,7 @@ import logging
 import time
 from typing import Any
 
-from oaao_orchestrator.agent_phase_handoff import (
-    maybe_inter_agent_handoff,
-)
 from oaao_orchestrator.planner import resolve_allowed_agents
-from oaao_orchestrator.planner_llm import plan_report_result_tasks, planner_enabled
 
 # W5-S2 phase 2 — pipeline_timing helpers live in run_executor_timing.py.
 # Imported as underscore-prefixed names for back-compat with existing call sites.
@@ -35,7 +31,6 @@ from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskStatus, 
 from oaao_orchestrator.tasks.stream_emit import (
     emit_run_task_end,
     emit_run_task_start,
-    emit_task_list_status,
     ensure_run_task_agent_kind,
 )
 
@@ -62,9 +57,6 @@ from oaao_orchestrator.run_executor_llm_stream import (  # noqa: E402
     handle_llm_stream_task as _handle_llm_stream_task,
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
-    append_tasks_to_plan as _append_tasks_to_plan,
-)
-from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     pop_parallel_batch as _pop_parallel_batch,
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
@@ -72,6 +64,9 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     slide_page_parallel_batch as _slide_page_parallel_batch,
+)
+from oaao_orchestrator.run_executor_post_task import (  # noqa: E402
+    finalize_dispatched_task as _finalize_dispatched_task,
 )
 from oaao_orchestrator.run_executor_preamble import (  # noqa: E402
     prepare_run_preamble as _prepare_run_preamble,
@@ -376,82 +371,36 @@ async def execute_chat_run(
                     )
                     continue
 
-                if run.cancelled:
-                    run_task.status = RunTaskStatus.SKIPPED
-                    task_failed = True
-                    run_failed = True
-                elif task_failed:
-                    run_task.status = RunTaskStatus.FAILED
-                else:
-                    run_task.status = RunTaskStatus.DONE
-                    if not task_failed and run_task.type == RunTaskType.AGENT and not run.cancelled:
-                        handoff_snap = await maybe_inter_agent_handoff(
-                            run,
-                            req,
-                            plan=plan,
-                            completed_task=run_task,
-                            task_queue=task_queue,
-                            messages=messages_for_llm,
-                            chat_completions_url=planner_url,
-                            api_key=api_key,
-                            model=planner_model,
-                            pipeline_snap=pipeline_snap,
-                            allowed_agents=allowed_agents,
-                        )
-                        if handoff_snap is not None:
-                            pipeline_snap = handoff_snap
-                            run_ctx.messages = list(messages_for_llm)
-                task_duration_ms = _finalize_run_task_timing(
-                    pipeline_timing=pipeline_timing,
+                (
+                    pipeline_snap,
+                    run_failed,
+                    cancel_emitted,
+                    report_replan_done,
+                    pt_control,
+                ) = await _finalize_dispatched_task(
+                    run=run,
+                    req=req,
                     run_task=run_task,
-                    task_t0=task_t0,
-                )
-                await emit_run_task_end(
-                    run,
-                    plan,
-                    run_task,
+                    plan=plan,
+                    task_queue=task_queue,
+                    run_ctx=run_ctx,
+                    messages_for_llm=messages_for_llm,
                     allowed_agents=allowed_agents,
                     pipeline_snap=pipeline_snap,
-                    failed=task_failed,
-                    duration_ms=task_duration_ms,
+                    pipeline_timing=pipeline_timing,
+                    planner_url=planner_url,
+                    planner_api_key=planner_api_key,
+                    planner_model=planner_model,
+                    api_key=api_key,
+                    task_t0=task_t0,
+                    task_failed=task_failed,
+                    run_failed=run_failed,
+                    cancel_emitted=cancel_emitted,
+                    report_replan_done=report_replan_done,
+                    report_after_ids=report_after_ids,
                 )
-
-                if run.cancelled:
-                    if not cancel_emitted:
-                        await emit_run_cancelled(
-                            run,
-                            plan,
-                            pipeline_snap=pipeline_snap,
-                            pending_queue=task_queue,
-                        )
-                        cancel_emitted = True
+                if pt_control == "break":
                     break
-
-                if (
-                    planner_enabled(req)
-                    and not report_replan_done
-                    and not task_failed
-                    and run_task.id in report_after_ids
-                ):
-                    report_replan_done = True
-                    extra_tasks = await plan_report_result_tasks(
-                        req,
-                        completed_task=run_task,
-                        chat_completions_url=planner_url,
-                        api_key=planner_api_key,
-                        model=planner_model,
-                        allowed_agents=allowed_agents,
-                        remaining_tasks=task_queue,
-                    )
-                    if extra_tasks:
-                        _append_tasks_to_plan(plan, task_queue, extra_tasks)
-                        await emit_task_list_status(
-                            run,
-                            plan,
-                            allowed_agents=allowed_agents,
-                            pipeline_snap=pipeline_snap,
-                            text="report_result",
-                        )
 
             except Exception:
                 run_task.status = RunTaskStatus.FAILED
