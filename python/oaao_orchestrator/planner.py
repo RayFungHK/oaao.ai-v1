@@ -54,20 +54,7 @@ def _vault_rag_needed(req: object) -> bool:
     if has_attachments and auto_rag and not explicit_scope:
         return False
 
-    if auto_rag:
-        return True
-    if explicit_scope:
-        return True
-    refs = getattr(req, "vault_source_refs", None) or []
-    if refs:
-        return True
-    ids = getattr(req, "vault_source_ids", None) or []
-    if ids:
-        return True
-    scope = getattr(req, "vault_scope_documents", None) or {}
-    if scope:
-        return True
-    return False
+    return auto_rag or explicit_scope
 
 
 def resolve_allowed_agents(req: object) -> list[str]:
