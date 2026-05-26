@@ -471,6 +471,8 @@ export async function mountSettingsPanel(host, ctx = {}) {
                 renderEvolutionGovernanceSection(payload, {
                     onCron: (job) => void runGovernanceCron(statusEl, renderGovernance, job),
                     onPatch: (patchId, action) => void runGovernancePatch(statusEl, renderGovernance, patchId, action),
+                    onReportReview: (reportId, status) =>
+                        void runGovernanceReportReview(statusEl, renderGovernance, reportId, status),
                 }),
             );
             ctx.JIT?.hydrate?.(contentHost);
@@ -561,6 +563,18 @@ async function runGovernancePatch(statusEl, reload, patchId, action) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patch_id: patchId, action }),
+    });
+    statusEl.style.color = res.ok && data.success === true ? EVO.ink : EVO.caution;
+    statusEl.textContent = res.ok && data.success === true ? label('patch_ok') : label('patch_fail');
+    await reload();
+}
+
+/** @param {HTMLElement} statusEl @param {() => Promise<void>} reload @param {string} reportId @param {string} status */
+async function runGovernanceReportReview(statusEl, reload, reportId, status) {
+    const { res, data } = await evolutionGovernanceFetchJson(evolutionGovernanceChatApiUrl('evolution_reports'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: reportId, status }),
     });
     statusEl.style.color = res.ok && data.success === true ? EVO.ink : EVO.caution;
     statusEl.textContent = res.ok && data.success === true ? label('patch_ok') : label('patch_fail');

@@ -27,6 +27,8 @@ COPY python/requirements-dev.txt /app/python/requirements-dev.txt
 # requirements-dev.txt includes -r requirements.txt (uvicorn, fastapi, …).
 RUN pip install --no-cache-dir -r /app/python/requirements-dev.txt
 
+COPY VERSION /app/VERSION
+COPY build/oaao_build_info.json /app/build/oaao_build_info.json
 COPY python/ /app/python/
 
 ENV PYTHONPATH=/app/python

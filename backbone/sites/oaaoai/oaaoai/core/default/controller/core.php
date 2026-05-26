@@ -535,14 +535,12 @@ return new class extends Controller {
             ]
         );
 
-        // Deepest pattern first after {@see StringUtil::sortPathLevel}: SPA deep links must hit `main`, not 404.
+        // Literal routes must sit in the same {@code addRoute} batch as {@code /:a+} so sort order keeps them ahead of the SPA catch-all.
         $agent->addRoute([
-            '/:a+' => 'main',
-            '/'    => 'main',
-        ]);
-
-        $agent->addLazyRoute([
-            'GET health' => 'health',
+            'GET /health'        => 'health',
+            'GET /api/build_info' => 'api/build_info',
+            '/:a+'               => 'main',
+            '/'                  => 'main',
         ]);
 
         return true;

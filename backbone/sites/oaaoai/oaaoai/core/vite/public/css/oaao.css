@@ -1447,3 +1447,40 @@ button.oaao-vault-menu-active {
 .oaao-settings-action-btn--secondary:hover {
     background-color: color-mix(in srgb, var(--grid-line) 25%, var(--grid-panel-bright));
 }
+
+/* Version / build visibility (dev + deploy mismatch) */
+.oaao-version-badge {
+    position: fixed;
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+    bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    z-index: 12040;
+    padding: 0.35rem 0.55rem;
+    border-radius: 999px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--grid-ink-muted, #666);
+    background: color-mix(in srgb, var(--grid-paper, #fafafa) 92%, transparent);
+    border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.12));
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    pointer-events: none;
+    user-select: none;
+}
+
+.oaao-version-stale-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 12050;
+    padding: 0.55rem 1rem;
+    font-size: 13px;
+    text-align: center;
+    color: #3b2f00;
+    background: #fff3cd;
+    border-bottom: 1px solid #f0d58c;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.oaao-version-stale-banner.hidden {
+    display: none;
+}

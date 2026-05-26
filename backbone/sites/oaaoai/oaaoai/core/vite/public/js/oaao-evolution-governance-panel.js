@@ -22,6 +22,10 @@ const LABELS = {
         daily_reports_empty: 'No reports yet — run daily report or wait for cron.',
         report_samples: 'Samples',
         report_status: 'Status',
+        report_review: 'Mark reviewed',
+        report_dismiss: 'Dismiss',
+        crystallized_skills: 'Crystallized skills',
+        crystallized_empty: 'No crystallized skills loaded yet.',
         systemd_hint: 'Schedule on the host with systemd timers — see scripts/systemd/README.md',
     },
     'zh-Hant': {
@@ -41,6 +45,10 @@ const LABELS = {
         daily_reports_empty: '尚無 report — 請執行 daily report 或等待 cron。',
         report_samples: '樣本數',
         report_status: '狀態',
+        report_review: '標記已審閱',
+        report_dismiss: '忽略',
+        crystallized_skills: '結晶化 skills',
+        crystallized_empty: '尚無已載入的 crystallized skills。',
         systemd_hint: '在 host 上用 systemd timer 排程 — 見 scripts/systemd/README.md',
     },
 };
@@ -118,6 +126,16 @@ export async function fetchEvolutionGovernancePayload() {
     } catch {
         payload.evolution_patches = [];
     }
+    try {
+        const crystalRes = await evolutionGovernanceFetchJson(evolutionGovernanceChatApiUrl('crystallized_skills_admin'));
+        if (crystalRes.res.ok && crystalRes.data.success === true && crystalRes.data.data && typeof crystalRes.data.data === 'object') {
+            payload.crystallized_skills = Array.isArray(crystalRes.data.data.skills) ? crystalRes.data.data.skills : [];
+        } else {
+            payload.crystallized_skills = [];
+        }
+    } catch {
+        payload.crystallized_skills = [];
+    }
     if (payload.crystallization_stats === undefined) payload.crystallization_stats = {};
     if (payload.iqs_action_distribution === undefined) payload.iqs_action_distribution = {};
     return payload;
@@ -125,7 +143,11 @@ export async function fetchEvolutionGovernancePayload() {
 
 /**
  * @param {Record<string, unknown>} data
- * @param {{ onCron: (job: string) => void, onPatch: (patchId: string, action: string) => void }} handlers
+ * @param {{
+ *   onCron: (job: string) => void,
+ *   onPatch: (patchId: string, action: string) => void,
+ *   onReportReview?: (reportId: string, status: string) => void,
+ * }} handlers
  */
 export function renderEvolutionGovernanceSection(data, handlers) {
     const evoSection = document.createElement('section');
@@ -199,6 +221,29 @@ export function renderEvolutionGovernanceSection(data, handlers) {
             const samples = Number(rep.sample_count ?? 0);
             const status = String(rep.status ?? '—');
             card.innerHTML = `<strong>${id}</strong><br>${label('report_samples')}: ${samples} · ${label('report_status')}: ${status}`;
+            if (status === 'pending_review' && typeof handlers.onReportReview === 'function') {
+                const actions = document.createElement('div');
+                sty(actions, { display: 'flex', gap: '8px', marginTop: '8px' });
+                for (const [act, text] of [
+                    ['reviewed', 'report_review'],
+                    ['dismissed', 'report_dismiss'],
+                ]) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = label(text);
+                    sty(btn, {
+                        fontSize: '12px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        border: `1px solid ${UI.line}`,
+                        background: '#fff',
+                        cursor: 'pointer',
+                    });
+                    btn.addEventListener('click', () => handlers.onReportReview?.(id, act));
+                    actions.appendChild(btn);
+                }
+                card.appendChild(actions);
+            }
             const killers = rep.top_iqs_killers;
             if (Array.isArray(killers) && killers.length > 0) {
                 const sub = document.createElement('pre');
@@ -230,6 +275,36 @@ export function renderEvolutionGovernanceSection(data, handlers) {
     sty(crystalP, { fontSize: '13px', margin: '0' });
     crystalP.textContent = `${label('crystal_count')}: ${crystal.skill_count ?? 0} · ${label('crystal_usage')}: ${crystal.total_usage ?? 0}`;
     evoSection.appendChild(crystalP);
+
+    const crystalSkillsHeading = document.createElement('h3');
+    sty(crystalSkillsHeading, {
+        fontSize: '11px',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        color: UI.caption,
+        margin: '8px 0 0',
+    });
+    crystalSkillsHeading.textContent = label('crystallized_skills');
+    evoSection.appendChild(crystalSkillsHeading);
+    const crystalList = document.createElement('div');
+    sty(crystalList, { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' });
+    const crystalSkills = Array.isArray(data.crystallized_skills) ? data.crystallized_skills : [];
+    if (crystalSkills.length === 0) {
+        const emptyCrystal = document.createElement('p');
+        sty(emptyCrystal, { margin: '0', color: UI.muted });
+        emptyCrystal.textContent = label('crystallized_empty');
+        crystalList.appendChild(emptyCrystal);
+    } else {
+        crystalSkills.slice(0, 8).forEach((skill) => {
+            if (!skill || typeof skill !== 'object') return;
+            const row = document.createElement('div');
+            const sid = String(skill.id ?? '—');
+            const chain = Array.isArray(skill.tool_chain) ? skill.tool_chain.join(' → ') : '';
+            row.textContent = `${sid} · usage ${skill.usage_count ?? 0} · ${chain}`;
+            crystalList.appendChild(row);
+        });
+    }
+    evoSection.appendChild(crystalList);
 
     const iqsHeading = document.createElement('h3');
     sty(iqsHeading, {

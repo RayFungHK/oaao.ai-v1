@@ -27,6 +27,8 @@ RUN { \
 } > /usr/local/etc/php/conf.d/oaao.ini
 
 WORKDIR /var/www/html
+COPY VERSION /var/www/VERSION
+COPY build/oaao_build_info.json /var/www/html/config/oaaoai/build_info.json
 COPY backbone/ .
 RUN test -f /var/www/html/Razy.phar \
     || (echo "ERROR: Place Razy.phar in backbone/ before building — see docker/env.example"; exit 1)

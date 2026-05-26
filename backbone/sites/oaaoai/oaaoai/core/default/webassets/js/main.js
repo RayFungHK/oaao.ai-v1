@@ -2,6 +2,7 @@ import razyui from 'razyui';
 import { applyLoginPreset } from './preset/login.js';
 import oaaoPresets from './oaao-jit.js';
 import { initPlatformShell } from './platform-shell.js';
+import { initOaaoVersionBadge } from './oaao-version-badge.js';
 
 const isPlatformHostShell = () => document.body?.dataset?.oaaoPlatformHost === '1';
 
@@ -680,6 +681,7 @@ if (oaaoSessionUser && !isPlatformHostShell()) {
 }
 
 applySessionShellVisibility();
+initOaaoVersionBadge();
 
 if (authInstalledEarly && authBaseEarly) {
     if (oaaoSessionUser) {
