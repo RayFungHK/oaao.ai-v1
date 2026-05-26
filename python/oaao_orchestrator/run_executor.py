@@ -47,6 +47,12 @@ from oaao_orchestrator.run_executor_agent import (  # noqa: E402
 from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
     handle_attachments_task as _handle_attachments_task,
 )
+from oaao_orchestrator.run_executor_entry import (  # noqa: E402
+    log_chat_attachments_entry as _log_chat_attachments_entry,
+)
+from oaao_orchestrator.run_executor_entry import (  # noqa: E402
+    register_request_tool_servers as _register_request_tool_servers,
+)
 from oaao_orchestrator.run_executor_error import (  # noqa: E402
     handle_run_error as _handle_run_error,
 )
@@ -97,37 +103,8 @@ async def execute_chat_run(
     if not isinstance(req, ChatRunRequest):
         raise TypeError("req must be ChatRunRequest")
 
-    _atts_in = list(getattr(req, "chat_attachments", None) or [])
-    logger.info(
-        "chat_attachments: execute_chat_run entry run_id=%s count=%s ids=%s",
-        run_id,
-        len(_atts_in),
-        [a.get("id") if isinstance(a, dict) else None for a in _atts_in[:8]],
-    )
-
-    from oaao_orchestrator.tools.registry import (
-        ToolServerSpec,
-        register_tool_server,
-    )
-
-    for row in getattr(req, "tool_servers", None) or []:
-        if not isinstance(row, dict):
-            continue
-        sid = str(row.get("id") or "").strip()
-        base = str(row.get("base_url") or "").strip()
-        if sid and base:
-            purposes = row.get("allowed_purposes")
-            allowed = [str(p) for p in purposes] if isinstance(purposes, list) else ["chat"]
-            spec = row.get("openapi_spec")
-            register_tool_server(
-                ToolServerSpec(
-                    id=sid,
-                    base_url=base.rstrip("/"),
-                    openapi_url=str(row.get("openapi_url") or "/openapi.json"),
-                    allowed_purposes=allowed,
-                    openapi_spec=spec if isinstance(spec, dict) else None,
-                )
-            )
+    _log_chat_attachments_entry(run_id=run_id, req=req)
+    _register_request_tool_servers(req=req)
 
     run = registry.get(run_id)
     if run is None:
