@@ -12,9 +12,47 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from oaao_orchestrator.run_executor_timing import (
+    finalize_run_task_timing as _finalize_run_task_timing,
+)
 from oaao_orchestrator.streaming.events import PHASE_SYSTEM, StreamEnvelope
+from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskStatus
+from oaao_orchestrator.tasks.stream_emit import emit_run_task_end
 
 logger = logging.getLogger(__name__)
+
+
+async def emit_failed_task_end(
+    *,
+    run: Any,
+    plan: RunPlan,
+    run_task: RunTaskSpec,
+    allowed_agents: Any,
+    pipeline_snap: dict[str, Any] | None,
+    pipeline_timing: dict[str, Any],
+    task_t0: float,
+) -> None:
+    """Mark a task FAILED and emit its task-end envelope with timing.
+
+    Used by the per-task ``except`` arm in :func:`execute_chat_run`: the
+    caller is expected to ``raise`` after this returns so the outer
+    run-level handler runs.
+    """
+    run_task.status = RunTaskStatus.FAILED
+    task_duration_ms = _finalize_run_task_timing(
+        pipeline_timing=pipeline_timing,
+        run_task=run_task,
+        task_t0=task_t0,
+    )
+    await emit_run_task_end(
+        run,
+        plan,
+        run_task,
+        allowed_agents=allowed_agents,
+        pipeline_snap=pipeline_snap,
+        failed=True,
+        duration_ms=task_duration_ms,
+    )
 
 
 async def handle_run_error(

@@ -14,10 +14,6 @@ from oaao_orchestrator.planner import resolve_allowed_agents
 
 # W5-S2 phase 2 — pipeline_timing helpers live in run_executor_timing.py.
 # Imported as underscore-prefixed names for back-compat with existing call sites.
-from oaao_orchestrator.run_executor_timing import (
-    finalize_run_task_timing as _finalize_run_task_timing,
-)
-
 # W5-S2 phase 1 — Upstream sampling + timeout helpers live in
 # run_executor_upstream.py. The underscore-prefixed names below are kept as
 # thin aliases so internal callers in this module need no churn.
@@ -55,6 +51,9 @@ from oaao_orchestrator.run_executor_entry import (  # noqa: E402
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     register_request_tool_servers as _register_request_tool_servers,
+)
+from oaao_orchestrator.run_executor_error import (  # noqa: E402
+    emit_failed_task_end as _emit_failed_task_end,
 )
 from oaao_orchestrator.run_executor_error import (  # noqa: E402
     handle_run_error as _handle_run_error,
@@ -359,21 +358,15 @@ async def execute_chat_run(
                     break
 
             except Exception:
-                run_task.status = RunTaskStatus.FAILED
                 run_failed = True
-                task_duration_ms = _finalize_run_task_timing(
-                    pipeline_timing=pipeline_timing,
+                await _emit_failed_task_end(
+                    run=run,
+                    plan=plan,
                     run_task=run_task,
-                    task_t0=task_t0,
-                )
-                await emit_run_task_end(
-                    run,
-                    plan,
-                    run_task,
                     allowed_agents=allowed_agents,
                     pipeline_snap=pipeline_snap,
-                    failed=True,
-                    duration_ms=task_duration_ms,
+                    pipeline_timing=pipeline_timing,
+                    task_t0=task_t0,
                 )
                 raise
 
