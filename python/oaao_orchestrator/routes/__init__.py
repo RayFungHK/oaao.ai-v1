@@ -14,6 +14,7 @@ Mounted so far:
 - routes.runs    — `/v1/runs/{id}/agent_ask|cancel` + `/v1/stream` (W5-S1 phase 4)
 - routes.slides  — `/v1/slides/*` (slide-project + custom-template lifecycle; W5-S1 phase 4)
 - routes.turn_scores — `/v1/turn_scores/*` + `/v1/work_queues/status` (W5-S1 phase 5)
+- routes.asr     — `/v1/asr/transcribe` + `/v1/funasr/{ensure,status}` (W5-S1 phase 6)
 
 Pending phase-2 candidates (do not block W5-S1 acceptance):
 - `/v1/runs/chat`  — follows after run_executor LLM-stream loop is extracted
@@ -22,6 +23,7 @@ Pending phase-2 candidates (do not block W5-S1 acceptance):
 from __future__ import annotations
 
 from oaao_orchestrator.routes.admin import router as admin_router
+from oaao_orchestrator.routes.asr import router as asr_router
 from oaao_orchestrator.routes.health import router as health_router
 from oaao_orchestrator.routes.live import router as live_router
 from oaao_orchestrator.routes.mine import router as mine_router
@@ -32,6 +34,7 @@ from oaao_orchestrator.routes.turn_scores import router as turn_scores_router
 
 __all__ = [
     "admin_router",
+    "asr_router",
     "health_router",
     "live_router",
     "mine_router",

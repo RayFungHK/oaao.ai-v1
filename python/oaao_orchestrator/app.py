@@ -11,15 +11,12 @@ attached to ``system/end`` metrics for PHP ``assistant_patch.meta`` persistence.
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import os
 import re
 import secrets
-import tempfile
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -27,13 +24,12 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
 from oaao_orchestrator.cors_config import resolve_cors_config
-from oaao_orchestrator.funasr_ops import ensure_funasr, funasr_status
 from oaao_orchestrator.log_config import configure_oaao_logging
 from oaao_orchestrator.research_fetch_poll import research_fetch_poll_loop
 from oaao_orchestrator.research_refetch_poll import research_refetch_poll_loop
 from oaao_orchestrator.routes.admin import router as _admin_router
+from oaao_orchestrator.routes.asr import router as _asr_router
 from oaao_orchestrator.routes.health import router as _health_router
 from oaao_orchestrator.routes.live import router as _live_router
 from oaao_orchestrator.routes.mine import router as _mine_router
@@ -247,21 +243,6 @@ class SkillsDiscoverRequest(BaseModel):
     endpoint: EndpointPayload
 
 
-class AsrTranscribeRequest(BaseModel):
-    workspace_id: int | None = None
-    audio_base64: str = ""
-    mime_type: str = "audio/webm"
-    polish_enabled: bool = True
-    glossary: dict[str, Any] | None = None
-    asr: dict[str, Any] | None = None
-    polish: dict[str, Any] | None = None
-
-
-class FunasrEnsureRequest(BaseModel):
-    pull: bool = True
-    funasr_env: dict[str, str] | None = None
-    recreate: bool = False
-
 
 # Streaming state moved to streaming_state.py so routes/runs.py can share it
 # without creating an import cycle with app.py.
@@ -442,6 +423,7 @@ async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
 # lines 555-718 of this file were moved verbatim; behaviour is preserved.
 app.include_router(_health_router)
 app.include_router(_admin_router)
+app.include_router(_asr_router)
 app.include_router(_mine_router)
 app.include_router(_research_router)
 app.include_router(_live_router)
@@ -502,78 +484,3 @@ async def skills_discover(
     )
     return {"ok": True, **result}
 
-
-
-@app.post("/v1/asr/transcribe")
-async def transcribe_audio(
-    req: AsrTranscribeRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-
-    raw_b64 = (req.audio_base64 or "").strip()
-    if raw_b64.startswith("data:") and "," in raw_b64:
-        raw_b64 = raw_b64.split(",", 1)[1]
-    if not raw_b64:
-        raise HTTPException(status_code=400, detail="audio_base64 required")
-
-    try:
-        audio_bytes = base64.b64decode(raw_b64, validate=False)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="invalid_base64") from exc
-
-    suffix = ".webm" if "webm" in req.mime_type.lower() else ".wav"
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="oaao_chat_asr_")
-    os.close(fd)
-    try:
-        Path(tmp_path).write_bytes(audio_bytes)
-        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as client:
-            text, meta = await run_asr_pipeline_on_file(
-                client,
-                audio_path=tmp_path,
-                asr_cfg=req.asr if isinstance(req.asr, dict) else None,
-                polish_cfg=req.polish if isinstance(req.polish, dict) else None,
-                glossary=req.glossary if isinstance(req.glossary, dict) else None,
-                polish_enabled=bool(req.polish_enabled),
-            )
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-    if not text:
-        raise HTTPException(
-            status_code=502, detail=str(meta.get("error") or "transcription_failed")
-        )
-
-    return {
-        "text": text,
-        "raw_text": meta.get("raw_text", ""),
-        "polished": bool(meta.get("polished")),
-    }
-
-
-@app.post("/v1/funasr/ensure")
-async def funasr_ensure(
-    req: FunasrEnsureRequest,
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    return await ensure_funasr(
-        pull=bool(req.pull), funasr_env=req.funasr_env, recreate=bool(req.recreate)
-    )
-
-
-@app.get("/v1/funasr/status")
-async def funasr_status_route(
-    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
-) -> dict[str, Any]:
-    if not x_oaao_internal_token or not secrets.compare_digest(
-        x_oaao_internal_token, _shared_secret()
-    ):
-        raise HTTPException(status_code=403, detail="bad_internal_token")
-    return await funasr_status()
