@@ -103,6 +103,9 @@ function pageIdToPath(pageId) {
     return `/${parts.join('/')}`;
 }
 
+/** Query keys preserved when navigating to Chat — reload restores open thread ({@see chat-panel.js}). */
+const WORKSPACE_CHAT_PRESERVED_QUERY_KEYS = ['conversation_id', 'share'];
+
 /**
  * SPA {@code navigate()} writes path-only URLs; keep vault explorer fragments on the vault page
  * ({@see oaaoai/vault/default/webassets/js/vault-panel.js vaultWriteLocationHashFromNav}).
@@ -114,6 +117,20 @@ function workspaceBrowserUrlWithPreservedFragment(path, resolvedPageId) {
     const h = typeof window.location.hash === 'string' ? window.location.hash : '';
     if (resolvedPageId === 'workspace/vault' && h.startsWith('#oaao-vault=')) {
         return `${path}${h}`;
+    }
+    if (resolvedPageId === 'workspace/chat') {
+        const params = new URLSearchParams(window.location.search);
+        const kept = new URLSearchParams();
+        for (const key of WORKSPACE_CHAT_PRESERVED_QUERY_KEYS) {
+            const v = params.get(key);
+            if (v != null && String(v).trim() !== '') {
+                kept.set(key, String(v).trim());
+            }
+        }
+        const qs = kept.toString();
+        if (qs) {
+            return `${path}?${qs}`;
+        }
     }
 
     return path;
@@ -1331,6 +1348,14 @@ export function initWorkspaceShell() {
     syncWorkspaceScopeFromUrlOrStorage(root);
     wireWorkspaceScopeQuickPersonal(root);
     void primeWorkspaceScopeFromServer(root);
+
+    /** Scope switch without {@code oaao-workspace-scope-changed} — URL conversation restore ({@see chat-panel.js}). */
+    globalThis.__oaaoSyncWorkspaceScopeSilently = (workspaceId, workspaceDisplayName = null) => {
+        const wid =
+            workspaceId != null && Number(workspaceId) > 0 ? Math.floor(Number(workspaceId)) : null;
+        persistWorkspaceScope(wid, workspaceDisplayName ?? '');
+        applyWorkspaceScopeDataset(root, wid, workspaceDisplayName ?? null);
+    };
 
     if (!document.body.dataset.oaaoWsScopeInvalidBound) {
         document.body.dataset.oaaoWsScopeInvalidBound = '1';

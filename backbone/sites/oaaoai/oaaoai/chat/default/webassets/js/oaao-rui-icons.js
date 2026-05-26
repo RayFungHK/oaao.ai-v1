@@ -32,6 +32,9 @@ export const OAAO_RUI_ICON_SLIDE = 'layout';
 /** Conversation row overflow menu (sidebar). */
 export const OAAO_RUI_ICON_MORE = 'ellipsis';
 
+/** Expand / collapse chevron (thread health, dropups). */
+export const OAAO_RUI_ICON_CHEVRON_DOWN = 'chevron-down';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Embedded Lucide paths — always render without {@code Icons.js}. */
@@ -46,6 +49,7 @@ const OAAO_SVG_ICONS = {
     download:
         '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" />',
     ellipsis: '<circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />',
+    'chevron-down': '<path d="m6 9 6 6 6-6" />',
     /** Lucide {@code group} — workspace / team rows ({@see workspace.js}). */
     group:
         '<path d="M3 7V5c0-1.1.9-2 2-2h2" /><path d="M17 3h2c1.1 0 2 .9 2 2v2" /><path d="M21 17v2c0 1.1-.9 2-2 2h-2" /><path d="M7 21H5c-1.1 0-2-.9-2-2v-2" /><rect width="7" height="5" x="7" y="7" rx="1" /><rect width="7" height="5" x="10" y="12" rx="1" />',

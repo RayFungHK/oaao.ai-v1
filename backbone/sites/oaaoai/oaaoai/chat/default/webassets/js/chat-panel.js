@@ -1862,8 +1862,79 @@ function loadChatComposerDialogCtor() {
     return chatComposerDialogCtorPromise;
 }
 
-/** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260525-composer-asr-v35';
+/** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
+ *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
+const OAAO_CHAT_SHELL_ASSET_REV = '20260526-thread-health-chevron-v43';
+
+/**
+ * @param {Record<string, unknown> | null | undefined} meta
+ */
+function isForkCitCmtHandoffMeta(meta) {
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return false;
+    const v = /** @type {Record<string, unknown>} */ (meta).fork_cit_cmt;
+    return v === true || v === 1 || v === '1' || v === 'true';
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} meta
+ * @param {string} [contentText]
+ */
+function isForkCitCmtHandoffMessage(meta, contentText = '') {
+    if (isForkCitCmtHandoffMeta(meta)) return true;
+    const t = String(contentText ?? '').replace(/[*_`]/g, '').trim();
+    return (
+        t.startsWith('上文承接（CIT/CMT）') ||
+        t.startsWith('Context carry-over (CIT/CMT)') ||
+        t.includes('較早對話（摘要）') ||
+        t.includes('Earlier turns (summary)')
+    );
+}
+
+/**
+ * @param {string} md
+ */
+function stripHandoffHeaderFromContent(md) {
+    let raw = String(md ?? '').replace(/\r\n/g, '\n').trim();
+    if (!raw) return '';
+    const lines = raw.split('\n');
+    if (lines.length < 1) return raw;
+    const first = lines[0].replace(/[*_`]/g, '').trim();
+    if (
+        first.includes('CIT/CMT') ||
+        first.includes('上文承接') ||
+        first.toLowerCase().includes('carry-over')
+    ) {
+        return lines.slice(1).join('\n').trim();
+    }
+    return raw;
+}
+
+/**
+ * @param {string} md
+ */
+function normalizeHandoffMarkdownForRender(md) {
+    let raw = stripHandoffHeaderFromContent(String(md ?? '')).replace(/\r\n/g, '\n').trim();
+    if (!raw) return '';
+    raw = raw.replace(/([^\n])(#{1,6})(\s+)(?![0-9]+\.)/g, '$1\n\n$2$3');
+    raw = raw.replace(/\n{3,}/g, '\n\n');
+    return raw.trim();
+}
+
+/**
+ * @param {HTMLElement | Document} mount
+ */
+function hideThreadHealthBannerUi(mount) {
+    const root = mount instanceof HTMLElement ? mount : document;
+    const banner = root.querySelector('[data-oaao-chat="thread-health-banner"]');
+    if (!(banner instanceof HTMLElement)) return;
+    banner.classList.add('hidden');
+    banner.classList.remove('is-expanded');
+    banner.replaceChildren();
+    banner.dataset.oaaoHealthAlert = '';
+    syncComposerChipsWrap(
+        root instanceof HTMLElement ? root : document.querySelector('[data-module="oaao-chat"]') ?? document,
+    );
+}
 
 /** Initial / incremental message page size ({@code GET messages}) — loaded from {@code chat_preferences}. */
 let chatHistoryPageSize = 5;
@@ -1872,6 +1943,10 @@ let chatHistoryPageSize = 5;
 const turnScoreCacheByConversation = new Map();
 /** @type {Map<number, { intro: string, suggestions: string[], source?: string }>} */
 const forkSuggestionsCacheByConversation = new Map();
+/** Conversation IDs where the thread-health banner stays hidden until the in-flight stream ends. */
+const threadHealthBannerSuppressedUntilStreamEnd = new Set();
+/** Thread-health banners expanded (default collapsed to one line). */
+const threadHealthBannerExpandedByConversation = new Set();
 /** @type {((text: string) => void) | null} */
 let chatComposerSeedPromptFn = null;
 
@@ -2311,14 +2386,33 @@ button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after{content:'';
 .oaao-chat-turn-score-card__dim-bar{grid-column:1;grid-row:2;height:5px;min-height:5px;max-height:5px;align-self:stretch;border-radius:999px;background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 55%,transparent);overflow:hidden;line-height:0}
 .oaao-chat-turn-score-card__dim-fill{display:block;height:5px;min-height:5px;border-radius:inherit;background:var(--grid-accent,#2563eb);opacity:.85}
 .oaao-chat-turn-score-card--accs .oaao-chat-turn-score-card__dim-fill{background:#059669}
-.oaao-chat-thread-health{border-color:color-mix(in srgb,#b45309 32%,var(--grid-line,rgba(0,0,0,.12)));background:color-mix(in srgb,#b45309 9%,var(--grid-panel-bright,#fff));color:var(--grid-ink,#111);flex-direction:column;align-items:stretch}
-.oaao-chat-thread-health__title{font-weight:600;color:color-mix(in srgb,#b45309 88%,var(--grid-ink,#111))}
-.oaao-chat-thread-health__meta{font-size:.75rem;color:var(--grid-ink-muted,#666)}
+.oaao-chat-thread-health{border-color:color-mix(in srgb,#b45309 32%,var(--grid-line,rgba(0,0,0,.12)));background:color-mix(in srgb,#b45309 9%,var(--grid-panel-bright,#fff));color:var(--grid-ink,#111);flex-direction:column;align-items:stretch;padding:0.375rem 0.5rem}
+.oaao-chat-thread-health__toggle{display:flex;align-items:center;gap:0.375rem;width:100%;min-w-0;border:0;background:transparent;padding:0.125rem 0.25rem;cursor:pointer;font:inherit;text-align:left;color:inherit}
+.oaao-chat-thread-health__toggle:hover{opacity:.92}
+.oaao-chat-thread-health__title{font-weight:600;font-size:0.75rem;line-height:1.3;color:color-mix(in srgb,#b45309 88%,var(--grid-ink,#111));flex:1;min-w-0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oaao-chat-thread-health__chevron{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:1.25rem;height:1.25rem;color:color-mix(in srgb,#b45309 70%,var(--grid-ink-muted,#666));transition:transform .15s ease}
+.oaao-chat-thread-health__chevron svg{width:14px;height:14px;max-width:14px;max-height:14px}
+.oaao-chat-thread-health.is-expanded .oaao-chat-thread-health__chevron{transform:rotate(180deg)}
+.oaao-chat-thread-health__body{display:none!important;flex-direction:column;gap:0.375rem;width:100%;min-w-0;margin-top:0.25rem;padding-top:0.25rem;border-top:1px solid color-mix(in srgb,#b45309 18%,transparent)}
+.oaao-chat-thread-health.is-expanded .oaao-chat-thread-health__body{display:flex!important}
+.oaao-chat-thread-health__meta{display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin:0 0 0.125rem}
+.oaao-chat-thread-health__stat{display:inline-flex;align-items:center;gap:0.2rem;padding:0.12rem 0.5rem;border-radius:9999px;font-size:0.6875rem;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.35;border:1px solid transparent;letter-spacing:.01em}
+.oaao-chat-thread-health__stat-val{font-weight:700;font-variant-numeric:tabular-nums}
+.oaao-chat-thread-health__stat--trend-stable{color:color-mix(in srgb,#64748b 92%,var(--grid-ink,#111));background:color-mix(in srgb,#64748b 11%,transparent);border-color:color-mix(in srgb,#64748b 24%,transparent)}
+.oaao-chat-thread-health__stat--trend-improving{color:color-mix(in srgb,#059669 92%,var(--grid-ink,#111));background:color-mix(in srgb,#059669 11%,transparent);border-color:color-mix(in srgb,#059669 26%,transparent)}
+.oaao-chat-thread-health__stat--trend-declining{color:color-mix(in srgb,#dc2626 90%,var(--grid-ink,#111));background:color-mix(in srgb,#dc2626 10%,transparent);border-color:color-mix(in srgb,#dc2626 24%,transparent)}
+.oaao-chat-thread-health__stat--accs-high{color:color-mix(in srgb,#059669 92%,var(--grid-ink,#111));background:color-mix(in srgb,#059669 11%,transparent);border-color:color-mix(in srgb,#059669 26%,transparent)}
+.oaao-chat-thread-health__stat--accs-mid{color:color-mix(in srgb,#b45309 92%,var(--grid-ink,#111));background:color-mix(in srgb,#b45309 12%,transparent);border-color:color-mix(in srgb,#b45309 28%,transparent)}
+.oaao-chat-thread-health__stat--accs-low{color:color-mix(in srgb,#dc2626 90%,var(--grid-ink,#111));background:color-mix(in srgb,#dc2626 10%,transparent);border-color:color-mix(in srgb,#dc2626 24%,transparent)}
 .oaao-chat-thread-health__fork{border-color:color-mix(in srgb,#b45309 40%,var(--grid-line,rgba(0,0,0,.12)));color:color-mix(in srgb,#b45309 90%,var(--grid-ink,#111))}
-.oaao-chat-thread-health__suggestions{display:flex;flex-direction:column;gap:0.375rem;width:100%;min-w-0;margin-top:0.25rem}
+.oaao-chat-thread-health__suggestions{display:flex;flex-direction:column;gap:0.375rem;width:100%;min-w-0}
 .oaao-chat-thread-health__chip{display:block;width:100%;text-align:left;rounded-lg;border:1px solid color-mix(in srgb,#b45309 28%,var(--grid-line,rgba(0,0,0,.12)));background:var(--grid-paper,#fff);color:var(--grid-ink,#111);padding:0.375rem 0.625rem;font-size:0.75rem;line-height:1.35;cursor:pointer;font-family:inherit}
 .oaao-chat-thread-health__chip:hover{background:color-mix(in srgb,#b45309 6%,var(--grid-paper,#fff))}
 .oaao-chat-thread-health__blank-fork{align-self:flex-start;font-size:0.75rem;color:color-mix(in srgb,#b45309 88%,var(--grid-ink,#111));background:transparent;border:0;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px}
+.oaao-chat-turn-score-pill--accs{flex-wrap:wrap;gap:0.2rem 0.35rem;max-width:100%}
+.oaao-chat-turn-score-pill__accs-sub{font-size:0.625rem;font-weight:600;opacity:.92;padding:0 0.2rem;border-radius:4px;background:color-mix(in srgb,#059669 12%,transparent)}
+.oaao-chat-fork-handoff{border:1px solid color-mix(in srgb,#2563eb 28%,var(--grid-line));background:color-mix(in srgb,#2563eb 6%,var(--grid-panel-bright,#fff));border-radius:12px;padding:0.75rem 1rem;font-size:0.8125rem;line-height:1.45;color:var(--grid-ink,#111);max-width:100%;align-self:stretch}
+.oaao-chat-fork-handoff__label{font-size:0.6875rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:color-mix(in srgb,#2563eb 85%,var(--grid-ink));margin-bottom:0.35rem}
 .oaao-chat-turn-score-floater{position:absolute;min-width:9rem;max-width:min(16rem,70vw);padding:.4rem .55rem;border-radius:8px;border:1px solid var(--grid-line,rgba(0,0,0,.12));background:var(--grid-panel-bright,#fff);color:var(--grid-ink,#111);font-size:.6875rem;font-weight:500;line-height:1.45;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.08);pointer-events:none;font-family:ui-sans-serif,system-ui,sans-serif}
 .oaao-app form[data-oaao-chat='composer'] > .flex{align-items:flex-end}
 .oaao-app [data-oaao-chat='composer-feature-toggles'],.oaao-app [data-oaao-chat='composer-registry-slots-left'],.oaao-app [data-oaao-chat='composer-registry-slots-actions']{align-items:flex-end}
@@ -2511,6 +2605,11 @@ const OAAO_TASK_OPEN_STATUSES = new Set(['pending', 'active', 'running', 'awaiti
 
 const OAAO_TASK_CHEVRON_SVG =
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="m6 9 6 6 6-6"/>'
+    + '</svg>';
+
+const OAAO_THREAD_HEALTH_CHEVRON_SVG =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
     + '<path d="m6 9 6 6 6-6"/>'
     + '</svg>';
 
@@ -2971,16 +3070,20 @@ function buildOaaoAgentAskBar(row, conversationId) {
                     applyOaaoAgentAskDecisionLocally(conversationId, taskId, 'skip');
                 }
                 await requestOrchestratorCancelRun(runId);
-                const newId = await forkConversationForModeSwitch(conversationId);
+                const rows = cachedMessageRows;
+                const lastUser = [...rows].reverse().find((m) => String(m.role ?? '') === 'user');
+                const prompt = typeof lastUser?.content === 'string' ? lastUser.content.trim() : '';
+                const mountFork = document.querySelector('[data-module="oaao-chat"]');
+                if (mountFork instanceof HTMLElement) {
+                    dismissThreadHealthBannerForSend(mountFork, conversationId);
+                }
+                const newId = await forkConversationForModeSwitch(conversationId, prompt);
                 if (!newId) {
                     unlockButtons();
                     toastOaao(oaaoChatT('chat.agent_ask.fork_failed', 'Could not start a new chat'));
                     return;
                 }
                 wrap.remove();
-                const rows = cachedMessageRows;
-                const lastUser = [...rows].reverse().find((m) => String(m.role ?? '') === 'user');
-                const prompt = typeof lastUser?.content === 'string' ? lastUser.content.trim() : '';
                 document.dispatchEvent(
                     new CustomEvent('oaao-switch-conversation', {
                         bubbles: true,
@@ -5933,20 +6036,31 @@ async function forkConversationWithSeedPrompt(parentConversationId, seedPrompt, 
     const parentId = Number(parentConversationId) || 0;
     const seed = String(seedPrompt ?? '').trim();
     if (parentId < 1) return;
+    dismissThreadHealthBannerForSend(mount, parentId);
+    toastOaao(
+        oaaoChatT('chat.thread_health.fork_preparing', 'Preparing CIT/CMT context handoff…'),
+    );
     const newId = await forkConversationForModeSwitch(parentId, seed);
     if (!newId) {
         toastOaao(
             oaaoChatT('chat.thread_health.fork_failed', 'Could not start a new chat'),
         );
+        releaseThreadHealthBannerAfterStream(mount, parentId);
         return;
     }
+    hideThreadHealthBannerUi(mount);
+    threadHealthBannerExpandedByConversation.delete(parentId);
+    threadHealthBannerSuppressedUntilStreamEnd.add(newId);
+    forkSuggestionsCacheByConversation.delete(newId);
+    conversationHealthCacheByConversation.delete(newId);
+    cancelConversationHealthPoll(parentId);
     document.dispatchEvent(
         new CustomEvent('oaao-switch-conversation', {
             bubbles: true,
             detail: { conversation_id: newId, replaceUrl: true, seed_prompt: seed },
         }),
     );
-    toastOaao(oaaoChatT('chat.thread_health.fork_done', 'Opened a new chat'));
+    toastOaao(oaaoChatT('chat.thread_health.fork_done', 'Opened a new chat with context handoff'));
 }
 
 /**
@@ -8120,7 +8234,15 @@ const OAAO_TURN_SCORE_DIM_LABELS = {
     alignment: 'Alignment',
     accuracy: 'Accuracy',
     hallucination_penalty: 'Hallucination',
+    citation_fidelity: 'Citation fidelity',
+    source_analysis: 'Source analysis',
 };
+
+/** Short labels on ACCS pill face for sub-dimensions. */
+const OAAO_ACCS_PILL_SUB_DIMS = [
+    ['citation_fidelity', 'cite'],
+    ['source_analysis', 'scope'],
+];
 
 /** @type {HTMLElement | null} */
 let oaaoTurnScoreFloaterEl = null;
@@ -8501,12 +8623,34 @@ function renderTurnScorePill(wrap, kind, score, dims, opts = {}) {
         pill.dataset.oaaoTurnScorePill = kind;
         pill.className = `oaao-chat-turn-score-pill oaao-chat-turn-score-pill--${kind}`;
         pill.setAttribute('role', 'note');
-        pill.append(document.createElement('span'));
+        const mainSpan = document.createElement('span');
+        mainSpan.className = 'oaao-chat-turn-score-pill__main';
+        pill.append(mainSpan);
         wrap.append(pill);
     }
-    const labelEl = pill.querySelector(':scope > span:first-child');
+    let labelEl = pill.querySelector(':scope > span.oaao-chat-turn-score-pill__main');
+    if (!(labelEl instanceof HTMLElement)) {
+        labelEl = pill.querySelector(':scope > span:first-child');
+        if (labelEl instanceof HTMLElement) {
+            labelEl.classList.add('oaao-chat-turn-score-pill__main');
+        }
+    }
     if (labelEl instanceof HTMLElement) {
         labelEl.textContent = pending && !hasScore ? `${label} …` : `${label} ${score.toFixed(2)}`;
+    }
+    pill.querySelectorAll('[data-oaao-accs-sub]').forEach((el) => el.remove());
+    if (kind === 'accs' && hasScore && dims && typeof dims === 'object' && !Array.isArray(dims)) {
+        const dimObj = /** @type {Record<string, unknown>} */ (dims);
+        for (const [key, short] of OAAO_ACCS_PILL_SUB_DIMS) {
+            const n = Number(dimObj[key]);
+            if (!Number.isFinite(n) || n <= 0) continue;
+            const sub = document.createElement('span');
+            sub.className = 'oaao-chat-turn-score-pill__accs-sub';
+            sub.dataset.oaaoAccsSub = key;
+            sub.textContent = `${short} ${n.toFixed(2)}`;
+            sub.title = `${OAAO_TURN_SCORE_DIM_LABELS[key] || key}: ${n.toFixed(2)}`;
+            pill.append(sub);
+        }
     }
     pill.classList.toggle('oaao-chat-turn-score-pill--pending', pending && !hasScore);
     pill.classList.remove('oaao-chat-turn-score-pill--stale');
@@ -8644,7 +8788,7 @@ const CONVERSATION_HEALTH_POLL_MAX_ATTEMPTS = 30;
 
 /**
  * @param {Record<string, unknown> | null | undefined} health
- * @returns {{ title: string, detail: string } | null}
+ * @returns {{ title: string, trend: string, trendLabel: string, accsP50: number | null, accsPct: number | null } | null}
  */
 function threadHealthCopy(health) {
     if (!health || typeof health !== 'object') return null;
@@ -8652,21 +8796,26 @@ function threadHealthCopy(health) {
     if (alert === 'none' || !alert) return null;
     const trend = String(health.trend ?? 'stable');
     const accsP50 = Number(health.accs_rolling_p50);
-    const accsLabel = Number.isFinite(accsP50) && accsP50 > 0 ? `ACCS p50 ${(accsP50 * 100).toFixed(0)}%` : '';
+    const accsPct = Number.isFinite(accsP50) && accsP50 > 0 ? Math.round(accsP50 * 100) : null;
     const trendLabel =
         trend === 'improving'
             ? oaaoChatT('chat.thread_health.trend_improving', 'Improving')
             : trend === 'declining'
               ? oaaoChatT('chat.thread_health.trend_declining', 'Declining')
               : oaaoChatT('chat.thread_health.trend_stable', 'Stable');
-    const detail = [trendLabel, accsLabel].filter(Boolean).join(' · ');
+    const base = {
+        trend,
+        trendLabel,
+        accsP50: accsPct != null ? accsP50 : null,
+        accsPct,
+    };
     if (alert === 'misunderstanding_loop') {
         return {
             title: oaaoChatT(
                 'chat.thread_health.misunderstanding_loop',
                 'Replies may be missing your intent — try rephrasing or narrowing the question.',
             ),
-            detail,
+            ...base,
         };
     }
     if (alert === 'drift') {
@@ -8675,7 +8824,7 @@ function threadHealthCopy(health) {
                 'chat.thread_health.drift',
                 'The thread may have drifted off topic — clarify what you still need.',
             ),
-            detail,
+            ...base,
         };
     }
     if (alert === 'quality_drop') {
@@ -8684,7 +8833,7 @@ function threadHealthCopy(health) {
                 'chat.thread_health.quality_drop',
                 'Recent answers scored low — consider a follow-up or regenerate.',
             ),
-            detail,
+            ...base,
         };
     }
     if (alert === 'alignment_declining') {
@@ -8693,13 +8842,51 @@ function threadHealthCopy(health) {
                 'chat.thread_health.alignment_declining',
                 'Answer quality is trending down in this thread.',
             ),
-            detail,
+            ...base,
         };
     }
     return {
         title: oaaoChatT('chat.thread_health.generic', 'Conversation quality needs attention.'),
-        detail,
+        ...base,
     };
+}
+
+/**
+ * @param {HTMLElement} body
+ * @param {{ trend?: string, trendLabel?: string, accsPct?: number | null } | null | undefined} copy
+ */
+function appendThreadHealthMetaPills(body, copy) {
+    if (!copy) return;
+    const trendLabel = String(copy.trendLabel ?? '').trim();
+    const accsPct = copy.accsPct != null && Number.isFinite(Number(copy.accsPct)) ? Math.floor(Number(copy.accsPct)) : null;
+    if (!trendLabel && accsPct == null) return;
+
+    const meta = document.createElement('div');
+    meta.className = 'oaao-chat-thread-health__meta';
+
+    if (trendLabel) {
+        const trend = String(copy.trend ?? 'stable');
+        const trendPill = document.createElement('span');
+        trendPill.className = `oaao-chat-thread-health__stat oaao-chat-thread-health__stat--trend oaao-chat-thread-health__stat--trend-${trend}`;
+        trendPill.textContent = trendLabel;
+        meta.append(trendPill);
+    }
+
+    if (accsPct != null) {
+        const accsPill = document.createElement('span');
+        let accsBand = 'high';
+        if (accsPct < 50) accsBand = 'low';
+        else if (accsPct < 70) accsBand = 'mid';
+        accsPill.className = `oaao-chat-thread-health__stat oaao-chat-thread-health__stat--accs oaao-chat-thread-health__stat--accs-${accsBand}`;
+        accsPill.append(document.createTextNode('ACCS p50 '));
+        const val = document.createElement('span');
+        val.className = 'oaao-chat-thread-health__stat-val';
+        val.textContent = `${accsPct}%`;
+        accsPill.append(val);
+        meta.append(accsPill);
+    }
+
+    body.append(meta);
 }
 
 /**
@@ -8736,14 +8923,59 @@ async function loadForkSuggestions(conversationId) {
 }
 
 /**
+ * Hide thread-health / fork banner while the user waits for the next assistant turn.
+ *
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ */
+function dismissThreadHealthBannerForSend(mount, conversationId) {
+    const cid = Number(conversationId);
+    if (!Number.isFinite(cid) || cid < 1) return;
+    threadHealthBannerSuppressedUntilStreamEnd.add(cid);
+    threadHealthBannerExpandedByConversation.delete(cid);
+    forkSuggestionsCacheByConversation.delete(cid);
+    cancelConversationHealthPoll(cid);
+    renderThreadHealthBanner(mount, null, null, cid);
+}
+
+/**
+ * Re-enable thread-health banner after stream ends or send fails without starting a stream.
+ *
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ * @param {{ reevaluate?: boolean }} [opts]
+ */
+function releaseThreadHealthBannerAfterStream(mount, conversationId, opts = {}) {
+    const cid = Number(conversationId);
+    if (!Number.isFinite(cid) || cid < 1) return;
+    if (!threadHealthBannerSuppressedUntilStreamEnd.delete(cid)) return;
+    const reevaluate = opts.reevaluate !== false;
+    if (!reevaluate || activeConversationId !== cid) return;
+    scheduleConversationHealthPoll(cid, mount, { afterStream: true });
+}
+
+/**
  * @param {HTMLElement | Document} mount
  * @param {Record<string, unknown> | null | undefined} health
  * @param {{ intro?: string, suggestions?: string[] } | null} [forkHints]
+ * @param {number | null} [conversationId]
  */
-function renderThreadHealthBanner(mount, health, forkHints = null) {
+function renderThreadHealthBanner(mount, health, forkHints = null, conversationId = null) {
     const root = mount instanceof HTMLElement ? mount : document;
     const banner = root.querySelector('[data-oaao-chat="thread-health-banner"]');
     if (!(banner instanceof HTMLElement)) return;
+    const cid = Number(conversationId ?? activeConversationId) || 0;
+    if (cid > 0 && threadHealthBannerSuppressedUntilStreamEnd.has(cid)) {
+        banner.classList.add('hidden');
+        banner.replaceChildren();
+        banner.dataset.oaaoHealthAlert = '';
+        syncComposerChipsWrap(root instanceof HTMLElement ? root : document.querySelector('[data-module="oaao-chat"]') ?? document);
+        return;
+    }
+    const alert = String(health?.alert ?? 'none');
+    if (alert === 'none' || !alert) {
+        forkHints = null;
+    }
     const copy = threadHealthCopy(health);
     banner.replaceChildren();
     if (!copy && !forkHints?.intro) {
@@ -8763,10 +8995,49 @@ function renderThreadHealthBanner(mount, health, forkHints = null) {
             'The thread may be drifting or missing your intent. Pick a starter below for a fresh chat:',
         );
 
-    const title = document.createElement('div');
+    const expanded = cid > 0 && threadHealthBannerExpandedByConversation.has(cid);
+    banner.classList.remove('is-expanded');
+    if (expanded) banner.classList.add('is-expanded');
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'oaao-chat-thread-health__toggle';
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    toggle.title = expanded
+        ? oaaoChatT('chat.thread_health.collapse', 'Collapse')
+        : oaaoChatT('chat.thread_health.expand', 'Expand suggestions');
+
+    const title = document.createElement('span');
     title.className = 'oaao-chat-thread-health__title min-w-0';
-    title.textContent = introText;
-    banner.append(title);
+    title.textContent = expanded
+        ? introText
+        : oaaoChatT(
+              'chat.thread_health.collapsed',
+              'Topic drift detected — tap to expand fork suggestions',
+          );
+
+    const chevron = document.createElement('span');
+    chevron.className = 'oaao-chat-thread-health__chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    chevron.innerHTML = OAAO_THREAD_HEALTH_CHEVRON_SVG;
+
+    toggle.append(title, chevron);
+    toggle.addEventListener('click', () => {
+        const activeCid = Number(activeConversationId) || cid;
+        if (activeCid < 1) return;
+        if (threadHealthBannerExpandedByConversation.has(activeCid)) {
+            threadHealthBannerExpandedByConversation.delete(activeCid);
+        } else {
+            threadHealthBannerExpandedByConversation.add(activeCid);
+        }
+        renderThreadHealthBanner(mount, health, forkHints, activeCid);
+    });
+    banner.append(toggle);
+
+    const body = document.createElement('div');
+    body.className = 'oaao-chat-thread-health__body';
+
+    appendThreadHealthMetaPills(body, copy);
 
     const suggestions = Array.isArray(forkHints?.suggestions) ? forkHints.suggestions : [];
     if (suggestions.length > 0) {
@@ -8780,13 +9051,13 @@ function renderThreadHealthBanner(mount, health, forkHints = null) {
             chip.className = 'oaao-chat-thread-health__chip';
             chip.textContent = text;
             chip.addEventListener('click', () => {
-                const cid = Number(activeConversationId) || 0;
-                if (cid < 1) return;
-                void forkConversationWithSeedPrompt(cid, text, mount);
+                const activeCid = Number(activeConversationId) || 0;
+                if (activeCid < 1) return;
+                void forkConversationWithSeedPrompt(activeCid, text, mount);
             });
             list.append(chip);
         }
-        banner.append(list);
+        body.append(list);
     }
 
     const blankFork = document.createElement('button');
@@ -8794,24 +9065,12 @@ function renderThreadHealthBanner(mount, health, forkHints = null) {
     blankFork.className = 'oaao-chat-thread-health__blank-fork';
     blankFork.textContent = oaaoChatT('chat.thread_health.fork_blank', 'Or start an empty new chat');
     blankFork.addEventListener('click', () => {
-        const cid = Number(activeConversationId) || 0;
-        if (cid < 1) return;
-        void (async () => {
-            const newId = await forkConversationForModeSwitch(cid);
-            if (!newId) {
-                toastOaao(oaaoChatT('chat.thread_health.fork_failed', 'Could not start a new chat'));
-                return;
-            }
-            document.dispatchEvent(
-                new CustomEvent('oaao-switch-conversation', {
-                    bubbles: true,
-                    detail: { conversation_id: newId, replaceUrl: true },
-                }),
-            );
-            toastOaao(oaaoChatT('chat.thread_health.fork_done', 'Opened a new chat'));
-        })();
+        const activeCid = Number(activeConversationId) || 0;
+        if (activeCid < 1) return;
+        void forkConversationWithSeedPrompt(activeCid, '', mount);
     });
-    banner.append(blankFork);
+    body.append(blankFork);
+    banner.append(body);
 
     const chatRoot = root.querySelector?.('.oaao-chat-root') ?? document.querySelector('.oaao-chat-root');
     syncComposerChipsWrap(
@@ -8831,12 +9090,14 @@ function renderThreadHealthBanner(mount, health, forkHints = null) {
  * @param {Record<string, unknown> | null | undefined} health
  */
 async function hydrateThreadHealthForkSuggestions(conversationId, mount, health) {
+    const cid = Number(conversationId);
+    if (threadHealthBannerSuppressedUntilStreamEnd.has(cid)) return;
     const alert = String(health?.alert ?? 'none');
     if (alert === 'none' || !alert) return;
     const hints = await loadForkSuggestions(conversationId);
     if (!hints) return;
     if (activeConversationId !== Number(conversationId)) return;
-    renderThreadHealthBanner(mount, health, hints);
+    renderThreadHealthBanner(mount, health, hints, Number(conversationId));
 }
 
 /**
@@ -8888,8 +9149,8 @@ function scheduleConversationHealthPoll(conversationId, mount, opts = {}) {
         if (activeConversationId !== cid) return;
         attempts += 1;
         const health = await loadConversationHealth(cid);
-        if (activeConversationId === cid) {
-            renderThreadHealthBanner(mount, health);
+        if (activeConversationId === cid && !threadHealthBannerSuppressedUntilStreamEnd.has(cid)) {
+            renderThreadHealthBanner(mount, health, null, cid);
             void hydrateThreadHealthForkSuggestions(cid, mount, health);
         }
         const turnCount = Number(health?.turn_count ?? 0);
@@ -9008,12 +9269,15 @@ function applyProvisionalStreamScoresToDom(conversationId, mount, assistantMessa
             Number(conversationId),
             /** @type {Record<string, unknown>} */ (threadHealth),
         );
-        renderThreadHealthBanner(mount, /** @type {Record<string, unknown>} */ (threadHealth));
-        void hydrateThreadHealthForkSuggestions(
-            Number(conversationId),
-            mount,
-            /** @type {Record<string, unknown>} */ (threadHealth),
-        );
+        const thCid = Number(conversationId);
+        if (!threadHealthBannerSuppressedUntilStreamEnd.has(thCid)) {
+            renderThreadHealthBanner(mount, /** @type {Record<string, unknown>} */ (threadHealth), null, thCid);
+            void hydrateThreadHealthForkSuggestions(
+                thCid,
+                mount,
+                /** @type {Record<string, unknown>} */ (threadHealth),
+            );
+        }
     }
 }
 
@@ -9724,7 +9988,7 @@ function releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId) {
             assistantMessageId: streamingMsgId && streamingMsgId > 0 ? streamingMsgId : null,
             triggerRescore: true,
         });
-        scheduleConversationHealthPoll(conversationId, mount, { afterStream: true });
+        releaseThreadHealthBannerAfterStream(mount, conversationId);
     }
 }
 
@@ -10496,6 +10760,39 @@ function readChatConversationIdFromUrl() {
 }
 
 /**
+ * Align shell workspace scope with an owned conversation (URL reload / deep link).
+ *
+ * @param {number} conversationId
+ * @returns {Promise<boolean>}
+ */
+async function resolveConversationForUrlRestore(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    if (!Number.isFinite(cid) || cid < 1) return false;
+    try {
+        const { res, data } = await chatFetchJson(chatApiUrl('conversation', { conversation_id: String(cid) }));
+        if (!res.ok || !data.success || !data.conversation || typeof data.conversation !== 'object') {
+            return false;
+        }
+        const row = /** @type {{ id?: unknown, workspace_id?: unknown }} */ (data.conversation);
+        rememberConversationWorkspace(cid, row.workspace_id);
+        const convWid =
+            row.workspace_id != null && Number(row.workspace_id) > 0
+                ? Math.floor(Number(row.workspace_id))
+                : null;
+        const curWid = getOaaoActiveWorkspaceIdForChat();
+        if ((convWid ?? null) !== (curWid ?? null)) {
+            const syncFn = globalThis.__oaaoSyncWorkspaceScopeSilently;
+            if (typeof syncFn === 'function') {
+                syncFn(convWid, null);
+            }
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * @param {number | null} conversationId
  * @param {{ replace?: boolean }} [opts]
  */
@@ -11138,10 +11435,12 @@ export async function mountShellPanel(mount) {
         clearStreamCursor(conversationId);
         abortStreamReaderForConversation(conversationId);
         clearOaaoTaskListStrip(mount, true);
+        dismissThreadHealthBannerForSend(mount, conversationId);
         oaaoFreshRunByConv.add(conversationId);
         chatComposerSubmitConvId = conversationId;
         chatComposerSubmitInFlight = true;
         setChatComposerBusy(mount, true, 'send');
+        let retryStreamStarted = false;
         try {
             /** @type {Record<string, unknown>} */
             const vaultSendExtra = buildChatVaultSendExtra();
@@ -11193,6 +11492,7 @@ export async function mountShellPanel(mount) {
                     ...(amid ? { assistant_message_id: amid } : {}),
                 });
                 setChatComposerStreamingUi(mount, true);
+                retryStreamStarted = true;
                 void consumeAssistantStream(
                     su,
                     rid,
@@ -11207,6 +11507,9 @@ export async function mountShellPanel(mount) {
             chatComposerSubmitInFlight = false;
             chatComposerSubmitConvId = null;
             syncComposerBusyForActiveView(mount);
+            if (!retryStreamStarted) {
+                releaseThreadHealthBannerAfterStream(mount, conversationId);
+            }
         }
     }
 
@@ -11585,8 +11888,11 @@ export async function mountShellPanel(mount) {
                     ) {
                         const healthPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
                         conversationHealthCacheByConversation.set(conversationId, healthPayload);
-                        if (isStreamConversationVisible()) {
-                            renderThreadHealthBanner(mount, healthPayload);
+                        if (
+                            isStreamConversationVisible() &&
+                            !threadHealthBannerSuppressedUntilStreamEnd.has(conversationId)
+                        ) {
+                            renderThreadHealthBanner(mount, healthPayload, null, conversationId);
                             void hydrateThreadHealthForkSuggestions(conversationId, mount, healthPayload);
                         }
                     }
@@ -12440,6 +12746,34 @@ export async function mountShellPanel(mount) {
             const role = String(m.role ?? '').toLowerCase();
             const contentText = String(m.content ?? '');
             const mid = coercePositiveInt(m.id);
+            const rowMeta =
+                m.meta && typeof m.meta === 'object' ? /** @type {Record<string, unknown>} */ (m.meta) : null;
+
+            if (role === 'assistant' && isForkCitCmtHandoffMessage(rowMeta, contentText) && contentText.trim()) {
+                const handoffWrap = document.createElement('div');
+                handoffWrap.className =
+                    'oaao-chat-fork-handoff self-stretch w-full min-w-0 max-w-full box-border';
+                if (mid !== null) {
+                    handoffWrap.dataset.oaaoMsgId = String(mid);
+                }
+                handoffWrap.dataset.oaaoMsgRole = 'assistant';
+                handoffWrap.dataset.oaaoForkHandoff = '1';
+                const handoffLabel = document.createElement('div');
+                handoffLabel.className = 'oaao-chat-fork-handoff__label';
+                handoffLabel.textContent = oaaoChatT(
+                    'chat.fork_handoff.label',
+                    'Context carry-over (CIT/CMT)',
+                );
+                const handoffBody = document.createElement('div');
+                handoffBody.className = 'oaao-md-bubble min-w-0';
+                applyAssistantMarkdown(
+                    handoffBody,
+                    normalizeHandoffMarkdownForRender(contentText),
+                );
+                handoffWrap.append(handoffLabel, handoffBody);
+                messagesEl.append(handoffWrap);
+                return;
+            }
 
             const bubble = document.createElement('div');
             bubble.className =
@@ -12737,7 +13071,12 @@ export async function mountShellPanel(mount) {
             });
         }
         const cachedHealth = conversationHealthCacheByConversation.get(conversationId);
-        renderThreadHealthBanner(mount, cachedHealth ?? null);
+        if (!threadHealthBannerSuppressedUntilStreamEnd.has(conversationId)) {
+            renderThreadHealthBanner(mount, cachedHealth ?? null, null, conversationId);
+            if (cachedHealth && String(cachedHealth.alert ?? 'none') !== 'none') {
+                void hydrateThreadHealthForkSuggestions(conversationId, mount, cachedHealth);
+            }
+        }
         scheduleConversationHealthPoll(conversationId, mount);
         if (streamHandlesByConversation.has(conversationId)) {
             const lbl = runStatusLabelByConversation.get(conversationId) || 'Working…';
@@ -12772,6 +13111,20 @@ export async function mountShellPanel(mount) {
 
     async function resetLanding(options = {}) {
         const focusInviteSidebar = Boolean(options.focusInviteSidebar);
+        const urlCid = readChatConversationIdFromUrl();
+        if (urlCid != null && urlCid > 0) {
+            renderMessages([]);
+            bindOaaoTaskListStripToConversation(mount, null);
+            await resolveConversationForUrlRestore(urlCid);
+            await refreshConversations(urlCid);
+            if (cachedConversations.some((r) => Number(r.id) === urlCid)) {
+                await openConversation(urlCid, { replaceUrl: true, scroll: 'auto' });
+                if (focusInviteSidebar) {
+                    focusWorkspaceSidebarAfterInvite();
+                }
+                return;
+            }
+        }
         renderMessages([]);
         bindOaaoTaskListStripToConversation(mount, null);
         await refreshConversations(null);
@@ -12797,9 +13150,18 @@ export async function mountShellPanel(mount) {
             await refreshConversations(id);
             await openConversation(id, { replaceUrl: true });
             syncChatComposerChips(mount);
+            hideThreadHealthBannerUi(mount);
+            threadHealthBannerExpandedByConversation.delete(id);
             const seed =
                 detail && typeof detail === 'object' ? String(detail.seed_prompt ?? '').trim() : '';
-            if (seed && typeof chatComposerSeedPromptFn === 'function') {
+            const seedAlreadyInThread =
+                seed &&
+                cachedMessageRows.some(
+                    (m) =>
+                        String(m.role ?? '').toLowerCase() === 'user' &&
+                        String(m.content ?? '').trim() === seed,
+                );
+            if (seed && !seedAlreadyInThread && typeof chatComposerSeedPromptFn === 'function') {
                 chatComposerSeedPromptFn(seed);
             }
         },
@@ -12926,12 +13288,17 @@ export async function mountShellPanel(mount) {
                 );
             }
             clearOaaoTaskListStrip(mount, true);
+            const sendConvId = activeConversationId && activeConversationId > 0 ? activeConversationId : 0;
+            if (sendConvId > 0) {
+                dismissThreadHealthBannerForSend(mount, sendConvId);
+            }
             if (activeConversationId && activeConversationId > 0) {
                 oaaoFreshRunByConv.add(activeConversationId);
             }
             chatComposerSubmitConvId = activeConversationId;
             chatComposerSubmitInFlight = true;
             setChatComposerBusy(mount, true, 'send');
+            let sendStreamStarted = false;
             try {
                 /** @type {Record<string, unknown>} */
                 const vaultSendExtra = buildChatVaultSendExtra();
@@ -13025,6 +13392,7 @@ export async function mountShellPanel(mount) {
                         ...(assistantMid ? { assistant_message_id: assistantMid } : {}),
                     });
                     setChatComposerStreamingUi(mount, true);
+                    sendStreamStarted = true;
                     void consumeAssistantStream(
                         su,
                         rid,
@@ -13038,6 +13406,9 @@ export async function mountShellPanel(mount) {
                 chatComposerSubmitInFlight = false;
                 chatComposerSubmitConvId = null;
                 syncComposerBusyForActiveView(mount);
+                if (!sendStreamStarted && sendConvId > 0) {
+                    releaseThreadHealthBannerAfterStream(mount, sendConvId);
+                }
             }
         },
         { signal },
@@ -13138,7 +13509,12 @@ export async function mountShellPanel(mount) {
     if (!activeConversationId) {
         activeConversationId = readChatConversationIdFromUrl();
     }
+    const urlRestoreCid =
+        activeConversationId != null && activeConversationId > 0 ? activeConversationId : null;
     await awaitWorkspaceListReady();
+    if (urlRestoreCid) {
+        await resolveConversationForUrlRestore(urlRestoreCid);
+    }
     await refreshConversations(activeConversationId);
     if (
         activeConversationId != null &&

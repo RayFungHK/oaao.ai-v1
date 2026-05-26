@@ -65,6 +65,32 @@ final class ChatConversationScope
     }
 
     /**
+     * Lookup by id for the signed-in user — ignores active workspace scope (URL restore / deep links).
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function findOwnedByUser(
+        \Razy\Database $splitDb,
+        int $uid,
+        int $cid,
+        string $select = 'id, title, workspace_id, created_at, updated_at, archived, params_json',
+    ): ?array {
+        if ($uid < 1 || $cid < 1) {
+            return null;
+        }
+        $row = $splitDb->prepare()
+            ->select($select)
+            ->from('conversation')
+            ->where('id=?,user_id=?')
+            ->assign(['id' => $cid, 'user_id' => $uid])
+            ->limit(1)
+            ->query()
+            ->fetch();
+
+        return \is_array($row) ? $row : null;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public static function listForUser(

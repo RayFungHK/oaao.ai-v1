@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatOrchestratorApi;
+
 /**
- * POST /chat/api/conversation_fork — branch a desk-mode thread for a different agent/mode.
+ * POST /chat/api/conversation_fork — branch a thread; run CIT/CMT handoff into the new conversation.
  *
  * Body JSON: { "conversation_id": int, "workspace_id"?: int|null, "seed_prompt"?: string }
  */
@@ -57,11 +59,12 @@ return function (): void {
         }
         $title = mb_substr($baseTitle . ' · new mode', 0, 120);
 
+        $seedPrompt = isset($input['seed_prompt']) ? trim((string) $input['seed_prompt']) : '';
+
         $params = [
             'mode'        => 'default',
             'forked_from' => $parentId,
         ];
-        $seedPrompt = isset($input['seed_prompt']) ? trim((string) $input['seed_prompt']) : '';
         if ($seedPrompt !== '') {
             $params['fork_seed_prompt'] = mb_substr($seedPrompt, 0, 4000);
         }
@@ -87,11 +90,102 @@ return function (): void {
             return;
         }
 
+        $handoffMessageId = 0;
+        $handoffSource = 'none';
+        $compactedPreview = '';
+
+        $rawMessages = $splitDb->prepare()
+            ->select('id, role, content')
+            ->from('message')
+            ->where('conversation_id=?')
+            ->assign(['conversation_id' => $parentId])
+            ->order('+id')
+            ->limit(500)
+            ->query()
+            ->fetchAll();
+
+        /** @var list<array{role: string, content: string}> $recentMessages */
+        $recentMessages = [];
+        $localeHint = $seedPrompt;
+        if (\is_array($rawMessages)) {
+            foreach ($rawMessages as $row) {
+                if (! \is_array($row)) {
+                    continue;
+                }
+                $role = strtolower(trim((string) ($row['role'] ?? '')));
+                if ($role !== 'user' && $role !== 'assistant') {
+                    continue;
+                }
+                $content = (string) ($row['content'] ?? '');
+                $recentMessages[] = ['role' => $role, 'content' => $content];
+                if ($role === 'user' && trim($content) !== '') {
+                    $localeHint = $content;
+                }
+            }
+        }
+
+        if ($recentMessages !== [] && ChatOrchestratorApi::internalBase() !== '') {
+            $coachEndpoint = null;
+            $endpointsApi = $this->api('endpoints');
+            if ($endpointsApi && \method_exists($endpointsApi, 'resolveOrchestratorUiqePayload')) {
+                $coachEndpoint = $endpointsApi->resolveOrchestratorUiqePayload();
+            }
+
+            $resp = ChatOrchestratorApi::postInternalJson(
+                '/v1/conversation/fork_handoff',
+                [
+                    'parent_conversation_id' => $parentId,
+                    'recent_messages'        => $recentMessages,
+                    'seed_prompt'            => $seedPrompt,
+                    'locale_hint'            => $localeHint,
+                    'coach_endpoint'         => $coachEndpoint,
+                ],
+                60,
+            );
+
+            if (\is_array($resp) && ($resp['ok'] ?? false) === true) {
+                $compacted = trim((string) ($resp['compacted_content'] ?? ''));
+                $handoffSource = (string) ($resp['source'] ?? 'heuristic');
+                if ($compacted !== '') {
+                    $handoffMeta = json_encode([
+                        'fork_cit_cmt'             => true,
+                        'parent_conversation_id'   => $parentId,
+                        'handoff_source'           => $handoffSource,
+                        'tail_count'               => (int) ($resp['tail_count'] ?? 0),
+                    ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+                    $splitDb->insert('message', ['conversation_id', 'role', 'content', 'meta_json', 'created_at'])
+                        ->assign([
+                            'conversation_id' => $newId,
+                            'role'            => 'assistant',
+                            'content'         => $compacted,
+                            'meta_json'       => $handoffMeta,
+                            'created_at'      => $now,
+                        ])
+                        ->query();
+                    $handoffMessageId = (int) $splitDb->lastID();
+                    $compactedPreview = mb_substr($compacted, 0, 240);
+                }
+            }
+        }
+
+        $splitDb->update('conversation', ['updated_at'])
+            ->where('id=?')
+            ->assign([
+                'updated_at' => date('Y-m-d H:i:s'),
+                'id'         => $newId,
+            ])
+            ->query();
+
         echo json_encode([
-            'success'               => true,
-            'conversation_id'       => $newId,
+            'success'                => true,
+            'conversation_id'        => $newId,
             'parent_conversation_id' => $parentId,
-        ]);
+            'handoff_message_id'     => $handoffMessageId > 0 ? $handoffMessageId : null,
+            'handoff_source'         => $handoffSource,
+            'compacted_preview'      => $compactedPreview,
+            'seed_prompt'            => $seedPrompt !== '' ? $seedPrompt : null,
+        ], JSON_UNESCAPED_UNICODE);
     } catch (\Throwable $e) {
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Could not fork conversation']);

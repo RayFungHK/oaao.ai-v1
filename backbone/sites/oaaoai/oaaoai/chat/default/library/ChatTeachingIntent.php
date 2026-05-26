@@ -64,6 +64,12 @@ final class ChatTeachingIntent
             return true;
         }
 
+        if ((self::containsAny($low, ['vault']) || self::containsAny($s, ['知識庫', '知识库']))
+            && self::containsAny($s, ['再查', '重新查', '再搜', '重新搜', '再查一下'])
+            && self::containsAny($s, ['查', '搜', '找'])) {
+            return true;
+        }
+
         return self::containsAny($low, ['知識庫', 'vault'])
             && ($handbook || self::containsAny($low, ['document', '文件', 'upload', '上傳']));
     }

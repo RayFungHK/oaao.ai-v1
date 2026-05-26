@@ -246,8 +246,9 @@ return function (): void {
         return $prefix . $pathOnly;
     };
 
-    /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env. */
-    $oaaoShellEsmRev = '20260522-asr-unified-v38';
+    /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
+     *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
+    $oaaoShellEsmRev = '20260526-thread-health-chevron-v43';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)
@@ -256,6 +257,9 @@ return function (): void {
     /** Canonical pathname = {@code dir(@oaao/core-js/)} ({@see shell-registry-url.js} — must stay in lockstep). */
     $coreJsPublicPrefix = \rtrim($oaaoPrefixedWebPath('/webassets/core/default/js/', $oaaoMountPrefix), '/');
     $coreJsDiskRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'webassets' . DIRECTORY_SEPARATOR . 'js';
+    $chatJsPublicPrefix = \rtrim($oaaoPrefixedWebPath('/webassets/chat/default/js/', $oaaoMountPrefix), '/');
+    $chatJsDiskRoot = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'chat' . DIRECTORY_SEPARATOR . 'default'
+        . DIRECTORY_SEPARATOR . 'webassets' . DIRECTORY_SEPARATOR . 'js';
 
     /**
      * Import-map scope: relative {@code ./} / {@code ../} sibling imports from {@code main.js} must carry {@code ?v=}
@@ -381,20 +385,25 @@ return function (): void {
         $coreJsScopePrefix = $coreJsPublicPrefix . '/';
         $coreJsScope = $oaaoBuildCoreJsImportScope($coreJsDiskRoot, $coreJsPublicPrefix, $oaao_shell_esm_v);
         $coreJsVersionedImports = $oaaoBuildCoreJsVersionedImports($coreJsDiskRoot, $coreJsPublicPrefix, $oaao_shell_esm_v);
+        $chatJsScopePrefix = $chatJsPublicPrefix . '/';
+        $chatJsScope = $oaaoBuildCoreJsImportScope($chatJsDiskRoot, $chatJsPublicPrefix, $oaao_shell_esm_v);
+        $chatJsVersionedImports = $oaaoBuildCoreJsVersionedImports($chatJsDiskRoot, $chatJsPublicPrefix, $oaao_shell_esm_v);
         $razyuiUrl = $oaaoPrefixedWebPath('/webassets/core/default/razyui/razyui.js', $oaaoMountPrefix)
             . '?v=' . \rawurlencode($oaao_shell_esm_v);
         $oaao_import_map = [
             'imports' => \array_merge(
                 $coreJsVersionedImports,
+                $chatJsVersionedImports,
                 [
                     '@oaao/core-js/'      => $coreJsScopePrefix,
-                    '@oaao/chat-js/'      => $oaaoPrefixedWebPath('/webassets/chat/default/js/', $oaaoMountPrefix),
+                    '@oaao/chat-js/'      => $chatJsScopePrefix,
                     '@oaao/endpoints-js/' => $oaaoPrefixedWebPath('/webassets/core/default/js/endpoints-settings/', $oaaoMountPrefix),
                     'razyui'              => $razyuiUrl,
                 ],
             ),
             'scopes' => [
                 $coreJsScopePrefix => $coreJsScope,
+                $chatJsScopePrefix => $chatJsScope,
             ],
         ];
         $oaao_importmap_json = json_encode(
@@ -487,6 +496,12 @@ return function (): void {
     /** SPA session/bootstrap — pathname only; never bake {@see getSiteURL()} host ({@code http://web} vs browser {@code localhost} breaks credentials). */
     $auth_web_path = \rtrim($oaaoPrefixedWebPath('/auth', $oaaoMountPrefix), '/') . '/';
 
+    require_once dirname(__DIR__) . '/library/OaaoBuildInfo.php';
+    $oaaoBuild = \Oaaoai\Core\OaaoBuildInfo::load();
+    $oaaoVersion = htmlspecialchars((string) ($oaaoBuild['version'] ?? '0.0.0'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $oaaoBuildId = htmlspecialchars((string) ($oaaoBuild['build_id'] ?? 'unknown'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $oaaoGitSha = htmlspecialchars((string) ($oaaoBuild['git_sha'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
     // Assign layout-level variables
     $root->assign([
         'oaao_tenant_display' => htmlspecialchars($oaaoTenantDisplay, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
@@ -511,6 +526,9 @@ return function (): void {
         'oaao_core_webassets_root' => $oaao_core_webassets_root,
         'oaao_orchestrator_stream_proxy' => $oaao_orchestrator_stream_proxy,
         'oaao_shell_esm_v'        => htmlspecialchars($oaao_shell_esm_v, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+        'oaao_version'            => $oaaoVersion,
+        'oaao_build_id'           => $oaaoBuildId,
+        'oaao_git_sha'            => $oaaoGitSha,
         'oaao_importmap_json'    => $oaao_importmap_json,
         'auth_installed'   => $authInstalled ? '1' : '0',
         'auth_base'        => htmlspecialchars($auth_web_path, ENT_QUOTES | ENT_HTML5, 'UTF-8'),

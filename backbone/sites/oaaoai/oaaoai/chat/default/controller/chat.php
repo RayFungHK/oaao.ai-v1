@@ -777,6 +777,7 @@ return new class extends Controller {
         $agent->addLazyRoute([
             'api' => [
                 'GET conversations'           => 'conversations',
+                'GET conversation'           => 'conversation',
                 'GET messages'               => 'messages',
                 'GET chat_preferences'       => 'chat_preferences',
                 'POST chat_preferences'      => 'chat_preferences',
@@ -812,8 +813,11 @@ return new class extends Controller {
                 'POST skills_save'           => 'skills_save',
                 'POST tool_servers_save'     => 'tool_servers_save',
                 'POST skills_manifest_save'  => 'skills_manifest_save',
+                'GET crystallized_skills_admin' => 'crystallized_skills_admin',
+                'POST crystallized_skills_admin' => 'crystallized_skills_admin',
                 'POST evolution_cron_run'    => 'evolution_cron_run',
                 'GET evolution_reports'      => 'evolution_reports',
+                'POST evolution_reports'     => 'evolution_reports',
                 'GET evolution_patches'      => 'evolution_patches',
                 'POST evolution_patches'     => 'evolution_patches',
                 'POST skills_discover'       => 'skills_discover',
