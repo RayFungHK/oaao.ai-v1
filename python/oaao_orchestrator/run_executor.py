@@ -35,6 +35,18 @@ from oaao_orchestrator.pipeline_ui import (
 from oaao_orchestrator.planner import build_run_plan, needs_multi_agent_turn, resolve_allowed_agents
 from oaao_orchestrator.planner_llm import plan_report_result_tasks, planner_enabled
 
+# W5-S2 phase 2 — pipeline_timing helpers live in run_executor_timing.py.
+# Imported as underscore-prefixed names for back-compat with existing call sites.
+from oaao_orchestrator.run_executor_timing import (
+    elapsed_ms_since as _elapsed_ms_since,
+)
+from oaao_orchestrator.run_executor_timing import (
+    finalize_run_task_timing as _finalize_run_task_timing,
+)
+from oaao_orchestrator.run_executor_timing import (
+    record_pipeline_phase as _record_pipeline_phase,
+)
+
 # W5-S2 phase 1 — Upstream sampling + timeout helpers live in
 # run_executor_upstream.py. The underscore-prefixed names below are kept as
 # thin aliases so internal callers in this module need no churn.
@@ -134,61 +146,12 @@ def _tool_chain_from_plan(plan: RunPlan | None) -> list[str]:
     return chain
 
 
-def _elapsed_ms_since(t0: float) -> int:
-    return max(0, int((time.perf_counter() - t0) * 1000))
-
-
-def _record_pipeline_phase(
-    pipeline_timing: dict[str, Any], name: str, duration_ms: int, **extra: Any
-) -> None:
-    phases = pipeline_timing.setdefault("phases", [])
-    if not isinstance(phases, list):
-        phases = []
-        pipeline_timing["phases"] = phases
-    row: dict[str, Any] = {"name": name, "duration_ms": int(duration_ms)}
-    row.update(extra)
-    phases.append(row)
-
-
 def _plan_pipeline_source(req: object) -> str:
     if not needs_multi_agent_turn(req):
         return "fast_chat"
     if planner_enabled(req):
         return "llm_planner"
     return "deterministic"
-
-
-def _record_pipeline_task(
-    pipeline_timing: dict[str, Any],
-    run_task: RunTaskSpec,
-    duration_ms: int,
-) -> None:
-    tasks = pipeline_timing.setdefault("tasks", [])
-    if not isinstance(tasks, list):
-        tasks = []
-        pipeline_timing["tasks"] = tasks
-    tasks.append(
-        {
-            "id": run_task.id,
-            "title": run_task.title,
-            "type": str(run_task.type),
-            "status": str(run_task.status),
-            "duration_ms": int(duration_ms),
-            "agent_kind": (run_task.agent_kind or "").strip() or None,
-        }
-    )
-
-
-def _finalize_run_task_timing(
-    *,
-    pipeline_timing: dict[str, Any],
-    run_task: RunTaskSpec,
-    task_t0: float,
-) -> int:
-    duration_ms = _elapsed_ms_since(task_t0)
-    run_task.duration_ms = duration_ms
-    _record_pipeline_task(pipeline_timing, run_task, duration_ms)
-    return duration_ms
 
 
 def _vault_rag_ctx_extra(
