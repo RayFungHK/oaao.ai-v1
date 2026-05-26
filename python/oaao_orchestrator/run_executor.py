@@ -6,7 +6,6 @@ Phase 2: LLM planner + one-shot report-result replan after configured tasks.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import Any
@@ -14,7 +13,6 @@ from typing import Any
 from oaao_orchestrator.agent_phase_handoff import (
     maybe_inter_agent_handoff,
 )
-from oaao_orchestrator.agents import get_agent_registry
 from oaao_orchestrator.planner import resolve_allowed_agents
 from oaao_orchestrator.planner_llm import plan_report_result_tasks, planner_enabled
 
@@ -27,7 +25,6 @@ from oaao_orchestrator.run_executor_timing import (
 # W5-S2 phase 1 — Upstream sampling + timeout helpers live in
 # run_executor_upstream.py. The underscore-prefixed names below are kept as
 # thin aliases so internal callers in this module need no churn.
-from oaao_orchestrator.safety.agent_timeout import run_agent_with_timeout
 from oaao_orchestrator.streaming.events import (
     PHASE_SYSTEM,
     StreamEnvelope,
@@ -68,9 +65,6 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     append_tasks_to_plan as _append_tasks_to_plan,
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
-    inject_slide_project_id as _inject_slide_project_id,
-)
-from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     pop_parallel_batch as _pop_parallel_batch,
 )
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
@@ -79,11 +73,11 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     slide_page_parallel_batch as _slide_page_parallel_batch,
 )
-from oaao_orchestrator.run_executor_plan import (  # noqa: E402
-    slide_worker_concurrency as _slide_worker_concurrency,
-)
 from oaao_orchestrator.run_executor_preamble import (  # noqa: E402
     prepare_run_preamble as _prepare_run_preamble,
+)
+from oaao_orchestrator.run_executor_slide_fanout import (  # noqa: E402
+    handle_slide_page_batch as _handle_slide_page_batch,
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
     handle_vault_rag_task as _handle_vault_rag_task,
@@ -224,130 +218,20 @@ async def execute_chat_run(
         while task_queue:
             parallel_batch = _pop_parallel_batch(task_queue)
             if parallel_batch and _slide_page_parallel_batch(parallel_batch):
-                pid = run_ctx.extra.get("slide_project_id")
-                if isinstance(pid, str):
-                    _inject_slide_project_id(parallel_batch, pid)
-                    try:
-                        from pathlib import Path
-
-                        from oaao_orchestrator.slide_project.fanout import (
-                            apply_manifest_titles_to_page_tasks,
-                        )
-                        from oaao_orchestrator.slide_project.store import SlideProjectStore
-
-                        sd_cfg = run_ctx.extra.get("slide_designer")
-                        root = None
-                        if isinstance(sd_cfg, dict) and isinstance(sd_cfg.get("storage_root"), str):
-                            root = Path(sd_cfg["storage_root"].strip())
-                        manifest = SlideProjectStore(root=root).load_manifest(pid)
-                        if isinstance(manifest, dict):
-                            apply_manifest_titles_to_page_tasks(plan.tasks, manifest)
-                    except Exception:
-                        logger.exception("slide_page_title_sync_failed project_id=%s", pid)
-                for t in parallel_batch:
-                    t.status = RunTaskStatus.PENDING
-                _reindex_plan(plan)
-                await emit_task_list_status(
-                    run,
-                    plan,
+                sf_failed, cancel_emitted, sf_control = await _handle_slide_page_batch(
+                    parallel_batch=parallel_batch,
+                    run=run,
+                    run_ctx=run_ctx,
+                    plan=plan,
                     allowed_agents=allowed_agents,
                     pipeline_snap=pipeline_snap,
-                    text="slide_fanout_skeleton",
+                    pipeline_timing=pipeline_timing,
+                    task_queue=task_queue,
+                    cancel_emitted=cancel_emitted,
                 )
-                sem = asyncio.Semaphore(_slide_worker_concurrency())
-
-                async def _run_slide_page_task(page_task: RunTaskSpec) -> bool:
-                    async with sem:  # noqa: B023
-                        page_t0 = time.perf_counter()
-                        if run.cancelled:
-                            page_task.status = RunTaskStatus.SKIPPED
-                            page_ms = _finalize_run_task_timing(
-                                pipeline_timing=pipeline_timing,
-                                run_task=page_task,
-                                task_t0=page_t0,
-                            )
-                            await emit_run_task_end(
-                                run,
-                                plan,
-                                page_task,
-                                allowed_agents=allowed_agents,
-                                pipeline_snap=pipeline_snap,  # noqa: B023
-                                duration_ms=page_ms,
-                            )
-                            return True
-                        ensure_run_task_agent_kind(page_task)
-                        page_task.status = RunTaskStatus.ACTIVE
-                        _reindex_plan(plan)
-                        await emit_run_task_start(
-                            run,
-                            plan,
-                            page_task,
-                            allowed_agents=allowed_agents,
-                            pipeline_snap=pipeline_snap,  # noqa: B023
-                        )
-                        failed = False
-                        try:
-                            run_ctx.extra["run_plan"] = plan
-                            run_ctx.extra["pipeline_snap_base"] = (
-                                dict(pipeline_snap) if isinstance(pipeline_snap, dict) else {}  # noqa: B023
-                            )
-                            agent_result = await run_agent_with_timeout(
-                                get_agent_registry().run,
-                                run=run,
-                                run_task=page_task,
-                                ctx=run_ctx,
-                            )
-                            sp = agent_result.extra.get("slide_project")
-                            if isinstance(sp, dict) and sp.get("project_id"):
-                                run_ctx.extra["slide_project_id"] = str(sp["project_id"])
-                            if not agent_result.success:
-                                failed = True
-                        except Exception:
-                            logger.exception("slide_page_task_failed run_task=%s", page_task.id)
-                            failed = True
-                        finally:
-                            page_task.status = (
-                                RunTaskStatus.FAILED if failed else RunTaskStatus.DONE
-                            )
-                            page_ms = _finalize_run_task_timing(
-                                pipeline_timing=pipeline_timing,
-                                run_task=page_task,
-                                task_t0=page_t0,
-                            )
-                            await emit_run_task_end(
-                                run,
-                                plan,
-                                page_task,
-                                allowed_agents=allowed_agents,
-                                pipeline_snap=pipeline_snap,  # noqa: B023
-                                failed=failed,
-                                duration_ms=page_ms,
-                            )
-                        return failed
-
-                results = await asyncio.gather(
-                    *[_run_slide_page_task(t) for t in parallel_batch],
-                    return_exceptions=True,
-                )
-                for r in results:
-                    if isinstance(r, Exception) or r is True:
-                        run_failed = True
-                _reindex_plan(plan)
-                await emit_task_list_status(
-                    run,
-                    plan,
-                    allowed_agents=allowed_agents,
-                    pipeline_snap=pipeline_snap,
-                    text="slide_fanout_pages_done",
-                )
-                if run.cancelled and not cancel_emitted:
-                    await emit_run_cancelled(
-                        run,
-                        plan,
-                        pipeline_snap=pipeline_snap,
-                        pending_queue=task_queue,
-                    )
-                    cancel_emitted = True
+                if sf_failed:
+                    run_failed = True
+                if sf_control == "break":
                     break
                 continue
 
