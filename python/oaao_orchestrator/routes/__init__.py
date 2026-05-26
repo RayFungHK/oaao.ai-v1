@@ -13,6 +13,7 @@ Mounted so far:
 - routes.live    — `/v1/live/*` (session lifecycle + WS audio + SSE; W5-S1 phase 3)
 - routes.runs    — `/v1/runs/{id}/agent_ask|cancel` + `/v1/stream` (W5-S1 phase 4)
 - routes.slides  — `/v1/slides/*` (slide-project + custom-template lifecycle; W5-S1 phase 4)
+- routes.turn_scores — `/v1/turn_scores/*` + `/v1/work_queues/status` (W5-S1 phase 5)
 
 Pending phase-2 candidates (do not block W5-S1 acceptance):
 - `/v1/runs/chat`  — follows after run_executor LLM-stream loop is extracted
@@ -27,6 +28,7 @@ from oaao_orchestrator.routes.mine import router as mine_router
 from oaao_orchestrator.routes.research import router as research_router
 from oaao_orchestrator.routes.runs import router as runs_router
 from oaao_orchestrator.routes.slides import router as slides_router
+from oaao_orchestrator.routes.turn_scores import router as turn_scores_router
 
 __all__ = [
     "admin_router",
@@ -36,4 +38,5 @@ __all__ = [
     "research_router",
     "runs_router",
     "slides_router",
+    "turn_scores_router",
 ]
