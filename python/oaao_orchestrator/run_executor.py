@@ -25,8 +25,6 @@ from oaao_orchestrator.agent_phase_handoff import (
     resolve_agent_ask_prompt,
 )
 from oaao_orchestrator.agents import get_agent_registry
-from oaao_orchestrator.chat_attachments import process_chat_attachments
-from oaao_orchestrator.chat_attachments_dispose import dispose_chat_attachments
 from oaao_orchestrator.pipeline import RunContext
 from oaao_orchestrator.pipeline_ui import (
     build_minimal_pipeline_snapshot,
@@ -83,6 +81,9 @@ logger = logging.getLogger(__name__)
 # Plan/queue helpers extracted into run_executor_plan (Top-20 #6 phase 4).
 # Aliased to underscore names so existing call sites in execute_chat_run need
 # no churn.
+from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
+    handle_attachments_task as _handle_attachments_task,
+)
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     append_tasks_to_plan as _append_tasks_to_plan,
 )
@@ -694,80 +695,12 @@ async def execute_chat_run(
                     )
 
                 elif run_task.type == RunTaskType.ATTACHMENTS:
-                    attach_pipeline: dict[str, Any] = {}
-                    logger.info(
-                        "chat_attachments: ATTACHMENTS task running count=%s",
-                        len(req.chat_attachments or []),
+                    messages_for_llm, pipeline_snap = await _handle_attachments_task(
+                        req=req,
+                        run_ctx=run_ctx,
+                        messages_for_llm=messages_for_llm,
+                        pipeline_snap=pipeline_snap,
                     )
-                    async with httpx.AsyncClient(
-                        timeout=httpx.Timeout(180.0, connect=15.0)
-                    ) as att_client:
-                        messages_for_llm, attach_pipeline = await process_chat_attachments(
-                            att_client,
-                            messages_for_llm,
-                            list(req.chat_attachments or []),
-                            endpoint=req.endpoint.model_dump(),
-                            asr_cfg=req.asr if isinstance(req.asr, dict) else None,
-                            polish_cfg=req.polish if isinstance(req.polish, dict) else None,
-                            glossary=req.glossary if isinstance(req.glossary, dict) else None,
-                        )
-                        att_ids: list[int] = []
-                        for att in req.chat_attachments or []:
-                            if not isinstance(att, dict):
-                                continue
-                            raw_id = att.get("id")
-                            try:
-                                aid = int(raw_id) if raw_id is not None else 0
-                            except (TypeError, ValueError):
-                                aid = 0
-                            if aid > 0:
-                                att_ids.append(aid)
-                        if att_ids:
-                            try:
-                                cid = int(req.conversation_id or 0)
-                            except (TypeError, ValueError):
-                                cid = 0
-                            try:
-                                uid = int(req.user_id or 0)
-                            except (TypeError, ValueError):
-                                uid = 0
-                            if cid > 0 and uid > 0:
-                                from oaao_orchestrator._internal_secret import (
-                                    require_internal_secret,
-                                )
-
-                                secret = require_internal_secret()
-                                await dispose_chat_attachments(
-                                    att_client,
-                                    conversation_id=cid,
-                                    user_id=uid,
-                                    attachment_ids=att_ids,
-                                    shared_secret=secret,
-                                )
-                    run_ctx.messages = list(messages_for_llm)
-                    if attach_pipeline:
-                        ms = attach_pipeline.get("milestone")
-                        if isinstance(ms, dict) and isinstance(ms.get("steps"), list):
-                            base_ms = (
-                                pipeline_snap.get("milestone")
-                                if isinstance(pipeline_snap.get("milestone"), dict)
-                                else {}
-                            )
-                            base_steps = (
-                                base_ms.get("steps")
-                                if isinstance(base_ms.get("steps"), list)
-                                else []
-                            )
-                            pipeline_snap = pipeline_snap or {}
-                            pipeline_snap["milestone"] = {
-                                "steps": list(ms.get("steps") or []) + list(base_steps),
-                            }
-                        ab = attach_pipeline.get("blocks")
-                        if isinstance(ab, list) and ab:
-                            pipeline_snap = pipeline_snap or {}
-                            pipeline_snap["blocks"] = list(ab) + list(
-                                pipeline_snap.get("blocks") or []
-                            )
 
                 elif run_task.type == RunTaskType.AGENT:
                     needs_ask, ask_msg, ask_meta = resolve_agent_ask_prompt(
