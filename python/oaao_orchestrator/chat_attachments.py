@@ -168,6 +168,15 @@ async def process_chat_attachments(
             continue
 
         p = Path(path)
+        if not p.is_file():
+            logger.warning(
+                "chat_attachments: file not visible to orchestrator — id=%s name=%s mime=%s path=%s",
+                aid,
+                fname,
+                mime,
+                path,
+            )
+            continue
         segs = extract_text_segments(p, mime)
         body = ""
         if segs:
@@ -178,8 +187,18 @@ async def process_chat_attachments(
                 flat = p.read_text(encoding="utf-8", errors="replace")
                 if flat.strip():
                     body = flat.strip()[:32000]
-            except OSError:
+            except OSError as e:
+                logger.warning(
+                    "chat_attachments: text read failed — name=%s mime=%s err=%s", fname, mime, e
+                )
                 body = ""
+        if not body:
+            logger.info(
+                "chat_attachments: empty extraction — name=%s mime=%s segs=%s",
+                fname,
+                mime,
+                len(segs) if segs else 0,
+            )
         if body:
             cite_serial += 1
             key = f"A{cite_serial}"
