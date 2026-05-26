@@ -7,6 +7,7 @@ from oaao_orchestrator.vault_graph_rag import (
     _embedding_query_for_handbook_lookup,
     _format_numbered_passage_block,
     _PassagePick,
+    _passage_relevant_to_query,
     _picks_for_citations,
     _query_is_general_knowledge,
     build_pipeline_snapshot_for_rag,
@@ -37,7 +38,18 @@ def test_picks_for_citations_skips_gk_fallback() -> None:
         ),
     ]
     assert _picks_for_citations("什么是傅立葉轉換", picks, wants_gk=True) == []
-    assert _picks_for_citations("什么是傅立葉轉換", picks, wants_gk=False) == picks
+    assert _picks_for_citations("什么是傅立葉轉換", picks, wants_gk=False) == []
+
+
+def test_passage_relevant_empty_terms_is_false() -> None:
+    assert _passage_relevant_to_query("什么是", "any passage text") is False
+
+
+def test_passage_relevant_strict_blocks_spurious_handbook_hit() -> None:
+    query = "給你的學習策略建議：Cross-Entropy Loss 和 Self-Attention"
+    passage = "TRADING RULES OF THE MARKET\nOpening and closing of the Market"
+    assert _passage_relevant_to_query(query, passage) is False
+    assert _passage_relevant_to_query(query, passage, strict=True) is False
 
 
 def test_numbered_passage_and_citation_index() -> None:

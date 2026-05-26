@@ -228,6 +228,23 @@ export function oaaoAppendShellEsmV(url) {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 
+/** Same-origin sidecar on plain HTTP — never upgrade to https when the page is http: */
+function alignSidecarSchemeWithPage(url) {
+    if (typeof window === 'undefined' || window.location.protocol !== 'http:') {
+        return url;
+    }
+    try {
+        const u = new URL(url, window.location.href);
+        if (u.origin === window.location.origin && u.protocol === 'https:') {
+            u.protocol = 'http:';
+            return u.href;
+        }
+    } catch {
+        /* fall through */
+    }
+    return url;
+}
+
 /** @returns {string} */
 function sidecarPrefixPath() {
     const sidecarRaw =
@@ -292,7 +309,7 @@ export function resolveOrchestratorPublicUrl(spec) {
             if (window.location.protocol === 'https:') {
                 proxied.protocol = 'https:';
             }
-            return proxied.href;
+            return alignSidecarSchemeWithPage(proxied.href);
         } catch {
             /* fall through */
         }
@@ -332,8 +349,8 @@ export function resolveOrchestratorPublicUrl(spec) {
                 }
             }
             const proxied = resolveSidecarProxiedUrl(u);
-            if (proxied) return proxied;
+            if (proxied) return alignSidecarSchemeWithPage(proxied);
         }
     }
-    return u.href;
+    return alignSidecarSchemeWithPage(u.href);
 }

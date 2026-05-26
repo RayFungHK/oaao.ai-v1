@@ -43,7 +43,12 @@ final class OrchestratorPublicBase
         }
         $force = getenv('OAAO_PUBLIC_HTTPS');
         if ($force === '1' || strtolower((string) $force) === 'true') {
-            return true;
+            // Production fallback when the edge proxy omits X-Forwarded-Proto. On loopback dev
+            // (http://localhost:9080) forcing https breaks same-origin /sidecar SSE.
+            $host = self::clientReachableHost();
+            if ($host === '' || ! self::isLoopbackHost($host)) {
+                return true;
+            }
         }
 
         return false;

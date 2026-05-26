@@ -480,13 +480,12 @@ export function hydrateInlineCitationPills(bubble, maps) {
     const outer = bubble.closest('.oaao-chat-assistant-row');
     const hadInlineMarkers = /\[(?:A?\d+)\]/.test(bubble.textContent ?? '');
     bubble.innerHTML = injectInlineCitationPillsIntoHtml(bubble.innerHTML, maps.vault, maps.attachment);
+    if (outer instanceof HTMLElement) {
+        outer.querySelector('[data-oaao-inline-cite-fallback]')?.remove();
+    }
     if (hadInlineMarkers) {
-        if (outer instanceof HTMLElement) {
-            outer.querySelector('[data-oaao-inline-cite-fallback]')?.remove();
-        }
         return;
     }
-    renderInlineCitationFallbackRow(bubble, maps);
 }
 
 /**

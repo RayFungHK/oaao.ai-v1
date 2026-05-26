@@ -1075,7 +1075,7 @@ def _query_terms(query: str) -> list[str]:
 def _passage_relevant_to_query(query: str, passage: str, *, strict: bool = False) -> bool:
     terms = _query_terms(query)
     if not terms:
-        return not strict
+        return False
     body = passage.lower()
     hits = sum(1 for t in terms if t in body)
     if strict:
@@ -1122,9 +1122,6 @@ def _picks_for_citations(
 ) -> list[_PassagePick]:
     """References list — sources the user can verify (not every retrieved chunk)."""
     candidates = [p for p in picks if _passage_relevant_to_query(query, p.passage)]
-    if not candidates and picks and not wants_gk:
-        # Grounding may use borderline passages; still show where the answer came from.
-        candidates = list(picks)
     if not candidates:
         return []
     if _query_wants_transcript_evidence(query):
@@ -1834,6 +1831,19 @@ async def augment_chat_messages_for_vault_rag(
             elif wants_gk:
                 gk_had_off_topic = True
                 all_picks = []
+            else:
+                gk_had_off_topic = True
+                all_picks = []
+
+    if all_picks and not handbook_turn and not wants_record and not explicit_scope:
+        strict_relevant = [
+            p for p in all_picks if _passage_relevant_to_query(query, p.passage, strict=True)
+        ]
+        if not strict_relevant:
+            gk_had_off_topic = True
+            all_picks = []
+        else:
+            all_picks = strict_relevant
 
     all_picks = _narrow_grounding_picks(query, all_picks)
 
@@ -1845,7 +1855,11 @@ async def augment_chat_messages_for_vault_rag(
     )
     citation_picks = _picks_for_citations(query, cite_pool or all_picks, wants_gk=wants_gk)
 
-    grounding_picks = all_picks[:32]
+    if handbook_turn or wants_record or explicit_scope:
+        grounding_picks = all_picks[:32]
+    else:
+        grounding_picks = citation_picks[:32]
+
     passages = []
     for pick in grounding_picks:
         if pick.document_id > 0:
@@ -1864,23 +1878,7 @@ async def augment_chat_messages_for_vault_rag(
         if numbered is not None:
             numbered_citation_refs.append(numbered)
 
-    for pick in citation_picks:
-        _append_citation(
-            citation_refs,
-            pick=pick,
-            ref_names=ref_names,
-            catalog_entries=catalog_entries,
-        )
-    if not citation_refs and passages and not wants_gk:
-        for pick in _best_pick_per_document(all_picks)[:10]:
-            _append_citation(
-                citation_refs,
-                pick=pick,
-                ref_names=ref_names,
-                catalog_entries=catalog_entries,
-            )
-    if numbered_citation_refs:
-        citation_refs = numbered_citation_refs
+    citation_refs = numbered_citation_refs
 
     graph_lines: list[str] = []
     for profile in profiles:
