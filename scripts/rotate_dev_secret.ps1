@@ -59,6 +59,13 @@ if ($text -match "(?m)^$key=") {
 
 [System.IO.File]::WriteAllText($EnvFile, $new, $utf8NoBom)
 
+# Mirror to project-root .env so docker compose can resolve ${OAAO_ORCH_SHARED_SECRET}
+# interpolation in docker-compose.yml. env_file (docker/env) only injects vars
+# INTO the container; compose itself reads .env at the project root.
+$rootEnv = Join-Path (Split-Path -Parent $PSScriptRoot) ".env"
+Copy-Item $EnvFile $rootEnv -Force
+
 Write-Host "Rotated $key in $EnvFile"
+Write-Host "Mirrored to $rootEnv (for compose interpolation)"
 Write-Host "Backup: $backup"
 Write-Host "Restart: docker compose up -d orchestrator web"

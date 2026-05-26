@@ -51,5 +51,10 @@ else
 fi
 
 echo "Rotated ${KEY} in ${ENV_FILE}"
+# Mirror to project-root .env so docker compose can resolve interpolation in
+# docker-compose.yml. env_file only injects into the container, not compose.
+ROOT_ENV="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/.env"
+cp "$ENV_FILE" "$ROOT_ENV"
+echo "Mirrored to ${ROOT_ENV} (for compose interpolation)"
 echo "Backup: ${BACKUP}"
 echo "Restart: docker compose up -d orchestrator web"
