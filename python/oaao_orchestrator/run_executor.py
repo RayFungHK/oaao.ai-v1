@@ -260,6 +260,14 @@ async def execute_chat_run(
     if not isinstance(req, ChatRunRequest):
         raise TypeError("req must be ChatRunRequest")
 
+    _atts_in = list(getattr(req, "chat_attachments", None) or [])
+    logger.info(
+        "chat_attachments: execute_chat_run entry run_id=%s count=%s ids=%s",
+        run_id,
+        len(_atts_in),
+        [a.get("id") if isinstance(a, dict) else None for a in _atts_in[:8]],
+    )
+
     from oaao_orchestrator.tools.registry import (
         ToolServerSpec,
         register_tool_server,
@@ -850,6 +858,10 @@ async def execute_chat_run(
 
                 elif run_task.type == RunTaskType.ATTACHMENTS:
                     attach_pipeline: dict[str, Any] = {}
+                    logger.info(
+                        "chat_attachments: ATTACHMENTS task running count=%s",
+                        len(req.chat_attachments or []),
+                    )
                     async with httpx.AsyncClient(
                         timeout=httpx.Timeout(180.0, connect=15.0)
                     ) as att_client:

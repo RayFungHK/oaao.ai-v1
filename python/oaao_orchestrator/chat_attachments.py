@@ -88,6 +88,7 @@ async def process_chat_attachments(
     """
     Augment messages with attachment context. Returns (messages, pipeline_fragment).
     """
+    logger.info("chat_attachments: process entry count=%s", len(attachments or []))
     if not attachments:
         return messages, {}
 
