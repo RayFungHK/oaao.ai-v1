@@ -101,10 +101,19 @@ async def process_chat_attachments(
 
     for att in attachments:
         if not isinstance(att, dict):
+            logger.warning("chat_attachments: skip non-dict att type=%s", type(att).__name__)
             continue
         path = str(att.get("absolute_path") or att.get("path") or "").strip()
         mime = str(att.get("mime_type") or att.get("mime") or "").strip().lower()
         fname = str(att.get("file_name") or att.get("name") or Path(path).name or "file")
+        logger.info(
+            "chat_attachments: loop att keys=%s id=%s name=%s mime=%s path=%s",
+            sorted(att.keys()),
+            att.get("id"),
+            fname,
+            mime,
+            path,
+        )
         if fname:
             file_names.append(fname)
         try:
@@ -112,6 +121,7 @@ async def process_chat_attachments(
         except (TypeError, ValueError):
             aid = 0
         if not path:
+            logger.warning("chat_attachments: skip — empty path for id=%s name=%s", aid, fname)
             continue
 
         if mime.startswith("audio/"):
