@@ -235,6 +235,15 @@ async def process_chat_attachments(
             + block
         )
         out_msgs.insert(0, {"role": "system", "content": sys})
+    logger.info(
+        "chat_attachments: result blocks=%s citations=%s images=%s sys_chars=%s msgs_in=%s msgs_out=%s",
+        len(numbered_blocks),
+        len(attachment_citations),
+        len(image_urls),
+        sum(len(b) for b in numbered_blocks),
+        len(messages),
+        len(out_msgs),
+    )
 
     if image_urls and out_msgs:
         for i in range(len(out_msgs) - 1, -1, -1):

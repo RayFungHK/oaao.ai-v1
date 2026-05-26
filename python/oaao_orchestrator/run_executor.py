@@ -1068,6 +1068,27 @@ async def execute_chat_run(
                         passage_count=int(run_ctx.extra.get("vault_rag_passage_count") or 0),
                     )
                     run_ctx.messages = list(messages_for_llm)
+                    _att_sys_msgs = [
+                        i
+                        for i, m in enumerate(messages_for_llm)
+                        if isinstance(m, dict)
+                        and str(m.get("role") or "") == "system"
+                        and "attached files" in str(m.get("content") or "").lower()
+                    ]
+                    logger.info(
+                        "chat_attachments: pre-LLM messages total=%s system=%s att_system_idx=%s att_sys_chars=%s",
+                        len(messages_for_llm),
+                        sum(
+                            1
+                            for m in messages_for_llm
+                            if isinstance(m, dict) and str(m.get("role") or "") == "system"
+                        ),
+                        _att_sys_msgs,
+                        [
+                            len(str(messages_for_llm[i].get("content") or ""))
+                            for i in _att_sys_msgs
+                        ],
+                    )
                     url = _chat_completions_url(req.endpoint.base_url)
                     headers: dict[str, str] = {"Content-Type": "application/json"}
                     if api_key:
