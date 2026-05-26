@@ -7,13 +7,9 @@ Phase 2: LLM planner + one-shot report-result replan after configured tasks.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import time
 from typing import Any
-
-import httpx
 
 from oaao_orchestrator.agent_phase_handoff import (
     maybe_inter_agent_handoff,
@@ -42,15 +38,6 @@ from oaao_orchestrator.run_executor_timing import (
 # W5-S2 phase 1 — Upstream sampling + timeout helpers live in
 # run_executor_upstream.py. The underscore-prefixed names below are kept as
 # thin aliases so internal callers in this module need no churn.
-from oaao_orchestrator.run_executor_upstream import (
-    apply_upstream_sampling as _apply_upstream_sampling,
-)
-from oaao_orchestrator.run_executor_upstream import (
-    llm_stream_timeout as _llm_stream_timeout,
-)
-from oaao_orchestrator.run_executor_upstream import (
-    resolve_max_tokens as _resolve_max_tokens,
-)
 from oaao_orchestrator.safety.agent_timeout import run_agent_with_timeout
 from oaao_orchestrator.streaming.events import (
     KIND_STATUS,
@@ -81,6 +68,12 @@ from oaao_orchestrator.run_executor_agent import (  # noqa: E402
 from oaao_orchestrator.run_executor_attachments import (  # noqa: E402
     handle_attachments_task as _handle_attachments_task,
 )
+from oaao_orchestrator.run_executor_llm_stream import (  # noqa: E402
+    LLMStreamState as _LLMStreamState,
+)
+from oaao_orchestrator.run_executor_llm_stream import (  # noqa: E402
+    handle_llm_stream_task as _handle_llm_stream_task,
+)
 from oaao_orchestrator.run_executor_plan import (  # noqa: E402
     append_tasks_to_plan as _append_tasks_to_plan,
 )
@@ -107,9 +100,6 @@ from oaao_orchestrator.run_executor_plan import (  # noqa: E402
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
     handle_vault_rag_task as _handle_vault_rag_task,
-)
-from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
-    inject_compose_vault_awareness as _inject_compose_vault_awareness,
 )
 from oaao_orchestrator.run_executor_vault_rag import (  # noqa: E402
     vault_rag_ctx_extra as _vault_rag_ctx_extra,
@@ -730,248 +720,39 @@ async def execute_chat_run(
                     )
 
                 elif run_task.type == RunTaskType.LLM_STREAM:
-                    _inject_compose_vault_awareness(
-                        messages_for_llm,
+                    _stream_state = _LLMStreamState(
+                        streamed_parts=streamed_parts,
+                        t_first_token=t_first_token,
+                        out_chars=out_chars,
+                        completion_tokens=completion_tokens,
+                        prompt_tokens=prompt_tokens,
+                        finish_reason=finish_reason,
+                        task_failed=task_failed,
+                        run_failed=run_failed,
+                    )
+                    _llm_abort = await _handle_llm_stream_task(
+                        state=_stream_state,
+                        run=run,
                         req=req,
-                        vault_ran=bool(run_ctx.extra.get("vault_rag_ran")),
-                        passage_count=int(run_ctx.extra.get("vault_rag_passage_count") or 0),
+                        run_ctx=run_ctx,
+                        run_task=run_task,
+                        plan=plan,
+                        allowed_agents=allowed_agents,
+                        messages_for_llm=messages_for_llm,
+                        pipeline_snap=pipeline_snap,
+                        pipeline_timing=pipeline_timing,
+                        task_t0=task_t0,
+                        api_key=api_key,
                     )
-                    run_ctx.messages = list(messages_for_llm)
-                    _att_sys_msgs = [
-                        i
-                        for i, m in enumerate(messages_for_llm)
-                        if isinstance(m, dict)
-                        and str(m.get("role") or "") == "system"
-                        and "attached files" in str(m.get("content") or "").lower()
-                    ]
-                    logger.info(
-                        "chat_attachments: pre-LLM messages total=%s system=%s att_system_idx=%s att_sys_chars=%s",
-                        len(messages_for_llm),
-                        sum(
-                            1
-                            for m in messages_for_llm
-                            if isinstance(m, dict) and str(m.get("role") or "") == "system"
-                        ),
-                        _att_sys_msgs,
-                        [
-                            len(str(messages_for_llm[i].get("content") or ""))
-                            for i in _att_sys_msgs
-                        ],
-                    )
-                    url = _chat_completions_url(req.endpoint.base_url)
-                    headers: dict[str, str] = {"Content-Type": "application/json"}
-                    if api_key:
-                        headers["Authorization"] = f"Bearer {api_key}"
-                    body: dict[str, Any] = {
-                        "model": req.endpoint.model,
-                        "messages": messages_for_llm,
-                        "temperature": max(0.0, min(2.0, float(req.temperature))),
-                        "stream": True,
-                    }
-                    max_tokens = _resolve_max_tokens(req)
-                    if max_tokens is not None:
-                        body["max_tokens"] = max_tokens
-                    from oaao_orchestrator.tools.registry import merge_openai_tools
-
-                    merged_tools = merge_openai_tools(
-                        getattr(req, "openai_tools", None) or [],
-                        purpose_id=str(getattr(req, "purpose_id", "") or "chat"),
-                    )
-                    if merged_tools:
-                        body["tools"] = merged_tools
-                    _apply_upstream_sampling(body)
-                    if os.environ.get(
-                        "OAAO_CHAT_STREAM_INCLUDE_USAGE", "1"
-                    ).strip().lower() not in (
-                        "0",
-                        "false",
-                        "no",
-                        "off",
-                    ):
-                        body["stream_options"] = {"include_usage": True}
-
-                    if pipeline_snap:
-                        await run.append(
-                            StreamEnvelope(
-                                phase=PHASE_SYSTEM,
-                                kind="status",
-                                text="pipeline_stub",
-                                payload={"oaao_pipeline": pipeline_snap},
-                            )
-                        )
-
-                    use_tool_loop = bool(merged_tools)
-
-                    async def _emit_llm_delta(piece: str) -> None:
-                        nonlocal t_first_token, out_chars
-                        if t_first_token is None:
-                            t_first_token = time.perf_counter()
-                        streamed_parts.append(piece)
-                        await run.append(
-                            StreamEnvelope(phase=PHASE_LLM, kind="delta", text=piece, payload={})
-                        )
-
-                    async with httpx.AsyncClient(timeout=_llm_stream_timeout()) as client:
-                        if use_tool_loop:
-                            from oaao_orchestrator.llm_tool_loop import (
-                                stream_chat_with_tools,
-                            )
-
-                            try:
-                                (
-                                    _tool_text,
-                                    finish_reason,
-                                    tool_out_chars,
-                                    completion_tokens,
-                                    prompt_tokens,
-                                ) = await stream_chat_with_tools(
-                                    client=client,
-                                    url=url,
-                                    headers=headers,
-                                    body=body,
-                                    messages=list(messages_for_llm),
-                                    on_delta=_emit_llm_delta,
-                                    cancelled=lambda: run.cancelled,
-                                )
-                                out_chars += tool_out_chars
-                            except httpx.HTTPStatusError as exc:
-                                status = exc.response.status_code if exc.response is not None else 0
-                                raw = (exc.response.text if exc.response is not None else str(exc))[
-                                    :800
-                                ]
-                                await run.append(
-                                    StreamEnvelope(
-                                        phase=PHASE_SYSTEM,
-                                        kind="error",
-                                        text=f"upstream_http_{status}",
-                                        payload={"body": _sanitize_client_text(raw, max_len=600)},
-                                    )
-                                )
-                                task_failed = True
-                                run_failed = True
-                                llm_ms = _finalize_run_task_timing(
-                                    pipeline_timing=pipeline_timing,
-                                    run_task=run_task,
-                                    task_t0=task_t0,
-                                )
-                                await emit_run_task_end(
-                                    run,
-                                    plan,
-                                    run_task,
-                                    allowed_agents=allowed_agents,
-                                    pipeline_snap=pipeline_snap,
-                                    failed=True,
-                                    duration_ms=llm_ms,
-                                )
-                                return
-                        else:
-                            async with client.stream(
-                                "POST", url, headers=headers, json=body
-                            ) as resp:
-                                if resp.status_code < 200 or resp.status_code >= 300:
-                                    txt = await resp.aread()
-                                    raw = txt.decode("utf-8", errors="replace")[:800]
-                                    await run.append(
-                                        StreamEnvelope(
-                                            phase=PHASE_SYSTEM,
-                                            kind="error",
-                                            text=f"upstream_http_{resp.status_code}",
-                                            payload={
-                                                "body": _sanitize_client_text(raw, max_len=600)
-                                            },
-                                        )
-                                    )
-                                    task_failed = True
-                                    run_failed = True
-                                    llm_ms = _finalize_run_task_timing(
-                                        pipeline_timing=pipeline_timing,
-                                        run_task=run_task,
-                                        task_t0=task_t0,
-                                    )
-                                    await emit_run_task_end(
-                                        run,
-                                        plan,
-                                        run_task,
-                                        allowed_agents=allowed_agents,
-                                        pipeline_snap=pipeline_snap,
-                                        failed=True,
-                                        duration_ms=llm_ms,
-                                    )
-                                    return
-
-                                async for line in resp.aiter_lines():
-                                    if run.cancelled:
-                                        run_failed = True
-                                        task_failed = True
-                                        break
-                                    if not line or not line.startswith("data:"):
-                                        continue
-                                    data_s = line[5:].strip()
-                                    if data_s == "[DONE]":
-                                        break
-                                    try:
-                                        chunk = json.loads(data_s)
-                                    except json.JSONDecodeError:
-                                        continue
-                                    if isinstance(chunk, dict):
-                                        usage = chunk.get("usage")
-                                        if isinstance(usage, dict):
-                                            ct = usage.get("completion_tokens")
-                                            pt = usage.get("prompt_tokens")
-                                            if isinstance(ct, int):
-                                                completion_tokens = ct
-                                            if isinstance(pt, int):
-                                                prompt_tokens = pt
-                                    choices = (
-                                        chunk.get("choices") if isinstance(chunk, dict) else None
-                                    )
-                                    if not isinstance(choices, list) or not choices:
-                                        continue
-                                    choice0 = choices[0] if isinstance(choices[0], dict) else {}
-                                    fr = choice0.get("finish_reason")
-                                    if isinstance(fr, str) and fr.strip():
-                                        finish_reason = fr.strip()
-                                    delta = (
-                                        choice0.get("delta") if isinstance(choice0, dict) else None
-                                    )
-                                    if not isinstance(delta, dict):
-                                        continue
-                                    piece = delta.get("content")
-                                    if isinstance(piece, list):
-                                        buf: list[str] = []
-                                        for seg in piece:
-                                            if (
-                                                isinstance(seg, dict)
-                                                and seg.get("type") == "text"
-                                                and isinstance(seg.get("text"), str)
-                                            ):
-                                                buf.append(seg["text"])
-                                            elif isinstance(seg, str):
-                                                buf.append(seg)
-                                        piece = "".join(buf) if buf else None
-                                    if isinstance(piece, str) and piece != "":
-                                        if t_first_token is None:
-                                            t_first_token = time.perf_counter()
-                                        out_chars += len(piece)
-                                        streamed_parts.append(piece)
-                                        await run.append(
-                                            StreamEnvelope(
-                                                phase=PHASE_LLM,
-                                                kind="delta",
-                                                text=piece,
-                                                payload={},
-                                            )
-                                        )
-
-                    if finish_reason == "length":
-                        await run.append(
-                            StreamEnvelope(
-                                phase=PHASE_SYSTEM,
-                                kind="status",
-                                text="llm_truncated",
-                                payload={"finish_reason": finish_reason},
-                            )
-                        )
+                    t_first_token = _stream_state.t_first_token
+                    out_chars = _stream_state.out_chars
+                    completion_tokens = _stream_state.completion_tokens
+                    prompt_tokens = _stream_state.prompt_tokens
+                    finish_reason = _stream_state.finish_reason
+                    task_failed = _stream_state.task_failed
+                    run_failed = _stream_state.run_failed
+                    if _llm_abort:
+                        return
 
                 elif run_task.type == RunTaskType.EMIT:
                     await run.append(
