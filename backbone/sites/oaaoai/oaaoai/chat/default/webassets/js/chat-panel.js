@@ -1366,10 +1366,20 @@ const OAAO_LITE_LIST_LINE_RE = /^(\s*)([-*+•·◦]|\d+\.)\s+(.*)$/;
 /**
  * @param {string} line
  * @param {RegExpMatchArray} m
- * @param {{ marker: string, content: string, depth: number } | null} prev
+ * @param {{ marker: string, content: string, depth: number, indent: number } | null} prev
  */
 function oaaoLiteListItemDepth(line, m, prev) {
     const indent = m[1].length;
+    if (prev) {
+        const prevIndent = prev.indent;
+        if (indent > prevIndent) {
+            return Math.min(6, prev.depth + 1);
+        }
+        if (indent === prevIndent) {
+            return prev.depth;
+        }
+    }
+
     if (indent >= 2) {
         return Math.min(6, Math.floor(indent / 2));
     }
@@ -1583,7 +1593,7 @@ function oaaoLightweightMarkdownToHtml(md) {
         if (listM) {
             /** @type {Array<{ depth: number, ordered: boolean, content: string, marker: string }>} */
             const listItems = [];
-            /** @type {{ marker: string, content: string, depth: number } | null} */
+            /** @type {{ marker: string, content: string, depth: number, indent: number } | null} */
             let prevMeta = null;
             while (i < lines.length) {
                 const lm = lines[i].match(OAAO_LITE_LIST_LINE_RE);
@@ -1593,8 +1603,9 @@ function oaaoLightweightMarkdownToHtml(md) {
                 const depth = oaaoLiteListItemDepth(lines[i], lm, prevMeta);
                 const ordered = /^\d+\.$/.test(lm[2]);
                 const content = lm[3];
+                const itemIndent = lm[1].length;
                 listItems.push({ depth, ordered, content });
-                prevMeta = { marker: lm[2], content, depth };
+                prevMeta = { marker: lm[2], content, depth, indent: itemIndent };
                 i += 1;
             }
             html.push(oaaoRenderLiteListHtml(listItems));

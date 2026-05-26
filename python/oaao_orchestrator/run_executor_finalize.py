@@ -48,7 +48,7 @@ async def finalize_run(
         _report_usage_to_php,
     )
     from oaao_orchestrator.endpoint_keys import resolve_api_key as _resolve_api_key
-    from oaao_orchestrator.run_executor_vault_rag import (
+    from oaao_orchestrator.run_executor_plan import (
         materials_end_snapshot as _materials_end_snapshot,
     )
 
