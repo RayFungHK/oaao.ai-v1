@@ -804,6 +804,10 @@ return function (): void {
                     if ($emb !== null) {
                         $payload['embedding'] = $emb;
                     }
+                    $rerank = $endpointsApi->resolveOrchestratorRerankPayload();
+                    if ($rerank !== null) {
+                        $payload['rerank'] = $rerank;
+                    }
                     $rag = $endpointsApi->resolveOrchestratorVaultRagConfig();
                     if ($rag !== []) {
                         $payload['vault_rag'] = $rag;

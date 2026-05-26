@@ -60,6 +60,44 @@ function oaao_vault_is_audio_upload(string $mimeType, ?string $originalName = nu
 }
 
 /**
+ * @return list<string>
+ */
+function oaao_vault_text_preview_extensions(): array
+{
+    return ['txt', 'md', 'markdown'];
+}
+
+function oaao_vault_is_text_preview_upload(string $mimeType, ?string $originalName = null): bool
+{
+    $mimeType = strtolower(trim($mimeType));
+    if (\in_array($mimeType, ['text/plain', 'text/markdown', 'text/x-markdown'], true)) {
+        return true;
+    }
+
+    $ext = '';
+    if ($originalName !== null && $originalName !== '') {
+        $ext = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+    }
+
+    return $ext !== '' && \in_array($ext, oaao_vault_text_preview_extensions(), true);
+}
+
+function oaao_vault_is_markdown_preview_upload(string $mimeType, ?string $originalName = null): bool
+{
+    $mimeType = strtolower(trim($mimeType));
+    if (\in_array($mimeType, ['text/markdown', 'text/x-markdown'], true)) {
+        return true;
+    }
+
+    $ext = '';
+    if ($originalName !== null && $originalName !== '') {
+        $ext = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+    }
+
+    return \in_array($ext, ['md', 'markdown'], true);
+}
+
+/**
  * Infer which {@code vault_document_hook} ids to enqueue after upload (parity with {@code oaaoai/rag} registry).
  *
  * @param string      $mimeType MIME from finfo (may be generic {@code application/zip} for OOXML)

@@ -22,7 +22,7 @@ function loadVaultTreeCacheMod() {
 }
 
 /** Bust transcript ESM when this module changes — appended to {@code data-oaao-shell-esm-v}. */
-const OAAO_VAULT_TRANSCRIPT_MOD_REV = '20260519-summary-md';
+const OAAO_VAULT_TRANSCRIPT_MOD_REV = '20260522-text-preview';
 
 /** @type {Promise<typeof import('./vault-transcript-speaker.js')> | null} */
 let vaultTranscriptModPromise = null;
@@ -49,6 +49,18 @@ function vaultIsAudioDocument(docNode) {
     const name = typeof docNode.file_name === 'string' ? docNode.file_name.trim().toLowerCase() : '';
     if (!name) return false;
     return /\.(mp3|m4a|wav|ogg|webm|flac|aac|opus)$/.test(name);
+}
+
+/**
+ * @param {Record<string, unknown>} docNode
+ * @returns {boolean}
+ */
+function vaultIsTextPreviewDocument(docNode) {
+    const mime = typeof docNode.mime_type === 'string' ? docNode.mime_type.trim().toLowerCase() : '';
+    if (mime === 'text/plain' || mime === 'text/markdown' || mime === 'text/x-markdown') return true;
+    const name = typeof docNode.file_name === 'string' ? docNode.file_name.trim().toLowerCase() : '';
+    if (!name) return false;
+    return /\.(txt|md|markdown)$/.test(name);
 }
 
 /**
@@ -662,6 +674,8 @@ const VAULT_SIDEBAR_UI = {
     badge_failed: { en: 'Failed', 'zh-Hant': '失敗' },
     badge_queued: { en: 'Queued', 'zh-Hant': '已排程' },
     badge_embedding: { en: 'Embedding…', 'zh-Hant': '正在向量化…' },
+    badge_refetch_queued: { en: 'Refetch queued', 'zh-Hant': '等待重新擷取' },
+    badge_refetch_running: { en: 'Refetching…', 'zh-Hant': '重新擷取中…' },
     detail_embed_heading: {
         en: 'Ingest / embedding',
         'zh-Hant': '索引／嵌入',
@@ -705,6 +719,18 @@ const VAULT_SIDEBAR_UI = {
         'zh-Hant': '無法載入轉寫稿。',
     },
     transcript_dialog_title: { en: 'View Transcript', 'zh-Hant': '查看轉寫稿' },
+    preview_btn: { en: 'Preview', 'zh-Hant': '預覽' },
+    preview_btn_loading: { en: 'Preview · …', 'zh-Hant': '預覽 · …' },
+    preview_load_fail: {
+        en: 'Could not load file preview.',
+        'zh-Hant': '無法載入檔案預覽。',
+    },
+    preview_dialog_title: { en: 'Preview', 'zh-Hant': '預覽' },
+    preview_truncated_hint: {
+        en: 'Preview truncated — file exceeds 512 KB limit.',
+        'zh-Hant': '預覽已截斷 — 檔案超過 512 KB 上限。',
+    },
+    preview_empty: { en: 'File is empty.', 'zh-Hant': '檔案為空。' },
     action_retranscribe: { en: 'Re-transcribe', 'zh-Hant': '重新轉寫' },
     action_retranscribe_loading: { en: 'Re-transcribe · …', 'zh-Hant': '重新轉寫 · …' },
     confirm_retranscribe: {
@@ -1829,6 +1855,158 @@ async function vaultOpenTranscriptDialog(docNode, signal, opts = {}) {
 }
 
 /**
+ * @param {number} docId
+ * @param {AbortSignal} signal
+ */
+async function vaultFetchDocumentText(docId, signal) {
+    const wid = getOaaoActiveWorkspaceIdForVault();
+    let url = `${vaultApiBase()}document_text?document_id=${encodeURIComponent(String(docId))}`;
+    if (wid != null) url += `&workspace_id=${encodeURIComponent(String(wid))}`;
+    const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' }, signal });
+    /** @type {{ success?: boolean, message?: string, data?: Record<string, unknown> }} */
+    const json = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, json };
+}
+
+/**
+ * @param {HTMLElement} out
+ * @param {string} text
+ */
+function vaultRenderPlainTextPreview(out, text) {
+    out.classList.remove('oaao-md-bubble');
+    out.innerHTML = '';
+    out.textContent = text;
+    out.style.whiteSpace = 'pre-wrap';
+}
+
+/**
+ * @param {Record<string, unknown>} docNode
+ * @param {AbortSignal} signal
+ */
+async function vaultOpenTextPreviewDialog(docNode, signal) {
+    const DialogMod = await vaultLoadDialogCtor();
+    if (!DialogMod || typeof DialogMod.open !== 'function') return;
+
+    const docId = typeof docNode.id === 'number' ? docNode.id : Math.floor(Number(docNode.id ?? 0));
+    if (!Number.isFinite(docId) || docId < 1) return;
+
+    const fileName = String(docNode.file_name ?? '').trim() || `Document #${docId}`;
+
+    /** @type {HTMLElement} */
+    const loadingHost = document.createElement('div');
+    oaaoMountLoadingLogo(loadingHost, {
+        block: true,
+        label: vaultSidebarUiString('preview_btn_loading'),
+    });
+
+    DialogMod.open({
+        title: `${vaultSidebarUiString('preview_dialog_title')} · ${fileName}`,
+        content: loadingHost,
+        size: 'xl',
+        height: 'min(82vh, calc(100vh - 3rem))',
+        onOpen(ctrl) {
+            vaultApplyTranscriptDialogLayout(ctrl);
+        },
+        buttons: [
+            {
+                text: vaultSidebarUiString('btn_close'),
+                color: 'accent',
+                action: async () => true,
+            },
+        ],
+    });
+
+    try {
+        const { ok, json } = await vaultFetchDocumentText(docId, signal);
+        if (signal.aborted) return;
+
+        loadingHost.replaceChildren();
+
+        if (!ok || json.success !== true || !json.data || typeof json.data !== 'object') {
+            const err = document.createElement('p');
+            err.className = 'text-[0.8125rem] fg-[var(--grid-caption)] m-0';
+            err.textContent =
+                typeof json.message === 'string' && json.message.trim()
+                    ? json.message.trim()
+                    : vaultSidebarUiString('preview_load_fail');
+            loadingHost.append(err);
+            return;
+        }
+
+        const data = /** @type {Record<string, unknown>} */ (json.data);
+        const content = typeof data.content === 'string' ? data.content : '';
+        const isMarkdown = data.is_markdown === true;
+        const truncated = data.truncated === true;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-col flex-1 min-h-0 gap-2 overflow-hidden';
+
+        if (truncated) {
+            const hint = document.createElement('p');
+            hint.className = 'text-[0.72rem] fg-[var(--grid-caption)] m-0 shrink-0';
+            hint.textContent = vaultSidebarUiString('preview_truncated_hint');
+            wrap.append(hint);
+        }
+
+        const scroll = document.createElement('div');
+        scroll.className =
+            'flex-1 min-h-0 overflow-y-auto overscroll-contain rounded-md border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] px-3 py-2.5 text-[0.8125rem] leading-relaxed fg-[var(--grid-ink)]';
+
+        if (!content.trim()) {
+            scroll.textContent = vaultSidebarUiString('preview_empty');
+            scroll.classList.add('fg-[var(--grid-caption)]', 'italic');
+        } else if (isMarkdown) {
+            const mod = await loadVaultTranscriptMod();
+            if (signal.aborted) return;
+            mod.renderSummaryOutput(scroll, { markdown: content });
+        } else {
+            vaultRenderPlainTextPreview(scroll, content);
+        }
+
+        wrap.append(scroll);
+        loadingHost.append(wrap);
+    } catch (e) {
+        if (!signal.aborted) {
+            loadingHost.replaceChildren();
+            const err = document.createElement('p');
+            err.className = 'text-[0.8125rem] fg-[var(--grid-caption)] m-0';
+            err.textContent = vaultSidebarUiString('preview_load_fail');
+            loadingHost.append(err);
+            console.warn('[oaao vault] document_text failed', e);
+        }
+    }
+}
+
+/**
+ * @param {Record<string, unknown>} docNode
+ * @param {AbortSignal} signal
+ * @returns {HTMLButtonElement | null}
+ */
+function vaultCreateTextPreviewButton(docNode, signal) {
+    if (!vaultIsTextPreviewDocument(docNode)) return null;
+
+    const docId = typeof docNode.id === 'number' ? docNode.id : Math.floor(Number(docNode.id ?? 0));
+    if (!Number.isFinite(docId) || docId < 1) return null;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = VAULT_DETAIL_ACCENT_BTN_CLASS;
+    btn.textContent = vaultSidebarUiString('preview_btn');
+    btn.addEventListener(
+        'click',
+        () => {
+            btn.disabled = true;
+            void vaultOpenTextPreviewDialog(docNode, signal).finally(() => {
+                if (!signal.aborted && btn.isConnected) btn.disabled = false;
+            });
+        },
+        { signal },
+    );
+
+    return btn;
+}
+
+/**
  * @param {Record<string, unknown>} docNode
  * @param {AbortSignal} signal
  * @returns {HTMLButtonElement | null}
@@ -2768,6 +2946,18 @@ function vaultBuildStatusHtml(node) {
     /** @type {string[]} */
     const chips = [];
 
+    const refetchRaw =
+        typeof node.research_refetch_status === 'string' ? node.research_refetch_status.trim().toLowerCase() : '';
+    if (refetchRaw === 'queued') {
+        chips.push(
+            `<span class="oaao-vault-badge oaao-vault-badge--queued">${escapeVaultHtml(vaultSidebarUiString('badge_refetch_queued'))}</span>`,
+        );
+    } else if (refetchRaw === 'running') {
+        chips.push(
+            `<span class="oaao-vault-badge oaao-vault-badge--embedding">${escapeVaultHtml(vaultSidebarUiString('badge_refetch_running'))}</span>`,
+        );
+    }
+
     if (showQueuedHint) {
         chips.push(
             `<span class="oaao-vault-badge oaao-vault-badge--queued"${vaultEmbedErrTitleAttr(embedErrTrimmed)}>${escapeVaultHtml(queuedHintRaw)}</span>`,
@@ -3024,6 +3214,146 @@ let vaultRlFocusRowKey = '';
 
 /** @type {HTMLElement | null} */
 let vaultExplorerRlShellRef = null;
+
+/** @type {ResizeObserver | null} */
+let vaultRlShellScrollObserver = null;
+
+/**
+ * Visible scroll height from element top to workspace bottom.
+ *
+ * @param {HTMLElement} scrollEl
+ * @param {HTMLElement} root
+ * @returns {number | null}
+ */
+function measureVaultListScrollHeight(scrollEl, root) {
+    const top = scrollEl.getBoundingClientRect().top;
+    if (!Number.isFinite(top)) return null;
+
+    let clipBottom = window.innerHeight;
+    if (typeof window.visualViewport?.height === 'number' && window.visualViewport.height > 0) {
+        clipBottom = Math.min(
+            clipBottom,
+            (window.visualViewport.offsetTop ?? 0) + window.visualViewport.height,
+        );
+    }
+
+    const workspaceContent = document.getElementById('workspace-content');
+    if (workspaceContent instanceof HTMLElement) {
+        const wr = workspaceContent.getBoundingClientRect();
+        if (wr.height > 0 && Number.isFinite(wr.bottom)) {
+            clipBottom = Math.min(clipBottom, wr.bottom);
+        }
+    }
+
+    const browseBody = root.querySelector('.oaao-vault-browse-body');
+    if (browseBody instanceof HTMLElement) {
+        const br = browseBody.getBoundingClientRect();
+        if (br.height > 0 && Number.isFinite(br.bottom)) {
+            clipBottom = Math.min(clipBottom, br.bottom);
+        }
+    }
+
+    return Math.max(120, Math.floor(clipBottom - top - 2));
+}
+
+/**
+ * Apply vault ResourceList scroll on {@code .resource-list-wrapper} (not rlShell — container overflow:hidden clips without scrollHeight).
+ *
+ * @param {HTMLElement} mount
+ */
+function syncVaultExplorerScrollHeights(mount) {
+    const root =
+        mount.matches?.('[data-module="oaao-vault"]')
+            ? mount
+            : (mount.querySelector('[data-module="oaao-vault"]') ?? mount);
+    const treeHost = root.querySelector('[data-oaao-vault="tree-main-host"]');
+    const rlShell = vaultExplorerRlShellRef;
+    if (!(treeHost instanceof HTMLElement)) return;
+
+    treeHost.style.display = 'flex';
+    treeHost.style.flexDirection = 'column';
+    treeHost.style.flex = '1 1 0%';
+    treeHost.style.minHeight = '0';
+    treeHost.style.minWidth = '0';
+    treeHost.style.overflow = 'hidden';
+
+    if (!(rlShell instanceof HTMLElement) || !rlShell.isConnected) return;
+
+    rlShell.style.display = 'flex';
+    rlShell.style.flexDirection = 'column';
+    rlShell.style.flex = '1 1 0%';
+    rlShell.style.minHeight = '0';
+    rlShell.style.minWidth = '0';
+    rlShell.style.overflow = 'hidden';
+    rlShell.style.height = '';
+    rlShell.style.maxHeight = '';
+
+    const container = rlShell.querySelector('.resource-list-container');
+    const wrapper = rlShell.querySelector('.resource-list-wrapper');
+    if (!(wrapper instanceof HTMLElement)) return;
+
+    if (container instanceof HTMLElement) {
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.flex = '1 1 0%';
+        container.style.minHeight = '0';
+        container.style.overflow = 'hidden';
+    }
+
+    wrapper.style.flex = '1 1 0%';
+    wrapper.style.minHeight = '0';
+    wrapper.style.minWidth = '0';
+    wrapper.style.overflowX = 'auto';
+    wrapper.style.setProperty('overflow-y', 'auto', 'important');
+    wrapper.style.setProperty('-webkit-overflow-scrolling', 'touch');
+
+    const applyPin = () => {
+        const pinH = measureVaultListScrollHeight(wrapper, root);
+        if (pinH == null) return;
+
+        wrapper.style.maxHeight = `${pinH}px`;
+        wrapper.style.height = `${pinH}px`;
+
+        const needsScroll = wrapper.scrollHeight > wrapper.clientHeight + 2;
+        if (!needsScroll && rlShell.querySelectorAll('tr.resource-list-row').length > 0) {
+            const tighter = Math.max(120, pinH - 48);
+            wrapper.style.maxHeight = `${tighter}px`;
+            wrapper.style.height = `${tighter}px`;
+        }
+    };
+
+    applyPin();
+    requestAnimationFrame(applyPin);
+}
+
+/**
+ * Re-measure when ResourceList rows mount or workspace chrome resizes.
+ *
+ * @param {HTMLElement} mount
+ * @param {HTMLElement} rlShell
+ */
+function vaultBindRlShellScrollSync(mount, rlShell) {
+    if (!(rlShell instanceof HTMLElement)) return;
+
+    const sync = () => syncVaultExplorerScrollHeights(mount);
+    sync();
+    requestAnimationFrame(sync);
+
+    vaultRlShellScrollObserver?.disconnect();
+    vaultRlShellScrollObserver = null;
+    if (typeof ResizeObserver !== 'function') return;
+
+    vaultRlShellScrollObserver = new ResizeObserver(() => {
+        sync();
+    });
+    vaultRlShellScrollObserver.observe(rlShell);
+    const wrapper = rlShell.querySelector('.resource-list-wrapper');
+    if (wrapper instanceof HTMLElement) vaultRlShellScrollObserver.observe(wrapper);
+    const treeHost = rlShell.closest('[data-oaao-vault="tree-main-host"]');
+    if (treeHost instanceof HTMLElement) vaultRlShellScrollObserver.observe(treeHost);
+    const workspaceContent = document.getElementById('workspace-content');
+    if (workspaceContent instanceof HTMLElement) vaultRlShellScrollObserver.observe(workspaceContent);
+}
 
 /**
  * @param {Record<string, unknown>} node
@@ -3632,7 +3962,7 @@ function renderVaultContainerDetailPanel(folderNode, mount, signal, navigate) {
         { signal },
     );
 
-    actions.append(vaultMkDetailIconRow([rn, delBtn, mv]));
+    actions.append(vaultMkDetailIconRow(folderNode.research_managed ? [rn, mv] : [rn, delBtn, mv]));
 }
 
 /**
@@ -3895,9 +4225,13 @@ function renderVaultDetailPanel(docNode, mount, signal) {
     );
 
     const embedDetailBtn = vaultCreateEmbedDetailButton(docNode, signal);
+    const previewBtn = vaultCreateTextPreviewButton(docNode, signal);
     const transcriptBtn = vaultCreateTranscriptButton(docNode, signal);
     const retranscribeBtn = vaultCreateRetranscribeButton(docNode, signal, jobNote, mount);
-    const mgmtRow = vaultMkDetailIconRow([rn, delBtn, mv]);
+    const mgmtRow = vaultMkDetailIconRow(docNode.research_managed ? [rn, mv] : [rn, delBtn, mv]);
+    if (previewBtn) {
+        actions.append(previewBtn);
+    }
     if (transcriptBtn) {
         actions.append(transcriptBtn);
     }
@@ -4126,6 +4460,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
 
         if (vaultRlDropAbort) wireVaultExplorerDropTarget(grid, vaultRlDropAbort.signal);
 
+        syncVaultExplorerScrollHeights(vaultMountRef ?? rlShell.closest('[data-module="oaao-vault"]') ?? document.body);
         return;
     }
 
@@ -4270,6 +4605,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
     }
 
     if (vaultRlDropAbort) wireVaultExplorerDropTarget(grid, vaultRlDropAbort.signal);
+    syncVaultExplorerScrollHeights(vaultMountRef ?? rlShell.closest('[data-module="oaao-vault"]') ?? document.body);
 }
 
 /**
@@ -4335,7 +4671,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
     navEl.setAttribute('aria-label', 'Vault path');
 
     const rlShell = document.createElement('div');
-    rlShell.className = 'flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden';
+    rlShell.className = 'oaao-vault-rl-shell flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden';
     vaultExplorerRlShellRef = rlShell;
     const rlChatSourceNote = document.createElement('p');
     rlChatSourceNote.className =
@@ -4343,6 +4679,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
     rlChatSourceNote.setAttribute('data-oaao-vault-chat-source-note', '');
     host.append(navEl, rlShell);
     rlShell.append(rlChatSourceNote);
+    vaultBindRlShellScrollSync(mount, rlShell);
 
     /** @type {Map<string, Record<string, unknown>>} */
     let rowNodeByKey = new Map();
@@ -4448,6 +4785,8 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
             }
             vaultSyncResourceListFocusRow();
 
+            syncVaultExplorerScrollHeights(mount);
+            vaultBindRlShellScrollSync(mount, rlShell);
             return;
         }
 
@@ -4779,6 +5118,9 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
         }
 
         vaultSyncResourceListFocusRow();
+        syncVaultExplorerScrollHeights(mount);
+        vaultBindRlShellScrollSync(mount, rlShell);
+        requestAnimationFrame(() => syncVaultExplorerScrollHeights(mount));
     };
 
     vaultExplorerRedraw = () => {
@@ -5283,6 +5625,8 @@ let vaultBrowseLayoutObserver = null;
 function wireVaultBrowseLayout(mount, signal) {
     vaultBrowseLayoutObserver?.disconnect();
     vaultBrowseLayoutObserver = null;
+    vaultRlShellScrollObserver?.disconnect();
+    vaultRlShellScrollObserver = null;
 
     const body = mount.querySelector('.oaao-vault-browse-body');
     const explorer = mount.querySelector('.oaao-vault-browse-body > .oaao-vault-explorer-column');
@@ -5296,19 +5640,33 @@ function wireVaultBrowseLayout(mount, signal) {
         body.style.setProperty('display', 'grid', 'important');
         body.style.width = '100%';
         body.style.boxSizing = 'border-box';
+        body.style.setProperty('flex', '1 1 0%', 'important');
+        body.style.height = '0';
         body.style.minHeight = '0';
         body.style.minWidth = '0';
         body.style.overflow = 'hidden';
         explorer.style.display = 'flex';
         explorer.style.flexDirection = 'column';
+        explorer.style.flex = '1 1 0%';
         explorer.style.minWidth = '0';
         explorer.style.minHeight = '0';
         explorer.style.overflow = 'hidden';
+
+        const treeHost = explorer.querySelector('[data-oaao-vault="tree-main-host"]');
+        if (treeHost instanceof HTMLElement) {
+            treeHost.style.display = 'flex';
+            treeHost.style.flexDirection = 'column';
+            treeHost.style.flex = '1 1 0%';
+            treeHost.style.minHeight = '0';
+            treeHost.style.minWidth = '0';
+            treeHost.style.overflow = 'hidden';
+        }
 
         aside.style.display = 'flex';
         aside.style.flexDirection = 'column';
         aside.style.overflow = 'hidden';
         aside.style.minWidth = '0';
+        aside.style.minHeight = '0';
 
         if (wide) {
             body.style.setProperty('grid-template-columns', 'minmax(0, 1fr) 280px', 'important');
@@ -5339,6 +5697,8 @@ function wireVaultBrowseLayout(mount, signal) {
             aside.style.borderLeft = '';
             aside.style.borderTop = '1px solid var(--grid-line)';
         }
+
+        syncVaultExplorerScrollHeights(mount);
     };
 
     const scheduleApply = () => {
@@ -5350,6 +5710,14 @@ function wireVaultBrowseLayout(mount, signal) {
     if (typeof ResizeObserver === 'function') {
         vaultBrowseLayoutObserver = new ResizeObserver(() => scheduleApply());
         vaultBrowseLayoutObserver.observe(body);
+        vaultBrowseLayoutObserver.observe(explorer);
+        const treeHost = explorer.querySelector('[data-oaao-vault="tree-main-host"]');
+        if (treeHost instanceof HTMLElement) vaultBrowseLayoutObserver.observe(treeHost);
+        const workspaceContent = document.getElementById('workspace-content');
+        if (workspaceContent instanceof HTMLElement) vaultBrowseLayoutObserver.observe(workspaceContent);
+        if (vaultExplorerRlShellRef instanceof HTMLElement) {
+            vaultBrowseLayoutObserver.observe(vaultExplorerRlShellRef);
+        }
     }
     window.addEventListener('resize', scheduleApply, { signal });
     signal.addEventListener(
@@ -5439,6 +5807,8 @@ export function teardownShellPanel(_options = {}) {
 
     vaultBrowseLayoutObserver?.disconnect();
     vaultBrowseLayoutObserver = null;
+    vaultRlShellScrollObserver?.disconnect();
+    vaultRlShellScrollObserver = null;
 
     cleanupWorkspaceVaultSidebarList();
 }

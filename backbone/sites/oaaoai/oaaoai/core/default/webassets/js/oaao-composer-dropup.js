@@ -9,7 +9,7 @@ const TICK_SVG =
     '<svg xmlns="http://www.w3.org/2000/svg" class="shrink-0 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 
 const DROPUP_STYLE_ID = 'oaao-composer-dropup-inline';
-const DROPUP_STYLE_REV = '20260525-composer-dropup-v29';
+const DROPUP_STYLE_REV = '20260525-composer-asr-v35';
 
 /** @type {number} */
 let composerDropupFallbackZ = 9000;

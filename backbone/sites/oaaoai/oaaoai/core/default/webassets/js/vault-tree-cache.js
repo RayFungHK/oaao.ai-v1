@@ -15,9 +15,12 @@ const inflightTree = new Map();
 const TREE_TTL_MS = 45_000;
 
 /**
- * @param {number | null | undefined} workspaceId
+ * @param {number | null | undefined | 'all'} workspaceId
  */
 export function vaultTreeScopeKey(workspaceId) {
+    if (workspaceId === 'all') {
+        return 'all';
+    }
     if (workspaceId != null && Number.isFinite(workspaceId) && workspaceId > 0) {
         return `ws:${Math.floor(workspaceId)}`;
     }
@@ -63,6 +66,9 @@ export function patchVaultTreeDocumentStatuses(tree, statusById) {
                     if (hit.byte_size !== undefined) node.byte_size = hit.byte_size;
                     if (hit.file_name != null) node.file_name = hit.file_name;
                     if (hit.has_transcript != null) node.has_transcript = hit.has_transcript ? 1 : 0;
+                    if (hit.research_refetch_status !== undefined) {
+                        node.research_refetch_status = hit.research_refetch_status;
+                    }
                     patched = true;
                 }
             }
@@ -76,7 +82,7 @@ export function patchVaultTreeDocumentStatuses(tree, statusById) {
 }
 
 /**
- * @param {number | null | undefined} workspaceId
+ * @param {number | null | undefined | 'all'} workspaceId
  * @param {() => string} buildUrl — full URL for GET vault_tree (lite default on server)
  * @param {{ force?: boolean }} [opts]
  * @returns {Promise<{ success?: boolean, data?: { tree?: unknown[], scope?: Record<string, unknown> } } | null>}

@@ -49,6 +49,15 @@
 - Purpose `asr_summary.*` for end-of-session summary
 - Optional push summary into chat thread
 
+### M4 — ASR-Live (OAAO wired; upstream WS transcript pending)
+
+- **FunASR Nano** at **https://funasr-nano.rayfung.hk** (`GET /health`, `POST /transcribe`)
+- **Primary**: duplex WS streaming (partial ~300–800 ms) — **OAAO bridge shipped** (`stream_bridge`, `funasr_nano_ws` / `funasr_runtime` / `dashscope`); **upstream proxy must emit `transcript`/`partial` JSON** (ops)
+- **Fallback A**: ~5 s closed PCM segments → batch **`asr.*`** slot (`openai_compat` or `json_transcribe`)
+- **Fallback B**: `input_fallback` → retry batch when primary segment path errors
+- Separate Purpose **`asr.live.*`** from batch **`asr.*`**
+- **Spec**: `backbone/sites/oaaoai/oaaoai/docs/backlog/local-asr-live-funasr-mlt-nano.md`
+
 ---
 
 ## 3. Architecture (M1)
@@ -206,7 +215,8 @@ Binary: PCM s16le mono 16 kHz; optional JSON `{ "type": "ping" }` heartbeat.
 
 | Slot | M1 | Use |
 |------|-----|-----|
-| `asr.*` | **Required** | Qwen3 streaming |
+| `asr.live.*` | **M4** | Live streaming (WS) — Composer mic + Live Meeting |
+| `asr.*` | **Required** (batch fallback) | Qwen / FunASR Nano HTTP segment batch |
 | `live_meeting.*` | M2 | Bubble / question LLM |
 | `chat.*` + `embedding.*` | M2 | RAG answers |
 | `asr_summary.*` | M3 | Post-session summary |
@@ -285,5 +295,6 @@ M1 only stores default `1v1` in `meta.json`.
 
 | Date | Version | Notes |
 |------|---------|-------|
+| 2026-05-25 | 0.2 | M4 ASR-Live OAAO wired; upstream WS transcript pending (ops) |
 | 2026-05-21 | 0.1 | M1 frozen in site backlog; phase plan copied to `/docs` |
 | 2026-05-19 | 0.1 | `/docs` phase plan index |

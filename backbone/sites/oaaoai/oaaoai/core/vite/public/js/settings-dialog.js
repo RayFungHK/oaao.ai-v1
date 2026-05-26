@@ -7,6 +7,15 @@ import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-u
 import { oaaoT } from './oaao-i18n.js';
 import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 
+/** @param {unknown} v */
+function escapeHtml(v) {
+    return String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 /** Razy {@code Dialog} shell tokens — avoid arbitrary {@code min(a,b)} with commas here (JIT often skips them). Size uses {@link Dialog} {@code height} below. */
 const SDLG_DIALOG_BOX_JIT = 'overflow-hidden bg-[var(--grid-panel-bright)] min-h-0';
 
@@ -328,7 +337,7 @@ export async function openWorkspaceSettingsDialog(razyui) {
                     /* webpackIgnore: true */ oaaoAppendShellEsmV(resolveShellRegistryUrl(sec.panel_js_module)),
                 );
                 if (typeof mod.mountSettingsPanel === 'function') {
-                    await mod.mountSettingsPanel(host, { razyui, section: sec, Dialog, JIT });
+                    await mod.mountSettingsPanel(host, { razyui, section: sec, Dialog, JIT, oaaoT });
                 }
                 if (typeof mod.teardownSettingsPanel === 'function') {
                     panelTeardowns.push(() => {

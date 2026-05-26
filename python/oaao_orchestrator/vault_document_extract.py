@@ -40,16 +40,75 @@ def _sanitize_label(s: str, *, maxlen: int = 240) -> str:
 
 
 def chunk_plain_text(raw: str, *, size: int, overlap: int) -> list[str]:
-    """Sliding-window character chunks (same behaviour as orchestrator ingest; no global cap — caller caps)."""
+    """Sliding-window character chunks; avoids splitting inside math delimiters."""
 
     text = raw.replace("\x00", " ").strip()
     if text == "":
         return []
+    protected = _math_protected_ranges(text)
+    if protected:
+        return _chunk_text_avoiding_ranges(text, size=size, overlap=overlap, protected=protected)
+    return _chunk_text_plain(text, size=size, overlap=overlap)
+
+
+_MATH_FENCE_RE = re.compile(
+    r"\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|"
+    r"(?<!\$)\$(?:\\.|[^$\\])+\$(?!\$)|"
+    r"\\\((?:\\.|[^\\])+\\\)",
+)
+
+
+def _math_protected_ranges(text: str) -> list[tuple[int, int]]:
+    return [(m.start(), m.end()) for m in _MATH_FENCE_RE.finditer(text)]
+
+
+def _inside_protected(idx: int, protected: list[tuple[int, int]]) -> bool:
+    for start, end in protected:
+        if start <= idx < end:
+            return True
+    return False
+
+
+def _chunk_text_plain(text: str, *, size: int, overlap: int) -> list[str]:
     chunks: list[str] = []
     i = 0
     n = len(text)
     while i < n:
         end = min(i + size, n)
+        piece = text[i:end].strip()
+        if piece:
+            chunks.append(piece)
+        if end >= n:
+            break
+        step = max(1, end - overlap)
+        if step <= i:
+            step = end
+        i = step
+    return chunks
+
+
+def _chunk_text_avoiding_ranges(
+    text: str,
+    *,
+    size: int,
+    overlap: int,
+    protected: list[tuple[int, int]],
+) -> list[str]:
+    chunks: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        end = min(i + size, n)
+        while end < n and _inside_protected(end, protected):
+            end += 1
+        if end < n:
+            split = text.rfind("\n\n", i + max(1, size // 3), end)
+            if split > i and not _inside_protected(split, protected):
+                end = split
+            else:
+                split = text.rfind("\n", i + max(1, size // 4), end)
+                if split > i and not _inside_protected(split, protected):
+                    end = split
         piece = text[i:end].strip()
         if piece:
             chunks.append(piece)
@@ -119,6 +178,35 @@ def build_asr_segment_pieces(
     return out
 
 
+def _semantic_merge_segments(segments: list[TextSegment], *, min_chars: int = 480) -> list[TextSegment]:
+    """Merge adjacent small markdown sections to reduce over-fragmentation before chunking."""
+    if not segments:
+        return segments
+    merged: list[TextSegment] = []
+    buf: TextSegment | None = None
+    for seg in segments:
+        if seg.scope != "md_section":
+            if buf:
+                merged.append(buf)
+                buf = None
+            merged.append(seg)
+            continue
+        if buf and len(buf.body) + len(seg.body) < min_chars:
+            buf = TextSegment(
+                scope=buf.scope,
+                label=buf.label,
+                body=f"{buf.body.rstrip()}\n\n{seg.body.lstrip()}",
+                meta=dict(buf.meta),
+            )
+        else:
+            if buf:
+                merged.append(buf)
+            buf = seg
+    if buf:
+        merged.append(buf)
+    return merged
+
+
 def build_embedding_pieces(
     segments: list[TextSegment],
     *,
@@ -131,6 +219,7 @@ def build_embedding_pieces(
 
     Optionally prefixes each segment's blob with ``[scope: label]`` so embeddings retain slide/sheet/page context.
     """
+    segments = _semantic_merge_segments(segments)
     out: list[tuple[str, dict[str, Any]]] = []
     for seg in segments:
         body = seg.body.replace("\x00", " ").strip()

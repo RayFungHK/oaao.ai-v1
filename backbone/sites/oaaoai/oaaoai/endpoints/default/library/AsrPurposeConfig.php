@@ -105,7 +105,7 @@ final class AsrPurposeConfig
 
         /** @var array<string, mixed> $meta */
         $meta = \is_array($asrBind['purpose_meta'] ?? null) ? $asrBind['purpose_meta'] : [];
-        $provider = self::providerFromMeta($meta);
+        $provider = self::resolveBatchProvider($asrBind, $meta);
         $payload['provider'] = $provider;
 
         if (self::diarizationEnabledFromMeta($meta)) {
@@ -137,6 +137,16 @@ final class AsrPurposeConfig
         $mode = trim((string) ($meta['mode'] ?? $meta['asr_mode'] ?? ''));
         if ($mode !== '') {
             $payload['mode'] = $mode;
+        }
+
+        $batchProtocol = trim((string) ($meta['batch_protocol'] ?? $meta['transcribe_protocol'] ?? ''));
+        if ($batchProtocol !== '') {
+            $payload['batch_protocol'] = $batchProtocol;
+        } else {
+            $endpointBase = strtolower(trim((string) ($asrBind['base_url'] ?? '')));
+            if ($endpointBase !== '' && str_contains($endpointBase, 'funasr-nano') && ! str_contains($endpointBase, '/audio/transcriptions')) {
+                $payload['batch_protocol'] = 'json_transcribe';
+            }
         }
 
         $dsWs = trim((string) ($meta['dashscope_ws_url'] ?? $meta['ws_url'] ?? ''));
@@ -176,6 +186,40 @@ final class AsrPurposeConfig
         $raw = strtolower(trim((string) ($meta['provider'] ?? 'openai_compat')));
 
         return \in_array($raw, ['funasr', 'openai_compat'], true) ? $raw : 'openai_compat';
+    }
+
+    /**
+     * Batch {@code asr.*} provider — Speaker Mode needs {@code funasr}; OpenAI-compat endpoints (Qwen, Whisper) stay {@code openai_compat}.
+     *
+     * @param array<string, mixed> $asrBind
+     * @param array<string, mixed>|null $meta
+     */
+    public static function resolveBatchProvider(array $asrBind, ?array $meta): string
+    {
+        if (self::diarizationEnabledFromMeta($meta)) {
+            return 'funasr';
+        }
+        $fromMeta = self::providerFromMeta($meta);
+        if ($fromMeta !== 'funasr') {
+            return $fromMeta;
+        }
+        $endpointBase = strtolower(trim((string) ($asrBind['base_url'] ?? '')));
+        if ($endpointBase === '' || self::looksLikeFunasrSidecarBase($endpointBase)) {
+            return 'funasr';
+        }
+
+        return 'openai_compat';
+    }
+
+    public static function looksLikeFunasrSidecarBase(string $baseUrl): bool
+    {
+        $u = strtolower(trim($baseUrl));
+
+        return $u !== '' && (
+            str_contains($u, 'funasr')
+            || str_contains($u, ':8765')
+            || str_contains($u, 'funasr_adapter')
+        ) && ! str_contains($u, '/audio/transcriptions');
     }
 
     public static function diarizationEnabledFromMeta(?array $meta): bool

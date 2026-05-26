@@ -1,5 +1,5 @@
 /**
- * Admin Settings — Skills providers, OpenAPI tool servers, evolution cron triggers.
+ * Admin Settings — Skills providers and OpenAPI tool servers.
  */
 
 import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
@@ -25,11 +25,6 @@ const LABELS = {
         save_servers: 'Save tool servers',
         save_ok: 'Tool servers saved.',
         save_fail: 'Save failed.',
-        cron_daily: 'Run daily report now',
-        cron_weekly: 'Run weekly auto-apply now',
-        cron_ok: 'Cron job completed.',
-        cron_fail: 'Cron job failed.',
-        systemd_hint: 'Schedule on the host with systemd timers — see scripts/systemd/README.md',
         field_id: 'Server ID',
         field_base: 'Base URL',
         field_openapi: 'OpenAPI path',
@@ -54,11 +49,6 @@ const LABELS = {
         save_servers: '儲存 tool servers',
         save_ok: 'Tool servers 已儲存。',
         save_fail: '儲存失敗。',
-        cron_daily: '立即執行 daily report',
-        cron_weekly: '立即執行 weekly auto-apply',
-        cron_ok: 'Cron 工作已完成。',
-        cron_fail: 'Cron 工作失敗。',
-        systemd_hint: '在 host 上用 systemd timer 排程 — 見 scripts/systemd/README.md',
         field_id: 'Server ID',
         field_base: 'Base URL',
         field_openapi: 'OpenAPI path',
@@ -109,7 +99,7 @@ let editableServers = [];
 
 /**
  * @param {Record<string, unknown>} data
- * @param {{ onSave: () => void, onCron: (job: string) => void }} handlers
+ * @param {{ onSave: (persist: boolean) => void }} handlers
  */
 function renderPanel(data, handlers) {
     const root = document.createElement('div');
@@ -130,23 +120,6 @@ function renderPanel(data, handlers) {
     sty(pathP, { fontSize: '12px', fontFamily: 'monospace', color: UI.caption, margin: '0' });
     pathP.textContent = `${label('config_path')}: ${String(data.tool_servers_file ?? '—')}`;
     root.appendChild(pathP);
-
-    const cronRow = document.createElement('div');
-    sty(cronRow, { display: 'flex', flexWrap: 'wrap', gap: '8px' });
-    for (const [job, text] of [['daily', 'cron_daily'], ['weekly', 'cron_weekly']]) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = label(text);
-        sty(btn, { fontSize: '13px', padding: '8px 12px', borderRadius: '8px', border: `1px solid ${UI.line}`, background: '#fff', cursor: 'pointer' });
-        btn.addEventListener('click', () => handlers.onCron(job));
-        cronRow.appendChild(btn);
-    }
-    root.appendChild(cronRow);
-
-    const hint = document.createElement('p');
-    sty(hint, { fontSize: '12px', color: UI.muted, margin: '0' });
-    hint.textContent = label('systemd_hint');
-    root.appendChild(hint);
 
     const srvHeading = document.createElement('h3');
     sty(srvHeading, { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: UI.caption, margin: '8px 0 0' });
@@ -293,7 +266,6 @@ export async function mountSettingsPanel(host, ctx = {}) {
         body.appendChild(
             renderPanel(payload, {
                 onSave: (persist) => void persistServers(statusEl, wrap, ctx, persist),
-                onCron: (job) => void runCron(statusEl, job),
             }),
         );
         wrap.querySelector('[data-oaao-skills-body]')?.remove();
@@ -326,16 +298,6 @@ export async function mountSettingsPanel(host, ctx = {}) {
             }));
         }
         await reload();
-    }
-
-    async function runCron(statusEl, job) {
-        const { res, data } = await fetchJson(chatApiUrl('evolution_cron_run'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ job }),
-        });
-        statusEl.style.color = res.ok && data.success === true ? UI.ink : UI.caution;
-        statusEl.textContent = res.ok && data.success === true ? label('cron_ok') : label('cron_fail');
     }
 
     await reload();

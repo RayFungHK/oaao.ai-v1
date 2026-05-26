@@ -188,11 +188,17 @@ const WORKSPACE_SCOPE_V2_KEY = 'oaao.workspace.scope';
 /** Split layout — icon rail + module sidebar + main ({@code workspace/chat}, {@code workspace/vault}). */
 const SPLIT_LAYOUT_PAGE_IDS = new Set(['workspace/chat', 'workspace/vault']);
 
-/** Gallery layout — icon rail + main only; tenant in header ({@code workspace/agents}, {@code workspace/templates}). */
+/** Gallery layout — icon rail + main; centered card column ({@code workspace/agents}, {@code workspace/templates}). */
 const GALLERY_LAYOUT_PAGE_IDS = new Set([
     'workspace/agents',
     'workspace/templates',
+]);
+
+/** Rail-only layout — hide sidebar, full-width main ({@code workspace/research}, {@code workspace/mines}, …). */
+const RAIL_ONLY_LAYOUT_PAGE_IDS = new Set([
     'workspace/live-meeting',
+    'workspace/research',
+    'workspace/mines',
 ]);
 
 /**
@@ -203,6 +209,13 @@ function isGalleryLayoutPage(pageId) {
 }
 
 /**
+ * @param {string} pageId
+ */
+function isRailOnlyLayoutPage(pageId) {
+    return RAIL_ONLY_LAYOUT_PAGE_IDS.has(pageId);
+}
+
+/**
  * @param {string} activePageId
  */
 function syncWorkspaceShellLayout(activePageId) {
@@ -210,9 +223,11 @@ function syncWorkspaceShellLayout(activePageId) {
     if (!view) return;
 
     const gallery = isGalleryLayoutPage(activePageId);
+    const railOnly = isRailOnlyLayoutPage(activePageId);
     const split = SPLIT_LAYOUT_PAGE_IDS.has(activePageId);
     view.classList.toggle('oaao-workspace-layout--gallery', gallery);
-    view.classList.toggle('oaao-workspace-layout--split', split && !gallery);
+    view.classList.toggle('oaao-workspace-layout--rail-only', railOnly);
+    view.classList.toggle('oaao-workspace-layout--split', split && !gallery && !railOnly);
 
     const shellTenant = document.getElementById('workspace-shell-tenant-label');
     const headerTenant = document.getElementById('workspace-header-tenant-label');
@@ -1278,10 +1293,14 @@ function applyWorkspaceShellLabels() {
     const vaultBtn = document.getElementById('workspace-rail-vault');
     const agentsBtn = document.getElementById('workspace-rail-agents');
     const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
+    const researchBtn = document.getElementById('workspace-rail-research');
+    const minesBtn = document.getElementById('workspace-rail-mines');
     const chatLabel = oaaoT('workspace.rail_chat_title', 'Chat');
     const vaultLabel = oaaoT('workspace.rail_vault_title', 'Vault');
     const agentsLabel = oaaoT('workspace.rail_agents_title', 'Agents');
     const liveMeetingLabel = oaaoT('workspace.rail_live_meeting_title', 'Live meeting');
+    const researchLabel = oaaoT('workspace.rail_research_title', 'Article Research');
+    const minesLabel = oaaoT('workspace.rail_mines_title', 'Data Mining');
     logoBtn?.setAttribute('title', chatLabel);
     logoBtn?.setAttribute('aria-label', chatLabel);
     chatBtn?.setAttribute('title', chatLabel);
@@ -1292,6 +1311,10 @@ function applyWorkspaceShellLabels() {
     agentsBtn?.setAttribute('aria-label', agentsLabel);
     liveMeetingBtn?.setAttribute('title', liveMeetingLabel);
     liveMeetingBtn?.setAttribute('aria-label', liveMeetingLabel);
+    researchBtn?.setAttribute('title', researchLabel);
+    researchBtn?.setAttribute('aria-label', researchLabel);
+    minesBtn?.setAttribute('title', minesLabel);
+    minesBtn?.setAttribute('aria-label', minesLabel);
 
     document.querySelectorAll('[data-i18n="workspace.vault_menu_heading"]').forEach((el) => {
         el.textContent = oaaoT('workspace.vault_menu_heading', 'Vault');
@@ -1375,6 +1398,18 @@ export function initWorkspaceShell() {
                 void navigateFn('workspace/live-meeting');
             });
         }
+        const researchBtn = document.getElementById('workspace-rail-research');
+        if (researchBtn && spaPages().some((p) => p.page_id === 'workspace/research')) {
+            researchBtn.addEventListener('click', () => {
+                void navigateFn('workspace/research');
+            });
+        }
+        const minesBtn = document.getElementById('workspace-rail-mines');
+        if (minesBtn && spaPages().some((p) => p.page_id === 'workspace/mines')) {
+            minesBtn.addEventListener('click', () => {
+                void navigateFn('workspace/mines');
+            });
+        }
         syncWorkspaceRailPinVisibility();
         const vaultBtn = document.getElementById('workspace-rail-vault');
         if (vaultBtn && spaPages().some((p) => p.page_id === 'workspace/vault')) {
@@ -1424,7 +1459,7 @@ export function initWorkspaceShell() {
         if (vaultSection) {
             vaultSection.classList.toggle('hidden', !hasVault || activePageId !== 'workspace/vault');
         }
-        if (isGalleryLayoutPage(activePageId)) {
+        if (isGalleryLayoutPage(activePageId) || isRailOnlyLayoutPage(activePageId)) {
             drawerCtl?.closeIfMobile?.();
         }
     }
@@ -1434,14 +1469,20 @@ export function initWorkspaceShell() {
         const agentsBtn = document.getElementById('workspace-rail-agents');
         const templatesBtn = document.getElementById('workspace-rail-templates');
         const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
+        const researchBtn = document.getElementById('workspace-rail-research');
+        const minesBtn = document.getElementById('workspace-rail-mines');
         const hasVault = spaPages().some((p) => p.page_id === 'workspace/vault');
         const hasAgents = spaPages().some((p) => p.page_id === 'workspace/agents');
         const hasTemplates = spaPages().some((p) => p.page_id === 'workspace/templates');
         const hasLiveMeeting = spaPages().some((p) => p.page_id === 'workspace/live-meeting');
+        const hasResearch = spaPages().some((p) => p.page_id === 'workspace/research');
+        const hasMines = spaPages().some((p) => p.page_id === 'workspace/mines');
         vaultBtn?.classList.toggle('hidden', !hasVault);
         agentsBtn?.classList.toggle('hidden', !hasAgents);
         templatesBtn?.classList.toggle('hidden', !hasTemplates);
         liveMeetingBtn?.classList.toggle('hidden', !hasLiveMeeting);
+        researchBtn?.classList.toggle('hidden', !hasResearch);
+        minesBtn?.classList.toggle('hidden', !hasMines);
     }
 
     function syncRailActive(activePageId) {
@@ -1451,11 +1492,15 @@ export function initWorkspaceShell() {
         const agentsBtn = document.getElementById('workspace-rail-agents');
         const templatesBtn = document.getElementById('workspace-rail-templates');
         const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
+        const researchBtn = document.getElementById('workspace-rail-research');
+        const minesBtn = document.getElementById('workspace-rail-mines');
         const chatActive = activePageId === 'workspace/chat';
         const vaultActive = activePageId === 'workspace/vault';
         const agentsActive = activePageId === 'workspace/agents';
         const templatesActive = activePageId === 'workspace/templates';
         const liveMeetingActive = activePageId === 'workspace/live-meeting';
+        const researchActive = activePageId === 'workspace/research';
+        const minesActive = activePageId === 'workspace/mines';
         if (chatBtn) {
             chatBtn.classList.toggle('oaao-rail-btn-active', chatActive);
             if (chatActive) chatBtn.setAttribute('aria-current', 'page');
@@ -1480,6 +1525,16 @@ export function initWorkspaceShell() {
             liveMeetingBtn.classList.toggle('oaao-rail-btn-active', liveMeetingActive);
             if (liveMeetingActive) liveMeetingBtn.setAttribute('aria-current', 'page');
             else liveMeetingBtn.removeAttribute('aria-current');
+        }
+        if (researchBtn && !researchBtn.classList.contains('hidden')) {
+            researchBtn.classList.toggle('oaao-rail-btn-active', researchActive);
+            if (researchActive) researchBtn.setAttribute('aria-current', 'page');
+            else researchBtn.removeAttribute('aria-current');
+        }
+        if (minesBtn && !minesBtn.classList.contains('hidden')) {
+            minesBtn.classList.toggle('oaao-rail-btn-active', minesActive);
+            if (minesActive) minesBtn.setAttribute('aria-current', 'page');
+            else minesBtn.removeAttribute('aria-current');
         }
     }
 
@@ -1515,6 +1570,8 @@ export function initWorkspaceShell() {
             'workspace/agents',
             'workspace/templates',
             'workspace/live-meeting',
+            'workspace/research',
+            'workspace/mines',
         ]);
         const pages = spaPages().filter((p) => !railPinned.has(p.page_id));
         const empty = pages.length === 0;
@@ -1661,11 +1718,14 @@ export function initWorkspaceShell() {
                         };
                         lastMountedShellPageId = nextPid;
                     } catch (err) {
+                        if (err instanceof DOMException && err.name === 'AbortError') {
+                            return true;
+                        }
                         console.error('[workspace] mountShellPanel failed', moduleUrl, err);
                         const detail = err instanceof Error ? err.message : String(err);
                         mount.insertAdjacentHTML(
                             'beforeend',
-                            `<p class="p-md text-sm fg-red-6">Chat panel failed to start: ${escapeHtml(detail)}</p>`,
+                            `<p class="p-md text-sm fg-red-6">Panel failed to start: ${escapeHtml(detail)}</p>`,
                         );
                     }
                 }

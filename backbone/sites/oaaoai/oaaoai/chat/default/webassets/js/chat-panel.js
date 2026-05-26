@@ -441,6 +441,9 @@ function mountChatComposerFeatureToggles(host, signal) {
                 const next = !btn.classList.contains('is-active');
                 btn.classList.toggle('is-active', next);
                 btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+                if (spec.id === 'planner_steps') {
+                    syncChatComposerPlannerModeIconStyle(readComposerPlannerModeForSend(activeConversationId));
+                }
                 spec.onToggle(next);
             },
             { signal },
@@ -491,6 +494,7 @@ function mountChatComposerFeatureToggles(host, signal) {
     plannerWrap.dataset.oaaoChat = 'planner-mode-root';
     plannerWrap.className = 'shrink-0';
     plannerWrap.append(plannerStepsBtn);
+    chatComposerPlannerModeIconBtn = plannerStepsBtn;
     mountChatComposerPlannerModeDropup(plannerWrap, plannerStepsBtn, signal);
 
     host.replaceChildren(webSearchBtn, plannerWrap);
@@ -524,6 +528,7 @@ function mountChatComposerPlannerModeDropup(root, iconBtn, signal) {
         heading: oaaoChatT('chat.planner_mode.label', 'Planner'),
     });
     chatComposerPlannerModeDropup = dropup;
+    chatComposerPlannerModeIconBtn = iconBtn;
 
     const pickMode = (id) => {
         const normalized = normalizePlannerModeId(id);
@@ -538,12 +543,14 @@ function mountChatComposerPlannerModeDropup(root, iconBtn, signal) {
             }
         }
         syncChatComposerPlannerModeSelect();
+        syncChatComposerPlannerModeIconStyle(normalized);
         dropup.close();
     };
 
     const syncPanel = () => {
         const mode = readComposerPlannerModeForSend(activeConversationId);
         renderComposerDropupOptions(dropup.list, PLANNER_MODE_DROPUP_ROWS, mode, pickMode);
+        syncChatComposerPlannerModeIconStyle(mode);
         const summary = `${menuLabel}: ${plannerModeDropupLabel(mode)}`;
         dropup.arrowBtn.title = summary;
         dropup.arrowBtn.setAttribute('aria-label', summary);
@@ -551,6 +558,24 @@ function mountChatComposerPlannerModeDropup(root, iconBtn, signal) {
     };
 
     dropup.arrowBtn.addEventListener('click', syncPanel, { signal });
+    wireComposerToolbarIconHoverHint(
+        iconBtn,
+        () => {
+            const mode = readComposerPlannerModeForSend(activeConversationId);
+            const menuLabel = oaaoChatT('chat.planner_mode.label', 'Planner mode');
+            return `${menuLabel}: ${plannerModeDropupLabel(mode)}`;
+        },
+        signal,
+    );
+    wireComposerToolbarIconHoverHint(
+        dropup.arrowBtn,
+        () => {
+            const mode = readComposerPlannerModeForSend(activeConversationId);
+            const menuLabel = oaaoChatT('chat.planner_mode.label', 'Planner mode');
+            return `${menuLabel}: ${plannerModeDropupLabel(mode)}`;
+        },
+        signal,
+    );
     syncPanel();
 }
 
@@ -559,6 +584,7 @@ function syncChatComposerPlannerModeSelect() {
     const dropup = chatComposerPlannerModeDropup;
     if (!dropup) return;
     const mode = readComposerPlannerModeForSend(activeConversationId);
+    syncChatComposerPlannerModeIconStyle(mode);
     const menuLabel = oaaoChatT('chat.planner_mode.label', 'Planner mode');
     const summary = `${menuLabel}: ${plannerModeDropupLabel(mode)}`;
     dropup.arrowBtn.title = summary;
@@ -1826,7 +1852,7 @@ function loadChatComposerDialogCtor() {
 }
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260525-composer-dropup-v29';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260525-composer-asr-v35';
 
 /** Initial / incremental message page size ({@code GET messages}) — loaded from {@code chat_preferences}. */
 let chatHistoryPageSize = 5;
@@ -2285,6 +2311,13 @@ button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after{content:'';
 .oaao-chat-composer-dropup-list{display:flex;flex-direction:column;gap:.125rem;max-height:min(40vh,240px);overflow:auto;padding:.25rem}
 .oaao-chat-composer-dropup-option{width:100%;display:flex;align-items:center;gap:.375rem;min-width:0;padding:.375rem .5rem;border:none;border-radius:6px;background:transparent;color:var(--grid-ink,#111);font:inherit;font-size:.8125rem;text-align:left;cursor:pointer}
 .oaao-chat-composer-dropup-option--selected{background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 45%,transparent);font-weight:600}
+.oaao-app .oaao-chat-composer-toggle.is-active.oaao-chat-planner-mode-tot{color:#ca8a04!important;background-color:rgba(202,138,4,.18)!important;border-color:rgba(202,138,4,.45)!important}
+.oaao-app .oaao-chat-composer-toggle.is-active.oaao-chat-planner-mode-ddtree{color:#7c3aed!important;background-color:rgba(124,58,237,.16)!important;border-color:rgba(124,58,237,.42)!important}
+.oaao-app .oaao-chat-composer-toggle:not(.is-active){color:var(--grid-ink-muted,#666)!important;background-color:transparent!important;border-color:var(--grid-line,rgba(0,0,0,.1))!important}
+.oaao-app .oaao-chat-composer-toolbar-hint:not(.hidden){display:inline-block}
+.oaao-app .oaao-composer-voice-btn{position:relative;overflow:hidden}
+.oaao-app .oaao-composer-voice-level{position:absolute;left:0;right:0;bottom:0;height:0%;background:#22c55e;opacity:.45;pointer-events:none;border-radius:inherit;transition:height 50ms linear;z-index:0}
+.oaao-app .oaao-composer-voice-btn>svg{position:relative;z-index:1}
 `;
     document.head.append(style);
 }
@@ -5527,6 +5560,70 @@ const plannerModeByConversationId = new Map();
 
 /** @type {ReturnType<typeof mountComposerDropupAbove> | null} */
 let chatComposerPlannerModeDropup = null;
+/** @type {HTMLElement | null} */
+let chatComposerPlannerModeIconBtn = null;
+/** @type {HTMLElement | null} */
+let chatComposerToolbarHintEl = null;
+
+/** @param {string} text */
+function setChatComposerToolbarHint(text) {
+    const el = chatComposerToolbarHintEl;
+    if (!(el instanceof HTMLElement)) return;
+    const trimmed = String(text ?? '').trim();
+    if (!trimmed) {
+        el.textContent = '';
+        el.classList.add('hidden');
+        return;
+    }
+    el.textContent = trimmed;
+    el.classList.remove('hidden');
+}
+
+/**
+ * Show current dropup selection on the composer toolbar hint while hovering the icon.
+ * @param {HTMLElement} iconEl
+ * @param {() => string} getHintText
+ * @param {AbortSignal} signal
+ */
+function wireComposerToolbarIconHoverHint(iconEl, getHintText, signal) {
+    if (!(iconEl instanceof HTMLElement)) return;
+    const show = () => setChatComposerToolbarHint(getHintText());
+    const hide = () => setChatComposerToolbarHint('');
+    iconEl.addEventListener('mouseenter', show, { signal });
+    iconEl.addEventListener('mouseleave', hide, { signal });
+    iconEl.addEventListener('focus', show, { signal });
+    iconEl.addEventListener('blur', hide, { signal });
+}
+
+/** @type {Record<'default' | 'tot' | 'ddtree', { color: string, bg: string, border: string }>} */
+const PLANNER_MODE_ICON_PALETTE = {
+    default: { color: '', bg: '', border: '' },
+    tot: { color: '#ca8a04', bg: 'rgba(202, 138, 4, 0.18)', border: 'rgba(202, 138, 4, 0.45)' },
+    ddtree: { color: '#7c3aed', bg: 'rgba(124, 58, 237, 0.16)', border: 'rgba(124, 58, 237, 0.42)' },
+};
+
+/** @param {'default' | 'tot' | 'ddtree'} mode */
+function syncChatComposerPlannerModeIconStyle(mode) {
+    const btn = chatComposerPlannerModeIconBtn;
+    if (!(btn instanceof HTMLElement)) return;
+    const normalized = normalizePlannerModeId(mode);
+    btn.dataset.oaaoPlannerMode = normalized;
+    btn.classList.remove(
+        'oaao-chat-planner-mode-default',
+        'oaao-chat-planner-mode-tot',
+        'oaao-chat-planner-mode-ddtree',
+    );
+    btn.classList.add(`oaao-chat-planner-mode-${normalized}`);
+
+    btn.style.removeProperty('color');
+    btn.style.removeProperty('background-color');
+    btn.style.removeProperty('border-color');
+
+    const menuLabel = oaaoChatT('chat.planner_mode.label', 'Planner mode');
+    const summary = `${menuLabel}: ${plannerModeDropupLabel(normalized)}`;
+    btn.title = summary;
+    btn.setAttribute('aria-label', summary);
+}
 
 /** @type {Set<number>} */
 const deskModeConversationIds = new Set();
@@ -10421,11 +10518,24 @@ export async function mountShellPanel(mount) {
         });
     };
 
+    const toolbarHintEl = mount.querySelector('[data-oaao-chat="composer-toolbar-hint"]');
+    chatComposerToolbarHintEl = toolbarHintEl instanceof HTMLElement ? toolbarHintEl : null;
+
     mountChatComposerRegistrySlots(mount, signal, onVaultSourcesChange, {
         getConversationId: () => activeConversationId,
         chatFetchJson,
         chatApiUrl,
         workspaceChatBodyFields,
+        getComposerPlainText: () => {
+            if (!isChatComposerEditorEl(inputEl)) return '';
+            return getChatComposerEditorPayload(inputEl).text;
+        },
+        setComposerPlainText: (text) => {
+            if (!isChatComposerEditorEl(inputEl)) return;
+            const payload = getChatComposerEditorPayload(inputEl);
+            setChatComposerEditorPlainText(inputEl, String(text ?? ''), { keepTemplate: Boolean(payload.template_id) });
+        },
+        wireComposerIconHoverHint: (el, getText) => wireComposerToolbarIconHoverHint(el, getText, signal),
         onAttachmentsChange: (items) => {
             chatComposerAttachments = Array.isArray(items)
                 ? items.map((row) => ({

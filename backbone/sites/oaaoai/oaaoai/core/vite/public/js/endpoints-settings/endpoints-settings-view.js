@@ -17,6 +17,7 @@ import {
 import { buildChatCompletionProfilesPicker } from '../../../../chat/default/js/chat-settings-panel.js';
 import { rt } from './runtime.js';
 import { purposeKeyToEndpointFilterPrefix } from './purpose-key-prefix.js';
+import { endpointUsagePanelHtml } from './endpoint-usage-chart.js';
 
 /** @param {unknown} v */
 function escapeHtml(v) {
@@ -111,8 +112,8 @@ async function endpointsFetchJson(url, options = {}) {
     return { res, data };
 }
 
-/** @type {{ endpoints: Array<Record<string, unknown>>, purposes: Array<Record<string, unknown>>, purposesPostgresqlOnly: boolean, chatProfiles: Array<Record<string, unknown>> }} */
-const state = { endpoints: [], purposes: [], purposesPostgresqlOnly: false, chatProfiles: [] };
+/** @type {{ endpoints: Array<Record<string, unknown>>, purposes: Array<Record<string, unknown>>, purposesPostgresqlOnly: boolean, chatProfiles: Array<Record<string, unknown>>, endpointUsageStats: Record<string, unknown> }} */
+const state = { endpoints: [], purposes: [], purposesPostgresqlOnly: false, chatProfiles: [], endpointUsageStats: {} };
 
 /** @type {Array<{ close: () => void }>} */
 const nestedDialogControls = [];
@@ -343,6 +344,7 @@ function endpointCardsHtml() {
             const disabledLbl = enabled
                 ? ''
                 : `<div class="mt-2 flex justify-end pt-0.5"><span class="text-[0.6875rem] fw-semibold uppercase tracking-wide fg-[var(--grid-ink-muted)]">${escapeHtml(disTag)}</span></div>`;
+            const usageHtml = endpointUsagePanelHtml(rt.state.endpointUsageStats[String(id)] ?? null);
             return `<article data-eid="${id}" data-oaao-ep-card${disabledAttr} class="oaao-ep-card mb-2 last:mb-0 rounded-md border border-[var(--grid-line)] bg-[var(--grid-panel-bright)] p-2.5 sm:p-3 shadow-[0_1px_0_rgba(0,0,0,0.03)]${dimClass}">
   <div class="flex flex-wrap items-start justify-between gap-x-2 gap-y-2">
     <div class="min-w-0 flex-1 basis-[min(100%,10rem)]">
@@ -367,7 +369,7 @@ function endpointCardsHtml() {
       <dt class="mb-0.5 text-[0.6875rem] sm:text-[0.75rem] fw-semibold uppercase tracking-wide fg-[var(--grid-caption,var(--grid-ink-muted))]">${escapeHtml(L_MODEL)}</dt>
       <dd class="break-all font-mono leading-snug fg-[var(--grid-ink)]">${model}</dd>
     </div>
-  </dl>${disabledLbl}
+  </dl>${usageHtml}${disabledLbl}
 </article>`;
         })
         .join('');
@@ -413,7 +415,7 @@ function readPurposeAllocationSlots() {
 }
 
 /** When {@code OAAO_PURPOSE_ALLOCATION_REGISTRY} is empty — matches {@see PurposeAllocationRegister} seed prefixes. */
-const ENDPOINT_TYPE_FALLBACK_PREFIXES = ['chat', 'embedding', 'rerank', 'rag', 'planning', 'vault', 'uiqe', 'asr', 'asr_summary', 'other'];
+const ENDPOINT_TYPE_FALLBACK_PREFIXES = ['chat', 'embedding', 'rerank', 'rag', 'planning', 'vault', 'uiqe', 'asr', 'asr.live', 'asr_summary', 'other'];
 
 /**
  * Options for {@code endpoint_type}: purpose routing prefixes ({@code purpose_key} / allocation slots). Supports multi-select.
@@ -480,10 +482,15 @@ function endpointEditorFormHtml(initialEndpointTypes = 'chat') {
   <input type="hidden" name="id" value="" />
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.name'))}</span><input name="name" required class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]" /></label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.endpoint_type'))}</span><span class="text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${multilineHint}</span><div data-oaao-ep-endpoint-type="" class="w-full max-w-full mt-0.5 min-w-0"><select name="endpoint_type" multiple data-placeholder="${phEsc}">${typeOpts}</select></div></label>
-  <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.base_url'))}</span><input name="base_url" placeholder="https://…" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]" /></label>
+  <label class="flex flex-col gap-0.5 text-[0.8125rem]" data-oaao-ep-base-url-wrap="">
+    <span class="fw-medium" data-oaao-ep-base-url-label="">${escapeHtml(oaaoT('settings.ep.form.base_url'))}</span>
+    <span class="text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug hidden" data-oaao-ep-base-url-hint=""></span>
+    <input name="base_url" placeholder="https://…" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]" />
+  </label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.model'))}</span><input name="model" required class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]" /></label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.api_key_ref'))}</span><input name="api_key_ref" placeholder="vault / env ref" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]" /></label>
   <label class="flex items-center gap-2 text-[0.8125rem] cursor-pointer"><input type="checkbox" name="is_enabled" checked class="rounded border-[var(--grid-line)]" /><span>${escapeHtml(oaaoT('settings.ep.form.enabled'))}</span></label>
+  <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.tokens_per_credit'))}</span><span class="text-[0.75rem] fg-[var(--grid-ink-muted)]">${escapeHtml(oaaoT('settings.ep.form.tokens_per_credit_hint'))}</span><input name="tokens_per_credit" type="number" min="1" step="1" placeholder="1000" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs max-w-[12rem]" /></label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.config_json'))}</span><textarea name="config_json" rows="3" placeholder="{}" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs"></textarea></label>
   <p id="oaao-ep-dlg-msg" class="text-[0.8125rem] fg-[var(--grid-caution,#b45309)] min-h-[1.25rem]" role="status"></p>
 </form>`;
@@ -505,6 +512,7 @@ function purposeEditorFormHtml(epOpts, opts = {}) {
     <select name="default_endpoint_id" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]"><option value="">${noneOpt}</option>${epOpts}</select></label>
   <label class="flex items-center gap-2 text-[0.8125rem] cursor-pointer"><input type="checkbox" name="is_enabled" checked class="rounded border-[var(--grid-line)]" /><span>${escapeHtml(oaaoT('settings.purposes.enabled'))}</span></label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.pu.form.sort_order'))}</span><input name="sort_order" type="number" value="500" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs" /></label>
+  <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.pu.form.credit_multiplier'))}</span><span class="text-[0.75rem] fg-[var(--grid-ink-muted)]">${escapeHtml(oaaoT('settings.pu.form.credit_multiplier_hint'))}</span><input name="credit_multiplier" type="number" min="0.01" step="0.01" placeholder="1" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs max-w-[12rem]" /></label>
   ${metaJsonField}
   <p id="oaao-pu-dlg-msg" class="text-[0.8125rem] fg-[var(--grid-caution,#b45309)] min-h-[1.25rem]" role="status"></p>
 </form>`;
@@ -750,7 +758,9 @@ function buildPurposePipelineCard(slot, primaryRow, chatProfiles) {
         const asrPipelineHint =
             pfx === 'asr'
                 ? `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${escapeHtml(oaaoT('settings.slot.asr.pipeline_hint'))}</p>`
-                : '';
+                : pfx === 'asr.live'
+                  ? `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${escapeHtml(oaaoT('settings.slot.asr_live.pipeline_hint'))}</p>`
+                  : '';
         const primaryPurposeControlsHtml =
             `<p class="mt-2 text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${assignP}</p>
       <label class="mt-2 flex flex-col gap-0.5 text-[0.8125rem] max-w-full"><span class="fw-medium">${llmEpLbl}</span>

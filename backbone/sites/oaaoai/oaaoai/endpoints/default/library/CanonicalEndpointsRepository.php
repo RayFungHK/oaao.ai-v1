@@ -332,6 +332,16 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Resolve rerank endpoint for vault RAG ({@code rerank.*} purpose keys).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null
+     */
+    public function resolveVaultRerankBinding(): ?array
+    {
+        return $this->resolveVaultPurposeBinding('rerank', 'rerank.primary', 'rerank');
+    }
+
+    /**
      * Resolve chat LLM for vault GraphRAG index jobs ({@code graph.*} purpose keys).
      *
      * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null
@@ -349,6 +359,85 @@ final class CanonicalEndpointsRepository
     public function resolveAsrBinding(): ?array
     {
         return $this->resolveVaultPurposeBinding('asr', 'asr.primary', 'asr');
+    }
+
+    /**
+     * Resolve ASR-Live endpoint for Composer mic + Live Meeting ({@code asr.live.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveLiveAsrBinding(): ?array
+    {
+        require_once __DIR__ . '/AsrLivePurposeConfig.php';
+
+        $bind = $this->resolveVaultPurposeBinding('asr.live', 'asr.live.primary', 'asr.live');
+        if ($bind !== null) {
+            return $bind;
+        }
+
+        return null;
+    }
+
+    /**
+     * Settings panel row for ASR-Live pipeline meta ({@code purpose_key=asr.live}).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findAsrLivePurposeRowForSettings(): ?array
+    {
+        $row = $this->findPurposeRowByPrefix('asr.live', 'asr.live.primary', 'asr.live');
+        if ($row !== null) {
+            return $row;
+        }
+        $this->ensureAsrLivePurposeRow();
+
+        return $this->findPurposeRowByPrefix('asr.live', 'asr.live.primary', 'asr.live');
+    }
+
+    /**
+     * Bootstrap {@code asr.live} purpose when slot exists but no row saved yet.
+     */
+    public function ensureAsrLivePurposeRow(): void
+    {
+        if ($this->findPurposeRowByPrefix('asr.live', 'asr.live.primary', 'asr.live') !== null) {
+            return;
+        }
+
+        require_once __DIR__ . '/AsrLivePurposeConfig.php';
+
+        $endpointId = null;
+        $asr = $this->resolveAsrBinding();
+        if (\is_array($asr)) {
+            $asrRow = $this->findPurposeRowByPrefix('asr', 'asr.primary', 'asr');
+            if (\is_array($asrRow)) {
+                $eid = (int) ($asrRow['default_endpoint_id'] ?? 0);
+                if ($eid > 0 && $this->endpointRowExists($eid)) {
+                    $endpointId = $eid;
+                }
+            }
+        }
+        if ($endpointId === null) {
+            $endpointId = $this->resolveDefaultEndpointIdForPlanningBootstrap();
+        }
+
+        try {
+            $metaJson = json_encode(AsrLivePurposeConfig::defaultLiveMeta(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $metaJson = null;
+        }
+
+        $now = gmdate('Y-m-d H:i:s');
+        $this->insertPurpose([
+            'purpose_key'         => 'asr.live',
+            'label'               => 'ASR-Live',
+            'description'         => 'Live streaming + composer voice (FunASR Nano)',
+            'default_endpoint_id' => $endpointId,
+            'is_enabled'          => 1,
+            'sort_order'          => 510,
+            'meta_json'           => $metaJson,
+            'created_at'          => $now,
+            'updated_at'          => $now,
+        ]);
     }
 
     /**
@@ -399,6 +488,68 @@ final class CanonicalEndpointsRepository
     public function resolveAsrSummaryBinding(): ?array
     {
         return $this->resolveVaultPurposeBinding('asr_summary', 'asr_summary.primary', 'asr_summary');
+    }
+
+    /**
+     * Primary chat LLM for auxiliary tasks (e.g. research summary).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveChatBinding(): ?array
+    {
+        return $this->resolveVaultPurposeBinding('chat', 'chat.primary', 'chat');
+    }
+
+    /**
+     * Article Research — source discover / page classify ({@code research.discover.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveResearchDiscoverBinding(): ?array
+    {
+        return $this->resolvePurposeBindingWithChatFallback(
+            'research.discover',
+            'research.discover.primary',
+            'research.discover',
+        );
+    }
+
+    /**
+     * Article Research — per-article summarisation ({@code research.summary.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveResearchSummaryBinding(): ?array
+    {
+        return $this->resolvePurposeBindingWithChatFallback(
+            'research.summary',
+            'research.summary.primary',
+            'research.summary',
+        );
+    }
+
+    /**
+     * Article Research — match prompt normalize + hit scoring ({@code research.match.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveResearchMatchBinding(): ?array
+    {
+        return $this->resolvePurposeBindingWithChatFallback(
+            'research.match',
+            'research.match.primary',
+            'research.match',
+        );
+    }
+
+    /**
+     * Data Mining — schema/row JSON extract ({@code mine.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveMineBinding(): ?array
+    {
+        return $this->resolvePurposeBindingWithChatFallback('mine', 'mine.primary', 'mine');
     }
 
     /**
@@ -625,6 +776,19 @@ final class CanonicalEndpointsRepository
         }
 
         return $candidates[0];
+    }
+
+    /**
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    private function resolvePurposeBindingWithChatFallback(string $prefix, string $primaryKey, string $exactKey): ?array
+    {
+        $bind = $this->resolveVaultPurposeBinding($prefix, $primaryKey, $exactKey);
+        if ($bind !== null) {
+            return $bind;
+        }
+
+        return $this->resolveChatBinding();
     }
 
     /**

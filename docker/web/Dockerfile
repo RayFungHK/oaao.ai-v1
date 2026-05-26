@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && docker-php-ext-install -j"$(nproc)" pdo pdo_sqlite pdo_pgsql zip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN a2enmod rewrite headers proxy proxy_http \
+RUN a2enmod rewrite headers proxy proxy_http proxy_wstunnel \
     && sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
 COPY docker/web/oaao-sidecar-proxy.conf.template /etc/apache2/oaao-sidecar-proxy.conf.template

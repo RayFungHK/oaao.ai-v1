@@ -52,6 +52,20 @@ return function (array $payload): void {
         ]
     );
     PurposeAllocationRegister::add(
+        'pa-asr-live',
+        'ASR-Live',
+        'ASR-Live',
+        'Composer mic + Live Meeting streaming / input (<code class="font-mono text-xs">asr.live.*</code>).',
+        'mic-vocal',
+        [
+            'sort' => 71,
+            'purpose_key_prefix' => 'asr.live',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.asr_live.label',
+            'sub_key'   => 'settings.slot.asr_live.sub',
+        ]
+    );
+    PurposeAllocationRegister::add(
         'pa-other',
         'Other',
         'Other purposes',

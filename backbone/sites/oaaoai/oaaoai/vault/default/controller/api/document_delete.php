@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-/**
- * POST /vault/api/document_delete — delete a vault document row, queued jobs (cascade), and stored file.
+use oaaoai\research\ResearchVaultGuard;
+
+/** * POST /vault/api/document_delete — delete a vault document row, queued jobs (cascade), and stored file.
  *
  * JSON body: {@code document_id}, optional {@code workspace_id}.
  *
@@ -73,6 +74,16 @@ return function (): void {
     if ($vaultId < 1 || ! $this->oaao_vault_user_can_touch_vault($db, $vaultId, $uid, $wid)) {
         http_response_code(403);
         echo json_encode(['success' => false, 'message' => 'Forbidden']);
+
+        return;
+    }
+
+    if (ResearchVaultGuard::documentIsManaged($db, $docId)) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => ResearchVaultGuard::vaultDeleteDocumentMessage(),
+        ]);
 
         return;
     }

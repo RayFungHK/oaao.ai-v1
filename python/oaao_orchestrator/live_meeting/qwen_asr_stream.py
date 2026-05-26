@@ -1,8 +1,13 @@
 """
-Live meeting ASR — segment batch (openai_compat / funasr) and optional streaming mode.
+Live meeting ASR — streaming bridge (primary) and segment-batch fallback.
 
-When Purpose ``meta_json.mode`` is ``streaming``, upstream Qwen WebSocket wiring is deferred;
-closed PCM segments are still transcribed via {@see transcribe_audio_auto} until WS spec is fixed.
+Product tiers (``asr.live.*`` / ``asr.*``):
+
+1. **Primary — duplex WS streaming** (``asr.live``): driver from ``stream_protocol`` + WS URL
+   (``dashscope``, ``funasr_nano_ws``, ``funasr_runtime``, …) — not tied to batch provider.
+2. **Fallback — closed PCM segments** (~5 s): batch ``asr.*`` slot via ``transcribe_audio_auto``
+   (``openai_compat`` multipart or ``json_transcribe`` POST /transcribe).
+3. **Last resort — retry** ``asr_fallback`` when primary segment path errors.
 """
 
 from __future__ import annotations
@@ -12,10 +17,11 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
-from oaao_orchestrator.asr_common import transcribe_audio_auto
+from oaao_orchestrator.asr_common import has_batch_transcribe_config, transcribe_audio_auto
 from oaao_orchestrator.live_meeting.audio_store import BYTES_PER_SAMPLE, SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
@@ -28,11 +34,85 @@ def is_streaming_asr_mode(asr_cfg: dict[str, Any] | None) -> bool:
     return mode in ("streaming", "stream", "realtime")
 
 
+def use_remote_pcm_stream_bridge(asr_cfg: dict[str, Any] | None) -> bool:
+    """True when payload includes a duplex WS URL for live streaming (any provider)."""
+    if not is_streaming_asr_mode(asr_cfg) or not isinstance(asr_cfg, dict):
+        return False
+    stream_protocol = str(
+        asr_cfg.get("stream_protocol") or asr_cfg.get("live_stream_protocol") or ""
+    ).strip().lower()
+    if stream_protocol == "dashscope":
+        return False
+    return bool(resolve_live_stream_ws_url(asr_cfg))
+
+
+def _coerce_live_stream_ws_url(raw: str) -> str:
+    """ASR-Live payloads: http(s) base_url → ws(s) stream URL."""
+    u = raw.strip()
+    if not u:
+        return ""
+    lower = u.lower()
+    if lower.startswith(("ws://", "wss://")):
+        return u.rstrip("/")
+    if not lower.startswith(("http://", "https://")):
+        return ""
+    parsed = urlparse(u)
+    host = parsed.hostname or ""
+    if not host:
+        return ""
+    ws_scheme = "ws" if lower.startswith("http://") else "wss"
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path.rstrip("/")
+    return f"{ws_scheme}://{host}{port}{path}"
+
+
+def resolve_live_stream_ws_url(asr_cfg: dict[str, Any] | None) -> str:
+    if not isinstance(asr_cfg, dict):
+        return ""
+    for key in ("funasr_stream_url", "ws_url", "dashscope_ws_url", "base_url"):
+        stream_url = str(asr_cfg.get(key) or "").strip()
+        if stream_url.lower().startswith(("ws://", "wss://")):
+            return stream_url
+        coerced = _coerce_live_stream_ws_url(stream_url)
+        if coerced:
+            return coerced
+    return ""
+
+
+def use_funasr_nano_stream_bridge(asr_cfg: dict[str, Any] | None) -> bool:
+    """Alias — prefer ``use_remote_pcm_stream_bridge``."""
+    return use_remote_pcm_stream_bridge(asr_cfg)
+
+
+def has_http_transcribe_base(asr_cfg: dict[str, Any] | None) -> bool:
+    """Backward-compatible alias — prefer ``has_batch_transcribe_config``."""
+    return has_batch_transcribe_config(asr_cfg)
+
+
+def segment_transcribe_asr_cfg(
+    primary: dict[str, Any] | None,
+    fallback: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Live ~5 s segments use the batch ``asr.*`` slot when configured (not live stream cfg)."""
+    if isinstance(fallback, dict) and fallback and has_batch_transcribe_config(fallback):
+        return fallback
+    if isinstance(primary, dict) and primary and has_batch_transcribe_config(primary):
+        return primary
+    return fallback if isinstance(fallback, dict) else primary
+
+
+def use_live_streaming_bridge(asr_cfg: dict[str, Any] | None) -> bool:
+    """True when live partial/final should come from a WS bridge (segment batch skipped)."""
+    return use_dashscope_realtime_stream(asr_cfg) or use_remote_pcm_stream_bridge(asr_cfg)
+
+
 def use_dashscope_realtime_stream(asr_cfg: dict[str, Any] | None) -> bool:
     """True when Alibaba DashScope duplex WS should handle live transcription."""
     if not is_streaming_asr_mode(asr_cfg) or not isinstance(asr_cfg, dict):
         return False
     provider = str(asr_cfg.get("provider") or "").strip().lower()
+    if provider in ("funasr_nano", "funasr-nano", "funasr_nano_remote", "funasr_local_stream"):
+        return False
     if provider in ("dashscope", "dashscope_funasr", "dashscope_qwen", "qwen", "funasr_realtime"):
         return True
     if str(asr_cfg.get("dashscope_ws_url") or asr_cfg.get("ws_url") or "").strip():

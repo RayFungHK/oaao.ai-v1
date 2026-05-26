@@ -6,8 +6,10 @@ require_once __DIR__ . '/../library/PurposeAllocationRegister.php';
 require_once __DIR__ . '/../library/FeatureRegistryBootstrap.php';
 require_once __DIR__ . '/../library/CanonicalEndpointsRepository.php';
 require_once __DIR__ . '/../library/AsrPurposeConfig.php';
+require_once __DIR__ . '/../library/AsrLivePurposeConfig.php';
 require_once __DIR__ . '/../library/UiqePurposeConfig.php';
 
+use oaaoai\endpoints\AsrLivePurposeConfig;
 use oaaoai\endpoints\AsrPurposeConfig;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
@@ -181,6 +183,29 @@ return new class extends Controller {
     /**
      * @return array<string, mixed>|null
      */
+    public function resolveOrchestratorLiveAsrPayload(): ?array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return null;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $repo->ensureAsrLivePurposeRow();
+        $liveBind = $repo->resolveLiveAsrBinding();
+        if ($liveBind === null) {
+            return null;
+        }
+        $chat = $this->api('chat');
+        $infer = $chat
+            ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
+            : static fn (string $ref): ?string => null;
+
+        return AsrLivePurposeConfig::jobPayloadFromBinding($liveBind, $infer);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     public function resolveOrchestratorEmbeddingPayload(): ?array
     {
         $db = $this->oaao_endpoints_canonical_db();
@@ -199,6 +224,33 @@ return new class extends Controller {
             'purpose_key' => $embBind['purpose_key'],
             'base_url'    => $embBind['base_url'],
             'model'       => $embBind['model'],
+            'api_key_env' => ($eref !== '' && $chat)
+                ? $chat->inferOrchestratorApiKeyEnv($eref)
+                : null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorRerankPayload(): ?array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return null;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $bind = $repo->resolveVaultRerankBinding();
+        if ($bind === null) {
+            return null;
+        }
+        $eref = trim((string) ($bind['api_key_ref'] ?? ''));
+        $chat = $this->api('chat');
+
+        return [
+            'purpose_key' => $bind['purpose_key'],
+            'base_url'    => $bind['base_url'],
+            'model'       => $bind['model'],
             'api_key_env' => ($eref !== '' && $chat)
                 ? $chat->inferOrchestratorApiKeyEnv($eref)
                 : null,
@@ -335,6 +387,7 @@ return new class extends Controller {
             'getToolServerRegistry'               => 'getToolServerRegistry',
             'ensureFeatureRegistries'             => 'ensureFeatureRegistries',
             'resolveOrchestratorAsrPayload'       => 'resolveOrchestratorAsrPayload',
+            'resolveOrchestratorLiveAsrPayload'   => 'resolveOrchestratorLiveAsrPayload',
             'resolveOrchestratorEmbeddingPayload' => 'resolveOrchestratorEmbeddingPayload',
             'resolveOrchestratorVaultRagConfig'   => 'resolveOrchestratorVaultRagConfig',
             'resolveAllowedAgents'                => 'resolveAllowedAgents',
@@ -358,6 +411,8 @@ return new class extends Controller {
             'oaaoai/user:purpose_allocation.register'      => $purposeAllocationListener,
             'oaaoai/endpoints:purpose_allocation.register' => $purposeAllocationListener,
             'oaaoai/slide-designer:purpose_allocation.register' => $purposeAllocationListener,
+            'oaaoai/research:purpose_allocation.register' => $purposeAllocationListener,
+            'oaaoai/mine:purpose_allocation.register'    => $purposeAllocationListener,
             'oaaoai/chat:chat_pipeline.register'           => $chatPipelineListener,
             'oaaoai/rag:chat_pipeline.register'            => $chatPipelineListener,
             'oaaoai/vault:chat_pipeline.register'         => $chatPipelineListener,
@@ -394,7 +449,8 @@ return new class extends Controller {
                 'GET purposes_list'     => 'purposes_list',
                 'POST purposes_save'    => 'purposes_save',
                 'POST purposes_delete'  => 'purposes_delete',
-                'POST funasr_ensure'    => 'funasr_ensure',
+                'POST funasr_ensure'      => 'funasr_ensure',
+                'POST funasr_nano_ensure' => 'funasr_nano_ensure',
             ],
         ]);
 
@@ -416,6 +472,7 @@ return new class extends Controller {
             'getPurposeAllocationSlots',
             'ensureFeatureRegistries',
             'resolveOrchestratorAsrPayload',
+            'resolveOrchestratorLiveAsrPayload',
             'resolveOrchestratorEmbeddingPayload',
             'resolveOrchestratorVaultRagConfig',
             'resolveAllowedAgents',

@@ -322,7 +322,7 @@ return new class extends Controller {
             'settings-asr',
             'ASR',
             'Speech pipeline',
-            'Normal vs Speaker mode, chunk buffer, diarization, and language hints — separate from purpose routing.',
+            'Batch pipeline (mode, diarization) and Live ASR preferences — endpoints under Purpose allocation.',
             'mic',
             [
                 'sort'            => 25,
@@ -384,9 +384,9 @@ return new class extends Controller {
 
         SettingsRegister::add(
             'settings-evolution-queue',
-            'Evolution queue',
-            'Background scoring queue',
-            'IQS / ACCS rescore jobs and post-stream worker pools — live status from the orchestrator.',
+            'Evolution',
+            'Evolution',
+            'Queue status, patches, crystallization, and IQS governance.',
             'layers',
             [
                 'sort'            => 29,
@@ -493,6 +493,28 @@ return new class extends Controller {
             [
                 'shell_panel_url' => '/live-meeting/workspace-panel',
                 'shell_js_module' => '/webassets/live-meeting/default/js/live-meeting-panel.js',
+            ]
+        );
+
+        SpaRegister::add(
+            'workspace/research',
+            'Article Research',
+            'Fetch articles → Vault markdown + summary',
+            'microscope',
+            [
+                'shell_panel_url' => '/research/workspace-panel',
+                'shell_js_module' => '/webassets/research/default/js/research-panel.js',
+            ]
+        );
+
+        SpaRegister::add(
+            'workspace/mines',
+            'Data Mining',
+            'Scheduled fetch → structured SQLite tables',
+            'database',
+            [
+                'shell_panel_url' => '/mine/workspace-panel',
+                'shell_js_module' => '/webassets/mine/default/js/mine-panel.js',
             ]
         );
 

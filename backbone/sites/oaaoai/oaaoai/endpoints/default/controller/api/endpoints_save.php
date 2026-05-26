@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\endpoints\AsrLivePurposeConfig;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 
 /**
@@ -46,6 +47,12 @@ return function (): void {
     $endpointParts = array_values(array_unique($endpointParts));
     $endpointType = $endpointParts === [] ? 'chat' : implode(',', $endpointParts);
     $baseUrl = isset($input['base_url']) ? trim((string) $input['base_url']) : '';
+    if ($baseUrl !== '' && \in_array('asr.live', $endpointParts, true)) {
+        $wsUrl = AsrLivePurposeConfig::coerceWebSocketUrl($baseUrl);
+        if ($wsUrl !== '') {
+            $baseUrl = $wsUrl;
+        }
+    }
     $model = trim((string) ($input['model'] ?? ''));
     $apiKeyRef = isset($input['api_key_ref']) ? trim((string) $input['api_key_ref']) : '';
     $isEnabled = isset($input['is_enabled']) ? ((int) (bool) $input['is_enabled']) : 1;

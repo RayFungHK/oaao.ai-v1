@@ -88,9 +88,11 @@ services:
       OAAO_ORCHESTRATOR_INTERNAL_URL: ${OAAO_ORCHESTRATOR_INTERNAL_URL:-http://orchestrator:8103}
       OAAO_ORCHESTRATOR_PUBLIC_BASE: ${OAAO_ORCHESTRATOR_PUBLIC_BASE:-http://localhost:${OAAO_SIDECAR_PORT:-8103}}
       OAAO_ORCHESTRATOR_SIDECAR_PATH: ${OAAO_ORCHESTRATOR_SIDECAR_PATH:-/sidecar}
+      OAAO_PUBLIC_HTTPS: ${OAAO_PUBLIC_HTTPS:-}
       OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:-oaao_dev_shared_secret}
       # Host routing (OAAO_APEX_DOMAIN, OAAO_CUSTOMER_HOSTS, OAAO_PLATFORM_*): set in docker/env — do not override here with empty defaults.
       OAAO_VAULT_STORAGE: ${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      OAAO_MINE_DATA_ROOT: ${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
       OAAO_QDRANT_URL: ${OAAO_QDRANT_URL:-http://qdrant:6333}
       OAAO_ARANGO_URL: ${OAAO_ARANGO_URL:-http://arangodb:8529}
       OAAO_ARANGO_DATABASE: ${OAAO_ARANGO_DATABASE:-oaao_vault}
@@ -118,6 +120,7 @@ services:
       - ${OAAO_SLIDE_TEMPLATE_PATH:-./docker/data/slide-templates}:/var/www/html/sites/oaaoai/oaaoai/data/slide-templates
       # Vault binaries — shared with orchestrator when ingest reads payloads by absolute filesystem path.
       - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      - ${OAAO_MINE_DATA_HOST_PATH:-./docker/data/mine}:${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
       # Transcript summary prompt templates (HiNote-style) — edit .md on host, reload dialog.
       - ${OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_PATH:-./docker/transcript-summary-templates}:/var/www/html/config/transcript-summary-templates:ro
       - ${OAAO_LIVE_MEETING_HOST_PATH:-./docker/data/live-meeting}:${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
@@ -162,6 +165,7 @@ services:
       OAAO_CHAT_PERSIST_MODE: ${OAAO_CHAT_PERSIST_MODE:-auto}
       OAAO_QUEUE_POOLS_JSON: ${OAAO_QUEUE_POOLS_JSON:-/app/python/config/queue_pools.docker.json}
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+      OAAO_MINE_DATA_ROOT: ${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
     healthcheck:
       test:
         [
@@ -176,6 +180,7 @@ services:
       start_period: 25s
     volumes:
       - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      - ${OAAO_MINE_DATA_HOST_PATH:-./docker/data/mine}:${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
       - ${OAAO_SLIDE_PROJECT_PATH:-./docker/data/slide-projects}:/var/www/html/sites/oaaoai/oaaoai/auth/data/slide-projects
       - ${OAAO_SLIDE_TEMPLATE_PATH:-./docker/data/slide-templates}:/var/www/html/sites/oaaoai/oaaoai/data/slide-templates
       - ${OAAO_FONT_CACHE_PATH:-./docker/data/font-cache}:/var/oaao/font-cache

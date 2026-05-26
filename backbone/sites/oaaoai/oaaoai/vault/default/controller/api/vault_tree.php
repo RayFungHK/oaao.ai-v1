@@ -9,6 +9,7 @@ use oaaoai\vault\VaultDocumentHookRegister;
  *
  * Query:
  * - {@code workspace_id} optional (omit = personal shell)
+ * - {@code scope=all} — personal + all workspace vaults the user may access (ignores {@code workspace_id})
  * - {@code include=full} — document nodes include {@code embed_error} / {@code graph_error}
  * - {@code include=flat} — also return top-level {@code vaults}, {@code containers}, {@code documents} arrays
  */
@@ -25,11 +26,18 @@ return function (): void {
     $includeRaw = isset($_GET['include']) ? strtolower(trim((string) $_GET['include'])) : '';
     $includeFlat = str_contains($includeRaw, 'flat');
     $fullDocs = str_contains($includeRaw, 'full');
+    $scopeAll = isset($_GET['scope']) && strtolower(trim((string) $_GET['scope'])) === 'all';
 
     try {
-        $payload = $this->oaao_vault_build_scope_payload($ctx['db'], $ctx['uid'], $ctx['wid'], [
-            'lite_documents' => ! $fullDocs,
-        ]);
+        if ($scopeAll) {
+            $payload = $this->oaao_vault_build_all_accessible_payload($ctx['db'], $ctx['uid'], [
+                'lite_documents' => ! $fullDocs,
+            ]);
+        } else {
+            $payload = $this->oaao_vault_build_scope_payload($ctx['db'], $ctx['uid'], $ctx['wid'], [
+                'lite_documents' => ! $fullDocs,
+            ]);
+        }
     } catch (\Throwable $e) {
         http_response_code(500);
         echo json_encode([
@@ -49,7 +57,12 @@ return function (): void {
         }
         $maxDocId = max($maxDocId, (int) ($d['id'] ?? 0));
     }
-    $etag = \sprintf('W/"vt-%d-%d-%d"', (int) $ctx['wid'], $docCount, $maxDocId);
+    $etag = \sprintf(
+        'W/"vt-%s-%d-%d"',
+        $scopeAll ? 'all' : (string) (int) $ctx['wid'],
+        \count($payload['documents']),
+        $maxDocId,
+    );
     header('ETag: ' . $etag);
     header('Cache-Control: private, no-cache');
     $ifNone = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
@@ -61,10 +74,12 @@ return function (): void {
 
     /** @var array<string, mixed> $data */
     $data = [
-        'scope' => [
-            'workspace_id' => $ctx['wid'],
-            'personal'     => $ctx['wid'] === null,
-        ],
+        'scope' => $scopeAll
+            ? ['all_accessible' => true, 'workspace_id' => null, 'personal' => false]
+            : [
+                'workspace_id' => $ctx['wid'],
+                'personal'     => $ctx['wid'] === null,
+            ],
         'tree'            => $payload['tree'],
         'document_hooks' => VaultDocumentHookRegister::allSorted(),
     ];

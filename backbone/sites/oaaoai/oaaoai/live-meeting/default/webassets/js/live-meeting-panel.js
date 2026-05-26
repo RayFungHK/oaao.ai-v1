@@ -546,6 +546,25 @@ export function mountLiveMeetingPanel(mount, { signal } = {}) {
             }
             return;
         }
+        if (payload.kind === 'status' && payload.text) {
+            const st = String(payload.text);
+            if (st === 'stream_bridge_ready') {
+                setConn('live_meeting.conn.stream_ready');
+                return;
+            }
+            if (st === 'stream_bridge_skip') {
+                setConn('live_meeting.conn.stream_batch_only');
+                return;
+            }
+            if (st === 'stream_bridge_down') {
+                setConn('live_meeting.conn.stream_fallback');
+                return;
+            }
+            if (st.startsWith('transcribing_segment_')) {
+                setConn('live_meeting.conn.batch_segment');
+                return;
+            }
+        }
         if (payload.kind === 'error' && payload.text) {
             appendErrorLine(asrErrorMessage(payload.text, t));
         }

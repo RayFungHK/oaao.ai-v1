@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\research\ResearchVaultGuard;
+
 /**
  * POST /vault/api/vault_container_delete — delete a folder and all nested folders + their documents (files on disk removed).
  *
@@ -62,6 +64,16 @@ return function (): void {
     if (! $this->oaao_vault_container_belongs_to_vault($db, $containerId, $vaultId)) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Folder not found.']);
+
+        return;
+    }
+
+    if (ResearchVaultGuard::containerIsManaged($db, $vaultId, $containerId)) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => ResearchVaultGuard::vaultDeleteContainerMessage(),
+        ]);
 
         return;
     }

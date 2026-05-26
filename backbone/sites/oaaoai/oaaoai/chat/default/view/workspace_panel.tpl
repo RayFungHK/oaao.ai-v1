@@ -102,7 +102,7 @@
                                 <div data-oaao-chat="composer-feature-toggles" class="inline-flex flex-wrap items-end gap-1.5 shrink-0"></div>
                                 <div data-oaao-chat="composer-registry-slots-left" class="flex flex-wrap items-end gap-2 min-w-0"></div>
                             </div>
-                            <div class="flex flex-wrap items-end gap-2 shrink-0 ml-auto justify-end">
+                            <div class="flex flex-wrap items-end gap-2 shrink-0 ml-auto justify-end min-w-0">
                                 <!-- {@code composer_zone: composer_actions} -->
                                 <div data-oaao-chat="composer-registry-slots-actions" class="flex flex-wrap items-end gap-2 shrink-0"></div>
                                 <button type="submit" data-oaao-chat="send"
@@ -117,8 +117,9 @@
                     </div>
                     <!-- Shown when any {@code composer_zone: composer_extra_toolbar} slot mounts ({@see chat-panel.js}). -->
                     <div data-oaao-chat="composer-extra-toolbar-wrap"
-                        class="hidden w-full box-border px-4 py-2 gap-1.5 text-[0.625rem] leading-tight fg-[var(--grid-ink-muted)] bg-[var(--grid-panel)] [border-top:1px_solid_var(--grid-line)] flex flex-wrap items-center min-h-0 shrink-0">
-                        <div data-oaao-chat="composer-registry-extra-toolbar" class="flex flex-wrap items-center gap-1.5 min-w-0 w-full"></div>
+                        class="hidden w-full box-border px-4 py-2 gap-1.5 text-[0.625rem] leading-tight fg-[var(--grid-ink-muted)] bg-[var(--grid-panel)] [border-top:1px_solid_var(--grid-line)] flex flex-wrap items-center justify-between min-h-0 shrink-0">
+                        <div data-oaao-chat="composer-registry-extra-toolbar" class="flex flex-wrap items-center gap-1.5 min-w-0 flex-1"></div>
+                        <span data-oaao-chat="composer-toolbar-hint" class="oaao-chat-composer-toolbar-hint hidden max-w-[14rem] min-w-0 shrink overflow-hidden text-ellipsis whitespace-nowrap text-[0.625rem] leading-tight fg-[var(--grid-caption)] text-right ml-auto pl-2" aria-live="polite"></span>
                     </div>
                 </div>
             </div>

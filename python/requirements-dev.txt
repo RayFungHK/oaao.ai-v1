@@ -2,3 +2,5 @@
 -r requirements.txt
 pytest>=8.0
 pytest-asyncio>=0.23
+# Optional: Playwright for mine fetch_mode=playwright (heavy; not in orchestrator image by default)
+# playwright>=1.40

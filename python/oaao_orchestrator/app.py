@@ -31,11 +31,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from oaao_orchestrator.log_config import configure_oaao_logging
 from oaao_orchestrator.agent_ask import ASK_DECISION_SKIP
 from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
 from oaao_orchestrator.funasr_ops import ensure_funasr, funasr_status
 from oaao_orchestrator.streaming.session import StreamSessionRegistry
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
+from oaao_orchestrator.research_fetch_poll import research_fetch_poll_loop
+from oaao_orchestrator.research_refetch_poll import research_refetch_poll_loop
+
+configure_oaao_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,8 @@ async def _lifespan(app: FastAPI):
     from oaao_orchestrator.post_stream_pool import start_post_stream_pools, stop_post_stream_pools  # noqa: PLC0415
 
     poll_task = asyncio.create_task(vault_job_poll_loop())
+    research_poll_task = asyncio.create_task(research_fetch_poll_loop())
+    research_refetch_poll_task = asyncio.create_task(research_refetch_poll_loop())
     await start_post_stream_pools()
     try:
         await ensure_evolution_collections()
@@ -60,8 +67,18 @@ async def _lifespan(app: FastAPI):
     yield
     await stop_post_stream_pools()
     poll_task.cancel()
+    research_poll_task.cancel()
+    research_refetch_poll_task.cancel()
     try:
         await poll_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await research_poll_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await research_refetch_poll_task
     except asyncio.CancelledError:
         pass
 
@@ -151,6 +168,7 @@ class ChatRunRequest(BaseModel):
     chat_endpoint_id: int | None = Field(default=None, ge=1)
     purpose_key: str | None = None
     embedding: dict[str, Any] | None = None
+    rerank: dict[str, Any] | None = None
     chat_attachments: list[dict[str, Any]] = Field(default_factory=list)
     asr: dict[str, Any] | None = None
     polish: dict[str, Any] | None = None
@@ -1232,12 +1250,164 @@ async def funasr_status_route(
     return await funasr_status()
 
 
+class ResearchRunRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/research/run")
+async def research_run(
+    req: ResearchRunRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.research.worker import run_research_job  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    return await run_research_job(payload)
+
+
+class ResearchMatchPromptRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/research/match_prompt_normalize")
+async def research_match_prompt_normalize(
+    req: ResearchMatchPromptRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.research.match import normalize_match_prompt  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    raw = str(payload.get("match_prompt") or "").strip()
+    llm_cfg = payload.get("match_llm") if isinstance(payload.get("match_llm"), dict) else None
+    if llm_cfg is None:
+        llm_cfg = payload.get("summary_llm") if isinstance(payload.get("summary_llm"), dict) else None
+    if not raw:
+        return {"ok": False, "error": "match_prompt_required"}
+    async with httpx.AsyncClient() as client:
+        normalized = await normalize_match_prompt(client, raw, llm_cfg)
+    return {"ok": True, "normalized_prompt": normalized}
+
+
+class ResearchDiscoverRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/research/discover")
+async def research_discover(
+    req: ResearchDiscoverRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.research.discover import discover_research_sources  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    return await discover_research_sources(payload)
+
+
+class ResearchDiscoverStepRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/research/discover_step")
+async def research_discover_step(
+    req: ResearchDiscoverStepRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.research.discover_step import discover_research_step  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    url = str(payload.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "error": "url_required"}
+    async with httpx.AsyncClient() as client:
+        return await discover_research_step(
+            client,
+            url=url,
+            depth=int(payload.get("depth") or 1),
+            max_depth=int(payload.get("max_depth") or 3),
+            parent_url=str(payload.get("parent_url") or "").strip() or None,
+            llm_cfg=payload.get("llm_cfg") if isinstance(payload.get("llm_cfg"), dict) else None,
+            use_llm=bool(payload.get("use_llm", True)),
+            use_playwright=bool(payload.get("use_playwright")),
+        )
+
+
+class ResearchDiscoverFinalizeRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/research/discover_finalize")
+async def research_discover_finalize(
+    req: ResearchDiscoverFinalizeRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.research.discover_step import finalize_discover_source  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    root_url = str(payload.get("root_url") or "").strip()
+    if not root_url:
+        return {"ok": False, "error": "root_url_required"}
+    path = payload.get("path") if isinstance(payload.get("path"), list) else []
+    selected = payload.get("selected_article_urls") if isinstance(payload.get("selected_article_urls"), list) else []
+    src = finalize_discover_source(
+        root_url=root_url,
+        path=[p for p in path if isinstance(p, dict)],
+        selected_article_urls=[str(u) for u in selected],
+        final_index_url=str(payload.get("final_index_url") or "").strip() or None,
+    )
+    return {"ok": True, "source": src, "preview": {**src, "ok": True}}
+
+
+class MineRunRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/mine/run")
+async def mine_run(
+    req: MineRunRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.mine.worker import run_mine_job  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    return await run_mine_job(payload)
+
+
+class MineDiscoverRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+@app.post("/v1/mine/discover")
+async def mine_discover(
+    req: MineDiscoverRequest,
+    x_oaao_internal_token: str | None = Header(default=None, alias="X-OAAO-Internal-Token"),
+) -> dict[str, Any]:
+    if not x_oaao_internal_token or not secrets.compare_digest(x_oaao_internal_token, _shared_secret()):
+        raise HTTPException(status_code=403, detail="bad_internal_token")
+    from oaao_orchestrator.mine.discover import discover_mine_sources  # noqa: PLC0415
+
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    return await discover_mine_sources(payload)
+
+
 class LiveSessionStartRequest(BaseModel):
     cadence: str = "1v1"
     workspace_id: int | None = None
     user_id: int | None = None
     retention_mode: str = "disk_ttl"
     asr: dict[str, Any] | None = None
+    asr_fallback: dict[str, Any] | None = None
     glossary: dict[str, Any] | None = None
     vault_retrieval_profiles: list[dict[str, Any]] | None = None
     embedding: dict[str, Any] | None = None
@@ -1273,6 +1443,7 @@ async def live_session_start(
         user_id=req.user_id,
         public_base=_orchestrator_public_base(),
         asr_cfg=req.asr if isinstance(req.asr, dict) else None,
+        asr_fallback_cfg=req.asr_fallback if isinstance(req.asr_fallback, dict) else None,
         glossary=req.glossary if isinstance(req.glossary, dict) else None,
         vault_retrieval_profiles=req.vault_retrieval_profiles
         if isinstance(req.vault_retrieval_profiles, list)

@@ -1991,10 +1991,61 @@
     background: var(--grid-panel, #f5f5f5);
 }
 
-.oaao-app .oaao-chat-composer-toggle.is-active {
+.oaao-app .oaao-chat-composer-toggle.is-active:not(.oaao-chat-planner-mode-tot):not(.oaao-chat-planner-mode-ddtree) {
     color: var(--grid-accent, #2563eb);
     background: color-mix(in srgb, var(--grid-accent, #2563eb) 12%, transparent);
     border-color: color-mix(in srgb, var(--grid-accent, #2563eb) 35%, var(--grid-line, rgba(0, 0, 0, 0.1)));
+}
+
+/* Planner mode colors — only when planner steps toggle is ON (is-active). */
+.oaao-app .oaao-chat-composer-toggle.is-active.oaao-chat-planner-mode-tot {
+    color: #ca8a04 !important;
+    background-color: rgba(202, 138, 4, 0.18) !important;
+    border-color: rgba(202, 138, 4, 0.45) !important;
+}
+
+.oaao-app .oaao-chat-composer-toggle.is-active.oaao-chat-planner-mode-ddtree {
+    color: #7c3aed !important;
+    background-color: rgba(124, 58, 237, 0.16) !important;
+    border-color: rgba(124, 58, 237, 0.42) !important;
+}
+
+.oaao-app .oaao-chat-composer-toggle:not(.is-active) {
+    color: var(--grid-ink-muted, #666) !important;
+    background-color: transparent !important;
+    border-color: var(--grid-line, rgba(0, 0, 0, 0.1)) !important;
+}
+
+.oaao-app .oaao-chat-composer-toolbar-hint:not(.hidden) {
+    display: inline-block;
+}
+
+.oaao-app .oaao-composer-voice-btn {
+    position: relative;
+    overflow: hidden;
+}
+
+.oaao-app .oaao-composer-voice-level {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0%;
+    background: #22c55e;
+    opacity: 0.45;
+    pointer-events: none;
+    border-radius: inherit;
+    transition: height 50ms linear;
+    z-index: 0;
+}
+
+.oaao-app .oaao-composer-voice-btn.is-recording {
+    color: var(--grid-accent, #2563eb);
+}
+
+.oaao-app .oaao-composer-voice-btn > svg {
+    position: relative;
+    z-index: 1;
 }
 
 /* Composer send — one icon at a time (send arrow vs stop square); do not rely on JIT hidden toggle. */

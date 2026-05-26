@@ -36,11 +36,14 @@ fi
 # Same-origin /sidecar → orchestrator (SSE bypasses PHP entirely).
 # Strip CR (Windows env files) — bare \r breaks sed and heredoc upstream URLs.
 SIDECAR_UPSTREAM="$(printf '%s' "${OAAO_ORCHESTRATOR_INTERNAL_URL:-http://orchestrator:8103}" | tr -d '\r' | sed 's#/*$##')"
+SIDECAR_WS_UPSTREAM="$(printf '%s' "$SIDECAR_UPSTREAM" | sed 's#^http#ws#')"
 SIDECAR_PATH="$(printf '%s' "${OAAO_ORCHESTRATOR_SIDECAR_PATH:-/sidecar}" | tr -d '\r' | sed 's#^/*##;s#/*$##')"
 SIDECAR_PATH="/${SIDECAR_PATH}"
 cat > /etc/apache2/conf-available/oaao-sidecar-proxy.conf <<EOF
-# Apache reverse proxy — browser SSE/WebSocket to Python orchestrator (no PHP workers).
+# Apache reverse proxy — browser SSE + WebSocket to Python orchestrator (no PHP workers).
+# Requires mod_proxy_wstunnel (see docker/web/Dockerfile).
 ProxyPreserveHost On
+ProxyPass ${SIDECAR_PATH}/ ${SIDECAR_WS_UPSTREAM}/ upgrade=websocket
 ProxyPass ${SIDECAR_PATH}/ ${SIDECAR_UPSTREAM}/
 ProxyPassReverse ${SIDECAR_PATH}/ ${SIDECAR_UPSTREAM}/
 RequestHeader set X-Forwarded-Proto "https" env=HTTPS

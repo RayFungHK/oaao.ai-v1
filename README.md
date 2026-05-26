@@ -24,6 +24,7 @@ Compose uses **profiles** so optional services are **not** started unless you op
 | **Core (minimum)** | `docker compose up -d --build` | `postgres`, `web`, `orchestrator` | Login, chat shell, settings, vault **upload** (jobs queue but embed may fail without vectors) |
 | **Vault RAG / embed** | `docker compose --profile vectors up -d --build` | core + **`qdrant`** (+ **`arangodb`** if GraphRAG) | Document vector search, vault embed jobs, chat vault RAG |
 | **Speaker ASR (FunASR sidecar)** | `docker compose --profile funasr up -d --build funasr` | core + **`funasr`** | Settings → ASR → **Speaker** mode only |
+| **ASR-Live (backlog wiring)** | External **FunASR Nano** at `https://funasr-nano.rayfung.hk` — OAAO `asr.live.*` Purpose not wired yet | — | See `backbone/.../docs/backlog/local-asr-live-funasr-mlt-nano.md` |
 | **Full local dev** | `docker compose --profile vectors --profile funasr up -d --build` | all of the above | Speaker transcripts + vault embed + optional graph |
 
 **Default rule:** plain `docker compose up` = **core only**. No Qdrant, no Arango, no FunASR.

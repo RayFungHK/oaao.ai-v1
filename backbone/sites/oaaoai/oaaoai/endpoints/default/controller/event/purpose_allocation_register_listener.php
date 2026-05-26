@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * {@code oaaoai/endpoints} listener for {@code purpose_allocation.register}.
  *
- * Feature modules emit on their namespace ({@code oaaoai/chat:purpose_allocation.register}, {@code oaaoai/rag:…}, {@code oaaoai/vault:…}, {@code oaaoai/slide-designer:…}, {@code oaaoai/user:…}, {@code oaaoai/endpoints:…});
+ * Feature modules emit on their namespace ({@code oaaoai/chat:purpose_allocation.register}, {@code oaaoai/rag:…}, {@code oaaoai/vault:…}, {@code oaaoai/slide-designer:…}, {@code oaaoai/research:…}, {@code oaaoai/mine:…}, {@code oaaoai/user:…}, {@code oaaoai/endpoints:…});
  * this handler merges slot rows into {@see PurposeAllocationRegister} for shell JSON and downstream tools.
  *
  * {@see \oaaoai\endpoints\PurposeAllocationRegister}

@@ -178,6 +178,8 @@ bash scripts/sandbox_check.sh --all   # 送 PR / 大改前
 | `test_live_meeting_bubble_engine.py` | 氣泡節奏與抽取 | debate/meeting/unknown cadence 秒數；glossary 關鍵字與問句類型氣泡 |
 | `test_live_meeting_bubble_rag.py` | 氣泡 vault 查詢 | 空 query → `materials=[]`、`passage_count=0` |
 | `test_glossary_hotwords.py` | 詞彙表 → DashScope hotwords | 去重順序；JSON 含 `OAAO` |
+| `test_funasr_runtime_stream.py` | ASR-Live WS driver 與 proxy 訊息解析 | `funasr_nano_ws` / `funasr_runtime` driver；`https→wss` 正規化；partial/final emit |
+| `test_asr_batch_protocol.py` | Batch ASR 協議路由 | `json_transcribe` vs `openai_compat`；Live segment 優先 `asr.*` fallback |
 
 ---
 

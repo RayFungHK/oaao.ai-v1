@@ -1,10 +1,16 @@
 /**
- * Admin Settings — Evolution background queues (IQS/ACCS rescore + post-stream pools).
+ * Admin Settings — Evolution (queue status + governance).
  * Lives under core webassets ({@see SettingsRegister}) — static imports only (import-map cache bust).
  * Layout uses inline {@code element.style} — no dependency on oaao.css / JIT.
  */
 
 import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
+import {
+    evolutionGovernanceChatApiUrl,
+    evolutionGovernanceFetchJson,
+    fetchEvolutionGovernancePayload,
+    renderEvolutionGovernanceSection,
+} from './oaao-evolution-governance-panel.js';
 
 /** @type {Record<'en' | 'zh-Hant', Record<string, string>>} */
 const LABELS = {
@@ -32,6 +38,14 @@ const LABELS = {
         col_workers: 'Workers',
         col_plugins: 'Plugins',
         updated: 'Updated {{time}} · refreshes every 3s',
+        tab_queue: 'Queue',
+        tab_governance: 'Governance',
+        governance_loading: 'Loading governance data…',
+        governance_load_failed: 'Could not load evolution governance data.',
+        cron_ok: 'Cron job completed.',
+        cron_fail: 'Cron job failed.',
+        patch_ok: 'Patch updated.',
+        patch_fail: 'Patch action failed.',
         persisted_heading: 'Persisted turn scores (database)',
         persisted_total: 'Total scored turns',
         persisted_with_iqs: 'With IQS',
@@ -63,6 +77,14 @@ const LABELS = {
         col_workers: 'Workers',
         col_plugins: 'Plugins',
         updated: '更新於 {{time}} · 每 3 秒刷新',
+        tab_queue: '佇列',
+        tab_governance: '治理',
+        governance_loading: '正在載入 governance 資料…',
+        governance_load_failed: '無法載入 evolution governance 資料。',
+        cron_ok: 'Cron 工作已完成。',
+        cron_fail: 'Cron 工作失敗。',
+        patch_ok: 'Patch 已更新。',
+        patch_fail: 'Patch 操作失敗。',
         persisted_heading: '已持久化的 turn 分數（資料庫）',
         persisted_total: '已評分 turn 總數',
         persisted_with_iqs: '含 IQS',
@@ -395,6 +417,26 @@ async function fetchQueueStatus(url) {
 /** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;
 
+/** @param {'queue' | 'governance'} tab */
+function tabButtonEl(tab, active, onPick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.oaaoEvolutionTab = tab;
+    btn.textContent = label(tab === 'queue' ? 'tab_queue' : 'tab_governance');
+    sty(btn, {
+        fontSize: '13px',
+        fontWeight: active ? '600' : '500',
+        padding: '8px 14px',
+        borderRadius: '8px',
+        border: `1px solid ${active ? EVO.ink : EVO.line}`,
+        background: active ? EVO.ink : '#fff',
+        color: active ? '#fff' : EVO.ink,
+        cursor: 'pointer',
+    });
+    btn.addEventListener('click', () => onPick(tab));
+    return btn;
+}
+
 /**
  * @param {HTMLElement} host
  * @param {{ JIT?: { hydrate?: (el: HTMLElement) => void } }} [ctx]
@@ -407,36 +449,122 @@ export async function mountSettingsPanel(host, ctx = {}) {
     wrap.className = 'min-w-0 w-full';
     wrap.dataset.oaaoEvolutionQueuePanel = '1';
 
-    const refresh = async () => {
+    const tabRow = document.createElement('div');
+    sty(tabRow, { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' });
+    const contentHost = document.createElement('div');
+    contentHost.dataset.oaaoEvolutionTabContent = '1';
+
+    /** @type {'queue' | 'governance'} */
+    let activeTab = 'queue';
+
+    const renderGovernance = async () => {
+        contentHost.replaceChildren();
+        oaaoMountLoadingLogo(contentHost, { label: label('governance_loading') });
+        try {
+            const payload = await fetchEvolutionGovernancePayload();
+            contentHost.replaceChildren();
+            const statusEl = document.createElement('p');
+            statusEl.dataset.oaaoEvolutionGovernanceStatus = '1';
+            sty(statusEl, { fontSize: '13px', margin: '0 0 12px' });
+            contentHost.appendChild(statusEl);
+            contentHost.appendChild(
+                renderEvolutionGovernanceSection(payload, {
+                    onCron: (job) => void runGovernanceCron(statusEl, renderGovernance, job),
+                    onPatch: (patchId, action) => void runGovernancePatch(statusEl, renderGovernance, patchId, action),
+                }),
+            );
+            ctx.JIT?.hydrate?.(contentHost);
+        } catch {
+            contentHost.replaceChildren();
+            const err = document.createElement('p');
+            sty(err, { fontSize: '13px', color: EVO.caution, margin: '0' });
+            err.textContent = label('governance_load_failed');
+            contentHost.appendChild(err);
+        }
+    };
+
+    const refreshQueue = async () => {
         const { res, data } = await fetchQueueStatus(chatApiUrl('evolution_queue_status'));
-        wrap.replaceChildren();
+        contentHost.replaceChildren();
         if (!res.ok || data.success !== true) {
             const err = document.createElement('p');
             sty(err, { fontSize: '13px', color: EVO.caution, margin: '0' });
             err.textContent = label('load_failed');
-            wrap.appendChild(err);
+            contentHost.appendChild(err);
             return;
         }
-        wrap.appendChild(renderQueuePanelEl(/** @type {Record<string, unknown>} */ (data)));
-        ctx.JIT?.hydrate?.(wrap);
+        contentHost.appendChild(renderQueuePanelEl(/** @type {Record<string, unknown>} */ (data)));
+        ctx.JIT?.hydrate?.(contentHost);
     };
 
-    await refresh();
+    const syncTabs = () => {
+        tabRow.replaceChildren(
+            tabButtonEl('queue', activeTab === 'queue', pickTab),
+            tabButtonEl('governance', activeTab === 'governance', pickTab),
+        );
+    };
+
+    /** @param {'queue' | 'governance'} tab */
+    const pickTab = (tab) => {
+        activeTab = tab;
+        syncTabs();
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        if (tab === 'queue') {
+            void refreshQueue();
+            pollTimer = setInterval(() => {
+                if (!host.isConnected) {
+                    if (pollTimer) clearInterval(pollTimer);
+                    pollTimer = null;
+                    return;
+                }
+                if (activeTab === 'queue') void refreshQueue();
+            }, 3000);
+        } else {
+            void renderGovernance();
+        }
+    };
+
+    syncTabs();
+    wrap.append(tabRow, contentHost);
     host.textContent = '';
     host.appendChild(wrap);
+    pickTab('queue');
     ctx.JIT?.hydrate?.(host);
+}
 
-    if (pollTimer) {
-        clearInterval(pollTimer);
+/** @param {HTMLElement} statusEl @param {() => Promise<void>} reload @param {string} job */
+async function runGovernanceCron(statusEl, reload, job) {
+    const { res, data } = await evolutionGovernanceFetchJson(evolutionGovernanceChatApiUrl('evolution_cron_run'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job }),
+    });
+    statusEl.style.color = res.ok && data.success === true ? EVO.ink : EVO.caution;
+    if (res.ok && data.success === true) {
+        const result = data.data && typeof data.data === 'object' ? data.data.result : null;
+        statusEl.textContent =
+            result && typeof result === 'object'
+                ? `${label('cron_ok')} ${String(result.report_id ?? '')} (${Number(result.sample_count ?? 0)} samples)`
+                : label('cron_ok');
+    } else {
+        statusEl.textContent = label('cron_fail');
     }
-    pollTimer = setInterval(() => {
-        if (!host.isConnected) {
-            if (pollTimer) clearInterval(pollTimer);
-            pollTimer = null;
-            return;
-        }
-        void refresh();
-    }, 3000);
+    await reload();
+}
+
+/** @param {HTMLElement} statusEl @param {() => Promise<void>} reload @param {string} patchId @param {string} action */
+async function runGovernancePatch(statusEl, reload, patchId, action) {
+    const { res, data } = await evolutionGovernanceFetchJson(evolutionGovernanceChatApiUrl('evolution_patches'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patch_id: patchId, action }),
+    });
+    statusEl.style.color = res.ok && data.success === true ? EVO.ink : EVO.caution;
+    statusEl.textContent = res.ok && data.success === true ? label('patch_ok') : label('patch_fail');
+    await reload();
 }
 
 export function teardownSettingsPanel() {

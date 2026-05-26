@@ -6,9 +6,10 @@
             display: grid !important;
             width: 100%;
             box-sizing: border-box;
-            flex: 1 1 auto;
+            flex: 1 1 0%;
             min-height: 0;
             min-width: 0;
+            height: 0;
             overflow: hidden;
             grid-template-columns: minmax(0, 1fr);
             grid-template-rows: minmax(0, 1fr) auto;
@@ -22,6 +23,43 @@
             min-height: 0;
             width: 100%;
             overflow: hidden;
+        }
+        /* ResourceList scroll — breadcrumb fixed; list body scrolls ({@see vault-panel.js}). */
+        .oaao-vault-tree-scroll {
+            flex: 1 1 0%;
+            min-height: 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .oaao-vault-bc {
+            flex-shrink: 0;
+            min-height: 1.75rem;
+        }
+        .oaao-vault-rl-shell {
+            flex: 1 1 0%;
+            min-height: 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .oaao-vault-rl-shell .resource-list-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 0%;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .oaao-vault-rl-shell .resource-list-wrapper {
+            flex: 1 1 0%;
+            min-height: 0;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: auto !important;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
         .oaao-vault-browse-body > .oaao-vault-document-detail {
             grid-column: 1;
@@ -92,11 +130,11 @@
                 <p data-oaao-vault-upload-note class="hidden basis-full m-0 text-[0.72rem] fg-[var(--grid-caption)] text-center leading-snug"></p>
             </div>
 
-            <div class="oaao-vault-browse-body">
-                <div class="oaao-vault-explorer-column">
+            <div class="oaao-vault-browse-body flex-1 min-h-0 h-0">
+                <div class="oaao-vault-explorer-column flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
                     <div data-oaao-vault="tree-main-host" role="region"
                         aria-label="Vault contents"
-                        class="oaao-vault-tree-scroll"
+                        class="oaao-vault-tree-scroll flex flex-1 min-h-0 min-w-0 w-full flex-col overflow-hidden"
                         aria-busy="false">
                     </div>
                 </div>

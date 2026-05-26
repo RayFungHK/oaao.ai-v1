@@ -232,6 +232,7 @@ def _vault_rag_ctx_extra(
     return {
         "vault_retrieval_profiles": list(getattr(req, "vault_retrieval_profiles", None) or []),
         "embedding": req.embedding if isinstance(getattr(req, "embedding", None), dict) else None,
+        "rerank": req.rerank if isinstance(getattr(req, "rerank", None), dict) else None,
         "vault_source_refs": [r.model_dump() for r in (getattr(req, "vault_source_refs", None) or [])],
         "vault_scope_documents": scope_docs or None,
         "vault_auto_rag": bool(getattr(req, "vault_auto_rag", False)),

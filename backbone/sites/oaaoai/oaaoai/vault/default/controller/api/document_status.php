@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\research\ResearchRepository;
+
 /**
  * GET /vault/api/document_status — lightweight embed/graph status for poll refresh.
  *
@@ -60,6 +62,8 @@ return function (): void {
 
     /** @var list<array<string, mixed>> $out */
     $out = [];
+    /** @var list<int> $vaultIdsForRefetch */
+    $vaultIdsForRefetch = [];
     foreach ($rows as $row) {
         if (! \is_array($row)) {
             continue;
@@ -85,6 +89,27 @@ return function (): void {
             'byte_size'      => isset($row['byte_size']) && $row['byte_size'] !== null ? (int) $row['byte_size'] : null,
             'has_transcript' => ! empty($row['has_transcript']),
         ];
+        $vaultIdsForRefetch[] = $vid;
+    }
+
+    /** @var array<int, string> $refetchByDocId */
+    $refetchByDocId = [];
+    if ($vaultIdsForRefetch !== []) {
+        try {
+            $refetchByDocId = (new ResearchRepository($db))->refetchStatusByDocumentIds(
+                array_values(array_unique($vaultIdsForRefetch, SORT_NUMERIC)),
+            );
+        } catch (\Throwable) {
+            $refetchByDocId = [];
+        }
+    }
+    foreach ($out as $idx => $docRow) {
+        $did = (int) ($docRow['id'] ?? 0);
+        if ($did > 0 && isset($refetchByDocId[$did])) {
+            $out[$idx]['research_refetch_status'] = $refetchByDocId[$did];
+        } elseif ($did > 0) {
+            $out[$idx]['research_refetch_status'] = null;
+        }
     }
 
     header('Cache-Control: private, no-store, max-age=0');

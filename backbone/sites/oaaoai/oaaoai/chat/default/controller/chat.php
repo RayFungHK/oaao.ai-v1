@@ -625,9 +625,17 @@ return new class extends Controller {
         $extras = [];
         $endpoints = $this->api('endpoints');
         if ($endpoints) {
-            $asr = $endpoints->resolveOrchestratorAsrPayload();
+            $liveAsr = $endpoints->resolveOrchestratorLiveAsrPayload();
+            $batchAsr = $endpoints->resolveOrchestratorAsrPayload();
+            $asr = $liveAsr ?? $batchAsr;
             if ($asr !== null) {
                 $extras['asr'] = $asr;
+            }
+            if ($liveAsr !== null && $batchAsr !== null) {
+                $fallback = ! \array_key_exists('input_fallback', $liveAsr) || (bool) $liveAsr['input_fallback'];
+                if ($fallback) {
+                    $extras['asr_fallback'] = $batchAsr;
+                }
             }
             $emb = $endpoints->resolveOrchestratorEmbeddingPayload();
             if ($emb !== null) {

@@ -30,6 +30,7 @@ return function (): void {
     try {
         $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $repo->ensurePlanningPurposeRow();
+        $repo->ensureAsrLivePurposeRow();
         $rows = $repo->listPurposesWithDefaultEndpointName();
         echo json_encode(
             ['success' => true, 'purposes' => $rows ?: [], 'purposes_postgresql_only' => false],

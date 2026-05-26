@@ -1,4 +1,9 @@
-"""In-memory session registry — WS audio ingest, segment ASR, SSE broadcast."""
+"""In-memory session registry — WS audio ingest, streaming ASR bridge, SSE broadcast.
+
+When a duplex streaming bridge is active, closed ~5 s PCM segments are kept on disk but
+not batch-transcribed. Segment ``POST /transcribe`` is the fallback when no stream bridge
+is connected. Drivers: ``stream_bridge.resolve_stream_driver`` (``dashscope``, ``funasr_runtime``, …).
+"""
 
 from __future__ import annotations
 
@@ -19,14 +24,17 @@ from oaao_orchestrator.live_meeting.bubble_engine import (
     extract_bubbles,
 )
 from oaao_orchestrator.live_meeting.bubble_rag import lookup_bubble_vault
-from oaao_orchestrator.live_meeting.dashscope_asr_stream import (
-    DashscopeRealtimeAsrBridge,
-    create_and_start_bridge,
-    dashscope_api_key,
+from oaao_orchestrator.live_meeting.dashscope_asr_stream import dashscope_api_key
+from oaao_orchestrator.live_meeting.stream_bridge import (
+    LiveStreamAsrBridge,
+    create_and_start_live_stream_bridge,
+    resolve_live_stream_ws_url,
+    resolve_stream_driver,
 )
 from oaao_orchestrator.live_meeting.qwen_asr_stream import (
+    is_streaming_asr_mode,
+    segment_transcribe_asr_cfg,
     transcribe_live_pcm_segment,
-    use_dashscope_realtime_stream,
 )
 from oaao_orchestrator.live_meeting.session import LiveMeetingSession, live_meeting_root, new_session_id
 from oaao_orchestrator.live_meeting.sse_hub import drop_live_stream, get_live_stream
@@ -46,9 +54,13 @@ logger = logging.getLogger(__name__)
 _active: dict[str, LiveMeetingSession] = {}
 _writers: dict[str, SegmentWriter] = {}
 _asr_tasks: dict[str, set[asyncio.Task[Any]]] = {}
-_bridges: dict[str, DashscopeRealtimeAsrBridge] = {}
+_bridges: dict[str, LiveStreamAsrBridge] = {}
+_bridge_emit_at: dict[str, float] = {}
+_stream_silent_tasks: dict[str, asyncio.Task[Any]] = {}
 _partial_seq: dict[str, int] = {}
 _last_bubble_emit: dict[str, float] = {}
+
+STREAM_SILENT_TIMEOUT_SEC = 12.0
 
 
 @dataclass
@@ -56,6 +68,7 @@ class _SessionRuntime:
     session: LiveMeetingSession
     asr_cfg: dict[str, Any] | None
     glossary: dict[str, Any] | None
+    asr_fallback_cfg: dict[str, Any] | None = None
     vault_retrieval_profiles: list[dict[str, Any]] | None = None
     embedding: dict[str, Any] | None = None
     vault_rag_config: dict[str, Any] | None = None
@@ -91,6 +104,7 @@ def create_session(
     workspace_id: int | None = None,
     user_id: int | None = None,
     asr_cfg: dict[str, Any] | None = None,
+    asr_fallback_cfg: dict[str, Any] | None = None,
     glossary: dict[str, Any] | None = None,
     vault_retrieval_profiles: list[dict[str, Any]] | None = None,
     embedding: dict[str, Any] | None = None,
@@ -120,16 +134,25 @@ def create_session(
         session=session,
         asr_cfg=asr_cfg if isinstance(asr_cfg, dict) else None,
         glossary=glossary if isinstance(glossary, dict) else None,
+        asr_fallback_cfg=asr_fallback_cfg if isinstance(asr_fallback_cfg, dict) else None,
         vault_retrieval_profiles=profiles or None,
         embedding=embedding if isinstance(embedding, dict) else None,
         vault_rag_config=vault_rag_config if isinstance(vault_rag_config, dict) else None,
     )
     get_live_stream(session.session_id)
-    if use_dashscope_realtime_stream(asr_cfg):
+    driver = resolve_stream_driver(asr_cfg)
+    if driver:
         logger.info(
-            "live_meeting dashscope streaming ASR id=%s model=%s",
+            "live_meeting stream_bridge id=%s driver=%s model=%s",
             session.session_id,
+            driver,
             (asr_cfg or {}).get("model"),
+        )
+    elif is_streaming_asr_mode(asr_cfg):
+        logger.info(
+            "live_meeting segment_batch_fallback id=%s provider=%s (no stream URL / driver)",
+            session.session_id,
+            (asr_cfg or {}).get("provider"),
         )
     logger.info("live_meeting session_created id=%s workspace_id=%s", session.session_id, workspace_id)
     return session
@@ -163,7 +186,13 @@ def _append_transcript_line(session: LiveMeetingSession, record: dict[str, Any])
         fh.write(line + "\n")
 
 
-async def _emit_live_transcript(session_id: str, text: str, *, is_final: bool) -> None:
+async def _emit_live_transcript(
+    session_id: str,
+    text: str,
+    *,
+    is_final: bool,
+    source: str = "live_stream",
+) -> None:
     session = get_session(session_id)
     if session is None:
         return
@@ -179,7 +208,7 @@ async def _emit_live_transcript(session_id: str, text: str, *, is_final: bool) -
     if is_final:
         _append_transcript_line(
             session,
-            {"segment": seg_key, "text": text, "is_final": True, "ts": ts, "source": "dashscope_stream"},
+            {"segment": seg_key, "text": text, "is_final": True, "ts": ts, "source": source},
         )
         runtime = _runtime.get(session_id)
         if runtime is not None and text.strip():
@@ -194,18 +223,80 @@ async def _emit_live_transcript(session_id: str, text: str, *, is_final: bool) -
             phase=PHASE_LIVE,
             kind=KIND_LIVE_TRANSCRIPT,
             text=text,
-            payload={"is_final": is_final, "segment": seg_key, "ts": ts, "source": "dashscope_stream"},
+            payload={"is_final": is_final, "segment": seg_key, "ts": ts, "source": source},
         )
     )
 
 
-async def _ensure_dashscope_bridge(session_id: str) -> None:
+async def _emit_live_status(session_id: str, text: str, *, payload: dict[str, Any] | None = None) -> None:
+    hub = get_live_stream(session_id)
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind="status",
+            text=text,
+            payload=payload or {},
+        )
+    )
+
+
+async def _release_stream_bridge(session_id: str, reason: str) -> None:
+    _bridge_emit_at.pop(session_id, None)
+    silent_task = _stream_silent_tasks.pop(session_id, None)
+    if silent_task is not None:
+        silent_task.cancel()
+    bridge = _bridges.pop(session_id, None)
+    if bridge is not None:
+        try:
+            await bridge.close()
+        except Exception:  # noqa: BLE001
+            pass
+    hub = get_live_stream(session_id)
+    await hub.append(
+        StreamEnvelope(
+            phase=PHASE_LIVE,
+            kind=KIND_ERROR,
+            text=f"live_stream_failed:{reason[:160]}",
+        )
+    )
+    await _emit_live_status(
+        session_id,
+        "stream_bridge_down",
+        payload={"reason": reason[:160]},
+    )
+
+
+async def _ensure_stream_bridge(session_id: str) -> None:
     if session_id in _bridges:
         return
     runtime = _runtime.get(session_id)
-    if runtime is None or not use_dashscope_realtime_stream(runtime.asr_cfg):
+    if runtime is None:
+        logger.warning("live_meeting stream_bridge_skip id=%s reason=no_runtime", session_id)
         return
-    if not dashscope_api_key(runtime.asr_cfg or {}):
+    cfg = runtime.asr_cfg if isinstance(runtime.asr_cfg, dict) else {}
+    ws_url = resolve_live_stream_ws_url(cfg)
+    driver = resolve_stream_driver(cfg)
+    if not driver:
+        logger.info(
+            "live_meeting stream_bridge_skip id=%s mode=%s ws_url=%s stream_protocol=%s provider=%s",
+            session_id,
+            cfg.get("mode"),
+            ws_url or "(none)",
+            cfg.get("stream_protocol") or cfg.get("live_stream_protocol") or "(auto)",
+            cfg.get("provider"),
+        )
+        await _emit_live_status(
+            session_id,
+            "stream_bridge_skip",
+            payload={
+                "mode": cfg.get("mode"),
+                "ws_url": ws_url or None,
+                "stream_protocol": cfg.get("stream_protocol"),
+                "provider": cfg.get("provider"),
+            },
+        )
+        return
+    if driver == "dashscope" and not dashscope_api_key(runtime.asr_cfg or {}):
         hub = get_live_stream(session_id)
         await hub.append(
             StreamEnvelope(
@@ -216,31 +307,62 @@ async def _ensure_dashscope_bridge(session_id: str) -> None:
         )
         return
 
+    stream_source = f"{driver}_stream"
+
+    async def _watch_stream_silent(sid: str) -> None:
+        try:
+            await asyncio.sleep(STREAM_SILENT_TIMEOUT_SEC)
+            if sid not in _bridges or sid in _bridge_emit_at:
+                return
+            logger.warning("live_meeting stream_silent_timeout id=%s", sid)
+            await _release_stream_bridge(sid, "stream_no_transcript_timeout")
+        except asyncio.CancelledError:
+            return
+
     async def _on_emit(t: str, is_final: bool) -> None:
-        await _emit_live_transcript(session_id, t, is_final=is_final)
+        _bridge_emit_at[session_id] = time.monotonic()
+        silent = _stream_silent_tasks.pop(session_id, None)
+        if silent is not None:
+            silent.cancel()
+        await _emit_live_transcript(session_id, t, is_final=is_final, source=stream_source)
+
+    async def _on_fatal(reason: str) -> None:
+        await _release_stream_bridge(session_id, reason)
 
     try:
-        bridge = await create_and_start_bridge(
+        bridge = await create_and_start_live_stream_bridge(
             session_id=session_id,
             asr_cfg=runtime.asr_cfg or {},
             on_emit=_on_emit,
             glossary=runtime.glossary,
+            on_fatal=_on_fatal,
         )
         _bridges[session_id] = bridge
-    except Exception as e:  # noqa: BLE001
-        logger.exception("live_meeting dashscope_bridge_failed id=%s", session_id)
-        hub = get_live_stream(session_id)
-        await hub.append(
-            StreamEnvelope(
-                phase=PHASE_LIVE,
-                kind=KIND_ERROR,
-                text=f"dashscope_stream_failed:{str(e)[:120]}",
-            )
+        _stream_silent_tasks[session_id] = asyncio.create_task(_watch_stream_silent(session_id))
+        logger.info(
+            "live_meeting stream_bridge_ready id=%s driver=%s upstream=%s",
+            session_id,
+            driver,
+            ws_url[:120] if ws_url else "(none)",
         )
+        await _emit_live_status(
+            session_id,
+            "stream_bridge_ready",
+            payload={"driver": driver, "upstream_ws": ws_url or None},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("live_meeting stream_bridge_failed id=%s driver=%s upstream=%s", session_id, driver, ws_url)
+        await _release_stream_bridge(session_id, f"{driver}:{str(e)[:100]}")
+
+
+async def _ensure_dashscope_bridge(session_id: str) -> None:
+    """Backward-compatible alias."""
+    await _ensure_stream_bridge(session_id)
 
 
 async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index: int) -> None:
-    if session_id in _bridges:
+    # Skip batch only when the stream bridge has actually emitted transcript text.
+    if session_id in _bridges and session_id in _bridge_emit_at:
         return
     runtime = _runtime.get(session_id)
     session = get_session(session_id)
@@ -268,11 +390,25 @@ async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index
         )
     )
 
+    seg_asr_cfg = segment_transcribe_asr_cfg(runtime.asr_cfg, runtime.asr_fallback_cfg)
     text, err = await transcribe_live_pcm_segment(
         pcm_path=pcm_path,
-        asr_cfg=runtime.asr_cfg,
+        asr_cfg=seg_asr_cfg or runtime.asr_cfg or {},
         glossary=runtime.glossary,
     )
+    if (err or not text) and isinstance(runtime.asr_fallback_cfg, dict) and runtime.asr_fallback_cfg:
+        if seg_asr_cfg is not runtime.asr_fallback_cfg:
+            logger.info(
+                "live_meeting asr_fallback id=%s seg=%s primary_err=%s",
+                session_id,
+                segment_index,
+                err,
+            )
+            text, err = await transcribe_live_pcm_segment(
+                pcm_path=pcm_path,
+                asr_cfg=runtime.asr_fallback_cfg,
+                glossary=runtime.glossary,
+            )
     if err or not text:
         await hub.append(
             StreamEnvelope(
@@ -310,14 +446,16 @@ async def _process_closed_segment(session_id: str, pcm_path: Path, segment_index
             phase=PHASE_LIVE,
             kind=KIND_LIVE_TRANSCRIPT,
             text=text,
-            payload={"is_final": True, "segment": segment_index, "ts": ts},
+            payload={"is_final": True, "segment": segment_index, "ts": ts, "source": "batch_segment"},
         )
     )
     logger.info(
-        "live_meeting segment_transcribed id=%s seg=%s chars=%s",
+        "live_meeting segment_transcribed id=%s seg=%s chars=%s provider=%s batch_protocol=%s",
         session_id,
         segment_index,
         len(text),
+        (seg_asr_cfg or {}).get("provider"),
+        (seg_asr_cfg or {}).get("batch_protocol") or "openai_compat",
     )
     await _maybe_emit_bubbles(session_id)
 
@@ -502,6 +640,10 @@ async def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     if session is None:
         return False
     bridge = _bridges.pop(session_id, None)
+    _bridge_emit_at.pop(session_id, None)
+    silent_task = _stream_silent_tasks.pop(session_id, None)
+    if silent_task is not None:
+        silent_task.cancel()
     if bridge is not None:
         await bridge.close()
     _partial_seq.pop(session_id, None)
@@ -509,9 +651,16 @@ async def stop_session(session_id: str, *, keep_audio: bool) -> bool:
     writer = _writers.pop(session_id, None)
     if writer is not None:
         writer.close()
-    for task in list(_asr_tasks.pop(session_id, set())):
-        if not task.done():
-            task.cancel()
+    pending = list(_asr_tasks.get(session_id, set()))
+    if pending:
+        results = await asyncio.gather(
+            *[asyncio.wait_for(t, timeout=45.0) for t in pending if not t.done()],
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, Exception) and not isinstance(result, asyncio.TimeoutError):
+                logger.warning("live_meeting asr_task_error id=%s err=%s", session_id, result)
+    _asr_tasks.pop(session_id, None)
     _runtime.pop(session_id, None)
     drop_live_stream(session_id)
     session.mark_stopped(keep_audio=keep_audio)
@@ -536,7 +685,16 @@ async def handle_audio_websocket(websocket: WebSocket, session_id: str) -> None:
         return
 
     await websocket.accept()
-    await _ensure_dashscope_bridge(sid)
+    await _ensure_stream_bridge(sid)
+    rt = _runtime.get(sid)
+    cfg = rt.asr_cfg if rt and isinstance(rt.asr_cfg, dict) else {}
+    logger.info(
+        "live_meeting ws_open id=%s bridge_active=%s upstream=%s driver=%s",
+        sid,
+        sid in _bridges,
+        resolve_live_stream_ws_url(cfg) or "(none)",
+        resolve_stream_driver(cfg) or "(none)",
+    )
     writer = _writers.get(sid)
     if writer is None:
         writer = _writer_for(session)
@@ -616,6 +774,7 @@ def session_start_payload(
     user_id: int | None,
     public_base: str,
     asr_cfg: dict[str, Any] | None = None,
+    asr_fallback_cfg: dict[str, Any] | None = None,
     glossary: dict[str, Any] | None = None,
     vault_retrieval_profiles: list[dict[str, Any]] | None = None,
     embedding: dict[str, Any] | None = None,
@@ -627,6 +786,7 @@ def session_start_payload(
         workspace_id=workspace_id,
         user_id=user_id,
         asr_cfg=asr_cfg,
+        asr_fallback_cfg=asr_fallback_cfg,
         glossary=glossary,
         vault_retrieval_profiles=vault_retrieval_profiles,
         embedding=embedding,

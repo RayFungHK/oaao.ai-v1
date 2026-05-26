@@ -80,6 +80,7 @@ data/live-meeting/sessions/{id}/
 | Slot | M1 | 用途 |
 |------|-----|------|
 | `asr.*` | ✅ 必須 | Qwen3 Streaming（`meta_json.mode=streaming`） |
+| `asr.live.*` | **Backlog** — 接 **https://funasr-nano.rayfung.hk** + Purpose slot；見 [local-asr-live-funasr-mlt-nano.md](./local-asr-live-funasr-mlt-nano.md) |
 | `live_meeting.*` | M2 | Bubble / 組題 |
 | `chat.*` + `embedding.*` | M2 | RAG 回答 |
 | `asr_summary.*` | M3 | 會後摘要 |

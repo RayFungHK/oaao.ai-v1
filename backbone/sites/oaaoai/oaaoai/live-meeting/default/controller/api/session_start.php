@@ -59,7 +59,7 @@ return function (): void {
         http_response_code(422);
         echo json_encode([
             'success' => false,
-            'message' => 'Configure an enabled ASR purpose with a default endpoint (Settings → ASR).',
+            'message' => 'Configure ASR-Live (streaming) and/or ASR (batch) with enabled endpoints in Settings → Purpose allocation.',
         ], JSON_UNESCAPED_UNICODE);
 
         return;
@@ -98,6 +98,21 @@ return function (): void {
             $orch['ws_audio_url'] = $publicBase . $ws;
             $orch['ws_audio_url_ws'] = preg_replace('#^http#', 'ws', $publicBase) . $ws;
         }
+    }
+
+    if (! class_exists(\oaaoai\chat\OrchestratorPublicBase::class)) {
+        require_once dirname(__DIR__, 3) . '/chat/default/library/OrchestratorPublicBase.php';
+    }
+    if (! empty($orch['stream_url'])) {
+        $orch['stream_url'] = \oaaoai\chat\OrchestratorPublicBase::rewriteOrchestratorUrlForClient((string) $orch['stream_url']);
+    }
+    if (! empty($orch['ws_audio_url'])) {
+        $orch['ws_audio_url'] = \oaaoai\chat\OrchestratorPublicBase::rewriteOrchestratorUrlForClient((string) $orch['ws_audio_url']);
+    }
+    if (! empty($orch['ws_audio_url_ws'])) {
+        $orch['ws_audio_url_ws'] = \oaaoai\chat\OrchestratorPublicBase::rewriteOrchestratorWsUrlForClient((string) $orch['ws_audio_url_ws']);
+    } elseif (! empty($orch['ws_audio_url'])) {
+        $orch['ws_audio_url_ws'] = \oaaoai\chat\OrchestratorPublicBase::rewriteOrchestratorWsUrlForClient((string) $orch['ws_audio_url']);
     }
 
     $this->oaao_live_json_exit(200, true, '', $orch);

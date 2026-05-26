@@ -341,7 +341,7 @@ function renderSummaryPlainFallback(out, markdown) {
  * @param {HTMLElement} out
  * @param {{ markdown?: string, placeholder?: string, error?: string }} opts
  */
-function renderSummaryOutput(out, opts) {
+export function renderSummaryOutput(out, opts) {
     const markdown = String(opts.markdown ?? '').trim();
     const placeholder = String(opts.placeholder ?? '').trim();
     const error = String(opts.error ?? '').trim();

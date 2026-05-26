@@ -228,6 +228,53 @@ export function oaaoAppendShellEsmV(url) {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 
+/** @returns {string} */
+function sidecarPrefixPath() {
+    const sidecarRaw =
+        (typeof document !== 'undefined' && document.body?.dataset?.oaaoOrchestratorStreamProxy)?.trim() ??
+        '/sidecar';
+    return applyOaaoMountPrefix(
+        sidecarRaw.startsWith('/') ? sidecarRaw.replace(/\/$/, '') : `/${sidecarRaw.replace(/\/$/, '')}`,
+    );
+}
+
+/**
+ * Same-origin Apache /sidecar proxy URL preserving orchestrator path (/v1/live/…, /v1/stream, …).
+ *
+ * @param {URL} u
+ * @returns {string | null}
+ */
+function resolveSidecarProxiedUrl(u) {
+    if (typeof window === 'undefined') return null;
+    const pathQuery = `${u.pathname}${u.search}${u.hash}`;
+    if (!pathQuery.startsWith('/v1/')) return null;
+    try {
+        const proxied = new URL(`${sidecarPrefixPath()}${pathQuery}`, window.location.href);
+        const isWs =
+            u.protocol === 'ws:' ||
+            u.protocol === 'wss:' ||
+            /\/audio(?:\/|$)/i.test(u.pathname);
+        if (isWs) {
+            proxied.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        } else if (window.location.protocol === 'https:') {
+            proxied.protocol = 'https:';
+        }
+        return proxied.href;
+    } catch {
+        return null;
+    }
+}
+
+/** On HTTPS pages, never call orchestrator :8103 or loopback directly — use same-origin /sidecar. */
+function shouldForceSidecarOnHttps(u) {
+    if (typeof window === 'undefined' || window.location.protocol !== 'https:') return false;
+    const pathQuery = `${u.pathname}${u.search}${u.hash}`;
+    if (pathQuery.startsWith('/v1/')) return true;
+    if (u.port === '8103') return true;
+    if (LOOPBACK_HOSTS.has(u.hostname.toLowerCase())) return true;
+    return false;
+}
+
 /**
  * Rewrite loopback orchestrator URLs (e.g. {@code http://localhost:8103}) to the browser host.
  * Mobile/LAN clients cannot reach the dev machine's loopback — they need the LAN IP/hostname.
@@ -238,6 +285,19 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 export function resolveOrchestratorPublicUrl(spec) {
     const raw = String(spec ?? '').trim();
     if (!raw) return raw;
+
+    if (raw.startsWith('/') && raw.startsWith('/v1/') && typeof window !== 'undefined') {
+        try {
+            const proxied = new URL(`${sidecarPrefixPath()}${raw}`, window.location.href);
+            if (window.location.protocol === 'https:') {
+                proxied.protocol = 'https:';
+            }
+            return proxied.href;
+        } catch {
+            /* fall through */
+        }
+    }
+
     let u;
     try {
         u = new URL(raw, typeof window !== 'undefined' ? window.location.href : undefined);
@@ -251,30 +311,28 @@ export function resolveOrchestratorPublicUrl(spec) {
     if (typeof window !== 'undefined' && u.protocol === 'ws:' && window.location.protocol === 'https:') {
         u.protocol = 'wss:';
     }
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.protocol === 'http:') {
-        const sidecarRaw =
-            (typeof document !== 'undefined' && document.body?.dataset?.oaaoOrchestratorStreamProxy)?.trim() ??
-            '/sidecar';
-        const legacyPhp = sidecarRaw.includes('orchestrator_stream');
-        if (legacyPhp) {
-            const proxyPath = applyOaaoMountPrefix(sidecarRaw.startsWith('/') ? sidecarRaw : `/${sidecarRaw}`);
-            try {
-                const proxy = new URL(proxyPath, window.location.href);
-                proxy.search = u.search;
-                return proxy.href;
-            } catch {
-                /* fall through */
-            }
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        if (shouldForceSidecarOnHttps(u)) {
+            const proxied = resolveSidecarProxiedUrl(u);
+            if (proxied) return proxied;
         }
-        const sidecarPrefix = applyOaaoMountPrefix(
-            sidecarRaw.startsWith('/') ? sidecarRaw.replace(/\/$/, '') : `/${sidecarRaw.replace(/\/$/, '')}`,
-        );
-        try {
-            const sidecar = new URL(`${sidecarPrefix}/v1/stream`, window.location.href);
-            sidecar.search = u.search;
-            return sidecar.href;
-        } catch {
-            /* fall through */
+        if (u.protocol === 'http:' || u.protocol === 'ws:' || u.protocol === 'wss:') {
+            const sidecarRaw =
+                (typeof document !== 'undefined' && document.body?.dataset?.oaaoOrchestratorStreamProxy)?.trim() ??
+                '/sidecar';
+            const legacyPhp = sidecarRaw.includes('orchestrator_stream');
+            if (legacyPhp) {
+                const proxyPath = applyOaaoMountPrefix(sidecarRaw.startsWith('/') ? sidecarRaw : `/${sidecarRaw}`);
+                try {
+                    const proxy = new URL(proxyPath, window.location.href);
+                    proxy.search = u.search;
+                    return proxy.href;
+                } catch {
+                    /* fall through */
+                }
+            }
+            const proxied = resolveSidecarProxiedUrl(u);
+            if (proxied) return proxied;
         }
     }
     return u.href;

@@ -49,9 +49,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
@@ -74,9 +78,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
@@ -99,9 +107,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
@@ -124,9 +136,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
@@ -149,9 +165,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
@@ -174,9 +194,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
@@ -199,9 +223,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
@@ -224,9 +252,13 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
+    RewriteRule ^webassets/mine/(.+?)/(.+)$ sites/oaaoai/oaaoai/mine/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
     RewriteRule ^webassets/platform/(.+?)/(.+)$ sites/oaaoai/oaaoai/platform/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
     RewriteRule ^webassets/rag/(.+?)/(.+)$ sites/oaaoai/oaaoai/rag/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
+    RewriteRule ^webassets/research/(.+?)/(.+)$ sites/oaaoai/oaaoai/research/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
     RewriteRule ^webassets/slide-designer/(.+?)/(.+)$ sites/oaaoai/oaaoai/slide-designer/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk

@@ -597,6 +597,7 @@ def _rag_runtime_config(vault_rag: dict[str, Any] | None) -> dict[str, float | i
         "graph_limit": _int("graph_limit", "OAAO_VAULT_RAG_GRAPH_LIMIT", 12, 4, 16),
         "transcript_summary_boost": _float("transcript_summary_boost", "", 0.10, 0.0, 0.3),
         "asr_transcript_boost": _float("asr_transcript_boost", "", 0.03, 0.0, 0.2),
+        "rerank_limit": _int("rerank_limit", "OAAO_VAULT_RAG_RERANK_LIMIT", 12, 4, 32),
     }
 
 
@@ -719,6 +720,34 @@ class _PassagePick:
     speaker_id: int | None = None
     speaker_label: str = ""
     excerpt: str = ""
+
+
+async def _rerank_passage_picks(
+    query: str,
+    picks: list[_PassagePick],
+    rerank_cfg: dict[str, Any] | None,
+    *,
+    top_n: int,
+) -> list[_PassagePick]:
+    if not picks or not isinstance(rerank_cfg, dict):
+        return picks
+    from oaao_orchestrator.vault_rerank import rerank_passages  # noqa: PLC0415
+
+    texts: list[str] = []
+    for pick in picks:
+        body = pick.passage.split("\n", 1)[-1].strip() if pick.passage else ""
+        texts.append(body or pick.passage)
+    ranked = await rerank_passages(query, texts, rerank_cfg, top_n=min(top_n, len(texts)))
+    if not ranked:
+        return picks
+    order: list[int] = []
+    for idx, _score in ranked:
+        if 0 <= idx < len(picks) and idx not in order:
+            order.append(idx)
+    for i in range(len(picks)):
+        if i not in order:
+            order.append(i)
+    return [picks[i] for i in order]
 
 
 def build_slide_grounding_brief(
@@ -1529,6 +1558,7 @@ async def augment_chat_messages_for_vault_rag(
     vault_retrieval_profiles: list[dict[str, Any]] | None,
     *,
     embedding: dict[str, Any] | None = None,
+    rerank: dict[str, Any] | None = None,
     vault_source_refs: list[dict[str, Any]] | None = None,
     vault_scope_documents: dict[int, list[int]] | None = None,
     vault_auto_rag: bool = False,
@@ -1761,6 +1791,11 @@ async def augment_chat_messages_for_vault_rag(
             all_picks = vault_scroll
             used_scope_scroll = True
             out.profile_hits = max(out.profile_hits, len({p.vault_id for p in all_picks if p.vault_id > 0}) or 1)
+
+    rerank_cfg = rerank if isinstance(rerank, dict) else None
+    if all_picks and rerank_cfg:
+        rerank_top = int(rag_cfg.get("rerank_limit") or 12)
+        all_picks = await _rerank_passage_picks(query, all_picks, rerank_cfg, top_n=rerank_top)
 
     if all_picks:
         if handbook_turn:

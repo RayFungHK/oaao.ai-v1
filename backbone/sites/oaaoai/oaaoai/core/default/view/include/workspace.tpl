@@ -51,6 +51,20 @@
                             <!-- Lucide Mic -->
                             <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                         </button>
+                        <button type="button" id="workspace-rail-research"
+                            class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
+                            title="Article Research"
+                            aria-label="Article Research">
+                            <!-- Lucide Microscope -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18h8"/><path d="M3 22h18"/><path d="M14 22a7 7 0 1 0 0-14h-1"/><path d="M9 14h2"/><path d="M9 12a2 2 0 0 1-2-2V6h6v4a2 2 0 0 1-2 2Z"/><path d="M12 6V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3"/></svg>
+                        </button>
+                        <button type="button" id="workspace-rail-mines"
+                            class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
+                            title="Data Mining"
+                            aria-label="Data Mining">
+                            <!-- Lucide Database -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
+                        </button>
                     </div>
                     <div class="workspace-rail-scroll flex-1 min-h-0 min-w-0" aria-hidden="true"></div>
                     <div class="workspace-rail-footer shrink-0 flex flex-col items-center pb-md pt-xs gap-1 w-full">

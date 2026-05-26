@@ -6,6 +6,8 @@ require_once __DIR__ . '/api/_vault_hook_jobs.php';
 
 use oaaoai\chat\ChatOrchestratorBootstrap;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
+use oaaoai\research\ResearchRepository;
+use oaaoai\research\ResearchVaultGuard;
 use oaaoai\vault\VaultGlossary;
 use oaaoai\vault\VaultArangoResolver;
 use oaaoai\vault\VaultDocumentHookRegister;
@@ -1604,6 +1606,168 @@ SQL;
     }
 
     /**
+     * @return array<int, string> workspace_id => display name
+     */
+    protected function oaao_vault_list_member_workspaces(Database $db, int $uid): array
+    {
+        if ($uid < 1) {
+            return [];
+        }
+
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO) {
+            try {
+                $st = $pdo->prepare(
+                    'SELECT w.workspace_id, w.name
+                     FROM oaao_workspace w
+                     INNER JOIN oaao_workspace_member m ON m.workspace_id = w.workspace_id
+                     WHERE m.user_id = ? AND w.disabled = 0
+                     ORDER BY w.name ASC, w.workspace_id ASC',
+                );
+                $st->execute([$uid]);
+                $out = [];
+                while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+                    if (! \is_array($row)) {
+                        continue;
+                    }
+                    $wid = (int) ($row['workspace_id'] ?? 0);
+                    if ($wid < 1) {
+                        continue;
+                    }
+                    $out[$wid] = trim((string) ($row['name'] ?? '')) ?: "Workspace {$wid}";
+                }
+
+                return $out;
+            } catch (\Throwable) {
+                return [];
+            }
+        }
+
+        try {
+            $rows = $db->prepare()
+                ->select('w.workspace_id, w.name')
+                ->from('w.workspace-m.workspace_member[?w.workspace_id=m.workspace_id, m.user_id=:uid]')
+                ->where('w.disabled=:dz')
+                ->assign(['uid' => $uid, 'dz' => 0])
+                ->order('+name, +workspace_id')
+                ->query()
+                ->fetchAll();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (! \is_array($rows)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            $wid = (int) ($row['workspace_id'] ?? 0);
+            if ($wid < 1) {
+                continue;
+            }
+            $out[$wid] = trim((string) ($row['name'] ?? '')) ?: "Workspace {$wid}";
+        }
+
+        return $out;
+    }
+
+    /**
+     * Vault tree across personal shell and every workspace the user may access.
+     *
+     * @param array{lite_documents?: bool} $options
+     *
+     * @return array{vaults: list<array<string, mixed>>, containers: list<array<string, mixed>>, documents: list<array<string, mixed>>, tree: list<array<string, mixed>>}
+     */
+    protected function oaao_vault_build_all_accessible_payload(Database $db, int $uid, array $options = []): array
+    {
+        $personal = $this->oaao_vault_build_scope_payload($db, $uid, null, $options);
+        $workspaces = $this->oaao_vault_list_member_workspaces($db, $uid);
+
+        /** @var list<array{label: string, payload: array<string, mixed>}> $chunks */
+        $chunks = [['label' => 'Personal', 'payload' => $personal]];
+        foreach (array_keys($workspaces) as $widRaw) {
+            $wid = (int) $widRaw;
+            if ($wid < 1) {
+                continue;
+            }
+            $chunks[] = [
+                'label'   => $workspaces[$wid] ?? "Workspace {$wid}",
+                'payload' => $this->oaao_vault_build_scope_payload($db, $uid, $wid, $options),
+            ];
+        }
+
+        /** @var list<array<string, mixed>> $tree */
+        $tree = [];
+        /** @var array<int, true> $seenVaultIds */
+        $seenVaultIds = [];
+        /** @var array<int, true> $treeVaultIds */
+        $treeVaultIds = [];
+        /** @var list<array<string, mixed>> $vaults */
+        $vaults = [];
+        /** @var list<array<string, mixed>> $containers */
+        $containers = [];
+        /** @var list<array<string, mixed>> $documents */
+        $documents = [];
+
+        foreach ($chunks as $chunk) {
+            $scopeLabel = (string) ($chunk['label'] ?? '');
+            $payload = $chunk['payload'];
+            if (! \is_array($payload)) {
+                continue;
+            }
+            foreach ($payload['vaults'] as $row) {
+                if (! \is_array($row)) {
+                    continue;
+                }
+                $vid = (int) ($row['id'] ?? 0);
+                if ($vid < 1 || isset($seenVaultIds[$vid])) {
+                    continue;
+                }
+                $seenVaultIds[$vid] = true;
+                $vaults[] = $row;
+            }
+            foreach ($payload['containers'] as $row) {
+                if (\is_array($row)) {
+                    $containers[] = $row;
+                }
+            }
+            foreach ($payload['documents'] as $row) {
+                if (\is_array($row)) {
+                    $documents[] = $row;
+                }
+            }
+            foreach ($payload['tree'] as $node) {
+                if (! \is_array($node)) {
+                    continue;
+                }
+                $vid = (int) ($node['id'] ?? 0);
+                if ($vid < 1 || isset($treeVaultIds[$vid])) {
+                    continue;
+                }
+                $treeVaultIds[$vid] = true;
+                $label = trim((string) ($node['name'] ?? ''));
+                $node['name'] = $label !== '' ? "{$scopeLabel} › {$label}" : $scopeLabel;
+                $tree[] = $node;
+            }
+        }
+
+        if ($tree === []) {
+            return ['vaults' => [], 'containers' => [], 'documents' => [], 'tree' => []];
+        }
+
+        return [
+            'vaults'     => $vaults,
+            'containers' => $containers,
+            'documents'  => $documents,
+            'tree'       => $tree,
+        ];
+    }
+
+    /**
      * @param array{lite_documents?: bool} $options
      *
      * @return array{vaults: list<array<string, mixed>>, containers: list<array<string, mixed>>, documents: list<array<string, mixed>>, tree: list<array<string, mixed>>}
@@ -1698,6 +1862,19 @@ SQL;
             $byVaultDocs[$vid][] = $d;
         }
 
+        $managed = ['container_ids' => [], 'document_ids' => []];
+        $refetchByDocId = [];
+        try {
+            $managed = ResearchVaultGuard::managedIdsForVaults($db, $vaultIds);
+        } catch (\Throwable) {
+            // Best-effort — delete guards still apply on mutation APIs.
+        }
+        try {
+            $refetchByDocId = (new ResearchRepository($db))->refetchStatusByDocumentIds($vaultIds);
+        } catch (\Throwable) {
+            // Best-effort — vault list still works without refetch badges.
+        }
+
         $tree = [];
         foreach ($vaults as $vrow) {
             $vid = (int) ($vrow['id'] ?? 0);
@@ -1723,6 +1900,8 @@ SQL;
                     $vaultDocs,
                     (int) ($vrow['graph_mode'] ?? 0),
                     $liteDocuments,
+                    $managed,
+                    $refetchByDocId,
                 ),
             ];
             $tree[] = $vaultNode;
@@ -1739,11 +1918,19 @@ SQL;
     /**
      * @param list<array<string, mixed>> $vaultContainers
      * @param list<array<string, mixed>> $vaultDocs
+     * @param array{container_ids: array<int, true>, document_ids: array<int, true>} $managed
+     * @param array<int, string> $refetchByDocId document_id => queued|running
      *
      * @return list<array<string, mixed>>
      */
-    protected function oaao_vault_build_vault_children(array $vaultContainers, array $vaultDocs, int $vaultGraphMode, bool $liteDocuments = true): array
-    {
+    protected function oaao_vault_build_vault_children(
+        array $vaultContainers,
+        array $vaultDocs,
+        int $vaultGraphMode,
+        bool $liteDocuments = true,
+        array $managed = ['container_ids' => [], 'document_ids' => []],
+        array $refetchByDocId = [],
+    ): array {
         /** @var array<int, array<string, mixed>> $metaByContainerId */
         $metaByContainerId = [];
         /** @var array<string, list<int>> $childIdsByParentKey */
@@ -1794,6 +1981,13 @@ SQL;
                 $docNode['embed_error'] = isset($d['embed_error']) && \is_string($d['embed_error']) ? trim($d['embed_error']) : null;
                 $docNode['graph_error'] = isset($d['graph_error']) && \is_string($d['graph_error']) ? trim($d['graph_error']) : null;
             }
+            if (isset($managed['document_ids'][(int) $docNode['id']])) {
+                $docNode['research_managed'] = true;
+            }
+            $did = (int) $docNode['id'];
+            if ($did > 0 && isset($refetchByDocId[$did])) {
+                $docNode['research_refetch_status'] = $refetchByDocId[$did];
+            }
             $cid = $docNode['container_id'];
             if ($cid !== null && isset($metaByContainerId[$cid])) {
                 $docsByContainerId[$cid][] = $docNode;
@@ -1802,7 +1996,7 @@ SQL;
             }
         }
 
-        $buildContainerSubtree = function (int $cid) use (&$buildContainerSubtree, &$metaByContainerId, &$childIdsByParentKey, &$docsByContainerId): array {
+        $buildContainerSubtree = function (int $cid) use (&$buildContainerSubtree, &$metaByContainerId, &$childIdsByParentKey, &$docsByContainerId, $managed): array {
             $meta = $metaByContainerId[$cid];
             /** @var list<array<string, mixed>> $kids */
             $kids = [];
@@ -1822,6 +2016,7 @@ SQL;
                 'name'                => $meta['name'],
                 'parent_container_id' => $meta['parent_container_id'],
                 'created_at'          => $meta['created_at'],
+                'research_managed'    => isset($managed['container_ids'][$cid]) ? true : null,
                 'children'            => $kids,
             ];
         };
@@ -1966,11 +2161,13 @@ SQL;
                 'GET speaker_profiles' => 'speaker_profiles',
                 'POST vault_speaker_match' => 'vault_speaker_match',
                 'GET document_media' => 'document_media',
+                'GET document_text' => 'document_text',
                 'POST vault_container_create' => 'vault_container_create',
                 'POST vault_auto_rag_set' => 'vault_auto_rag_set',
                 'POST vault_graph_mode_set' => 'vault_graph_mode_set',
                 'POST vault_create'    => 'vault_create',
-                'POST document_upload' => 'document_upload',
+                'POST document_upload'      => 'document_upload',
+                'POST document_upload_text' => 'document_upload_text',
                 'POST document_enqueue' => 'document_enqueue',
                 'POST document_delete' => 'document_delete',
                 'GET document_embed_chunks' => 'document_embed_chunks',

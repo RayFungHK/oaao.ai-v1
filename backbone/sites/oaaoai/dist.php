@@ -27,6 +27,8 @@ return [
             'oaaoai/slide-designer' => 'default',
             'oaaoai/vault'         => 'default',
             'oaaoai/live-meeting'  => 'default',
+            'oaaoai/research'      => 'default',
+            'oaaoai/mine'          => 'default',
         ],
     ],
 ];

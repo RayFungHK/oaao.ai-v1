@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -74,6 +75,123 @@ def openai_compat_chat_url(base_url: str) -> str:
     if bu.endswith("/v1"):
         return f"{bu}/chat/completions"
     return f"{bu}/v1/chat/completions"
+
+
+BATCH_PROTOCOL_OPENAI = "openai_compat"
+BATCH_PROTOCOL_JSON = "json_transcribe"
+
+
+def resolve_batch_protocol(asr_cfg: dict[str, Any] | None) -> str:
+    """HTTP batch transcribe adapter — independent of live streaming provider."""
+    if not isinstance(asr_cfg, dict):
+        return BATCH_PROTOCOL_OPENAI
+    explicit = str(
+        asr_cfg.get("batch_protocol") or asr_cfg.get("transcribe_protocol") or ""
+    ).strip().lower()
+    if explicit in (BATCH_PROTOCOL_OPENAI, BATCH_PROTOCOL_JSON, "json", "nano_transcribe"):
+        return BATCH_PROTOCOL_JSON if explicit in (BATCH_PROTOCOL_JSON, "json", "nano_transcribe") else BATCH_PROTOCOL_OPENAI
+    provider = str(asr_cfg.get("provider") or "").strip().lower()
+    if provider in ("funasr_nano", "funasr-nano", "funasr_nano_remote"):
+        return BATCH_PROTOCOL_JSON
+    return BATCH_PROTOCOL_OPENAI
+
+
+def resolve_batch_http_base(asr_cfg: dict[str, Any]) -> str:
+    """HTTP(S) base for batch transcribe — skips WebSocket stream URLs."""
+    for key in ("funasr_base_url", "funasr_live_base_url", "base_url"):
+        bu = str(asr_cfg.get(key) or "").strip()
+        low = bu.lower()
+        if low.startswith(("ws://", "wss://")):
+            continue
+        if bu and not bu.endswith("/audio/transcriptions"):
+            return ensure_url_scheme(bu.rstrip("/"))
+    return ""
+
+
+def json_transcribe_url(base_url: str) -> str:
+    bu = base_url.rstrip("/")
+    if bu.endswith("/transcribe"):
+        return bu
+    return f"{bu}/transcribe"
+
+
+def _extract_json_transcribe_text(body: Any) -> str | None:
+    if not isinstance(body, dict):
+        return None
+    for key in ("text", "transcript", "result", "output"):
+        raw = body.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    data = body.get("data")
+    if isinstance(data, dict):
+        for key in ("text", "transcript"):
+            raw = data.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+    return None
+
+
+async def transcribe_json_base64_file(
+    client: httpx.AsyncClient,
+    *,
+    audio_path: str,
+    asr_cfg: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    """POST ``/transcribe`` with ``{input: base64, language, itn}`` — FunASR Nano–compatible, provider-agnostic."""
+    path = Path(audio_path)
+    if not path.is_file():
+        return None, "audio_file_missing"
+
+    base = resolve_batch_http_base(asr_cfg)
+    if not base:
+        return None, "asr_endpoint_missing"
+
+    url = json_transcribe_url(base)
+    language = str(asr_cfg.get("language") or "中文").strip() or "中文"
+    itn = bool(asr_cfg.get("itn", asr_cfg.get("enable_itn", True)))
+
+    try:
+        raw_bytes = path.read_bytes()
+    except OSError as exc:
+        return None, str(exc)[:200]
+
+    if len(raw_bytes) < 44:
+        return None, "audio_too_short"
+
+    b64 = base64.b64encode(raw_bytes).decode("ascii")
+    payload = {"input": b64, "language": language, "itn": itn}
+
+    try:
+        file_size = len(raw_bytes)
+        timeout_read = max(60.0, min(300.0, 30.0 + file_size / (256 * 1024)))
+        r = await client.post(
+            url,
+            json=payload,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=httpx.Timeout(timeout_read, connect=20.0),
+        )
+        if r.status_code >= 400:
+            return None, f"json_transcribe_http_{r.status_code}:{r.text[:300]}"
+        try:
+            body = r.json()
+        except ValueError:
+            return None, "json_transcribe_invalid_json"
+        text = _extract_json_transcribe_text(body)
+        if text:
+            return text, None
+        return None, "json_transcribe_empty_response"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("transcribe_json_base64_file failed url=%s: %s", url, exc)
+        return None, str(exc)[:400]
+
+
+def has_batch_transcribe_config(asr_cfg: dict[str, Any] | None) -> bool:
+    if not isinstance(asr_cfg, dict):
+        return False
+    if resolve_batch_http_base(asr_cfg):
+        return True
+    bu = str(asr_cfg.get("base_url") or asr_cfg.get("url") or "").strip()
+    return bool(bu) and resolve_batch_protocol(asr_cfg) == BATCH_PROTOCOL_OPENAI
 
 
 def _asr_max_upload_bytes() -> int:
@@ -469,7 +587,14 @@ async def transcribe_audio_file(
     glossary: dict[str, Any] | None = None,
     carry_prompt: str | None = None,
 ) -> tuple[str | None, str | None]:
-    """OpenAI-compatible audio transcription. Returns (text, error)."""
+    """OpenAI-compatible multipart or JSON/base64 batch transcribe. Returns (text, error)."""
+    if resolve_batch_protocol(asr_cfg) == BATCH_PROTOCOL_JSON:
+        return await transcribe_json_base64_file(
+            client,
+            audio_path=wav_or_audio_path,
+            asr_cfg=asr_cfg,
+        )
+
     bu = str(asr_cfg.get("base_url") or "").strip()
     url_direct = str(asr_cfg.get("url") or "").strip()
     model = str(asr_cfg.get("model") or "").strip()

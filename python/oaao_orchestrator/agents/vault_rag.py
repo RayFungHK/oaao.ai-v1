@@ -104,6 +104,7 @@ class VaultRagAgent:
                     vault_rag=params.get("vault_rag_config")
                     if isinstance(params.get("vault_rag_config"), dict)
                     else None,
+                    rerank=params.get("rerank") if isinstance(params.get("rerank"), dict) else None,
                 )
                 ctx.messages = messages
                 if outcome is None:

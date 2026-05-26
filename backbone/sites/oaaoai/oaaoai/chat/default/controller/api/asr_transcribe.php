@@ -80,7 +80,10 @@ return function (): void {
     $canonDb = $authApi ? $authApi->getDB() : null;
     $endpointsApi = $this->api('endpoints');
     if ($endpointsApi) {
-        $asr = $endpointsApi->resolveOrchestratorAsrPayload();
+        $asr = $endpointsApi->resolveOrchestratorLiveAsrPayload();
+        if ($asr === null) {
+            $asr = $endpointsApi->resolveOrchestratorAsrPayload();
+        }
         if ($asr !== null) {
             $payload['asr'] = $asr;
         }

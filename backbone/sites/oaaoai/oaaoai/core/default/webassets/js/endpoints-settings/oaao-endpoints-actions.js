@@ -93,6 +93,26 @@ async function ensureComboboxRegistered() {
     return mod.default;
 }
 
+/** @param {HTMLFormElement} form */
+export function syncEndpointBaseUrlFieldForAsrLive(form) {
+    const types = readEndpointTypesFromForm(form);
+    const live = types.split(',').some((t) => t.trim() === 'asr.live');
+    const label = form.querySelector('[data-oaao-ep-base-url-label]');
+    const hint = form.querySelector('[data-oaao-ep-base-url-hint]');
+    const input = form.elements.namedItem('base_url');
+    if (label instanceof HTMLElement) {
+        label.textContent = oaaoT(live ? 'settings.ep.form.ws_url' : 'settings.ep.form.base_url');
+    }
+    if (hint instanceof HTMLElement) {
+        const hintText = live ? oaaoT('settings.ep.form.ws_url_asr_live_hint') : '';
+        hint.textContent = hintText;
+        hint.classList.toggle('hidden', !hintText);
+    }
+    if (input instanceof HTMLInputElement) {
+        input.placeholder = live ? 'wss://funasr-nano-ws.example.com' : 'https://…';
+    }
+}
+
 /**
  * @param {HTMLFormElement} form
  * @returns {string} comma-separated purpose prefixes (stable sort)
@@ -376,6 +396,11 @@ async function openEndpointEditor(host, row) {
     if (!(form instanceof HTMLFormElement)) return;
     fillEndpointForm(form, row);
     await mountEndpointTypeCombobox(form);
+    syncEndpointBaseUrlFieldForAsrLive(form);
+    const typeSel = form.querySelector('select[name="endpoint_type"]');
+    if (typeSel instanceof HTMLSelectElement) {
+        typeSel.addEventListener('change', () => syncEndpointBaseUrlFieldForAsrLive(form));
+    }
 
     const dlg = new Dialog({
         title: row ? oaaoT('settings.endpoints.dialog.edit_title') : oaaoT('settings.endpoints.dialog.add_title'),

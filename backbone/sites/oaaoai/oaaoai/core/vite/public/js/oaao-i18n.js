@@ -24,6 +24,8 @@ const OAAO_I18N_BASE = {
         'workspace.rail_vault_title': 'Vault',
         'workspace.rail_agents_title': 'Agents',
         'workspace.rail_live_meeting_title': 'Live meeting',
+        'workspace.rail_research_title': 'Article Research',
+        'workspace.rail_mines_title': 'Data Mining',
         'workspace.vault_menu_heading': 'Vault',
         'workspace.agents.page_title': 'Agents',
         'workspace.agents.page_intro':
@@ -56,6 +58,10 @@ const OAAO_I18N_BASE = {
         'live_meeting.conn.ws_open': 'Audio uplink connected',
         'live_meeting.conn.ws_closed': 'Audio uplink closed',
         'live_meeting.conn.ws_failed': 'Audio uplink failed',
+        'live_meeting.conn.stream_ready': 'Live ASR streaming connected',
+        'live_meeting.conn.stream_batch_only': 'Streaming unavailable — batch segments (~5 s)',
+        'live_meeting.conn.stream_fallback': 'Streaming paused — batch fallback',
+        'live_meeting.conn.batch_segment': 'Batch transcribing segment…',
         'live_meeting.error.mic_denied': 'Microphone permission denied',
         'live_meeting.error.mic_ws': 'Microphone or audio uplink failed',
         'live_meeting.error.asr_not_configured': 'Speech recognition is not configured (Settings → ASR)',
@@ -86,7 +92,9 @@ const OAAO_I18N_BASE = {
         'settings.nav.asr.label': 'ASR',
         'settings.nav.asr.title': 'Speech pipeline',
         'settings.nav.asr.sub':
-            'Normal vs Speaker mode, chunk buffer, diarization, and language hints — separate from purpose routing.',
+            'Batch pipeline (mode, diarization, language hints) and Live ASR preferences — endpoints under Purpose allocation.',
+
+        'settings.asr.section_batch': 'Batch ASR',
 
         'settings.nav.purposes.label': 'Purpose allocation',
         'settings.nav.purposes.title': 'Purpose allocation',
@@ -151,6 +159,9 @@ const OAAO_I18N_BASE = {
         'settings.ep.form.endpoint_type_hint':
             'Purpose prefixes (same family as <span class="font-mono text-[0.6875rem]">purpose_key</span>). Multiple types allowed — stored as a comma-separated list on the endpoint row.',
         'settings.ep.form.base_url': 'Base URL',
+        'settings.ep.form.ws_url': 'WebSocket URL',
+        'settings.ep.form.ws_url_asr_live_hint':
+            'Live ASR primary path (streaming). Segment batch fallback uses the ASR slot endpoint (https://… /transcribe).',
         'settings.ep.form.model': 'Model',
         'settings.ep.form.api_key_ref': 'API key ref',
         'settings.ep.form.enabled': 'Enabled',
@@ -234,6 +245,33 @@ const OAAO_I18N_BASE = {
         'settings.asr.save': 'Save pipeline settings',
         'settings.asr.saving': 'Saving…',
         'settings.asr.saved': 'Pipeline settings saved.',
+
+        'settings.nav.asr_live.label': 'ASR-Live',
+        'settings.nav.asr_live.title': 'Live ASR',
+        'settings.nav.asr_live.sub': 'Preferred language and ITN — FunASR Nano URL is set under Endpoints + Purpose allocation.',
+        'settings.asr_live.loading': 'Loading ASR-Live preferences…',
+        'settings.asr_live.load_failed': 'Could not load ASR-Live preferences.',
+        'settings.asr_live.no_purpose_row':
+            'No ASR-Live purpose row yet. Save the ASR-Live slot under Purpose allocation first.',
+        'settings.asr_live.routing_note': 'Default endpoint (change under Purpose allocation): {endpoint}',
+        'settings.asr_live.intro':
+            'Composer mic and Live Meeting prefer duplex streaming (partial transcripts). ~5 s segment transcribe is fallback when streaming is unavailable. Set language here; endpoint under Purpose allocation.',
+        'settings.asr_live.section_title': 'Live ASR (Composer & Live Meeting)',
+        'settings.asr_live.preferred_language': 'Preferred language',
+        'settings.asr_live.preferred_language_hint': 'Passed to FunASR Nano (e.g. 中文, English, yue).',
+        'settings.asr_live.itn': 'Inverse text normalization (ITN)',
+        'settings.asr_live.save': 'Save',
+        'settings.asr_live.saving': 'Saving…',
+        'settings.asr_live.saved': 'ASR-Live preferences saved.',
+        'settings.asr_live.save_failed': 'Save failed ({status}).',
+
+        'settings.slot.asr_live.label': 'ASR-Live',
+        'settings.slot.asr_live.sub':
+            'Live streaming ASR for composer mic and Live Meeting — separate from batch ASR.',
+        'settings.slot.asr_live.pipeline_hint':
+            'Create an Endpoint tagged ASR-Live with WebSocket URL wss://funasr-nano-ws.rayfung.hk, assign it here. Set batch fallback under ASR slot (https://funasr-nano.rayfung.hk). Language under Settings → ASR.',
+        'settings.slot.asr.pipeline_hint':
+            'Batch ASR (POST /transcribe) — also Live ASR segment fallback when streaming is unavailable. Pipeline mode and Speaker under Settings → ASR.',
         'settings.asr.save_failed': 'Save failed ({status}).',
 
         'settings.nav.rag.label': 'RAG',
@@ -327,12 +365,12 @@ const OAAO_I18N_BASE = {
         'settings.planner.agent.web_search': 'Web search',
         'settings.planner.agent.mcp_tool': 'MCP integrations',
 
-        'settings.nav.evolution_queue.label': 'Evolution queue',
-        'settings.nav.evolution_queue.title': 'Background scoring queue',
-        'settings.nav.evolution_queue.sub': 'IQS / ACCS rescore and post-stream worker pools.',
+        'settings.nav.evolution_queue.label': 'Evolution',
+        'settings.nav.evolution_queue.title': 'Evolution',
+        'settings.nav.evolution_queue.sub': 'Queue status, patches, crystallization, and IQS governance.',
         'settings.nav.skills_admin.label': 'Skills & tools',
         'settings.nav.skills_admin.title': 'Skills and tool servers',
-        'settings.nav.skills_admin.sub': 'Micro-skill providers, OpenAPI tool servers, evolution cron.',
+        'settings.nav.skills_admin.sub': 'Micro-skill providers and OpenAPI tool servers.',
         'settings.evolution_queue.loading': 'Loading queue status…',
         'settings.evolution_queue.load_failed': 'Could not load queue status.',
         'settings.evolution_queue.intro':
@@ -458,12 +496,25 @@ const OAAO_I18N_BASE = {
         'settings.slot.asr.label': 'ASR',
         'settings.slot.asr.sub':
             'Speech-to-text routing — pick a default endpoint here. Pipeline mode, chunk buffer, and Speaker settings are under Settings → ASR.',
-        'settings.slot.asr.pipeline_hint': 'Open Settings → ASR for pipeline mode, chunk buffer, Speaker / FunASR, and language hints.',
+        'settings.slot.asr.pipeline_hint':
+            'Batch ASR (POST /transcribe) — also Live ASR segment fallback when streaming is unavailable. Pipeline mode and Speaker under Settings → ASR.',
         'settings.slot.asr_summary.label': 'ASR Summary',
         'settings.slot.asr_summary.sub':
             'LLM for View Transcript → Customize Summary (<code class="font-mono text-xs">asr_summary.*</code>).',
         'settings.slot.polish.label': 'ASR polish',
         'settings.slot.polish.sub': 'Transcript cleanup after speech recognition (<code class="font-mono text-xs">polish.*</code>).',
+        'settings.slot.research_discover.label': 'Research discover',
+        'settings.slot.research_discover.sub':
+            'Analyze sources — page classify and article link filtering (<code class="font-mono text-xs">research.discover.*</code>).',
+        'settings.slot.research_summary.label': 'Research summary',
+        'settings.slot.research_summary.sub':
+            'Per-article vault summaries during Article Research fetch runs (<code class="font-mono text-xs">research.summary.*</code>).',
+        'settings.slot.research_match.label': 'Research match',
+        'settings.slot.research_match.sub':
+            'Match criteria normalize + article hit scoring (<code class="font-mono text-xs">research.match.*</code>).',
+        'settings.slot.mine.label': 'Data Mining',
+        'settings.slot.mine.sub':
+            'Structured schema/row extraction for scheduled mines (<code class="font-mono text-xs">mine.*</code>).',
         'settings.slot.other.label': 'Other',
         'settings.slot.other.title': 'Other purposes',
         'settings.slot.other.sub': 'Routing keys that do not match any registered prefix above.',
@@ -687,6 +738,10 @@ const OAAO_I18N_BASE = {
         'live_meeting.conn.ws_open': '音訊上傳已連線',
         'live_meeting.conn.ws_closed': '音訊上傳已關閉',
         'live_meeting.conn.ws_failed': '音訊上傳失敗',
+        'live_meeting.conn.stream_ready': '即時 ASR 串流已連線',
+        'live_meeting.conn.stream_batch_only': '無法串流 — 使用批次分段（約 5 秒）',
+        'live_meeting.conn.stream_fallback': '串流暫停 — 改用批次 fallback',
+        'live_meeting.conn.batch_segment': '批次轉寫分段中…',
         'live_meeting.error.mic_denied': '未取得麥克風權限',
         'live_meeting.error.mic_ws': '麥克風或音訊上傳失敗',
         'live_meeting.error.asr_not_configured': '未設定語音辨識（設定 → ASR）',
@@ -716,7 +771,9 @@ const OAAO_I18N_BASE = {
         'settings.nav.asr.label': '語音辨識',
         'settings.nav.asr.title': '語音管線',
         'settings.nav.asr.sub':
-            '一般／Speaker 模式、分段緩衝、說話者分離與語言提示 — 與用途分配（路由）分開設定。',
+            '批次管線（模式、說話者分離、語言提示）與即時 ASR 偏好 — 端點在「用途分配」設定。',
+
+        'settings.asr.section_batch': '批次語音',
 
         'settings.nav.purposes.label': '用途分配',
         'settings.nav.purposes.title': '用途分配',
@@ -777,6 +834,9 @@ const OAAO_I18N_BASE = {
         'settings.ep.form.endpoint_type_hint':
             '用途前綴（與 <span class="font-mono text-[0.6875rem]">purpose_key</span> 同家族）。可多選 — 以逗號分隔存於端點列。',
         'settings.ep.form.base_url': 'Base URL',
+        'settings.ep.form.ws_url': 'WebSocket URL',
+        'settings.ep.form.ws_url_asr_live_hint':
+            'Live ASR 主路徑（streaming）。~5 秒 segment 批次 fallback 使用「ASR」用途的 HTTP 端點（https://… /transcribe）。',
         'settings.ep.form.model': '模型',
         'settings.ep.form.api_key_ref': 'API 金鑰參照',
         'settings.ep.form.enabled': '啟用',
@@ -852,6 +912,29 @@ const OAAO_I18N_BASE = {
         'settings.asr.save': '儲存管線設定',
         'settings.asr.saving': '儲存中…',
         'settings.asr.saved': '管線設定已儲存。',
+
+        'settings.nav.asr_live.label': 'ASR-Live',
+        'settings.nav.asr_live.title': '即時語音',
+        'settings.nav.asr_live.sub': '偏好語言與 ITN — FunASR Nano URL 在「端點」+「用途分配 → ASR-Live」設定。',
+        'settings.asr_live.loading': '正在載入 ASR-Live 偏好…',
+        'settings.asr_live.load_failed': '無法載入 ASR-Live 偏好。',
+        'settings.asr_live.no_purpose_row': '尚無 ASR-Live purpose 列。請先在「用途分配」儲存 ASR-Live 區塊。',
+        'settings.asr_live.routing_note': '預設端點（在「用途分配」變更）：{endpoint}',
+        'settings.asr_live.intro':
+            'Composer 與 Live Meeting 以 duplex streaming（partial 字幕）為主；~5 秒 segment 轉寫僅在 streaming 不可用時的 fallback。語言在此設定；端點在「用途分配」。',
+        'settings.asr_live.section_title': '即時語音（Composer 與 Live Meeting）',
+        'settings.asr_live.preferred_language': '偏好語言',
+        'settings.asr_live.preferred_language_hint': '傳給 FunASR Nano（例：中文、English、yue）。',
+        'settings.asr_live.itn': '逆文本正規化（ITN）',
+        'settings.asr_live.save': '儲存',
+        'settings.asr_live.saving': '儲存中…',
+        'settings.asr_live.saved': 'ASR-Live 偏好已儲存。',
+        'settings.asr_live.save_failed': '儲存失敗（{status}）。',
+
+        'settings.slot.asr_live.label': 'ASR-Live',
+        'settings.slot.asr_live.sub': 'Composer 麥克風與 Live Meeting 即時 ASR — 與批次 ASR 分離。',
+        'settings.slot.asr_live.pipeline_hint':
+            '在「端點」新增並勾選 ASR-Live，WebSocket URL 填 wss://funasr-nano-ws.rayfung.hk，在此指定。「ASR」用途填 https://funasr-nano.rayfung.hk 作 batch fallback。語言在「設定 → ASR」。',
         'settings.asr.save_failed': '儲存失敗（{status}）。',
 
         'settings.nav.rag.label': 'RAG',
@@ -930,12 +1013,12 @@ const OAAO_I18N_BASE = {
         'settings.planner.agent.web_search': '網路搜尋',
         'settings.planner.agent.mcp_tool': 'MCP 整合',
 
-        'settings.nav.evolution_queue.label': 'Evolution 佇列',
-        'settings.nav.evolution_queue.title': '背景評分佇列',
-        'settings.nav.evolution_queue.sub': 'IQS / ACCS 重算與 post-stream worker 池。',
+        'settings.nav.evolution_queue.label': 'Evolution',
+        'settings.nav.evolution_queue.title': 'Evolution',
+        'settings.nav.evolution_queue.sub': '佇列狀態、patches、結晶化與 IQS 治理。',
         'settings.nav.skills_admin.label': 'Skills 與工具',
         'settings.nav.skills_admin.title': 'Skills 與 tool servers',
-        'settings.nav.skills_admin.sub': 'Micro-skill providers、OpenAPI tool servers、evolution cron。',
+        'settings.nav.skills_admin.sub': 'Micro-skill providers 與 OpenAPI tool servers。',
         'settings.evolution_queue.loading': '正在載入佇列狀態…',
         'settings.evolution_queue.load_failed': '無法載入佇列狀態。',
         'settings.evolution_queue.intro':
@@ -1054,12 +1137,25 @@ const OAAO_I18N_BASE = {
         'settings.slot.asr.label': '語音辨識',
         'settings.slot.asr.sub':
             '語音轉文字路由 — 在此選擇預設端點。管線模式、分段緩衝與 Speaker 設定請至「設定 → ASR」。',
-        'settings.slot.asr.pipeline_hint': '管線模式、分段緩衝、Speaker／FunASR 與語言提示請至「設定 → ASR」。',
+        'settings.slot.asr.pipeline_hint':
+            '批次 ASR（POST /transcribe）— streaming 不可用時亦作 Live ASR segment fallback。管線與 Speaker 請至「設定 → ASR」。',
         'settings.slot.asr_summary.label': 'ASR 摘要',
         'settings.slot.asr_summary.sub':
             '「查看轉寫稿」自訂摘要所用 LLM（<code class="font-mono text-xs">asr_summary.*</code>）。',
         'settings.slot.polish.label': 'ASR 潤稿',
         'settings.slot.polish.sub': '語音轉文字後的標點與專有名詞修正（<code class="font-mono text-xs">polish.*</code>）。',
+        'settings.slot.research_discover.label': 'Research 來源分析',
+        'settings.slot.research_discover.sub':
+            '分析來源頁 — 分類與文章連結篩選（<code class="font-mono text-xs">research.discover.*</code>）。',
+        'settings.slot.research_summary.label': 'Research 摘要',
+        'settings.slot.research_summary.sub':
+            'Article Research 抓取時每篇論文的保管庫摘要（<code class="font-mono text-xs">research.summary.*</code>）。',
+        'settings.slot.research_match.label': 'Research 比對',
+        'settings.slot.research_match.sub':
+            '比對條件正規化與文章命中評分（<code class="font-mono text-xs">research.match.*</code>）。',
+        'settings.slot.mine.label': 'Data Mining',
+        'settings.slot.mine.sub':
+            '排程資料挖掘的結構化 schema／列抽取（<code class="font-mono text-xs">mine.*</code>）。',
         'settings.slot.other.label': '其他',
         'settings.slot.other.title': '其他用途',
         'settings.slot.other.sub': '不符合上方任何已註冊前綴的路由鍵。',
