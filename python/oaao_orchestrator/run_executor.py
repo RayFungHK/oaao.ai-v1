@@ -247,15 +247,15 @@ async def execute_chat_run(
     req: Any,
     registry: StreamSessionRegistry,
 ) -> None:
-    from oaao_orchestrator.app import (
-        ChatRunRequest,
+    from oaao_orchestrator.chat_helpers import (
         _chat_completions_url,
         _hook_before_llm,
         _report_usage_to_php,
-        _resolve_api_key,
         _resolve_planner_llm,
         _sanitize_client_text,
     )
+    from oaao_orchestrator.chat_models import ChatRunRequest
+    from oaao_orchestrator.endpoint_keys import resolve_api_key as _resolve_api_key
 
     if not isinstance(req, ChatRunRequest):
         raise TypeError("req must be ChatRunRequest")

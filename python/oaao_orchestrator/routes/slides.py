@@ -134,7 +134,7 @@ def _template_scope_ctx(body: TemplateScopePayload | None) -> TemplateScopeConte
 
 def _resolve_api_key(ep: EndpointPayload | None) -> str | None:
     # Lazy import to avoid circular dep with app.py at module-import time.
-    from oaao_orchestrator.app import _resolve_api_key as _impl
+    from oaao_orchestrator.endpoint_keys import resolve_api_key as _impl
 
     return _impl(ep)
 
