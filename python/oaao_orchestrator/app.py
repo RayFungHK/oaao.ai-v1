@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from oaao_orchestrator.agent_ask import ASK_DECISION_SKIP
 from oaao_orchestrator.asr_common import run_asr_pipeline_on_file
+from oaao_orchestrator.cors_config import resolve_cors_config
 from oaao_orchestrator.funasr_ops import ensure_funasr, funasr_status
 from oaao_orchestrator.log_config import configure_oaao_logging
 from oaao_orchestrator.research_fetch_poll import research_fetch_poll_loop
@@ -94,49 +95,17 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(title="oaao orchestrator sidecar", version="0.1.0", lifespan=_lifespan)
 
-# W10-S2 (backlog) — CORS allowlist. Default to localhost-only for safety;
-# production overrides via OAAO_CORS_ALLOWED_ORIGINS (comma-separated).
-# Setting "*" requires OAAO_CORS_ALLOW_WILDCARD=1 (explicit opt-in) and forces
-# allow_credentials=False per the CORS spec.
-_cors_raw = (os.environ.get("OAAO_CORS_ALLOWED_ORIGINS") or "").strip()
-if _cors_raw:
-    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
-else:
-    _cors_origins = [
-        "http://localhost",
-        "http://localhost:8080",
-        "http://127.0.0.1",
-        "http://127.0.0.1:8080",
-    ]
-_cors_wildcard = _cors_origins == ["*"]
-if _cors_wildcard and os.environ.get("OAAO_CORS_ALLOW_WILDCARD") != "1":
-    logger.warning(
-        "OAAO_CORS_ALLOWED_ORIGINS='*' supplied without OAAO_CORS_ALLOW_WILDCARD=1; "
-        "falling back to localhost allowlist."
-    )
-    _cors_origins = [
-        "http://localhost",
-        "http://localhost:8080",
-        "http://127.0.0.1",
-        "http://127.0.0.1:8080",
-    ]
-    _cors_wildcard = False
-_cors_allow_credentials = bool(
-    os.environ.get("OAAO_CORS_ALLOW_CREDENTIALS") == "1" and not _cors_wildcard
-)
+# W10-S2 — CORS allowlist. Single source of truth lives in `cors_config.py`
+# (unit-tested in `tests/test_cors_allowlist.py`). Defaults cover localhost on
+# ports 80/8080/9080; override via `OAAO_CORS_ALLOWED_ORIGINS`.
+_cors_cfg = resolve_cors_config()
 logger.info(
     "cors_config origins=%s credentials=%s wildcard=%s",
-    _cors_origins,
-    _cors_allow_credentials,
-    _cors_wildcard,
+    list(_cors_cfg.origins),
+    _cors_cfg.allow_credentials,
+    _cors_cfg.wildcard,
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=_cors_allow_credentials,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, **_cors_cfg.as_middleware_kwargs())
 
 
 class EndpointPayload(BaseModel):
