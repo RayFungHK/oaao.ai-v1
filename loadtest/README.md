@@ -48,13 +48,18 @@ Dated output directories are gitignored; scripts in `loadtest/k6/` are committed
 
 ## Redis canary Stage 2
 
-Enable before soak on staging:
+Windows:
+
+```powershell
+.\scripts\redis_canary_stage2_enable.ps1
+.\scripts\redis_canary_monitor.ps1 -IntervalSeconds 900 -DurationSeconds 86400
+```
+
+Linux/macOS:
 
 ```bash
 bash scripts/redis_canary_stage2_enable.sh
 bash scripts/redis_canary_monitor.sh --interval 900 --duration 86400
 ```
 
-Windows: `.\scripts\redis_canary_stage2_enable.ps1`
-
-Rollback: `bash scripts/redis_canary_stage2_enable.sh --rollback`
+Rollback: `.\scripts\redis_canary_stage2_enable.ps1 -Rollback` or `bash scripts/redis_canary_stage2_enable.sh --rollback`

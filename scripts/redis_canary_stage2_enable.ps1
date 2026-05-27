@@ -87,7 +87,7 @@ try {
     docker compose --env-file $EnvFile --project-directory $Root up -d --force-recreate orchestrator
     Wait-OrchHealthy
     Verify-Backend
-    Write-Host 'Monitor: bash scripts/redis_canary_monitor.sh --interval 900 --duration 86400'
+    Write-Host 'Monitor (24h): .\scripts\redis_canary_monitor.ps1 -IntervalSeconds 900 -DurationSeconds 86400'
 } finally {
     Pop-Location
 }
