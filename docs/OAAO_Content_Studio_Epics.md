@@ -1,7 +1,7 @@
 # OAAO Content Studio — Epic & Story Backlog（Jira / Linear）
 
 > **Project:** `OAAO-V1`  
-> **Milestone:** `Content-Studio-2026`  
+> **Milestone:** `Content-Studio-2026`（產品線）· `Platform-2026`（Platform CMS / 發版）  
 > **匯入檔:** [OAAO_Content_Studio_Jira_Import.csv](./OAAO_Content_Studio_Jira_Import.csv)  
 > **相關:** [MIGRATION_LEGACY_OAAO.md](./MIGRATION_LEGACY_OAAO.md) · [Manus_Gap_Analysis.md](./Manus_Gap_Analysis.md) · [Evolution_System_Design.md](./Evolution_System_Design.md) · [OAAO_90D_Jira_Import_Guide.md](./OAAO_90D_Jira_Import_Guide.md)
 
@@ -13,6 +13,8 @@
 
 另兩條 **Chat 生產力 Agent** 線（Calendar / Todo）共用 orchestrator 事件抽取 + workspace shell UX，但入口不同：**Calendar** 在 **icon rail**；**Todo** 在 **header**（notification 旁）。
 
+**Platform 層（control plane）** 另立 **Release Notes & News**：由 **platform host** 發布 changelog / blog，可 **跨 tenant fan-out** 通知所有使用者；workspace 端依 **version & build** 瀏覽 What's New（對齊 `OaaoBuildInfo` / `build_info.json`）。
+
 | 能力 | Workspace 入口 | 與 Vault / Chat 關係 |
 |------|----------------|----------------------|
 | **Corpus** | `workspace/corpus` | 來源 = 上傳檔 **或** 引用 Vault folder/files → 分類 + 學風格 → 產出 **Corpus Profile**；供 Editor / Chat / Office Agent 引用 |
@@ -22,7 +24,11 @@
 | **Calendar Agent** | `workspace/calendar`（**icon rail**） | AI 從對話/訊息抽取 **事件候選** → inline **Add to calendar** → 寫入 tenant calendar；Calendar page 檢視/編輯 |
 | **Todo Agent** | **Header todos icon**（notification 旁） | AI 抽取 **待辦候選** → inline **Add to todos**；thread 內顯示關聯待辦 + **Resolve**；panel 手動完成 |
 
-**已具備基礎（本 backlog 假設可用）：** per-tenant object storage、Vault RAG、MicroSkill、crystallization、slide PPTX export、`AgentMaterialStorage`、workspace notification bell + dropdown panel 模式。
+| 能力 | Platform / Workspace 入口 | 說明 |
+|------|---------------------------|------|
+| **Release Notes & News** | Platform CMS + workspace **What's New** | Platform 發布 changelog / news / blog；**跨 tenant** 推播 notification；使用者依 **version / build_id** 篩選瀏覽 |
+
+**已具備基礎（本 backlog 假設可用）：** per-tenant object storage、Vault RAG、MicroSkill、crystallization、slide PPTX export、`AgentMaterialStorage`、workspace notification bell + dropdown panel 模式、**`OaaoBuildInfo`**（`VERSION` + `build_info.json`）、**`oaaoai/platform`** control plane（tenant registry）、tenant-scoped **`notifications_send`**（單 tenant 廣播）。
 
 ---
 
@@ -79,11 +85,21 @@ flowchart TB
 
   Chat --> SkillUX[Skill suggest icon]
   SkillUX --> MicroSkill[MicroSkill v2]
+
+  subgraph platform [Platform Control Plane]
+    PlatCMS[Release post CMS]
+    FanOut[Cross-tenant notify]
+  end
+
+  PlatCMS --> FanOut
+  FanOut --> NotifBell
+  BuildInfo[OaaoBuildInfo version/build] --> WhatsNew[What's New dialog]
+  PlatCMS --> WhatsNew
 ```
 
 ---
 
-## 2. Epic 清單（6 + 1 Platform）
+## 2. Epic 清單（6 Content Studio + 1 Platform + 1 收尾）
 
 | Epic ID | 名稱 | Priority | 建議 Sprint | Depends On |
 |---------|------|----------|-------------|------------|
@@ -93,6 +109,7 @@ flowchart TB
 | **EPIC-CS-4** | Conversation Skills Evolution | P1 | CS-W4 – CS-W7 | MicroSkill ✅ |
 | **EPIC-CS-5** | Calendar Agent（workspace/calendar） | P1 | CS-W7 – CS-W10 | Chat stream ✅ · Notifications ✅ |
 | **EPIC-CS-6** | Todo Agent（header todos + thread resolve） | P1 | CS-W8 – CS-W10 | Chat stream ✅ · Notifications panel 模式 ✅ |
+| **EPIC-PLAT-1** | Release Notes & Product News（Platform CMS） | P1 | CS-W8 – CS-W11 | Platform host ✅ · Notifications ✅ · OaaoBuildInfo ✅ |
 | **EPIC-CS-P** | Platform 收尾（非功能） | P2 | 穿插 | OAAO 90D 剩餘項 |
 
 ---
@@ -274,7 +291,48 @@ flowchart TB
 
 ---
 
-## 9. EPIC-CS-P — Platform 收尾（可穿插）
+## 9. EPIC-PLAT-1 — Release Notes & Product News（Platform CMS）
+
+### 9.1 產品規格
+
+- **發布端（Platform host only）：** `oaaoai/platform` 新增 Settings 面板 **Release notes / News** — 建立、預覽、發布 **changelog / news / blog** 文章（Markdown body + summary + tags + locale）。
+- **版本 / build 標記（硬性對齊 deploy）：**
+  - 每篇文章綁定 **`release_version`**（semver，對齊 `VERSION` / `OaaoBuildInfo.version`）
+  - 可選 **`release_build_id`**（對齊 `build_info.json` `build_id`）
+  - 可選 **`min_version` / `max_version`** 篩選「對哪些部署可見」
+  - 發布時 snapshot 當前 platform `OaaoBuildInfo::stamp()` 寫入 post row（稽核）
+- **跨 tenant 通知：**
+  - **Publish** 觸發 **fan-out worker**（非 PHP 長連線）：列舉所有 tenant → 各 tenant 所有 active user → 寫入 `oaao_notification`（`kind=release` / `news`）
+  - `payload_json` 含 `release_post_id`、`release_version`、`release_build_id`、deep link slug
+  - 與現有 tenant-scoped `POST /user/api/notifications_send` **分線** — 後者保留給 tenant admin；PLAT-1 僅 platform operator
+- **消費端（Workspace / 任意 tenant host）：**
+  - **Notification bell** 收到 release 類通知；點擊開 **What's New** Dialog 或 scroll 至該篇
+  - **User menu build line**（`oaao-build-info-line`）可點 → **What's New** — 預設篩選「自上次登入 build 以來」+ 依 version 分組
+  - 列表支援 filter：**All / Changelog / News**；sort by version desc
+  - `GET /user/api/release_notes`（或 `/core/api/release_notes`）— 依 caller `build` + `locale` + `since_version` 回傳；**無 platform 權限** 的 tenant user 唯讀
+- **已讀狀態：** `oaao_release_post_read` 或 user `preferences_json.last_seen_release_at` + per-post read；未讀計數合併進 notification badge 或獨立 dot（v1 可併入 bell unread）
+- **可選 P2：** 公開只讀 RSS/JSON feed（marketing site）；staging draft preview URL
+
+### 9.2 Stories
+
+| Story ID | Summary | Priority | Owner | Acceptance Criteria（摘要） |
+|----------|---------|----------|-------|---------------------------|
+| **PLAT-1-S1** | `oaao_release_post` schema + migration | P1 | php-lead | 表含 version/build/locale/type/status/published_at/body_md；platform DB global（非 tenant 表）或 platform tenant 專用 schema |
+| **PLAT-1-S2** | Platform CMS panel（CRUD draft/publish） | P1 | php-lead | platform Settings 新 section；Markdown 編輯；preview；i18n EN/zh |
+| **PLAT-1-S3** | Platform API `release_posts_save` / `publish` | P1 | php-lead | 僅 platform operator；publish 設 `published_at` + build snapshot |
+| **PLAT-1-S4** | Cross-tenant notification fan-out worker | P1 | php-lead | 發布後 enqueue；best-effort 全 tenant × active user；可續跑 |
+| **PLAT-1-S5** | User API `release_notes_list` + `release_notes_read` | P1 | php-lead | 依 version/build/locale 篩選；mark read；JSON envelope + `build` stamp |
+| **PLAT-1-S6** | What's New Dialog（workspace） | P1 | php-lead | RazyUI Dialog；version 分組 accordion；changelog vs news tabs；JIT 排版 |
+| **PLAT-1-S7** | Notification deep link + kind `release` | P1 | php-lead | bell 列表點 release → 開 What's New 定位該篇；`notification-panel.js` 擴充 |
+| **PLAT-1-S8** | Build line → What's New + since-build 預設篩選 | P1 | php-lead | user menu build 可點；對比 `dataset.oaaoBuildId` 高亮「本次部署」段落 |
+| **PLAT-1-S9** | Version/build 比對 helper（PHP + JS） | P1 | php-lead | 共用 semver compare；build_id 字串相等/排序；單元測試 |
+| **PLAT-1-S10** | Tests + ops doc + optional RSS | P1 | qa-lead | publish→notify E2E；多 tenant fixture；`docs/` 發版 runbook |
+
+**DoD（Epic）：** Platform 發布一篇 changelog 後，各 tenant 使用者 bell 收到通知；可開 What's New 依 version/build 瀏覽；build line 可進入同一視圖。
+
+---
+
+## 10. EPIC-CS-P — Platform 收尾（可穿插）
 
 | Story ID | Summary | Priority | 來源 |
 |----------|---------|----------|------|
@@ -285,7 +343,7 @@ flowchart TB
 
 ---
 
-## 10. 建議 Sprint 排程（Content Studio）
+## 11. 建議 Sprint 排程（Content Studio + Platform）
 
 | Sprint | 週次 | 焦點 |
 |--------|------|------|
@@ -299,10 +357,12 @@ flowchart TB
 | **CS-W8** | 8 | CS-3-S1…S3 + CS-4-S7…S9 + **CS-5-S4…S6** + **CS-6-S1…S2**（Office docx/pdf + Calendar extract/chip + Todo panel） |
 | **CS-W9** | 9 | CS-3-S4…S8 + **CS-5-S7…S9** + **CS-6-S3…S6**（Office buffer + Calendar provenance + Todo extract/thread） |
 | **CS-W10** | 10 | **CS-6-S7…S9** hardening（Resolve flow + tests）；CS-5-S8 reminder 若排入 |
+| **CS-W11** | 11 | **PLAT-1-S1…S6**（Release schema + CMS + fan-out + What's New shell） |
+| **CS-W12** | 12 | **PLAT-1-S7…S10**（notification deep link + build filter + tests/docs） |
 
 ---
 
-## 11. 依賴與風險
+## 12. 依賴與風險
 
 | 風險 | 緩解 |
 |------|------|
@@ -314,19 +374,22 @@ flowchart TB
 | Calendar/Todo 抽取幻覺 | confidence 門檻 + Dialog 確認必填；低 confidence 只顯示 dismiss |
 | 時區 / 全天事件 | CS-5-S2 schema 明確 `timezone` + `all_day`；測試 DST 邊界 |
 | Header panel 與 JIT | Todo/Notification dropdown 用 plain CSS anchor（同 notification 修復模式） |
+| 跨 tenant fan-out 量級 | PLAT-1-S4 批次 + 續跑 cursor；monitor queue depth；大 tenant 可 async 分片 |
+| Release post 與實際 deploy 不一致 | publish 強制寫入 `OaaoBuildInfo` snapshot；What's New 顯示 version/build 標籤 |
+| Tenant admin broadcast 混淆 | 文件 + `kind` 區分：`release`（platform）vs `news`（tenant admin） |
 
 ---
 
-## 12. Jira / Linear 匯入
+## 13. Jira / Linear 匯入
 
 1. 匯入 [OAAO_Content_Studio_Jira_Import.csv](./OAAO_Content_Studio_Jira_Import.csv)（欄位對照見 [OAAO_90D_Jira_Import_Guide.md](./OAAO_90D_Jira_Import_Guide.md)）。
-2. Milestone 設 **`Content-Studio-2026`**（與 `Commercialization-90D` 分開）。
-3. Labels 建議：`content-studio` `corpus` `library` `editor` `office-agent` `skills` **`calendar-agent`** **`todo-agent`** **`productivity`**.
+2. Milestone：`Content-Studio-2026`（CS-1…6）· **`Platform-2026`**（PLAT-1）
+3. Labels 建議：`content-studio` `corpus` `library` `editor` `office-agent` `skills` `calendar-agent` `todo-agent` `productivity` **`platform`** **`release-notes`** **`changelog`**.
 
 ---
 
-## 13. 相關文件更新（實作後）
+## 14. 相關文件更新（實作後）
 
 - [MIGRATION_LEGACY_OAAO.md](./MIGRATION_LEGACY_OAAO.md) — §3 Corpus/Library 對標表
 - [Manus_Gap_Analysis.md](./Manus_Gap_Analysis.md) — 檔案系統 write 軸（Library finalize 部分緩解）
-- `backbone/sites/oaaoai/oaaoai/docs/backlog/` — 可新增 `corpus-studio.md` / `library-editor.md` 鏈到本文件
+- `backbone/sites/oaaoai/oaaoai/docs/backlog/` — 可新增 `corpus-studio.md` / `library-editor.md` / **`platform-release-notes.md`** 鏈到本文件
