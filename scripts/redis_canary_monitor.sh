@@ -63,9 +63,9 @@ print(max([int(p.get('xack_failures') or 0) for p in pools if isinstance(p,dict)
 " 2>/dev/null || echo 0)"
   xlen=""
   xpending=""
-  if [[ "${backend}" == "redis" ]] && docker compose --project-directory "${ROOT}" ps redis 2>/dev/null | grep -q Up; then
-    xlen="$(docker compose --project-directory "${ROOT}" exec -T redis redis-cli XLEN "${STREAM}" 2>/dev/null | tr -d '\r' || echo '')"
-    xpending="$(docker compose --project-directory "${ROOT}" exec -T redis redis-cli XPENDING "${STREAM}" oaao-orchestrator 2>/dev/null | head -1 | awk '{print $1}' | tr -d '\r' || echo '')"
+  if [[ "${backend}" == "redis" ]] && docker compose --env-file "${ENV_FILE}" --project-directory "${ROOT}" ps redis 2>/dev/null | grep -q Up; then
+    xlen="$(docker compose --env-file "${ENV_FILE}" --project-directory "${ROOT}" exec -T redis redis-cli XLEN "${STREAM}" 2>/dev/null | tr -d '\r' || echo '')"
+    xpending="$(docker compose --env-file "${ENV_FILE}" --project-directory "${ROOT}" exec -T redis redis-cli XPENDING "${STREAM}" oaao-orchestrator 2>/dev/null | head -1 | awk '{print $1}' | tr -d '\r' || echo '')"
   fi
   echo "[${ts}] backend=${backend} depth=${depth} xack_failures=${xack} xlen=${xlen:-n/a} xpending=${xpending:-n/a}"
   if [[ -n "${CSV_OUT}" ]]; then

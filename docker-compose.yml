@@ -251,12 +251,12 @@ services:
       - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
 
   # W8-S3 Stage 2 — Redis queue canary (`docker compose --profile redis-canary up`).
+  # No host port by default — orchestrator uses redis://redis:6379/0 on the compose network.
+  # To expose for host redis-cli: set REDIS_HOST_PORT=6380 in docker/env and add ports below.
   redis:
     image: redis:7-alpine
     profiles: ['redis-canary']
     restart: unless-stopped
-    ports:
-      - '${REDIS_HOST_PORT:-6379}:6379'
     command: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
     volumes:
       - ${OAAO_REDIS_DATA_PATH:-./docker/data/redis}:/data

@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${OAAO_DOCKER_ENV:-${ROOT}/docker/env}"
-COMPOSE=(docker compose --project-directory "${ROOT}")
+COMPOSE=(docker compose --env-file "${ENV_FILE}" --project-directory "${ROOT}")
 
 MODE="${1:-enable}"
 REDIS_URL="${OAAO_QUEUE_REDIS_URL:-redis://redis:6379/0}"
@@ -45,9 +45,15 @@ verify_backend() {
     exit 2
   fi
   echo "== GET /v1/work_queues/status =="
-  "${COMPOSE[@]}" exec -T orchestrator curl -fsS \
-    -H "X-OAAO-Internal-Token: ${secret}" \
-    "http://127.0.0.1:8103/v1/work_queues/status" | python3 -m json.tool
+  "${COMPOSE[@]}" exec -T orchestrator python -c "
+import json, urllib.request
+req = urllib.request.Request(
+    'http://127.0.0.1:8103/v1/work_queues/status',
+    headers={'X-OAAO-Internal-Token': '${secret}'},
+)
+with urllib.request.urlopen(req, timeout=10) as r:
+    print(json.dumps(json.load(r), indent=2))
+"
 }
 
 case "${MODE}" in
@@ -86,7 +92,7 @@ echo "== Recreate orchestrator =="
 
 echo "Waiting for orchestrator health..."
 for i in $(seq 1 30); do
-  if "${COMPOSE[@]}" exec -T orchestrator curl -fsS "http://127.0.0.1:8103/health" >/dev/null 2>&1; then
+  if "${COMPOSE[@]}" exec -T orchestrator python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=3).read(1)" >/dev/null 2>&1; then
     break
   fi
   sleep 2
