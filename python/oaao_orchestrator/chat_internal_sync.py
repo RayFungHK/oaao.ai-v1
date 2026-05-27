@@ -26,6 +26,11 @@ async def sync_adjunct_via_php(
         bool(meta.get("slide_project"))
         or bool(meta.get("materials"))
         or bool((meta.get("conversation_title") or "").strip())
+        or bool(
+            isinstance(meta.get("oaao_pipeline"), dict)
+            and isinstance(meta["oaao_pipeline"].get("artifacts"), list)
+            and meta["oaao_pipeline"]["artifacts"]
+        )
     )
     if not needs:
         return False
@@ -38,6 +43,7 @@ async def sync_adjunct_via_php(
         "assistant_message_id": principal.assistant_message_id,
         "user_id": principal.user_id,
         "workspace_id": principal.workspace_id,
+        "tenant_id": principal.tenant_id,
         "meta": meta,
         "run_principal": issue_token(
             user_id=principal.user_id,

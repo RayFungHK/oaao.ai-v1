@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace oaaoai\chat;
 
+require_once __DIR__ . '/AgentMaterialStorage.php';
+
 /**
  * Conversation materials — indexed from assistant {@code meta_json} (artifacts + explicit materials).
  */
@@ -40,10 +42,10 @@ final class ChatConversationMaterial
         $stmt = $pdo->prepare(
             'INSERT INTO oaao_conversation_material (
                 conversation_id, message_id, material_id, kind, category, title,
-                mime, size_bytes, uri, task_id, meta_json, sort_order, created_at
+                mime, size_bytes, uri, task_id, meta_json, storage_locator_json, sort_order, created_at
             ) VALUES (
                 :conversation_id, :message_id, :material_id, :kind, :category, :title,
-                :mime, :size_bytes, :uri, :task_id, :meta_json, :sort_order, :created_at
+                :mime, :size_bytes, :uri, :task_id, :meta_json, :storage_locator_json, :sort_order, :created_at
             )',
         );
 
@@ -57,20 +59,22 @@ final class ChatConversationMaterial
                     $metaJson = null;
                 }
             }
+            $locJson = AgentMaterialStorage::locatorJsonFromMaterialRow($row);
             $stmt->execute([
-                'conversation_id' => $conversationId,
-                'message_id'      => $messageId,
-                'material_id'     => (string) ($row['material_id'] ?? ''),
-                'kind'            => (string) ($row['kind'] ?? 'file'),
-                'category'        => (string) ($row['category'] ?? 'document'),
-                'title'           => (string) ($row['title'] ?? 'File'),
-                'mime'            => $row['mime'] ?? null,
-                'size_bytes'      => isset($row['size_bytes']) ? (int) $row['size_bytes'] : null,
-                'uri'             => $row['uri'] ?? null,
-                'task_id'         => $row['task_id'] ?? null,
-                'meta_json'       => $metaJson,
-                'sort_order'      => $sort++,
-                'created_at'      => (string) ($row['created_at'] ?? date('Y-m-d H:i:s')),
+                'conversation_id'       => $conversationId,
+                'message_id'            => $messageId,
+                'material_id'           => (string) ($row['material_id'] ?? ''),
+                'kind'                  => (string) ($row['kind'] ?? 'file'),
+                'category'              => (string) ($row['category'] ?? 'document'),
+                'title'                 => (string) ($row['title'] ?? 'File'),
+                'mime'                  => $row['mime'] ?? null,
+                'size_bytes'            => isset($row['size_bytes']) ? (int) $row['size_bytes'] : null,
+                'uri'                   => $row['uri'] ?? null,
+                'task_id'               => $row['task_id'] ?? null,
+                'meta_json'             => $metaJson,
+                'storage_locator_json'  => $locJson,
+                'sort_order'            => $sort++,
+                'created_at'            => (string) ($row['created_at'] ?? date('Y-m-d H:i:s')),
             ]);
         }
     }
@@ -84,7 +88,7 @@ final class ChatConversationMaterial
         oaao_chat_ensure_conversation_material_schema($pdo);
 
         $stmt = $pdo->prepare(
-            'SELECT material_id, kind, category, title, mime, size_bytes, uri, task_id, meta_json, sort_order, created_at
+            'SELECT material_id, kind, category, title, mime, size_bytes, uri, task_id, meta_json, storage_locator_json, sort_order, created_at
              FROM oaao_conversation_material
              WHERE conversation_id = ? AND message_id = ?
              ORDER BY sort_order ASC, id ASC',
@@ -103,6 +107,11 @@ final class ChatConversationMaterial
             }
             unset($row['meta_json']);
             $row['meta'] = $meta;
+            $locJson = isset($row['storage_locator_json']) ? (string) $row['storage_locator_json'] : '';
+            unset($row['storage_locator_json']);
+            if ($locJson !== '') {
+                $row['storage_locator_json'] = $locJson;
+            }
             $out[] = $row;
         }
 
@@ -218,6 +227,9 @@ final class ChatConversationMaterial
                 : null,
             'task_id'     => trim((string) ($raw['task_id'] ?? $defaultTaskId)) ?: null,
             'meta'        => isset($raw['meta']) && \is_array($raw['meta']) ? $raw['meta'] : null,
+            'storage_locator' => isset($raw['storage_locator']) && \is_array($raw['storage_locator'])
+                ? $raw['storage_locator']
+                : null,
             'created_at'  => (string) ($raw['created_at'] ?? date('Y-m-d H:i:s')),
         ];
     }
@@ -242,7 +254,7 @@ final class ChatConversationMaterial
             ? trim($artifact['run_task_id'])
             : $defaultTaskId;
 
-        return [
+        $row = [
             'material_id' => $id,
             'kind'        => 'artifact',
             'category'    => self::resolveCategory(
@@ -261,8 +273,16 @@ final class ChatConversationMaterial
                 : null,
             'task_id'     => $rt !== '' ? $rt : null,
             'meta'        => $artifact,
+            'storage_locator' => isset($artifact['storage_locator']) && \is_array($artifact['storage_locator'])
+                ? $artifact['storage_locator']
+                : null,
             'created_at'  => date('Y-m-d H:i:s'),
         ];
+        if ($row['uri'] === null && isset($artifact['storage_locator']) && \is_array($artifact['storage_locator'])) {
+            // uri filled after persist with conversation id — index row may still resolve via locator
+        }
+
+        return $row;
     }
 
     private static function resolveCategory(
@@ -559,10 +579,64 @@ final class ChatConversationMaterial
         int $conversationId,
         string $uri,
         ?object $slideApi = null,
+        ?\PDO $canonicalPdo = null,
+        int $tenantId = 0,
+        ?array $materialRow = null,
     ): ?array {
         $uri = trim($uri);
         if ($uri === '') {
             return null;
+        }
+
+        if ($materialRow !== null && $canonicalPdo instanceof \PDO && $tenantId > 0) {
+            $locJson = AgentMaterialStorage::locatorJsonFromMaterialRow($materialRow);
+            if ($locJson !== null) {
+                try {
+                    $resolved = AgentMaterialStorage::getStorage($canonicalPdo, $tenantId, $locJson);
+                    if (($resolved['mode'] ?? '') === 'local' && ! empty($resolved['absolute_path'])) {
+                        $path = (string) $resolved['absolute_path'];
+                        if (is_file($path)) {
+                            $name = trim((string) ($materialRow['title'] ?? basename($path)));
+
+                            return ['path' => $path, 'name' => $name !== '' ? $name : basename($path)];
+                        }
+                    }
+                } catch (\Throwable) {
+                }
+            }
+        }
+
+        $pathPart = parse_url($uri, PHP_URL_PATH);
+        if (\is_string($pathPart) && str_contains($pathPart, '/chat/api/material_media') && $canonicalPdo instanceof \PDO && $tenantId > 0) {
+            parse_str((string) parse_url($uri, PHP_URL_QUERY), $q);
+            $materialId = isset($q['material_id']) ? trim((string) $q['material_id']) : '';
+            if ($materialId !== '') {
+                require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
+                oaao_chat_ensure_conversation_material_schema($pdo);
+                $st = $pdo->prepare(
+                    'SELECT title, storage_locator_json, meta_json FROM oaao_conversation_material
+                     WHERE conversation_id = ? AND material_id = ? ORDER BY id DESC LIMIT 1',
+                );
+                $st->execute([$conversationId, $materialId]);
+                $row = $st->fetch(\PDO::FETCH_ASSOC);
+                if (\is_array($row)) {
+                    $locJson = AgentMaterialStorage::locatorJsonFromMaterialRow($row);
+                    if ($locJson !== null) {
+                        try {
+                            $resolved = AgentMaterialStorage::getStorage($canonicalPdo, $tenantId, $locJson);
+                            if (($resolved['mode'] ?? '') === 'local' && ! empty($resolved['absolute_path'])) {
+                                $path = (string) $resolved['absolute_path'];
+                                if (is_file($path)) {
+                                    $name = trim((string) ($row['title'] ?? basename($path)));
+
+                                    return ['path' => $path, 'name' => $name !== '' ? $name : basename($path)];
+                                }
+                            }
+                        } catch (\Throwable) {
+                        }
+                    }
+                }
+            }
         }
 
         $pathPart = parse_url($uri, PHP_URL_PATH);
@@ -585,6 +659,8 @@ final class ChatConversationMaterial
         ?string $activeMaterialId = null,
         int $reuseMessageId = 0,
         ?object $slideApi = null,
+        ?\PDO $canonicalPdo = null,
+        int $tenantId = 0,
     ): array {
         if ($conversationId < 1 || $userId < 1) {
             return [];
@@ -600,7 +676,7 @@ final class ChatConversationMaterial
         }
         if ($rows === []) {
             $stmt = $pdo->prepare(
-                'SELECT material_id, kind, category, title, mime, size_bytes, uri, task_id, meta_json, created_at
+                'SELECT material_id, kind, category, title, mime, size_bytes, uri, task_id, meta_json, storage_locator_json, created_at
                  FROM oaao_conversation_material
                  WHERE conversation_id = ?
                  ORDER BY id DESC
@@ -631,7 +707,15 @@ final class ChatConversationMaterial
         $maxTotal = 28_000;
 
         foreach ($rows as $row) {
-            $body = self::extractGroundingBodyFromMaterialRow($pdo, $userId, $conversationId, $row, $slideApi);
+            $body = self::extractGroundingBodyFromMaterialRow(
+                $pdo,
+                $userId,
+                $conversationId,
+                $row,
+                $slideApi,
+                $canonicalPdo,
+                $tenantId,
+            );
             if ($body === '') {
                 continue;
             }
@@ -681,6 +765,8 @@ final class ChatConversationMaterial
         int $conversationId,
         array $row,
         ?object $slideApi = null,
+        ?\PDO $canonicalPdo = null,
+        int $tenantId = 0,
     ): string {
         $meta = $row['meta'] ?? null;
         if (\is_array($meta)) {
@@ -707,7 +793,16 @@ final class ChatConversationMaterial
             return '';
         }
 
-        $resolved = self::resolveDownloadablePath($pdo, $userId, $conversationId, $uri, $slideApi);
+        $resolved = self::resolveDownloadablePath(
+            $pdo,
+            $userId,
+            $conversationId,
+            $uri,
+            $slideApi,
+            $canonicalPdo,
+            $tenantId,
+            $row,
+        );
         if ($resolved === null) {
             return '';
         }

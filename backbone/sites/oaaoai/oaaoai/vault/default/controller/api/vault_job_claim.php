@@ -181,9 +181,25 @@ return function (): void {
 
         $absolutePath = null;
         if (\is_array($payload)) {
+            $sidecar = $this->oaao_vault_sidecar_pg_context();
+            $locJson = ! empty($payload['storage_locator']) && \is_array($payload['storage_locator'])
+                ? json_encode($payload['storage_locator'], JSON_THROW_ON_ERROR)
+                : (isset($payload['storage_locator_json']) ? (string) $payload['storage_locator_json'] : null);
             $sr = isset($payload['storage_root']) ? rtrim((string) $payload['storage_root'], '/') : '';
             $rp = isset($payload['relative_path']) ? ltrim((string) $payload['relative_path'], '/') : '';
-            if ($sr !== '' && $rp !== '') {
+            if ($sidecar !== null && ($locJson !== null && trim($locJson) !== '' || ($sr !== '' && $rp !== ''))) {
+                try {
+                    $blob = $this->oaao_vault_blob_storage($sidecar['pdo'], (int) $sidecar['tid']);
+                    $absolutePath = $blob->resolveAbsolutePath(
+                        $locJson !== null && trim($locJson) !== '' ? $locJson : null,
+                        $rp !== '' ? $rp : null,
+                        $sr !== '' ? $sr : $this->oaao_vault_storage_root(),
+                    );
+                } catch (\Throwable) {
+                    $absolutePath = null;
+                }
+            }
+            if ($absolutePath === null && $sr !== '' && $rp !== '') {
                 $absolutePath = $sr . '/' . $rp;
             }
         }

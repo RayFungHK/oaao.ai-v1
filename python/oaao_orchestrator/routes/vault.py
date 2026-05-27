@@ -49,6 +49,69 @@ class VaultIngestStreamMintRequest(BaseModel):
     workspace_id: int | None = Field(default=None, ge=1)
 
 
+class VaultRagExploreRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    vault_retrieval_profiles: list[dict[str, Any]] = Field(default_factory=list)
+    embedding: dict[str, Any] | None = None
+    rerank: dict[str, Any] | None = None
+    vault_rag: dict[str, Any] | None = None
+    vault_scope_documents: dict[str, list[int]] | None = None
+    graph_limit: int = Field(default=36, ge=4, le=80)
+
+
+@router.post("/v1/vault/rag/explore")
+async def vault_rag_explore(
+    body: VaultRagExploreRequest,
+    _: None = Depends(require_internal_token),
+) -> dict[str, Any]:
+    from oaao_orchestrator.vault_rag_explore import explore_vault_rag
+
+    scope: dict[int, list[int]] = {}
+    raw_scope = body.vault_scope_documents or {}
+    for k, v in raw_scope.items():
+        try:
+            vid = int(k)
+        except (TypeError, ValueError):
+            continue
+        if vid < 1 or not isinstance(v, list):
+            continue
+        scope[vid] = [int(x) for x in v if str(x).isdigit()][:48]
+
+    data = await explore_vault_rag(
+        query=body.query.strip(),
+        vault_retrieval_profiles=body.vault_retrieval_profiles,
+        embedding=body.embedding,
+        rerank=body.rerank,
+        vault_rag=body.vault_rag,
+        vault_scope_documents=scope or None,
+        graph_limit=body.graph_limit,
+    )
+    return {"ok": True, "data": data}
+
+
+class VaultRagExploreSummarizeRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    passages: list[dict[str, Any]] = Field(default_factory=list)
+    graph: dict[str, Any] | None = None
+    llm: dict[str, Any] | None = None
+
+
+@router.post("/v1/vault/rag/explore/summarize")
+async def vault_rag_explore_summarize(
+    body: VaultRagExploreSummarizeRequest,
+    _: None = Depends(require_internal_token),
+) -> dict[str, Any]:
+    from oaao_orchestrator.vault_rag_explore import summarize_rag_explore
+
+    out = await summarize_rag_explore(
+        query=body.query.strip(),
+        passages=body.passages,
+        graph=body.graph if isinstance(body.graph, dict) else None,
+        llm=body.llm,
+    )
+    return {"ok": True, "data": out}
+
+
 @router.post("/v1/vault/ingest/stream/mint")
 async def mint_vault_ingest_stream_token(
     body: VaultIngestStreamMintRequest,

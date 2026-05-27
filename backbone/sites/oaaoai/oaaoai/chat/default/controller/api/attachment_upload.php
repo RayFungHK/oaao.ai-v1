@@ -108,10 +108,11 @@ return function (): void {
         $orig = 'attachment';
     }
 
+    $maxBytes = 25 * 1024 * 1024;
     $size = (int) ($f['size'] ?? 0);
-    if ($size < 1 || $size > 48 * 1024 * 1024) {
+    if ($size < 1 || $size > $maxBytes) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'File size must be 1 byte – 48 MB']);
+        echo json_encode(['success' => false, 'message' => 'File size must be 1 byte – 25 MB']);
 
         return;
     }
@@ -122,14 +123,28 @@ return function (): void {
 
     ChatAttachmentStorage::sweepExpired($splitDb);
 
-    $dir = $draftUpload ? ChatAttachmentStorage::ensureDraftDir($uid) : ChatAttachmentStorage::ensureConversationDir($cid);
     $stored = 'att_' . bin2hex(random_bytes(8)) . $safeExt;
-    $dest = $dir . '/' . $stored;
-    if (! move_uploaded_file($tmp, $dest)) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Could not store file']);
+    $relKey = ChatAttachmentStorage::relativeKey($cid, $uid, $stored, $draftUpload);
+    $locatorJson = null;
 
-        return;
+    $canonPdo = $this->oaao_chat_canonical_pdo();
+    $core = $this->api('core');
+    $tenantId = ($canonPdo instanceof \PDO && $core) ? $core->bootstrapTenantContext($canonPdo) : 0;
+
+    if ($tenantId > 0 && $canonPdo instanceof \PDO) {
+        $blob = ChatAttachmentStorage::blobStorage($canonPdo, $tenantId);
+        $locator = $blob->putUploadedFile($tmp, $relKey);
+        $locatorJson = $locator->toJson();
+        $dest = $blob->resolveAbsolutePath($locatorJson, $relKey, ChatAttachmentStorage::root());
+    } else {
+        $dir = $draftUpload ? ChatAttachmentStorage::ensureDraftDir($uid) : ChatAttachmentStorage::ensureConversationDir($cid);
+        $dest = $dir . '/' . $stored;
+        if (! move_uploaded_file($tmp, $dest)) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'message' => 'Could not store file']);
+
+            return;
+        }
     }
 
     $ttlDays = ChatAttachmentStorage::ttlDays();
@@ -144,20 +159,22 @@ return function (): void {
             'file_name',
             'mime_type',
             'storage_path',
+            'storage_locator_json',
             'byte_size',
             'extract_status',
             'created_at',
             'expires_at',
         ])->assign([
-            'conversation_id' => $cid,
-            'user_id'         => $uid,
-            'file_name'       => $orig,
-            'mime_type'       => substr($mime, 0, 255),
-            'storage_path'    => $relPath,
-            'byte_size'       => $size,
-            'extract_status'  => 'pending',
-            'created_at'      => $now,
-            'expires_at'      => $expires,
+            'conversation_id'      => $cid,
+            'user_id'              => $uid,
+            'file_name'            => $orig,
+            'mime_type'            => substr($mime, 0, 255),
+            'storage_path'         => $relPath,
+            'storage_locator_json' => $locatorJson,
+            'byte_size'            => $size,
+            'extract_status'       => 'pending',
+            'created_at'           => $now,
+            'expires_at'           => $expires,
         ])->query();
 
         $aid = $splitDb->lastID();

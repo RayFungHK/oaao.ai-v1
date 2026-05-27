@@ -1382,10 +1382,14 @@ async function openVaultConfigDialog(vaultNode, opts = {}) {
     });
 }
 
-/** Purpose-key prefix (Vault module slots only) → default enqueue hook ({@see vault.php purpose_allocation.register}). */
+/** Purpose-key prefix → default enqueue hook ({@see vault.php} + {@code oaaoai/rag} {@code pa-graph}). */
 const VAULT_PURPOSE_HOOK_BY_PREFIX = {
     embedding: 'vh.rag.document_embed',
+    graph: 'vh.rag.graph_index',
 };
+
+/** Module codes that may contribute vault FILE ACTIONS enqueue buttons. */
+const VAULT_PURPOSE_ACTION_MODULES = new Set(['oaaoai/vault', 'oaaoai/rag']);
 
 /**
  * Slots contributed by {@code oaaoai/vault} for Settings → Purpose allocation — drive file action buttons.
@@ -1401,7 +1405,12 @@ function readVaultPurposeActionSlots() {
         const mod = /** @type {{ module_code?: string }} */ (row).module_code;
         const pre = /** @type {{ purpose_key_prefix?: string }} */ (row).purpose_key_prefix;
 
-        return mod === 'oaaoai/vault' && typeof pre === 'string' && Boolean(VAULT_PURPOSE_HOOK_BY_PREFIX[pre]);
+        return (
+            typeof mod === 'string' &&
+            VAULT_PURPOSE_ACTION_MODULES.has(mod) &&
+            typeof pre === 'string' &&
+            Boolean(VAULT_PURPOSE_HOOK_BY_PREFIX[pre])
+        );
     });
 }
 
@@ -4473,7 +4482,7 @@ function renderVaultDetailPanel(docNode, mount, signal) {
             embedBtnIdleText = vaultSidebarUiString('action_requeue_embed');
         } else if (isEmbedHook && embedStatusLc === 'embedded') {
             embedBtnIdleText = `${vaultSidebarUiString('action_reembed')} · ${label}`;
-        } else if (isGraphHook && graphStatusLc === 'failed') {
+        } else if (isGraphHook && (graphStatusLc === 'failed' || graphStatusLc === 'queued' || graphStatusLc === 'pending')) {
             embedBtnIdleText = vaultSidebarUiString('action_requeue_graph');
         }
 
@@ -5531,6 +5540,9 @@ async function loadVaultMainTree(host, signal, mount, handlers) {
     await mountVaultExplorer(host, rows, signal, handlers, mount);
 }
 
+/** Vault multipart upload cap — keep aligned with document_upload.php (100 MiB). */
+const VAULT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
 /**
  * @param {HTMLElement} mount
  * @param {AbortSignal} signal
@@ -5563,6 +5575,17 @@ async function wireVaultRazyUploader(mount, signal, refreshTree) {
         data: vaultUploadMultipartFields,
         /** @param {File} file */
         onUpload(file) {
+            if (file.size > VAULT_UPLOAD_MAX_BYTES) {
+                vaultDismissUploadToast();
+                void (async () => {
+                    const Toast = await loadVaultToastCtor();
+                    Toast?.error(`File too large (max 100 MiB) · ${file.name}`, {
+                        duration: 4600,
+                        position: 'bottom-right',
+                    });
+                })();
+                return;
+            }
             rebuildVaultMultipartFields();
             vaultDismissUploadToast();
             void vaultToastUploadProgress(file.name, 0);

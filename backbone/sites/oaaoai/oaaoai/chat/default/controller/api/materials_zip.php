@@ -66,6 +66,13 @@ return function (): void {
 
         $rows = ChatConversationMaterial::listForZipExport($pdo, $cid, $mid);
 
+        $canonPdo = $this->oaao_chat_canonical_pdo();
+        $core = $this->api('core');
+        $tenantId = ($canonPdo instanceof \PDO && $core) ? (int) $core->bootstrapTenantContext($canonPdo) : 0;
+        if ($tenantId < 1 && isset($user->tenant_id)) {
+            $tenantId = (int) $user->tenant_id;
+        }
+
         if (! class_exists(\ZipArchive::class)) {
             http_response_code(500);
             echo json_encode(['success' => false, 'message' => 'Zip support unavailable']);
@@ -108,6 +115,9 @@ return function (): void {
                 $cid,
                 $uri,
                 $this->api('slide_designer'),
+                $canonPdo instanceof \PDO ? $canonPdo : null,
+                $tenantId,
+                $row,
             );
             if ($resolved === null) {
                 continue;

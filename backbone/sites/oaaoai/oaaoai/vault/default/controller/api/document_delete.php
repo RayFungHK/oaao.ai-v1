@@ -56,7 +56,7 @@ return function (): void {
 
     /** @var array<string, mixed>|false $row */
     $row = $db->prepare()
-        ->select('id, vault_id, storage_path')
+        ->select('id, vault_id, storage_path, storage_locator_json')
         ->from('vault_document')
         ->where('id=:id')
         ->assign(['id' => $docId])
@@ -89,6 +89,7 @@ return function (): void {
     }
 
     $relPath = isset($row['storage_path']) && \is_string($row['storage_path']) ? $row['storage_path'] : null;
+    $locatorJson = isset($row['storage_locator_json']) && \is_string($row['storage_locator_json']) ? $row['storage_locator_json'] : null;
 
     $db->beginTransaction();
 
@@ -99,7 +100,8 @@ return function (): void {
         $db->commit();
 
         $storageRoot = $this->oaao_vault_storage_root();
-        $this->oaao_vault_unlink_storage_file($storageRoot, $relPath);
+        $blobStore = $this->oaao_vault_blob_storage($ctx['pdo'], (int) $ctx['tid']);
+        $blobStore->delete($locatorJson, $relPath, $storageRoot);
 
         echo json_encode(['success' => true, 'data' => ['document_id' => $docId]], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     } catch (\Throwable $e) {

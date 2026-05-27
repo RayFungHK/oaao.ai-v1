@@ -221,11 +221,18 @@ async function confirmDestructive(title, htmlBody) {
 async function reload(host) {
     const mode = readPanelMode(host);
     if (mode === 'endpoints') {
-        const er = await endpointsFetchJson(endpointsApiUrl('endpoints_list'));
+        const [er, ur] = await Promise.all([
+            endpointsFetchJson(endpointsApiUrl('endpoints_list')),
+            endpointsFetchJson(endpointsApiUrl('endpoints_usage_stats')),
+        ]);
         if (!er.res.ok || !er.data?.success) {
             throw new Error(typeof er.data?.message === 'string' ? er.data.message : oaaoT('settings.errors.load_endpoints'));
         }
         rt.state.endpoints = Array.isArray(er.data.endpoints) ? er.data.endpoints : [];
+        rt.state.endpointUsageStats = {};
+        if (ur.res.ok && ur.data?.success && ur.data.stats && typeof ur.data.stats === 'object') {
+            rt.state.endpointUsageStats = /** @type {Record<string, unknown>} */ (ur.data.stats);
+        }
     } else {
         const [er, pr, cr] = await Promise.all([
             endpointsFetchJson(endpointsApiUrl('endpoints_list')),

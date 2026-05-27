@@ -4,7 +4,12 @@
  */
 
 import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-url.js';
+import { oaaoT } from './oaao-i18n.js';
 import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from './oaao-loading-logo.js';
+
+/** Wide two-pane shell — Manus-style preferences modal ({@link Dialog} {@code width} / {@code height}). */
+const PDLG_DIALOG_WIDTH = 'min(1024px, calc(100vw - 3rem))';
+const PDLG_DIALOG_HEIGHT = 'min(720px, calc(100vh - 3rem))';
 
 const PDLG_DIALOG_BOX_JIT = 'overflow-hidden bg-[var(--grid-panel-bright)] min-h-0';
 
@@ -27,8 +32,8 @@ const PDLG_NAV_JIT = [
     'flex',
     'flex-col',
     'shrink-0',
-    'w-[240px]',
-    'min-w-[180px]',
+    'w-[260px]',
+    'min-w-[200px]',
     '[border-right:1px_solid_var(--grid-line)]',
     'bg-[var(--grid-nav)]',
     'py-4',
@@ -106,10 +111,10 @@ const PDLG_ITEM_ACTIVE_JIT = [
 ].join(' ');
 
 /** @type {Record<string, string>} */
-const LEVEL_LABEL = {
-    tenant: 'Tenant',
-    workspace: 'Workspace',
-    personal: 'Personal',
+const LEVEL_LABEL_KEY = {
+    tenant: 'preferences.level.tenant',
+    workspace: 'preferences.level.workspace',
+    personal: 'preferences.level.personal',
 };
 
 /**
@@ -127,7 +132,7 @@ function applyJitTokens(el, jitSpaceSeparated) {
  * @param {ReadonlyArray<string>} levels
  */
 function levelsCaption(levels) {
-    return levels.map((l) => LEVEL_LABEL[l] ?? l).join(' · ');
+    return levels.map((l) => oaaoT(LEVEL_LABEL_KEY[l] ?? '', l)).join(' · ');
 }
 
 /**
@@ -158,7 +163,7 @@ function syncPreferencesGreeting(host) {
     if (!el) return;
     const raw = document.getElementById('workspace-user-label')?.textContent?.trim() ?? '';
     const name = raw.split(/\s*·\s*/)[0]?.trim() || raw || 'there';
-    el.textContent = `Welcome back, ${name}`;
+    el.textContent = oaaoT('preferences.dialog.greeting', 'Welcome back, {{name}}', { name });
 }
 
 /**
@@ -196,11 +201,17 @@ export async function openWorkspacePreferencesDialog(razyui) {
         if (!row || typeof row !== 'object') continue;
         const section_id = typeof row.section_id === 'string' ? row.section_id.trim() : '';
         if (!section_id) continue;
+        const label0 = typeof row.label === 'string' ? row.label : section_id;
+        const title0 = typeof row.title === 'string' ? row.title : section_id;
+        const sub0 = typeof row.sub === 'string' ? row.sub : '';
+        const label_key = typeof row.label_key === 'string' ? row.label_key.trim() : '';
+        const title_key = typeof row.title_key === 'string' ? row.title_key.trim() : '';
+        const sub_key = typeof row.sub_key === 'string' ? row.sub_key.trim() : '';
         sections.push({
             section_id,
-            label: typeof row.label === 'string' ? row.label : section_id,
-            title: typeof row.title === 'string' ? row.title : section_id,
-            sub: typeof row.sub === 'string' ? row.sub : '',
+            label: label_key ? oaaoT(label_key, label0) : label0,
+            title: title_key ? oaaoT(title_key, title0) : title0,
+            sub: sub_key ? oaaoT(sub_key, sub0) : sub0,
             icon: typeof row.icon === 'string' ? row.icon : '',
             sort: typeof row.sort === 'number' && Number.isFinite(row.sort) ? row.sort : 500,
             levels: normalizeLevels(row.levels),
@@ -213,9 +224,9 @@ export async function openWorkspacePreferencesDialog(razyui) {
     if (sections.length === 0) {
         sections.push({
             section_id: 'empty',
-            label: 'Preferences',
-            title: 'Preferences',
-            sub: 'No sections registered yet.',
+            label: oaaoT('preferences.nav.personal.label', 'Preferences'),
+            title: oaaoT('preferences.nav.personal.title', 'Preferences'),
+            sub: oaaoT('preferences.panel.unknown', 'No sections registered yet.'),
             icon: 'menu-meatballs-1',
             sort: 0,
             levels: ['personal'],
@@ -229,7 +240,7 @@ export async function openWorkspacePreferencesDialog(razyui) {
 
     const nav = document.createElement('nav');
     nav.className = PDLG_NAV_JIT;
-    nav.setAttribute('aria-label', 'Preferences sections');
+    nav.setAttribute('aria-label', oaaoT('preferences.dialog.nav_aria', 'Preferences sections'));
 
     const scroll = document.createElement('div');
     scroll.className = PDLG_CONTENT_JIT;
@@ -268,7 +279,7 @@ export async function openWorkspacePreferencesDialog(razyui) {
         if (sec.panel_html) {
             panel.innerHTML = sec.panel_html;
         } else {
-            panel.append(oaaoLoadingLogoElement({ block: true, label: 'Loading…' }));
+            panel.append(oaaoLoadingLogoElement({ block: true, label: oaaoT('preferences.dialog.loading_panel', 'Loading…') }));
         }
         scroll.appendChild(panel);
     });
@@ -284,7 +295,7 @@ export async function openWorkspacePreferencesDialog(razyui) {
     header.className = PDLG_HEADER_JIT;
     const first = sections[0];
     header.innerHTML = `<div class="text-[1.125rem] fw-bold fg-[var(--grid-ink)] mb-1" id="oaao-pdlg-title"></div>
-        <div class="text-[0.8125rem] fg-[var(--grid-ink-muted)] leading-relaxed max-w-[42rem]" id="oaao-pdlg-sub"></div>`;
+        <div class="text-[0.8125rem] fg-[var(--grid-ink-muted)] leading-relaxed max-w-[42rem] mt-1.5 px-0" id="oaao-pdlg-sub"></div>`;
     const titleInit = header.querySelector('#oaao-pdlg-title');
     const subInit = header.querySelector('#oaao-pdlg-sub');
     if (titleInit) titleInit.textContent = first.title;
@@ -436,7 +447,8 @@ export async function openWorkspacePreferencesDialog(razyui) {
         title: 'Preferences',
         content: root,
         size: 'xl',
-        height: 'min(640px, calc(100vh - 3rem))',
+        width: PDLG_DIALOG_WIDTH,
+        height: PDLG_DIALOG_HEIGHT,
         closable: true,
         buttons: [],
         onOpen(ctrl) {

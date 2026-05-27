@@ -222,6 +222,11 @@ async def finalize_run(
                 metrics_payload.get("conversation_title")
                 or metrics_payload.get("slide_project")
                 or metrics_payload.get("materials")
+                or (
+                    isinstance(metrics_payload.get("oaao_pipeline"), dict)
+                    and isinstance(metrics_payload["oaao_pipeline"].get("artifacts"), list)
+                    and metrics_payload["oaao_pipeline"]["artifacts"]
+                )
             ):
                 from oaao_orchestrator._internal_secret import require_internal_secret
                 from oaao_orchestrator.chat_internal_sync import sync_adjunct_via_php

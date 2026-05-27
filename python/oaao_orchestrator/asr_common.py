@@ -252,7 +252,7 @@ async def ffprobe_duration_sec(src_path: str) -> float | None:
     ]
     try:
         proc = await run_exec(
-            *cmd,
+            cmd,
             lane="ffmpeg",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -370,7 +370,7 @@ async def ffmpeg_extract_wav_clip(
     ]
     try:
         proc = await run_exec(
-            *cmd,
+            cmd,
             lane="ffmpeg",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
@@ -440,7 +440,7 @@ async def ffmpeg_segment_wav_mono16k(
         ]
         try:
             proc = await run_exec(
-                *cmd,
+                cmd,
                 lane="ffmpeg",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
@@ -547,7 +547,7 @@ async def ffmpeg_to_wav_mono16k(src_path: str) -> str | None:
     ]
     try:
         proc = await run_exec(
-            *cmd,
+            cmd,
             lane="ffmpeg",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,

@@ -112,9 +112,6 @@ async function endpointsFetchJson(url, options = {}) {
     return { res, data };
 }
 
-/** @type {{ endpoints: Array<Record<string, unknown>>, purposes: Array<Record<string, unknown>>, purposesPostgresqlOnly: boolean, chatProfiles: Array<Record<string, unknown>>, endpointUsageStats: Record<string, unknown> }} */
-const state = { endpoints: [], purposes: [], purposesPostgresqlOnly: false, chatProfiles: [], endpointUsageStats: {} };
-
 /** @type {Array<{ close: () => void }>} */
 const nestedDialogControls = [];
 
@@ -344,7 +341,7 @@ function endpointCardsHtml() {
             const disabledLbl = enabled
                 ? ''
                 : `<div class="mt-2 flex justify-end pt-0.5"><span class="text-[0.6875rem] fw-semibold uppercase tracking-wide fg-[var(--grid-ink-muted)]">${escapeHtml(disTag)}</span></div>`;
-            const usageHtml = endpointUsagePanelHtml(rt.state.endpointUsageStats[String(id)] ?? null);
+            const usageHtml = endpointUsagePanelHtml(rt.state.endpointUsageStats?.[String(id)] ?? null);
             return `<article data-eid="${id}" data-oaao-ep-card${disabledAttr} class="oaao-ep-card mb-2 last:mb-0 rounded-md border border-[var(--grid-line)] bg-[var(--grid-panel-bright)] p-2.5 sm:p-3 shadow-[0_1px_0_rgba(0,0,0,0.03)]${dimClass}">
   <div class="flex flex-wrap items-start justify-between gap-x-2 gap-y-2">
     <div class="min-w-0 flex-1 basis-[min(100%,10rem)]">

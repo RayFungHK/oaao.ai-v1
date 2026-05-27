@@ -44,7 +44,7 @@ return function (): void {
 
     /** @var array<string, mixed>|false $doc */
     $doc = $db->prepare()
-        ->select('id, vault_id, file_name, mime_type, byte_size, storage_path')
+        ->select('id, vault_id, file_name, mime_type, byte_size, storage_path, storage_locator_json')
         ->from('vault_document')
         ->where('id=:id')
         ->assign(['id' => $docId])
@@ -88,18 +88,13 @@ return function (): void {
         return;
     }
 
-    $storageRoot = realpath($this->oaao_vault_storage_root());
-    if ($storageRoot === false) {
-        http_response_code(503);
-        header('Content-Type: application/json; charset=UTF-8');
-        echo json_encode(['success' => false, 'message' => 'Storage unavailable']);
+    $storageRoot = $this->oaao_vault_storage_root();
+    $blobStore = $this->oaao_vault_blob_storage($ctx['pdo'], (int) $ctx['tid']);
+    $locatorJson = isset($doc['storage_locator_json']) ? (string) $doc['storage_locator_json'] : null;
 
-        return;
-    }
-
-    $absPath = realpath($storageRoot . '/' . ltrim($relPath, '/'));
-    $storagePrefix = rtrim($storageRoot, \DIRECTORY_SEPARATOR) . \DIRECTORY_SEPARATOR;
-    if ($absPath === false || (! str_starts_with($absPath, $storagePrefix) && $absPath !== rtrim($storageRoot, \DIRECTORY_SEPARATOR))) {
+    try {
+        $resolved = $blobStore->presignOrAbsolute($locatorJson, $relPath, $storageRoot);
+    } catch (\Throwable) {
         http_response_code(404);
         header('Content-Type: application/json; charset=UTF-8');
         echo json_encode(['success' => false, 'message' => 'File not found']);
@@ -107,7 +102,13 @@ return function (): void {
         return;
     }
 
-    if (! is_file($absPath) || ! is_readable($absPath)) {
+    if (($resolved['mode'] ?? '') === 'redirect' && ! empty($resolved['url'])) {
+        header('Location: ' . (string) $resolved['url'], true, 302);
+        exit;
+    }
+
+    $absPath = (string) ($resolved['absolute_path'] ?? '');
+    if ($absPath === '' || ! is_file($absPath) || ! is_readable($absPath)) {
         http_response_code(404);
         header('Content-Type: application/json; charset=UTF-8');
         echo json_encode(['success' => false, 'message' => 'File not readable']);

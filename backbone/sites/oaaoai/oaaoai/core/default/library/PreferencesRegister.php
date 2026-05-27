@@ -16,6 +16,7 @@ use Razy\Agent;
  * - sort: int (lower appears earlier; default 500)
  * - levels: list of {@code tenant}, {@code workspace}, {@code personal} — where this section applies (defaults to {@code personal} only)
  * - panel_html, panel_url, panel_js_module — same contract as {@see SettingsRegister}
+ * - label_key / title_key / sub_key: dotted keys resolved client-side via {@code oaao-i18n.js}
  *
  * {@code panel_js_module} modules should export {@code mountPreferencesPanel(host, ctx)} / optional {@code teardownPreferencesPanel()}.
  */
@@ -101,6 +102,12 @@ final class PreferencesRegister
         foreach (['panel_html', 'panel_url', 'panel_js_module'] as $key) {
             if (isset($extras[$key]) && is_string($extras[$key]) && $extras[$key] !== '') {
                 $row[$key] = $extras[$key];
+            }
+        }
+
+        foreach (['label_key', 'title_key', 'sub_key'] as $ik) {
+            if (isset($extras[$ik]) && is_string($extras[$ik]) && trim($extras[$ik]) !== '') {
+                $row[$ik] = trim($extras[$ik]);
             }
         }
 

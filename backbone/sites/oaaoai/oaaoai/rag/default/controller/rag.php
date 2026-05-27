@@ -15,6 +15,29 @@ return new class extends Controller {
     {
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
 
+        $coreApi = $this->api('core');
+        if ($coreApi) {
+            $coreApi->registerSpaPage(
+                'workspace/rag-explore',
+                'RAG Explore',
+                'Hybrid vector search and knowledge-graph visualization',
+                'share-2',
+                [
+                    'shell_panel_url' => '/rag/workspace-panel',
+                    'shell_js_module' => '/webassets/rag/default/js/rag-explore-panel.js',
+                ],
+            );
+        }
+
+        $agent->addRoute('GET /rag/workspace-panel', 'panel/workspace_rag_explore_panel');
+
+        $agent->addLazyRoute([
+            'api' => [
+                'POST rag_explore' => 'rag_explore',
+                'POST rag_explore_summarize' => 'rag_explore_summarize',
+            ],
+        ]);
+
         return true;
     }
 

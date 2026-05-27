@@ -6,5 +6,7 @@ return [
         'oaaoai/auth'      => '*',
         'oaaoai/core'      => '*',
         'oaaoai/endpoints' => '*',
+        'oaaoai/vault'     => '*',
+        'oaaoai/chat'      => '*',
     ],
 ];

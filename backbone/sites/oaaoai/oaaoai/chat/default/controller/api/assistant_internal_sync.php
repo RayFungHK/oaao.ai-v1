@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\AgentMaterialStorage;
 use oaaoai\chat\ChatConversationMaterial;
 use oaaoai\chat\ChatConversationTitle;
 use oaaoai\chat\ChatRunPrincipal;
@@ -129,6 +130,28 @@ return function (): void {
         }
 
         $metaForMaterials = $meta;
+        try {
+            $canonPdo = $auth->getDB()?->getDBAdapter();
+            $tenantId = isset($input['tenant_id']) ? (int) $input['tenant_id'] : 0;
+            if ($tenantId < 1 && $canonPdo instanceof \PDO) {
+                $core = $this->api('core');
+                if ($core) {
+                    $tenantId = (int) $core->bootstrapTenantContext($canonPdo);
+                }
+            }
+            if ($tenantId < 1 && $canonPdo instanceof \PDO) {
+                $st = $canonPdo->prepare('SELECT tenant_id FROM oaao_user WHERE user_id = ? LIMIT 1');
+                $st->execute([$uid]);
+                $tenantId = (int) ($st->fetchColumn() ?: 0);
+            }
+            if ($canonPdo instanceof \PDO && $tenantId > 0) {
+                AgentMaterialStorage::persistMetaArtifacts($canonPdo, $tenantId, $cid, $metaForMaterials);
+            }
+        } catch (\Throwable $e) {
+            $syncWarnings[] = 'material_blob_persist';
+            error_log('assistant_internal_sync material_blob_persist: ' . $e->getMessage());
+        }
+
         try {
             $slideApi = $this->api('slide_designer');
             if ($slideApi && \is_array($metaForMaterials['slide_project'] ?? null)) {

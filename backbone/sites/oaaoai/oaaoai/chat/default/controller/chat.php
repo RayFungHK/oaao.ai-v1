@@ -807,6 +807,7 @@ return new class extends Controller {
                 'GET task_artifacts'        => 'task_artifacts',
                 'GET message_materials'    => 'message_materials',
                 'GET materials_zip'        => 'materials_zip',
+                'GET material_media'       => 'material_media',
                 'GET conversation_materials' => 'conversation_materials',
                 'GET skills_list'            => 'skills_list',
                 'GET skills_admin'           => 'skills_admin',

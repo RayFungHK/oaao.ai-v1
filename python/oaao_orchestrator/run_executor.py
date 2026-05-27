@@ -39,6 +39,9 @@ from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     apply_request_material_grounding as _apply_request_material_grounding,
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
+    apply_user_personalization as _apply_user_personalization,
+)
+from oaao_orchestrator.run_executor_entry import (  # noqa: E402
     log_chat_attachments_entry as _log_chat_attachments_entry,
 )
 from oaao_orchestrator.run_executor_entry import (  # noqa: E402
@@ -111,6 +114,7 @@ async def execute_chat_run(
     plan: RunPlan | None = None
     messages_for_llm = list(req.messages)
     _apply_request_material_grounding(req=req, messages_for_llm=messages_for_llm)
+    _apply_user_personalization(req=req, messages_for_llm=messages_for_llm)
     run_failed = False
     run_error_detail: str | None = None
     slide_project_meta: dict[str, Any] | None = None

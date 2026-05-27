@@ -9,6 +9,37 @@
  * behaviour (Combobox, Dialog, …); use this DSL for lightweight admin/settings shells that must stay cheap.
  */
 
+/** In-app field chrome — parity with {@code #workspace-folder-trigger} in workspace.tpl. */
+export const OAAO_FIELD_CHROME_JIT = [
+    'rounded-[8px] min-h-9 px-2.5 py-1.5 text-[0.8125rem] fw-medium',
+    'fg-[var(--grid-ink)] bg-[var(--grid-paper)] font-inherit box-border',
+    'border border-solid border-[var(--grid-line)]',
+    'hover:bg-[var(--grid-line)]/25 transition-colors',
+].join(' ');
+
+/** Native text/search inputs — same chrome + focus ring. */
+export const OAAO_FIELD_INPUT_JIT = [
+    OAAO_FIELD_CHROME_JIT,
+    'outline-none w-full',
+    'focus:border-[var(--grid-accent)]',
+    'focus:[box-shadow:0_0_0_2px_color-mix(in_srgb,var(--grid-accent),transparent_88%)]',
+].join(' ');
+
+/** Combobox container overrides — neutral open/focus (no default RazyUI accent ring). */
+export const OAAO_COMBOBOX_CONTAINER_JIT = [
+    'w-full inline-flex items-center justify-between gap-1.5',
+    OAAO_FIELD_CHROME_JIT,
+    '[box-shadow:none]',
+    'focus-within:[box-shadow:none] is-open:[box-shadow:none]',
+    'focus-within:border-[var(--grid-line)] is-open:border-[var(--grid-line)]',
+].join(' ');
+
+/** Combobox floating panel — parity with {@code #workspace-folder-anchor}. */
+export const OAAO_FIELD_DROPDOWN_JIT = [
+    'rounded-[8px] border border-solid border-[var(--grid-line)]',
+    'bg-[var(--grid-panel-bright)] shadow-[0_8px_24px_rgba(0,0,0,0.10)]',
+].join(' ');
+
 /** Outline primary control — same atomic JIT tokens as legacy inline classes (hydrate-safe). */
 export const SETTINGS_BTN_PRIMARY_JIT = [
     'inline-flex items-center justify-center shrink-0',

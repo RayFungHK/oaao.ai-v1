@@ -83,12 +83,11 @@ return function (): void {
     $initialEmbedStatus = $ragAutoIngest ? 'pending' : 'held';
 
     $storageRoot = $this->oaao_vault_storage_root();
-    if (! is_dir($storageRoot) && ! @mkdir($storageRoot, 0775, true) && ! is_dir($storageRoot)) {
-        http_response_code(503);
-        echo json_encode(['success' => false, 'message' => 'Vault storage unavailable']);
-
-        return;
-    }
+    $sidecar = $this->oaao_vault_sidecar_pg_context();
+    $tenantId = $sidecar !== null ? (int) $sidecar['tid'] : 0;
+    $blobStore = $tenantId > 0 && $sidecar !== null
+        ? $this->oaao_vault_blob_storage($sidecar['pdo'], $tenantId)
+        : null;
 
     $safeBase = basename(str_replace(["\0", '/'], '', $filename));
     $safeBase = preg_replace('/[^a-zA-Z0-9._-]+/', '_', $safeBase) ?? 'document.md';
@@ -152,23 +151,29 @@ return function (): void {
         }
 
         $relPath = $vaultId . '/' . $docId . '_' . $safeBase;
-        $destDir = $storageRoot . '/' . $vaultId;
-        if (! is_dir($destDir) && ! @mkdir($destDir, 0775, true) && ! is_dir($destDir)) {
-            throw new \RuntimeException('mkdir failed');
+        if ($blobStore !== null) {
+            $locator = $blobStore->putContent($content, $relPath);
+            $destAbs = $blobStore->resolveAbsolutePath($locator->toJson(), $relPath, $storageRoot);
+        } else {
+            $destDir = $storageRoot . '/' . $vaultId;
+            if (! is_dir($destDir) && ! @mkdir($destDir, 0775, true) && ! is_dir($destDir)) {
+                throw new \RuntimeException('mkdir failed');
+            }
+            $destAbs = $storageRoot . '/' . $relPath;
+            if (file_put_contents($destAbs, $content) === false) {
+                throw new \RuntimeException('write failed');
+            }
+            $locator = null;
         }
 
-        $destAbs = $storageRoot . '/' . $relPath;
-        if (file_put_contents($destAbs, $content) === false) {
-            throw new \RuntimeException('write failed');
-        }
-
-        $db->update('vault_document', ['storage_path', 'byte_size', 'updated_at'])
+        $db->update('vault_document', ['storage_path', 'storage_locator_json', 'byte_size', 'updated_at'])
             ->where('id=:id')
             ->assign([
-                'storage_path' => $relPath,
-                'byte_size'    => $byteSize,
-                'updated_at'   => date('Y-m-d H:i:s'),
-                'id'           => $docId,
+                'storage_path'         => $relPath,
+                'storage_locator_json' => $locator?->toJson(),
+                'byte_size'            => $byteSize,
+                'updated_at'           => date('Y-m-d H:i:s'),
+                'id'                   => $docId,
             ])
             ->query();
 
@@ -186,6 +191,9 @@ return function (): void {
                     'vault_id'      => $vaultId,
                     'source'        => 'research',
                 ];
+                if ($locator !== null && $blobStore !== null) {
+                    $payload = array_merge($payload, $blobStore->jobPayloadExtras($locator, $relPath, $storageRoot));
+                }
                 if ($hookId === 'vh.rag.graph_index' || $hookId === 'vh.rag.document_embed') {
                     $payload = $this->oaao_vault_merge_graphrag_job_payload($db, $vaultId, $payload);
                 }

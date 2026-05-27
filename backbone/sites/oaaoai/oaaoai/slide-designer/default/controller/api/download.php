@@ -37,6 +37,15 @@ return function (): void {
         return;
     }
 
+    $core = $this->api('core');
+    if ($core) {
+        $tid = $core->bootstrapTenantContext($pdo);
+        if ($tid > 0 && preg_match('/\.(pptx|pdf)$/i', $file)) {
+            require_once dirname(__DIR__, 2) . '/library/SlideProjectBlobSync.php';
+            \oaaoai\slide_designer\SlideProjectBlobSync::flushProject($pdo, $tid, $projectId);
+        }
+    }
+
     $base = SlideProjectStorage::projectDir($projectId);
     $path = $base . '/' . $file;
     $real = realpath($path);

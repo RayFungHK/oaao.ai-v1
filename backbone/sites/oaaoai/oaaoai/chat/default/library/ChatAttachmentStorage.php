@@ -4,11 +4,31 @@ declare(strict_types=1);
 
 namespace oaaoai\chat;
 
+require_once dirname(__DIR__, 3) . '/core/default/library/TenantBlobStorage.php';
+require_once dirname(__DIR__, 3) . '/core/default/library/StorageDomain.php';
+
+use Oaaoai\Core\StorageDomain;
+use Oaaoai\Core\TenantBlobStorage;
+
 /**
  * Ephemeral chat attachment disk layout ({@code OAAO_CHAT_ATTACHMENT_ROOT}).
  */
 final class ChatAttachmentStorage
 {
+    public static function blobStorage(\PDO $canonicalPdo, int $tenantId): TenantBlobStorage
+    {
+        return new TenantBlobStorage($canonicalPdo, $tenantId, StorageDomain::CHAT_ATTACHMENTS);
+    }
+
+    public static function relativeKey(int $conversationId, int $userId, string $storedName, bool $draftUpload): string
+    {
+        if ($draftUpload) {
+            return 'draft/' . max(0, $userId) . '/' . $storedName;
+        }
+
+        return max(0, $conversationId) . '/' . $storedName;
+    }
+
     public static function root(): string
     {
         $env = getenv('OAAO_CHAT_ATTACHMENT_ROOT');

@@ -20,4 +20,9 @@ function oaao_chat_ensure_conversation_attachment_schema(\PDO $pdo): void
         expires_at TEXT DEFAULT NULL
     )');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_conv_attachment_conv ON oaao_conversation_attachment(conversation_id)');
+
+    try {
+        $pdo->exec('ALTER TABLE oaao_conversation_attachment ADD COLUMN storage_locator_json TEXT DEFAULT NULL');
+    } catch (\Throwable) {
+    }
 }

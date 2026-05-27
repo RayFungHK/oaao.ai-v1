@@ -142,10 +142,33 @@ def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
             payload = {"raw_payload_json": pj}
     absolute_path = None
     if isinstance(payload, dict):
-        sr = str(payload.get("storage_root") or "").rstrip("/")
-        rp = str(payload.get("relative_path") or "").lstrip("/")
-        if sr and rp:
-            absolute_path = f"{sr}/{rp}"
+        ap = payload.get("absolute_path")
+        if isinstance(ap, str) and ap.strip():
+            absolute_path = ap.strip()
+        else:
+            loc_raw = payload.get("storage_locator")
+            if isinstance(loc_raw, dict):
+                from oaao_orchestrator.object_storage.locator import parse_locator
+                from oaao_orchestrator.object_storage.materialize import materialize_locator
+
+                loc = parse_locator(loc_raw)
+                if loc is not None and loc.backend != "local":
+                    try:
+                        absolute_path = materialize_locator(
+                            loc,
+                            tenant_id=int(payload.get("tenant_id") or 0),
+                            domain="vault",
+                            domain_config=payload.get("domain_config")
+                            if isinstance(payload.get("domain_config"), dict)
+                            else {},
+                        )
+                    except Exception:
+                        absolute_path = None
+            if not absolute_path:
+                sr = str(payload.get("storage_root") or "").rstrip("/")
+                rp = str(payload.get("relative_path") or "").lstrip("/")
+                if sr and rp:
+                    absolute_path = f"{sr}/{rp}"
     return {
         "job_id": int(row.get("job_id") or 0),
         "document_id": int(row.get("document_id") or 0),

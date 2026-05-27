@@ -111,6 +111,14 @@ return function (): void {
         }
         $repo->updateMine($mineId, $minePatch);
 
+        if (! $failed) {
+            require_once dirname(__DIR__, 2) . '/library/MineBlobSync.php';
+            $sqliteRel = isset($mine['sqlite_path']) && \is_string($mine['sqlite_path']) ? trim($mine['sqlite_path']) : '';
+            if ($sqliteRel !== '') {
+                \oaaoai\mine\MineBlobSync::flushSqlite($ctx['pdo'], (int) $ctx['tenant_id'], $mineId, $sqliteRel);
+            }
+        }
+
         if (! $failed && $ownerId > 0) {
             $this->oaao_mine_maybe_notify($ctx['pdo'], $ownerId, $mineId, $runId, $mine, $stats);
         }

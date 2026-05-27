@@ -189,6 +189,13 @@ trait VaultControllerSupportTrait
     
         return $this->oaao_vault_backbone_root() . '/storage/vault';
     }
+
+    protected function oaao_vault_blob_storage(\PDO $pdo, int $tenantId): \Oaaoai\Core\TenantBlobStorage
+    {
+        require_once dirname(__DIR__, 3) . '/core/default/library/TenantBlobStorage.php';
+
+        return new \Oaaoai\Core\TenantBlobStorage($pdo, $tenantId, \Oaaoai\Core\StorageDomain::VAULT);
+    }
     
     protected function oaao_vault_internal_token_ok(): bool
     {
@@ -276,7 +283,7 @@ trait VaultControllerSupportTrait
         }
     
         $auth->ensurePgCoreTables($db);
-    
+
         
         if (! \oaao_auth_database_is_pgsql($db)) {
             http_response_code(503);
@@ -349,6 +356,8 @@ trait VaultControllerSupportTrait
         }
     
         $this->api('auth')?->ensurePgWorkspaceTables($pdo);
+        require_once dirname(__DIR__, 3) . '/core/default/library/StorageSchemaEnsure.php';
+        \Oaaoai\Core\StorageSchemaEnsure::ensure($pdo);
         \oaao_auth_ensure_pg_vault_workspace_and_jobs($pdo);
         \oaao_auth_ensure_pg_vault_speaker_profiles($pdo);
     

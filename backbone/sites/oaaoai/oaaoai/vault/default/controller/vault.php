@@ -88,6 +88,10 @@ return new class extends Controller {
         if (! $db instanceof \Razy\Database) {
             return [];
         }
+        $auth->ensurePgCoreTables($db);
+        if (! \oaao_auth_database_is_pgsql($db)) {
+            return [];
+        }
         $pdo = $db->getDBAdapter();
         if ($pdo instanceof \PDO) {
             $core = $this->oaao_vault_core_api();
@@ -106,6 +110,78 @@ return new class extends Controller {
         return \oaaoai\vault\VaultRetrievalProfiles::fromVaultIds($db, $vaultIds, $infer);
     }
 
+    /**
+     * Intersect requested vault ids with vaults the user may access (personal + member workspaces).
+     *
+     * @param list<int> $vaultIds
+     *
+     * @return list<int>
+     */
+    public function intersectAccessibleVaultIds(int $uid, array $vaultIds): array
+    {
+        if ($uid < 1 || $vaultIds === []) {
+            return [];
+        }
+
+        /** @var list<int> $requested */
+        $requested = [];
+        foreach ($vaultIds as $vid) {
+            $n = \is_int($vid) ? $vid : (int) $vid;
+            if ($n > 0) {
+                $requested[] = $n;
+            }
+        }
+        $requested = array_values(array_unique($requested, SORT_NUMERIC));
+        if ($requested === []) {
+            return [];
+        }
+
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database) {
+            return [];
+        }
+
+        $auth->ensurePgCoreTables($db);
+        if (! \oaao_auth_database_is_pgsql($db)) {
+            return [];
+        }
+
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO) {
+            $core = $this->oaao_vault_core_api();
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+            }
+            $this->oaao_vault_prime_qdrant_tenant_slug($pdo);
+        } else {
+            $this->oaao_vault_prime_qdrant_tenant_slug();
+        }
+
+        $payload = $this->oaao_vault_build_all_accessible_payload($db, $uid, ['lite_documents' => true]);
+        /** @var array<int, true> $allowed */
+        $allowed = [];
+        foreach ($payload['vaults'] as $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            $vid = (int) ($row['id'] ?? 0);
+            if ($vid > 0) {
+                $allowed[$vid] = true;
+            }
+        }
+
+        /** @var list<int> $out */
+        $out = [];
+        foreach ($requested as $vid) {
+            if (isset($allowed[$vid])) {
+                $out[] = $vid;
+            }
+        }
+
+        return $out;
+    }
+
     public function __onInit(Agent $agent): bool
     {
         $agent->addAPICommand([
@@ -113,6 +189,7 @@ return new class extends Controller {
             'getWorkspaceGlossary'             => 'getWorkspaceGlossary',
             'saveWorkspaceGlossary'            => 'saveWorkspaceGlossary',
             'buildRetrievalProfilesFromVaultIds' => 'buildRetrievalProfilesFromVaultIds',
+            'intersectAccessibleVaultIds'      => 'intersectAccessibleVaultIds',
         ]);
 
         $coreApi = $this->api('core');
@@ -199,6 +276,7 @@ return new class extends Controller {
             'getWorkspaceGlossary',
             'saveWorkspaceGlossary',
             'buildRetrievalProfilesFromVaultIds',
+            'intersectAccessibleVaultIds',
         ], true);
     }
 };

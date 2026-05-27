@@ -1,6 +1,11 @@
 /**
  * Ephemeral chat composer attachment upload — shared by file picker and clipboard paste.
- *
+ */
+
+/** @type {number} */
+export const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
  * @param {File | Blob} file
  * @param {Record<string, unknown>} ctx
  */
@@ -13,6 +18,12 @@ export async function uploadChatComposerAttachment(file, ctx) {
     const onChange = typeof ctx.onAttachmentsChange === 'function' ? ctx.onAttachmentsChange : () => {};
     const signal = ctx.signal instanceof AbortSignal ? ctx.signal : undefined;
     const toast = typeof ctx.toast === 'function' ? ctx.toast : () => {};
+
+    const byteSize = file instanceof File ? file.size : file.size;
+    if (byteSize > CHAT_ATTACHMENT_MAX_BYTES) {
+        toast('File size must be 1 byte – 25 MB');
+        return;
+    }
 
     const items = getItems();
     if (items.length >= 4) {

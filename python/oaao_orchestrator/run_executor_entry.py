@@ -97,3 +97,10 @@ def apply_request_material_grounding(*, req: Any, messages_for_llm: list[Any]) -
             material_grounding,
             reuse_turn=reuse_grounding_turn,
         )
+
+
+def apply_user_personalization(*, req: Any, messages_for_llm: list[Any]) -> None:
+    """Inject user profile / knowledge / local time from PHP personalization settings."""
+    from oaao_orchestrator.user_personalization import apply_user_personalization as _apply
+
+    _apply(req=req, messages_for_llm=messages_for_llm)

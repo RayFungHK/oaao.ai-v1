@@ -162,6 +162,7 @@ function oaao_auth_install_pg_core_schema(\PDO $pdo): void
         file_name TEXT NOT NULL,
         mime_type TEXT DEFAULT NULL,
         storage_path TEXT DEFAULT NULL,
+        storage_locator_json TEXT DEFAULT NULL,
         external_id TEXT DEFAULT NULL,
         meta_json TEXT DEFAULT NULL,
         source_text TEXT DEFAULT NULL,
@@ -314,6 +315,11 @@ function oaao_auth_ensure_pg_vault_workspace_and_jobs(\PDO $pdo): void
 
     try {
         $pdo->exec('ALTER TABLE oaao_vault_document ADD COLUMN byte_size BIGINT DEFAULT NULL');
+    } catch (\Throwable) {
+    }
+
+    try {
+        $pdo->exec('ALTER TABLE oaao_vault_document ADD COLUMN storage_locator_json TEXT DEFAULT NULL');
     } catch (\Throwable) {
     }
 

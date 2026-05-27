@@ -31,4 +31,9 @@ function oaao_chat_ensure_conversation_material_schema(\PDO $pdo): void
     );
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_conv_material_msg ON oaao_conversation_material(conversation_id, message_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_conv_material_task ON oaao_conversation_material(conversation_id, task_id)');
+
+    try {
+        $pdo->exec('ALTER TABLE oaao_conversation_material ADD COLUMN storage_locator_json TEXT DEFAULT NULL');
+    } catch (\Throwable) {
+    }
 }

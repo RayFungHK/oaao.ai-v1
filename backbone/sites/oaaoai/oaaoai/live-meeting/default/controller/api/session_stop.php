@@ -42,5 +42,18 @@ return function (): void {
         return;
     }
 
+    if ($keepAudio) {
+        $canon = $auth->getDB()?->getDBAdapter();
+        $core = $this->api('core');
+        if ($canon instanceof \PDO && $core) {
+            $tid = $core->bootstrapTenantContext($canon);
+            if ($tid > 0) {
+                require_once dirname(__DIR__, 2) . '/library/LiveMeetingBlobSync.php';
+                \oaaoai\livemeeting\LiveMeetingBlobSync::flushSessionMeta($canon, $tid, $sessionId);
+                \oaaoai\livemeeting\LiveMeetingBlobSync::flushSessionAudio($canon, $tid, $sessionId);
+            }
+        }
+    }
+
     $this->oaao_live_json_exit(200, true, '', $resp['data'] ?? $resp);
 };

@@ -31,6 +31,13 @@
                             <!-- Lucide Archive -->
                             <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
                         </button>
+                        <button type="button" id="workspace-rail-rag-explore"
+                            class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
+                            title="RAG Explore"
+                            aria-label="RAG Explore">
+                            <!-- Lucide Share2 — vector + graph explore ({@see workspace/rag-explore}). -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
+                        </button>
                         <button type="button" id="workspace-rail-agents"
                             class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
                             title="Agents"
@@ -158,6 +165,12 @@
                                     data-i18n="workspace.vault_sidebar_vaults_heading">Your vaults</p>
                                 <div id="workspace-vault-list" class="flex flex-col gap-0.5 min-w-0" role="list"></div>
                             </div>
+                        </section>
+                        <section id="workspace-rag-explore-sidebar-section" class="flex flex-col flex-1 min-h-0 overflow-hidden hidden" aria-label="RAG Explore">
+                            <p class="workspace-chat-sidebar-label shrink-0 px-md pt-md pb-1 text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold"
+                                data-i18n="rag.explore.sidebar_heading">Explore</p>
+                            <div id="workspace-rag-explore-sidebar-root"
+                                class="flex flex-col flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] px-md pb-md gap-3"></div>
                         </section>
                     </div>
                     <!-- SPA apps not pinned on the icon rail ({@see workspace.js renderNav}); hidden when empty. -->

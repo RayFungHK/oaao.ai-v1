@@ -14,6 +14,7 @@ use oaaoai\chat\PlannerAgentRegister;
 use oaaoai\chat\SkillsManifestStorage;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\MmModuleSettings;
+use oaaoai\user\UserPersonalization;
 
 /**
  * POST /chat/api/send — append user message + assistant row; when orchestrator + binding exist, start Python stream run.
@@ -705,6 +706,20 @@ return function (): void {
                     $slideDesignerApi,
                 );
                 $reuseGroundingMid = (int) ($input['reuse_grounding_message_id'] ?? 0);
+                $canonPdoGround = null;
+                $tenantIdGround = 0;
+                if ($canonDb instanceof \Razy\Database) {
+                    $canonPdoGround = $canonDb->getDBAdapter();
+                    if ($canonPdoGround instanceof \PDO) {
+                        $tenantIdGround = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
+                        if ($tenantIdGround < 1) {
+                            $coreApiGround = $this->api('core');
+                            $tenantIdGround = $coreApiGround
+                                ? $coreApiGround->bootstrapTenantContext($canonPdoGround)
+                                : 0;
+                        }
+                    }
+                }
                 $grounding = ChatConversationMaterial::groundingContextForOrchestrator(
                     $splitPdo,
                     $conversationId,
@@ -712,6 +727,8 @@ return function (): void {
                     $activeMaterialId !== '' ? $activeMaterialId : null,
                     $reuseGroundingMid,
                     $slideDesignerApi,
+                    $canonPdoGround instanceof \PDO ? $canonPdoGround : null,
+                    $tenantIdGround,
                 );
                 if ($grounding !== []) {
                     $payload['conversation_material_grounding'] = $grounding;
@@ -742,11 +759,17 @@ return function (): void {
 
             if ($attachmentIds !== []) {
                 ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
+                $canonPdoForAtt = $this->oaao_chat_canonical_pdo();
+                $tenantIdForAtt = 0;
+                if ($canonPdoForAtt instanceof \PDO) {
+                    $coreApiAtt = $this->api('core');
+                    $tenantIdForAtt = $coreApiAtt ? $coreApiAtt->bootstrapTenantContext($canonPdoForAtt) : 0;
+                }
                 /** @var list<array<string, mixed>> $chatAttachments */
                 $chatAttachments = [];
                 foreach ($attachmentIds as $aid) {
                     $ar = $splitDb->prepare()
-                        ->select('id, conversation_id, file_name, mime_type, storage_path, byte_size')
+                        ->select('id, conversation_id, file_name, mime_type, storage_path, storage_locator_json, byte_size')
                         ->from('conversation_attachment')
                         ->where('id=?,conversation_id=?,user_id=?')
                         ->assign(['id' => $aid, 'conversation_id' => $conversationId, 'user_id' => $uid])
@@ -760,13 +783,25 @@ return function (): void {
                     if ($rel === '') {
                         continue;
                     }
+                    $locatorJson = isset($ar['storage_locator_json']) ? (string) $ar['storage_locator_json'] : null;
+                    $relKey = ChatAttachmentStorage::relativeKey((int) $conversationId, $uid, $rel, false);
                     $abs = ChatAttachmentStorage::conversationDir((int) $conversationId) . '/' . $rel;
+                    if ($tenantIdForAtt > 0 && $canonPdoForAtt instanceof \PDO && $locatorJson !== null && trim($locatorJson) !== '') {
+                        try {
+                            $blob = ChatAttachmentStorage::blobStorage($canonPdoForAtt, $tenantIdForAtt);
+                            $abs = $blob->resolveAbsolutePath($locatorJson, $relKey, ChatAttachmentStorage::root());
+                        } catch (\Throwable) {
+                        }
+                    }
                     $chatAttachments[] = [
                         'id'            => (int) ($ar['id'] ?? 0),
                         'file_name'     => (string) ($ar['file_name'] ?? ''),
                         'mime_type'     => (string) ($ar['mime_type'] ?? ''),
                         'absolute_path' => $abs,
                         'byte_size'     => (int) ($ar['byte_size'] ?? 0),
+                        'storage_locator' => $locatorJson !== null && trim($locatorJson) !== ''
+                            ? json_decode($locatorJson, true)
+                            : null,
                     ];
                 }
                 if ($chatAttachments !== []) {
@@ -852,6 +887,11 @@ return function (): void {
                     }
                 }
             }
+
+            require_once dirname(__DIR__, 4) . '/user/default/library/UserPersonalization.php';
+            $payload['user_personalization'] = UserPersonalization::forOrchestratorPayload(
+                UserPersonalization::loadForUser($pdo, $uid),
+            );
 
             $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
             $payload['run_principal'] = ChatRunPrincipal::issue(

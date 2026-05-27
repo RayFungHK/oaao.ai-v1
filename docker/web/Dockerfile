@@ -14,10 +14,10 @@ RUN a2enmod rewrite headers proxy proxy_http proxy_wstunnel \
 COPY docker/web/oaao-sidecar-proxy.conf.template /etc/apache2/oaao-sidecar-proxy.conf.template
 
 RUN { \
-    echo 'upload_max_filesize = 32M'; \
-    echo 'post_max_size = 40M'; \
+    echo 'upload_max_filesize = 128M'; \
+    echo 'post_max_size = 132M'; \
     echo 'memory_limit = 256M'; \
-    echo 'max_execution_time = 120'; \
+    echo 'max_execution_time = 300'; \
     echo 'opcache.enable=1'; \
     echo 'opcache.memory_consumption=256'; \
     echo 'opcache.max_accelerated_files=20000'; \

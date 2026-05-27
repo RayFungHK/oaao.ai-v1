@@ -70,6 +70,19 @@ function oaao_auth_ensure_pg_extension_schemas(\PDO $pdo): void
     }
 }
 
+function oaao_auth_ensure_pg_storage_schema(\PDO $pdo): void
+{
+    if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
+        return;
+    }
+
+    try {
+        require_once __DIR__ . '/_ensure_storage_schema.php';
+        oaao_auth_ensure_storage_schema($pdo);
+    } catch (\Throwable) {
+    }
+}
+
 function oaao_auth_ensure_pg_core_tables(\Razy\Database $database): void
 {
     if (! oaao_auth_database_is_pgsql($database)) {
@@ -83,6 +96,7 @@ function oaao_auth_ensure_pg_core_tables(\Razy\Database $database): void
 
     // Idempotent — must run even when bootstrap cache short-circuits (new modules added after first boot).
     oaao_auth_ensure_pg_extension_schemas($pdo);
+    oaao_auth_ensure_pg_storage_schema($pdo);
 
     require_once dirname(__DIR__) . '/../library/CrossProcessBootCache.php';
     if (OaaoAuthPgCoreBootstrapCache::isDone() || OaaoAuthCrossProcessBootCache::pgCoreBootDone()) {

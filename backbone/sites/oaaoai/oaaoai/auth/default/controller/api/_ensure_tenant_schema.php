@@ -98,6 +98,9 @@ function oaao_auth_ensure_tenant_schema(\PDO $pdo): void
 
     require_once __DIR__ . '/_ensure_credit_schema.php';
     oaao_auth_ensure_credit_schema($pdo);
+
+    require_once __DIR__ . '/_ensure_storage_schema.php';
+    oaao_auth_ensure_storage_schema($pdo);
 }
 
 /** Primary platform admin hostname ({@code OAAO_PLATFORM_ADMIN_HOST}, default {@code admin.localhost}). */

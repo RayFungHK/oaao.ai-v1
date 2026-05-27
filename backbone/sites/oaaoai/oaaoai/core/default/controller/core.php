@@ -367,6 +367,23 @@ return new class extends Controller {
             ]
         );
 
+        $storageJs = '/webassets/core/default/js/oaao-storage-settings-panel.js';
+
+        SettingsRegister::add(
+            'settings-storage',
+            'Storage',
+            'Object storage',
+            'Per-tenant blob backends (local, S3, GCS, Hugging Face) and migration.',
+            'hard-drive',
+            [
+                'sort'            => 29,
+                'panel_js_module' => $storageJs,
+                'label_key'       => 'settings.nav.storage.label',
+                'title_key'       => 'settings.nav.storage.title',
+                'sub_key'         => 'settings.nav.storage.sub',
+            ]
+        );
+
         SettingsRegister::add(
             'settings-purposes',
             'Purpose allocation',
@@ -447,6 +464,25 @@ return new class extends Controller {
                 'sort'            => 0,
                 'levels'          => ['personal'],
                 'panel_js_module' => $prefJs,
+                'label_key'       => 'preferences.nav.dashboard.label',
+                'title_key'       => 'preferences.nav.dashboard.title',
+                'sub_key'         => 'preferences.nav.dashboard.sub',
+            ],
+        );
+
+        PreferencesRegister::add(
+            'pref-personalization',
+            'Personalization',
+            'Personalization',
+            'Manage who you are and what the assistant remembers.',
+            'sparkles',
+            [
+                'sort'            => 5,
+                'levels'          => ['personal'],
+                'panel_js_module' => $prefJs,
+                'label_key'       => 'preferences.nav.personalization.label',
+                'title_key'       => 'preferences.nav.personalization.title',
+                'sub_key'         => 'preferences.nav.personalization.sub',
             ],
         );
 
@@ -460,6 +496,9 @@ return new class extends Controller {
                 'sort'            => 10,
                 'levels'          => ['personal'],
                 'panel_js_module' => $prefJs,
+                'label_key'       => 'preferences.nav.personal.label',
+                'title_key'       => 'preferences.nav.personal.title',
+                'sub_key'         => 'preferences.nav.personal.sub',
             ],
         );
 
@@ -490,6 +529,17 @@ return new class extends Controller {
             [
                 'shell_panel_url' => '/vault/workspace-panel',
                 'shell_js_module' => '/webassets/vault/default/js/vault-panel.js',
+            ]
+        );
+
+        SpaRegister::add(
+            'workspace/rag-explore',
+            'RAG Explore',
+            'Hybrid vector search and knowledge-graph visualization',
+            'share-2',
+            [
+                'shell_panel_url' => '/rag/workspace-panel',
+                'shell_js_module' => '/webassets/rag/default/js/rag-explore-panel.js',
             ]
         );
 
@@ -554,10 +604,15 @@ return new class extends Controller {
 
         // Literal routes must sit in the same {@code addRoute} batch as {@code /:a+} so sort order keeps them ahead of the SPA catch-all.
         $agent->addRoute([
-            'GET /health'        => 'health',
-            'GET /api/build_info' => 'api/build_info',
-            '/:a+'               => 'main',
-            '/'                  => 'main',
+            'GET /health'                   => 'health',
+            'GET /api/build_info'            => 'api/build_info',
+            'GET /api/storage_settings'      => 'api/storage_settings',
+            'POST /api/storage_settings'     => 'api/storage_settings',
+            'POST /api/storage_test'         => 'api/storage_test',
+            'POST /api/storage_migrate'        => 'api/storage_migrate',
+            'GET /api/storage_migrate_status'  => 'api/storage_migrate_status',
+            '/:a+'                           => 'main',
+            '/'                              => 'main',
         ]);
 
         return true;

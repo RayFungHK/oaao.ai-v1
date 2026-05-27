@@ -16,7 +16,11 @@ function escapeHtml(v) {
         .replace(/"/g, '&quot;');
 }
 
-/** Razy {@code Dialog} shell tokens — avoid arbitrary {@code min(a,b)} with commas here (JIT often skips them). Size uses {@link Dialog} {@code height} below. */
+/** Wide two-pane shell — Manus-style settings modal ({@link Dialog} {@code width} / {@code height}). */
+const SDLG_DIALOG_WIDTH = 'min(1024px, calc(100vw - 3rem))';
+const SDLG_DIALOG_HEIGHT = 'min(720px, calc(100vh - 3rem))';
+
+/** Razy {@code Dialog} shell tokens — avoid arbitrary {@code min(a,b)} with commas here (JIT often skips them). Size uses {@link Dialog} {@code width} / {@code height} below. */
 const SDLG_DIALOG_BOX_JIT = 'overflow-hidden bg-[var(--grid-panel-bright)] min-h-0';
 
 /** Host for settings split view: stretch {@code .dialog-box} column and drop default body padding. */
@@ -40,8 +44,8 @@ const SDLG_NAV_JIT = [
     'flex',
     'flex-col',
     'shrink-0',
-    'w-[240px]',
-    'min-w-[180px]',
+    'w-[260px]',
+    'min-w-[200px]',
     '[border-right:1px_solid_var(--grid-line)]',
     'bg-[var(--grid-nav)]',
     'py-4',
@@ -239,7 +243,7 @@ export async function openWorkspaceSettingsDialog(razyui) {
     header.className = SDLG_HEADER_JIT;
     const first = sections[0];
     header.innerHTML = `<div class="text-[1.125rem] fw-bold fg-[var(--grid-ink)] mb-1" id="oaao-sdlg-title"></div>
-        <div class="text-[0.8125rem] fg-[var(--grid-ink-muted)] leading-relaxed max-w-[42rem]" id="oaao-sdlg-sub"></div>`;
+        <div class="text-[0.8125rem] fg-[var(--grid-ink-muted)] leading-relaxed max-w-[42rem] mt-1.5" id="oaao-sdlg-sub"></div>`;
     const titleInit = header.querySelector('#oaao-sdlg-title');
     const subInit = header.querySelector('#oaao-sdlg-sub');
     if (titleInit) titleInit.textContent = first.title;
@@ -408,8 +412,9 @@ export async function openWorkspaceSettingsDialog(razyui) {
         title: oaaoT('settings.dialog.title'),
         content: root,
         size: 'xl',
-        /** Sets {@code height} via Dialog runtime ({@code JIT.TOKEN.resolveSize}) — reliable vs comma-heavy JIT arbitrary classes on {@code .dialog-box}. */
-        height: 'min(640px, calc(100vh - 3rem))',
+        /** {@code width} / {@code height} via Dialog runtime ({@code JIT.TOKEN.resolveSize}) — reliable vs comma-heavy JIT arbitrary classes on {@code .dialog-box}. */
+        width: SDLG_DIALOG_WIDTH,
+        height: SDLG_DIALOG_HEIGHT,
         closable: true,
         buttons: [],
         onOpen(ctrl) {

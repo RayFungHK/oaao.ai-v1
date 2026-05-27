@@ -189,6 +189,7 @@ class PassagePick:
     speaker_id: int | None = None
     speaker_label: str = ""
     excerpt: str = ""
+    score: float = 0.0
 
 
 async def _rerank_passage_picks(
@@ -329,7 +330,7 @@ def _select_passages_for_vault(
 
     picks: list[PassagePick] = []
     docs_with_summary: set[int] = set()
-    for did, (_eff, hit) in sorted(  # noqa: B007
+    for did, (eff, hit) in sorted(
         best_summary_by_doc.items(), key=lambda row: row[1][0], reverse=True
     )[:max_summary_slots]:
         pick = _passage_pick_from_hit(hit, vault_id=vault_id)
@@ -341,6 +342,7 @@ def _select_passages_for_vault(
         seen.add(fp)
         docs_with_summary.add(pick.document_id)
         pick.segment_type = "transcript_summary"
+        pick.score = float(eff)
         picks.append(pick)
 
     plain_asr_per_doc: dict[int, int] = {}
@@ -367,6 +369,7 @@ def _select_passages_for_vault(
                 continue
             plain_asr_per_doc[doc_id] = plain_asr_per_doc.get(doc_id, 0) + 1
         seen.add(fp)
+        pick.score = float(eff)
         picks.append(pick)
 
     return picks, below_score

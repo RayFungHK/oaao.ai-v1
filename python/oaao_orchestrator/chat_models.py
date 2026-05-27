@@ -146,6 +146,10 @@ class ChatRunRequest(BaseModel):
         default=None,
         description="HMAC-signed run identity from PHP send — validates user/conversation/message for the whole run.",
     )
+    user_personalization: dict[str, Any] | None = Field(
+        default=None,
+        description="User profile, knowledge, timezone, and region from Preferences → Personalization.",
+    )
     mm_understand: dict[str, Any] | None = Field(
         default=None,
         description="Resolved mm.understand.* purpose for attachment vision / caption.",

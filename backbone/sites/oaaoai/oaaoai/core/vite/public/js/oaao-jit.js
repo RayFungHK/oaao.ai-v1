@@ -10,6 +10,8 @@
  *
  * Other pages: class on <rui-input>
  *   - oaao-input-form — default-ish in-app form
+ * Native <input> / search: oaao-input-inline
+ * RazyUI Combobox host: oaao-combobox-form
  * Plain <rui-input> with no extra class uses theme defaults.
  */
 
@@ -52,6 +54,34 @@ const oaaoPresets = {
         '[--inp-radius:var(--rui-radius-sm)]',
         '[--inp-bg:var(--rui-bg-inset)]',
         '[--inp-border:var(--grid-line)]',
+    ].join(' '),
+
+    /**
+     * Native {@code <input>} / search fields — workspace folder trigger parity + focus ring.
+     */
+    'oaao-input-inline': [
+        'flex-1 min-w-[12rem] outline-none w-full',
+        'rounded-[8px] min-h-9 px-2.5 py-1.5 text-[0.8125rem] fw-medium',
+        'fg-[var(--grid-ink)] bg-[var(--grid-paper)] font-inherit box-border',
+        'border border-solid border-[var(--grid-line)]',
+        'hover:bg-[var(--grid-line)]/25 transition-colors',
+        'focus:border-[var(--grid-accent)]',
+        'focus:[box-shadow:0_0_0_2px_color-mix(in_srgb,var(--grid-accent),transparent_88%)]',
+    ].join(' '),
+
+    /**
+     * RazyUI Combobox host — grid tokens; apply {@code OAAO_COMBOBOX_CONTAINER_JIT} on {@code .combobox-container} after mount.
+     */
+    'oaao-combobox-form': [
+        'font-inherit text-[0.8125rem] w-full min-w-0',
+        '[--rui-bg:var(--grid-paper)]',
+        '[--rui-border:var(--grid-line)]',
+        '[--rui-radius-sm:8px]',
+        '[--rui-text:var(--grid-ink)]',
+        '[--rui-text-muted:var(--grid-caption)]',
+        '[--rui-accent:var(--grid-accent)]',
+        '[--rui-bg-hover:color-mix(in_srgb,var(--grid-line),transparent_70%)]',
+        '[--rui-border-strong:color-mix(in_srgb,var(--grid-line),var(--grid-ink)_15%)]',
     ].join(' '),
 
     /** Primary black CTA — maps to RazyUI Button --btn-* on .button host */
