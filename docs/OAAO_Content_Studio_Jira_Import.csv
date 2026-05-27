@@ -3,6 +3,8 @@ Epic,EPIC-CS-1,Corpus Studio (workspace/corpus),Corpus Studio (workspace/corpus)
 Epic,EPIC-CS-2,Library + AI Block Editor,Library + AI Block Editor,,P0,content-studio;library;editor,Library,cto,CS-W3-CS-W8,"workspace/library：Soft-RAG + Block Editor；Chat 僅 @library 才检索；Finalize to Vault 進 Hard-RAG。","Library 可編輯/AI 改/Corpus 套用；Finalize 後 Vault RAG 命中。",EPIC-CS-1
 Epic,EPIC-CS-3,Office Generation Agent,Office Generation Agent,,P1,content-studio;office-agent,Orchestrator,python-lead,CS-W6-CS-W9,"docx/pdf/xlsx 生成 agent；產物進 agent_materials；Editor/Chat 可下載。","Chat 可生成 docx/pdf 並下載；可選 corpus 風格。",EPIC-CS-2
 Epic,EPIC-CS-4,Conversation Skills Evolution,Conversation Skills Evolution,,P1,content-studio;skills,Chat,cto,CS-W4-CS-W7,"對話沉澱 → thread icon → Dialog 確認建 Skill → 版本 + 用量升級；與 crystallization 分線。","長對話出現 skill 建議；確認保存；可升版。",
+Epic,EPIC-CS-5,Calendar Agent (workspace/calendar),Calendar Agent (workspace/calendar),,P1,content-studio;calendar-agent;productivity,Calendar,cto,CS-W7-CS-W10,"AI 從對話抽取事件 → Add to calendar chip → workspace/calendar page（icon rail）；可回溯 conversation/message。","Chat 可加入日曆；Calendar page 可 CRUD；provenance 連結可用。",EPIC-CS-2
+Epic,EPIC-CS-6,Todo Agent (header todos + thread resolve),Todo Agent (header todos + thread resolve),,P1,content-studio;todo-agent;productivity,Chat,cto,CS-W8-CS-W10,"AI 抽取待辦 → Add to todos chip；header todos panel（notification 旁）；thread Resolve + 手動完成。","Chat 可加入 todo；panel 可管理；Resolve 可標記 done。",EPIC-CS-2
 Epic,EPIC-CS-P,Content Studio Platform Prerequisites,Content Studio Platform Prerequisites,,P2,content-studio;platform,Platform,devops,CS-W1-CS-W9,"Vault job SSE、Redis canary、legacy doc 更新、contracts 延伸。","Platform 債項不阻塞 CS-1 主線。",
 Story,CS-1-S1,Corpus module skeleton + SPA register,,EPIC-CS-1,P0,content-studio;corpus;php,Corpus,php-lead,CS-W1,"oaaoai/corpus 模組；registerSpaPage workspace/corpus；gallery shell。","Sidebar 可進入；空狀態 UI；i18n EN/zh。",
 Story,CS-1-S2,Corpus PostgreSQL schema,,EPIC-CS-1,P0,content-studio;corpus;php,Corpus,php-lead,CS-W1,"oaao_corpus_profile、oaao_corpus_source、oaao_corpus_segment 表 + migration。","Migration 可跑；workspace ACL 正確。",
@@ -43,6 +45,24 @@ Story,CS-4-S6,Skill version bump + history,,EPIC-CS-4,P1,content-studio;skills;p
 Story,CS-4-S7,Usage tracking + upgrade prompt,,EPIC-CS-4,P2,content-studio;skills;python,Orchestrator,python-lead,CS-W8,"N 次成功 → suggest upgrade。","Upgrade prompt 可觸發。",
 Story,CS-4-S8,Skill vs crystallization docs,,EPIC-CS-4,P2,content-studio;skills;docs,Platform,qa-lead,CS-W8,"Settings 說明兩條路徑。","文件發布。",
 Story,CS-4-S9,Conversation skills tests,,EPIC-CS-4,P1,content-studio;skills;qa,Chat,qa-lead,CS-W8,"classifier + dialog + version 測試。","CI 綠。",
+Story,CS-5-S1,Calendar module + SPA + rail icon,,EPIC-CS-5,P1,content-studio;calendar-agent;php,Calendar,php-lead,CS-W7,"oaaoai/calendar；registerSpaPage workspace/calendar；icon rail Calendar。","Sidebar rail 可進入；空狀態 UI；i18n EN/zh。",
+Story,CS-5-S2,Calendar schema + CRUD API,,EPIC-CS-5,P1,content-studio;calendar-agent;php,Calendar,php-lead,CS-W7,"oaao_calendar_event 表；tenant/workspace scope；CRUD JSON API。","CRUD 通過；timezone/all_day 欄位齊全。",
+Story,CS-5-S3,Calendar page UI (list + month),,EPIC-CS-5,P1,content-studio;calendar-agent;php,Calendar,php-lead,CS-W7,"列表/月曆視圖；手動新增編輯刪除。","Calendar page 可管理事件。",
+Story,CS-5-S4,CalendarEvent extraction agent,,EPIC-CS-5,P1,content-studio;calendar-agent;python,Orchestrator,python-lead,CS-W8,"post-turn 抽取 calendar_event_candidate（title/start/end/location/confidence）。","高 confidence 產出 struct。",
+Story,CS-5-S5,Stream calendar_event_suggested + chat chip,,EPIC-CS-5,P1,content-studio;calendar-agent;chat,Orchestrator,python-lead,CS-W8,"SSE envelope；message 下 Add to calendar chip。","前端可收到 event 並渲染 chip。",
+Story,CS-5-S6,Add to calendar Dialog + save,,EPIC-CS-5,P1,content-studio;calendar-agent;php,Calendar,php-lead,CS-W8,"RazyUI Dialog 預填欄位；POST calendar_events_save。","確認後 event 出現在 calendar list。",
+Story,CS-5-S7,Event provenance conversation/message link,,EPIC-CS-5,P1,content-studio;calendar-agent;php,Calendar,php-lead,CS-W9,"事件詳情 ↔ Chat deep link。","Calendar 與 Chat 可互相跳轉。",
+Story,CS-5-S8,Optional calendar reminder via notification,,EPIC-CS-5,P2,content-studio;calendar-agent;php,Calendar,php-lead,CS-W10,"建立事件可選提前提醒；寫入 notification。","到期前收到 in-app notification。",
+Story,CS-5-S9,Calendar agent tests,,EPIC-CS-5,P1,content-studio;calendar-agent;qa,Calendar,qa-lead,CS-W9,"extract mock；save round-trip；timezone 邊界。","CI 綠。",
+Story,CS-6-S1,Todo schema + CRUD API,,EPIC-CS-6,P1,content-studio;todo-agent;php,Chat,php-lead,CS-W8,"oaao_todo_item 表；open/done/cancelled；list/filter API。","CRUD 通過；user scope 正確。",
+Story,CS-6-S2,Header todos icon + dropdown panel,,EPIC-CS-6,P1,content-studio;todo-agent;php,Chat,php-lead,CS-W8,"notification 旁 todos icon；open count badge；dropdown 列表。","Panel 可開關；樣式對齊 notification dropdown。",
+Story,CS-6-S3,Todo extraction agent,,EPIC-CS-6,P1,content-studio;todo-agent;python,Orchestrator,python-lead,CS-W9,"todo_item_candidate struct；confidence；thread dedupe。","可抽取 actionable todo。",
+Story,CS-6-S4,Stream todo_item_suggested + Add to todos chip,,EPIC-CS-6,P1,content-studio;todo-agent;chat,Orchestrator,python-lead,CS-W9,"SSE；message 下 Add to todos chip。","前端可渲染 chip。",
+Story,CS-6-S5,Add to todos confirm + save,,EPIC-CS-6,P1,content-studio;todo-agent;php,Chat,php-lead,CS-W9,"Dialog 或 inline 確認；POST todos_save。","確認後 todo 出現在 panel。",
+Story,CS-6-S6,Thread-linked todo strip,,EPIC-CS-6,P1,content-studio;todo-agent;php,Chat,php-lead,CS-W9,"對話內顯示 open todos 與 count。","Thread 可見關聯待辦。",
+Story,CS-6-S7,Completion checker + Resolve button,,EPIC-CS-6,P1,content-studio;todo-agent;python,Orchestrator,python-lead,CS-W10,"檢測完成 → Resolve 按鈕；標記 done。","Resolve 後 status=done。",
+Story,CS-6-S8,Manual complete and reopen in todos panel,,EPIC-CS-6,P1,content-studio;todo-agent;php,Chat,php-lead,CS-W10,"panel 勾選完成；done 列表；reopen。","手動完成/重開可用。",
+Story,CS-6-S9,Todo agent tests + Skill boundary doc,,EPIC-CS-6,P1,content-studio;todo-agent;qa,Chat,qa-lead,CS-W10,"extract→save→resolve E2E；Todo vs Skill 文件。","CI 綠；分界文件發布。",
 Story,CS-P-S1,Vault job ingest SSE phase 2,,EPIC-CS-P,P1,platform;vault,Orchestrator,python-lead,CS-W1,"Top-20 #9 ingest SSE 收斂。","SSE 取代 poll 主路徑。",
 Story,CS-P-S2,Redis queue canary stage 2,,EPIC-CS-P,P1,platform;queue,Platform,devops,CS-W1,"staging OAAO_QUEUE_BACKEND=redis。","Canary checklist 完成。",
 Story,CS-P-S3,Update MIGRATION_LEGACY parity table,,EPIC-CS-P,P2,platform;docs,Platform,qa-lead,CS-W2,"§4 更新 storage/corpus/library 狀態。","Doc merged。",
