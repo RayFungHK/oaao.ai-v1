@@ -19,9 +19,13 @@ OAAO_VAULT_JOB_POLL_INTERVAL_SEC=4    # base for idle backoff cap
 
 Finish still posts to PHP `vault_job_finish` (side effects / chaining unchanged).
 
-## Phase 2 (deferred)
+## Phase 2 (shipped)
 
-- Browser SSE: `GET /v1/vault/ingest/stream` replacing `vault-panel.js` 3s poll
+- Browser SSE: `GET /v1/vault/ingest/stream` (orchestrator) + `POST /vault/api/ingest_stream_token` (PHP mint); `vault-panel.js` prefers EventSource, falls back to 3s poll.
+- PG snapshot: [vault_ingest_status.py](../python/oaao_orchestrator/vault_ingest_status.py) mirrors `vault_status` transient query.
+
+## Phase 3 (deferred)
+
 - Redis stream consumer sharing `QueueBackend` with post-stream pools
 - PG `NOTIFY oaao_vault_job` wake (eliminate idle poll latency)
 

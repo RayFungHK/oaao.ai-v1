@@ -236,6 +236,17 @@ async def process_vault_graph_index(
 
     segments = extract_text_segments(path, mime)
     if not segments:
+        source_text = str(payload.get("source_text") or "").strip()
+        if source_text:
+            segments = [
+                TextSegment(
+                    scope="transcript",
+                    label="transcript",
+                    body=source_text[:500000],
+                    meta={},
+                )
+            ]
+    if not segments:
         return "failed", "no_extractable_text_for_graph", {}
 
     batch_chars = max(2000, min(12000, int(_env("OAAO_VAULT_GRAPH_BATCH_CHARS", "5500") or "5500")))

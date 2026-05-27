@@ -569,6 +569,123 @@ function vaultEmbedWatchReconcile(treeRows) {
 /** @type {ReturnType<typeof setTimeout> | null} */
 let vaultEmbedProgressTimer = null;
 
+/** @type {EventSource | null} */
+let vaultIngestEventSource = null;
+
+/** @type {number} */
+let vaultIngestStreamVaultId = 0;
+
+function vaultCloseIngestEventSource() {
+    if (vaultIngestEventSource != null) {
+        vaultIngestEventSource.close();
+        vaultIngestEventSource = null;
+    }
+    vaultIngestStreamVaultId = 0;
+}
+
+/**
+ * @param {unknown[]} statuses
+ * @param {AbortSignal} signal
+ */
+async function vaultApplyIngestStatusRows(statuses, signal) {
+    if (signal.aborted || !Array.isArray(statuses) || statuses.length === 0) return;
+    if (!vaultExplorerTreeCache.length) return;
+
+    const cache = await loadVaultTreeCacheMod();
+    /** @type {Record<string, Record<string, unknown>>} */
+    const byId = {};
+    for (const raw of statuses) {
+        if (!raw || typeof raw !== 'object') continue;
+        const row = /** @type {Record<string, unknown>} */ (raw);
+        byId[String(row.id ?? '')] = row;
+    }
+    cache.patchVaultTreeDocumentStatuses(vaultExplorerTreeCache, byId);
+    vaultReconcileTransientDocBadges(vaultExplorerTreeCache);
+    vaultEmbedWatchReconcile(vaultExplorerTreeCache);
+    vaultPersistStoredExplorerNav();
+    if (typeof vaultExplorerRedraw === 'function') {
+        vaultExplorerRedraw();
+    } else if (typeof vaultExplorerEmbedPollRefreshRef === 'function') {
+        await vaultExplorerEmbedPollRefreshRef();
+    }
+}
+
+/**
+ * Prefer orchestrator SSE for ingest progress; falls back to 3s poll on mint/open failure.
+ *
+ * @param {number} vaultId
+ * @param {AbortSignal} signal
+ */
+function vaultEnsureIngestStream(vaultId, signal) {
+    if (signal.aborted) return;
+    const vid = Math.floor(Number(vaultId));
+    if (!Number.isFinite(vid) || vid < 1) return;
+    if (vaultIngestEventSource != null && vaultIngestStreamVaultId === vid) return;
+
+    vaultCloseIngestEventSource();
+    vaultIngestStreamVaultId = vid;
+
+    const watchIds = [
+        ...vaultEmbedWatchDocIds,
+        ...vaultTransientDocBadges.keys(),
+    ]
+        .map((x) => Math.floor(Number(x)))
+        .filter((x) => Number.isFinite(x) && x > 0);
+
+    void (async () => {
+        try {
+            const wid = getOaaoActiveWorkspaceIdForVault();
+            /** @type {Record<string, unknown>} */
+            const payload = { vault_id: vid };
+            if (wid != null) payload.workspace_id = wid;
+            if (watchIds.length > 0) payload.document_ids = watchIds.slice(0, 64);
+
+            const res = await fetch(`${vaultApiBase()}ingest_stream_token`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (signal.aborted || !res.ok) {
+                vaultCloseIngestEventSource();
+                vaultStartEmbedProgressPolling(signal);
+                return;
+            }
+            const json = await res.json();
+            const streamUrl =
+                json && json.data && typeof json.data.stream_url === 'string' ? json.data.stream_url.trim() : '';
+            if (!streamUrl || signal.aborted) {
+                vaultCloseIngestEventSource();
+                vaultStartEmbedProgressPolling(signal);
+                return;
+            }
+
+            const es = new EventSource(streamUrl);
+            vaultIngestEventSource = es;
+
+            es.addEventListener('status', (ev) => {
+                if (signal.aborted) return;
+                try {
+                    const data = JSON.parse(String(/** @type {MessageEvent} */ (ev).data || '{}'));
+                    const docs = data && Array.isArray(data.documents) ? data.documents : [];
+                    void vaultApplyIngestStatusRows(docs, signal);
+                } catch (_e) {
+                    //
+                }
+            });
+
+            es.onerror = () => {
+                if (signal.aborted) return;
+                vaultCloseIngestEventSource();
+                vaultStartEmbedProgressPolling(signal);
+            };
+        } catch (_e) {
+            vaultCloseIngestEventSource();
+            vaultStartEmbedProgressPolling(signal);
+        }
+    })();
+}
+
 function vaultClearEmbedProgressTimer() {
     if (vaultEmbedProgressTimer != null) {
         clearTimeout(vaultEmbedProgressTimer);
@@ -589,7 +706,19 @@ function vaultEnsureEmbedWatchDoc(docId) {
  */
 function vaultKickEmbedPollingIfNeeded(signal) {
     if (signal.aborted) return;
-    if (vaultTransientDocBadges.size === 0 && vaultEmbedWatchDocIds.size === 0) return;
+    if (vaultTransientDocBadges.size === 0 && vaultEmbedWatchDocIds.size === 0) {
+        vaultClearEmbedProgressTimer();
+        vaultCloseIngestEventSource();
+        return;
+    }
+    const navVaultId =
+        vaultExplorerNav && Number.isFinite(vaultExplorerNav.vaultId)
+            ? Math.floor(Number(vaultExplorerNav.vaultId))
+            : 0;
+    if (navVaultId > 0) {
+        vaultEnsureIngestStream(navVaultId, signal);
+        return;
+    }
     if (vaultEmbedProgressTimer != null) return;
     vaultStartEmbedProgressPolling(signal);
 }
@@ -797,6 +926,22 @@ const VAULT_SIDEBAR_UI = {
     badge_graph_building: { en: 'Graph…', 'zh-Hant': '圖譜建立中' },
     badge_graph_pending: { en: 'Graph queued', 'zh-Hant': '圖譜排程' },
     badge_graph_failed: { en: 'Graph failed', 'zh-Hant': '圖譜失敗' },
+    detail_graph_hint_no_text: {
+        en: 'No extractable text — for audio, run Transcript / ASR first, then Re-queue · Graph in FILE ACTIONS.',
+        'zh-Hant': '無可擷取文字 — 音訊請先執行轉寫／ASR，再在 FILE ACTIONS 按「重新排程 · 圖譜」。',
+    },
+    detail_graph_hint_missing_arango: {
+        en: 'ArangoDB is not configured — start the vectors profile (`docker compose --profile vectors up`).',
+        'zh-Hant': 'ArangoDB 未設定 — 請啟動 vectors profile（`docker compose --profile vectors up`）。',
+    },
+    detail_graph_hint_missing_purpose: {
+        en: 'Graph purpose / endpoint is missing — configure Graph primary under Purpose allocation.',
+        'zh-Hant': '缺少 Graph purpose／endpoint — 請在 Purpose allocation 設定 Graph primary。',
+    },
+    detail_graph_hint_requeue: {
+        en: 'Use Re-queue · Graph below after fixing the cause shown above.',
+        'zh-Hant': '修正上方原因後，請在下方按「重新排程 · 圖譜」。',
+    },
     /** Native tooltip on status-row info icon ({@see vaultStatusDetailTooltipIcon}). */
     status_detail_tooltip_aria: {
         en: 'Error detail — hover or focus to read',
@@ -2947,6 +3092,22 @@ function vaultRenderBreadcrumb(navHost, tree, nav, onNavigate) {
     }
 }
 
+/** Map server graph_error codes to actionable sidebar hints. */
+function vaultGraphErrorHint(code, docNode) {
+    const c = typeof code === 'string' ? code.trim().toLowerCase() : '';
+    if (c.includes('no_extractable_text')) {
+        return vaultSidebarUiString('detail_graph_hint_no_text');
+    }
+    if (c.includes('missing_arango') || c.includes('arango')) {
+        return vaultSidebarUiString('detail_graph_hint_missing_arango');
+    }
+    if (c.includes('missing_graph_purpose') || c.includes('graph_primary')) {
+        return vaultSidebarUiString('detail_graph_hint_missing_purpose');
+    }
+    if (c === 'failed' || c === '') return '';
+    return vaultSidebarUiString('detail_graph_hint_requeue');
+}
+
 /**
  * @param {Record<string, unknown>} node
  */
@@ -4086,7 +4247,10 @@ function renderVaultDetailPanel(docNode, mount, signal) {
 
     if (graphDetail instanceof HTMLElement) {
         if (vgm !== 0 && gErrRaw !== '') {
-            graphDetail.textContent = `${vaultSidebarUiString('detail_graph_heading')}: ${gErrRaw}`;
+            const hint = vaultGraphErrorHint(gErrRaw, docNode);
+            graphDetail.textContent = hint
+                ? `${vaultSidebarUiString('detail_graph_heading')}: ${gErrRaw}\n${hint}`
+                : `${vaultSidebarUiString('detail_graph_heading')}: ${gErrRaw}`;
             graphDetail.classList.remove('hidden');
         } else {
             graphDetail.textContent = '';

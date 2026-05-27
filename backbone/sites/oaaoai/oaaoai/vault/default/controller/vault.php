@@ -161,6 +161,8 @@ return new class extends Controller {
                 'POST document_upload'      => 'document_upload',
                 'POST document_upload_text' => 'document_upload_text',
                 'POST document_enqueue' => 'document_enqueue',
+                'POST ingest_stream_token' => 'ingest_stream_token',
+                'GET vault_status' => 'vault_status',
                 'POST document_delete' => 'document_delete',
                 'GET document_embed_chunks' => 'document_embed_chunks',
                 'POST document_rename' => 'document_rename',

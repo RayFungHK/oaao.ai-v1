@@ -50,12 +50,11 @@
 - ✅ **Top-20 #17** — [store_session.py](../python/oaao_orchestrator/slide_project/store_session.py); `store.py` 325 LOC.
 - ✅ **Top-20 #19** — [scripts/perf_regression_gate.sh](../scripts/perf_regression_gate.sh) + CI `perf-gate` job.
 - ✅ **Top-20 #8 (ops)** — [W8_S3_RedisCanaryRollout.md](W8_S3_RedisCanaryRollout.md) Stage 2–4 checklist.
-- 🟡 **Top-20 #9 (phase 1)** — [vault_job_dispatch.py](../python/oaao_orchestrator/vault_job_dispatch.py) + idle backoff + [W9_S1_VaultJobWorkerPhase1.md](W9_S1_VaultJobWorkerPhase1.md); browser SSE Phase 2 open.
-- 🟡 **Top-20 #16 (phase 1)** — [SlideTemplateStoragePaths.php](../backbone/sites/oaaoai/oaaoai/slide-designer/default/library/SlideTemplateStoragePaths.php); Html enrichment split deferred.
+- 🟡 **Top-20 #9 (phase 2)** — [routes/vault.py](../python/oaao_orchestrator/routes/vault.py) ingest SSE + [ingest_stream_token.php](../backbone/sites/oaaoai/oaaoai/vault/default/controller/api/ingest_stream_token.php); Redis queue consumer deferred phase 3.
+- ✅ **Top-20 #16 (phase 2)** — [SlideTemplateStorageHtml.php](../backbone/sites/oaaoai/oaaoai/slide-designer/default/library/SlideTemplateStorageHtml.php).
 
 ### In progress / next P0 batch
-- **#9 phase 2** — vault ingest SSE + Redis queue consumer
-- **#16 phase 2** — `SlideTemplateStorageHtml.php` extraction
+- Redis canary Stage 2 ops rollout on staging (`OAAO_QUEUE_BACKEND=redis` per [W8_S3_RedisCanaryRollout.md](W8_S3_RedisCanaryRollout.md))
 
 ---
 

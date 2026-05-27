@@ -1,6 +1,6 @@
 # W8-S3 — Redis queue canary rollout (Top-20 #8 ops)
 
-**Status:** Code + metrics shipped (W8-S1/W8-S3). This doc is the **Stage 2–4 ops checklist** for promoting `OAAO_QUEUE_BACKEND=redis`.
+**Status:** Code + metrics shipped (W8-S1/W8-S3). Compose profile `redis-canary` adds a `redis` service; this doc is the **Stage 2–4 ops checklist** for promoting `OAAO_QUEUE_BACKEND=redis`.
 
 ## Prerequisites
 
