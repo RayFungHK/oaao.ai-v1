@@ -3,6 +3,7 @@
 namespace Module\oaao\vault;
 
 require_once __DIR__ . '/api/_vault_hook_jobs.php';
+require_once __DIR__ . '/../library/VaultControllerSupportTrait.php';
 
 use oaaoai\vault\VaultControllerSupportTrait;
 use oaaoai\vault\VaultDocumentHookRegister;

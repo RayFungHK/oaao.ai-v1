@@ -17,6 +17,7 @@ import {
     removeTemplateSlugsFromEditor,
     setChatComposerEditorPlainText,
 } from './chat-composer-editor.js';
+import { uploadChatComposerAttachment } from './chat-composer-attach-upload.js';
 import {
     hydrateRuiIconSlots,
     mountRuiIcon,
@@ -1864,7 +1865,7 @@ function loadChatComposerDialogCtor() {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260526-thread-health-chevron-v43';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260526-paste-image-lance-gradio-v46';
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -11113,40 +11114,6 @@ export async function mountShellPanel(mount) {
 
     syncChatComposerChips(mount);
     restoreChatPendingSlideTemplateFromStorage(mount);
-    if (isChatComposerEditorEl(inputEl)) {
-        mountChatComposerEditor(inputEl, signal, {
-            onTemplateRemoved: () => {
-                chatComposerActiveSlideTemplate = null;
-                try {
-                    sessionStorage.removeItem(CHAT_PENDING_SLIDE_TEMPLATE_KEY);
-                } catch {
-                    /* ignore */
-                }
-                syncChatComposerChips(mount);
-            },
-            onTemplateInserted: (hit) => {
-                chatComposerActiveSlideTemplate = {
-                    template_id: hit.template_id,
-                    label: hit.label,
-                    thumb_url: hit.thumb_url,
-                };
-                try {
-                    sessionStorage.setItem(
-                        CHAT_PENDING_SLIDE_TEMPLATE_KEY,
-                        JSON.stringify({
-                            template_id: hit.template_id,
-                            label: hit.label,
-                            thumb_url: hit.thumb_url ?? '',
-                        }),
-                    );
-                } catch {
-                    /* ignore */
-                }
-                renderChatComposerActiveTemplateChip(mount);
-            },
-            resolveTemplateSlug: resolvePublishedSlideTemplateSlug,
-        });
-    }
 
     document.addEventListener(
         'oaao-select-slide-template',
@@ -11265,6 +11232,71 @@ export async function mountShellPanel(mount) {
         },
         toast: composerToast,
     });
+
+    if (isChatComposerEditorEl(inputEl)) {
+        const attachmentUploadCtx = {
+            getConversationId: () => activeConversationId,
+            getAttachmentItems: () => chatComposerAttachments.slice(),
+            chatApiUrl,
+            workspaceChatBodyFields,
+            signal,
+            toast: composerToast,
+            onAttachmentsChange: (items) => {
+                chatComposerAttachments = Array.isArray(items)
+                    ? items.map((row) => ({
+                          id: Number(row.id ?? 0),
+                          file_name: String(row.file_name ?? 'attachment'),
+                          mime_type: String(row.mime_type ?? ''),
+                          kind: String(row.kind ?? 'other'),
+                          byte_size: Number(row.byte_size ?? 0),
+                      }))
+                    : [];
+                renderChatComposerAttachmentChips(mount);
+                if (typeof mount.__oaaoUpdateChatLayout === 'function') {
+                    mount.__oaaoUpdateChatLayout();
+                }
+            },
+        };
+        mountChatComposerEditor(inputEl, signal, {
+            onTemplateRemoved: () => {
+                chatComposerActiveSlideTemplate = null;
+                try {
+                    sessionStorage.removeItem(CHAT_PENDING_SLIDE_TEMPLATE_KEY);
+                } catch {
+                    /* ignore */
+                }
+                syncChatComposerChips(mount);
+            },
+            onTemplateInserted: (hit) => {
+                chatComposerActiveSlideTemplate = {
+                    template_id: hit.template_id,
+                    label: hit.label,
+                    thumb_url: hit.thumb_url,
+                };
+                try {
+                    sessionStorage.setItem(
+                        CHAT_PENDING_SLIDE_TEMPLATE_KEY,
+                        JSON.stringify({
+                            template_id: hit.template_id,
+                            label: hit.label,
+                            thumb_url: hit.thumb_url ?? '',
+                        }),
+                    );
+                } catch {
+                    /* ignore */
+                }
+                renderChatComposerActiveTemplateChip(mount);
+            },
+            resolveTemplateSlug: resolvePublishedSlideTemplateSlug,
+            onPasteFiles: async (files) => {
+                const room = Math.max(0, 4 - chatComposerAttachments.length);
+                for (const file of files.slice(0, room)) {
+                    await uploadChatComposerAttachment(file, attachmentUploadCtx);
+                }
+            },
+        });
+    }
+
     chatComposerSeedPromptFn = (text) => {
         if (!isChatComposerEditorEl(inputEl)) return;
         const payload = getChatComposerEditorPayload(inputEl);
@@ -13111,7 +13143,8 @@ export async function mountShellPanel(mount) {
 
     async function resetLanding(options = {}) {
         const focusInviteSidebar = Boolean(options.focusInviteSidebar);
-        const urlCid = readChatConversationIdFromUrl();
+        const ignoreUrlConversation = options.ignoreUrlConversation === true;
+        const urlCid = ignoreUrlConversation ? null : readChatConversationIdFromUrl();
         if (urlCid != null && urlCid > 0) {
             renderMessages([]);
             bindOaaoTaskListStripToConversation(mount, null);
@@ -13194,7 +13227,8 @@ export async function mountShellPanel(mount) {
                 clearChatComposerEditor(inputEl);
             }
             syncChatComposerChips(mount);
-            void resetLanding();
+            syncChatConversationUrl(null, { replace: true });
+            void resetLanding({ ignoreUrlConversation: true });
         },
         { signal },
     );

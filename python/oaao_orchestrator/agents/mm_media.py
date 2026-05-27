@@ -15,6 +15,11 @@ from typing import Any
 import httpx
 
 from oaao_orchestrator.media.capability_client import MediaCapabilityClient
+from oaao_orchestrator.media.mm_tasks import (
+    resolve_mm_edit_task,
+    resolve_mm_generate_task,
+    resolve_mm_understand_task,
+)
 from oaao_orchestrator.media.openai_vision import text_from_openai_payload
 from oaao_orchestrator.pipeline import RunContext
 from oaao_orchestrator.planner_llm import _last_user_message
@@ -88,12 +93,22 @@ def _attachment_rows(ctx: RunContext, run_task: RunTaskSpec) -> list[dict[str, A
     return [a for a in rows if int(a.get("id") or 0) in want]
 
 
-def _image_attachments(ctx: RunContext, run_task: RunTaskSpec) -> list[dict[str, Any]]:
+def _understand_attachments(ctx: RunContext, run_task: RunTaskSpec) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for att in _attachment_rows(ctx, run_task):
         mime = str(att.get("mime_type") or att.get("mime") or "").strip().lower()
         path = str(att.get("absolute_path") or att.get("path") or "").strip()
-        if mime.startswith("image/") and path:
+        if path and (mime.startswith("image/") or mime.startswith("video/")):
+            out.append(att)
+    return out
+
+
+def _edit_attachments(ctx: RunContext, run_task: RunTaskSpec) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for att in _attachment_rows(ctx, run_task):
+        mime = str(att.get("mime_type") or att.get("mime") or "").strip().lower()
+        path = str(att.get("absolute_path") or att.get("path") or "").strip()
+        if path and (mime.startswith("image/") or mime.startswith("video/")):
             out.append(att)
     return out
 
@@ -235,7 +250,8 @@ class MmMediaAgent:
 
         task = str(binding.get("default_task") or _DEFAULT_TASK[self._axis]).strip()
         prompt = _prompt_from_task(ctx, run_task)
-        images = _image_attachments(ctx, run_task)
+        understand_media = _understand_attachments(ctx, run_task)
+        edit_media = _edit_attachments(ctx, run_task)
 
         agent_task = AgentTaskSpec(
             id=f"at-{run_task.id}-mm",
@@ -258,22 +274,23 @@ class MmMediaAgent:
         async def _work() -> None:
             nonlocal artifacts, pipeline_blocks, notes
             if self._axis == "understand":
-                if not images:
+                if not understand_media:
                     notes.append(
-                        "mm_understand: no image attachments — describe images in your reply "
+                        "mm_understand: no image/video attachments — describe media in your reply "
                         "from prior attachment excerpts if present."
                     )
                     return
                 captions: list[str] = []
                 async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=15.0)) as http:
-                    for att in images[:4]:
+                    for att in understand_media[:4]:
                         path = str(att.get("absolute_path") or att.get("path") or "")
                         mime = str(att.get("mime_type") or att.get("mime") or "image/png")
                         fname = str(att.get("file_name") or att.get("name") or Path(path).name)
+                        att_task = resolve_mm_understand_task(mime, fallback=task)
                         url = _image_data_url(path, mime)
                         result = await mc.run(
                             binding,
-                            task=task,
+                            task=att_task,
                             inputs={
                                 "image_url": url or "",
                                 "path": path,
@@ -299,9 +316,10 @@ class MmMediaAgent:
                 if not prompt:
                     notes.append("mm_generate: missing prompt.")
                     return
+                gen_task = resolve_mm_generate_task(prompt, fallback=task)
                 result = await mc.run(
                     binding,
-                    task=task,
+                    task=gen_task,
                     inputs={"prompt": prompt, "text": prompt},
                 )
                 art = _artifact_from_result(
@@ -325,16 +343,17 @@ class MmMediaAgent:
                 return
 
             if self._axis == "edit":
-                if not images:
-                    notes.append("mm_edit: attach a source image to edit.")
+                if not edit_media:
+                    notes.append("mm_edit: attach a source image or video to edit.")
                     return
-                att = images[0]
+                att = edit_media[0]
                 path = str(att.get("absolute_path") or att.get("path") or "")
                 mime = str(att.get("mime_type") or att.get("mime") or "image/png")
+                edit_task = resolve_mm_edit_task(mime, fallback=task)
                 url = _image_data_url(path, mime)
                 result = await mc.run(
                     binding,
-                    task=task,
+                    task=edit_task,
                     inputs={
                         "image_url": url or "",
                         "path": path,

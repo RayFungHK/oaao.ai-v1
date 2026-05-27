@@ -123,8 +123,10 @@ async def _caption_image_via_mm(
     mm_understand: dict[str, Any],
 ) -> str:
     from oaao_orchestrator.media.capability_client import MediaCapabilityClient
+    from oaao_orchestrator.media.mm_tasks import resolve_mm_understand_task
 
-    task = str(mm_understand.get("default_task") or "x2t_image").strip()
+    fallback = str(mm_understand.get("default_task") or "x2t_image").strip()
+    task = resolve_mm_understand_task(mime, fallback=fallback)
     url = _image_data_url(path, mime)
     mc = MediaCapabilityClient()
     result = await mc.run(
@@ -282,6 +284,44 @@ async def process_chat_attachments(
                     f"[{key}] {fname} · image\n"
                     "Image file attached for this turn. The user may ask what it shows (e.g. 這是什麼 / what is this). "
                     "Acknowledge the attachment and answer from any excerpt above; do not say no image was uploaded."
+                )
+                attachment_citations.append(
+                    AttachmentCitation(
+                        cite_key=key,
+                        attachment_id=aid,
+                        file_name=fname,
+                        mime_type=mime,
+                        excerpt=fname,
+                    )
+                )
+            continue
+
+        if mime.startswith("video/"):
+            video_handled = False
+            if use_mm_caption:
+                caption = await _caption_image_via_mm(
+                    client, path=path, mime=mime, mm_understand=mm_understand or {}
+                )
+                if caption:
+                    cite_serial += 1
+                    key = f"A{cite_serial}"
+                    numbered_blocks.append(f"[{key}] {fname} · video (mm.understand)\n{caption}")
+                    attachment_citations.append(
+                        AttachmentCitation(
+                            cite_key=key,
+                            attachment_id=aid,
+                            file_name=fname,
+                            mime_type=mime,
+                            excerpt=_excerpt_from_text(caption),
+                        )
+                    )
+                    video_handled = True
+            if not video_handled:
+                cite_serial += 1
+                key = f"A{cite_serial}"
+                numbered_blocks.append(
+                    f"[{key}] {fname} · video\n"
+                    "Video file attached for this turn. Summarize or answer from any excerpt above if present."
                 )
                 attachment_citations.append(
                     AttachmentCitation(

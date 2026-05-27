@@ -1,5 +1,8 @@
 {
     "python_module": "mm_lance",
+    "module_config": {
+        "base_url": "http:\/\/lance.rayfung.hk"
+    },
     "axes": {
         "understand": {
             "default_task": "x2t_image"

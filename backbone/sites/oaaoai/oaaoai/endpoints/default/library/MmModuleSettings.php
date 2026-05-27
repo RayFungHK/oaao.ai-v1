@@ -8,7 +8,7 @@ namespace oaaoai\endpoints;
  * Multimodal runtime config — Python module per axis, no Purpose allocation row required.
  *
  * Persisted at {@code backbone/config/oaaoai/mm_modules.json} (same pattern as {@see ToolServerStorage}).
- * v1: one {@code python_module} for all axes; per-axis {@code default_task} only.
+ * v1: one {@code python_module} for all axes; per-axis tasks resolved at runtime by the orchestrator.
  */
 final class MmModuleSettings
 {

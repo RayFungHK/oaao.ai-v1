@@ -330,11 +330,12 @@ export async function tryConvertTemplateDirectiveInEditor(editorEl, resolveSlug,
  *   onTemplateRemoved: () => void,
  *   onTemplateInserted: (t: { template_id: string, label: string, thumb_url?: string }) => void,
  *   resolveTemplateSlug: (slug: string) => Promise<{ template_id: string, label: string, thumb_url?: string } | null>,
+ *   onPasteFiles?: (files: File[]) => void | Promise<void>,
  * }} hooks
  */
 export function mountChatComposerEditor(editorEl, signal, hooks) {
     editorEl.addEventListener(
-        '        keydown',
+        'keydown',
         (ev) => {
             if (ev.key === 'Enter' && !ev.shiftKey) {
                 ev.preventDefault();
@@ -352,8 +353,25 @@ export function mountChatComposerEditor(editorEl, signal, hooks) {
     editorEl.addEventListener(
         'paste',
         (ev) => {
+            const clip = ev.clipboardData;
+            if (!clip) return;
+
+            /** @type {File[]} */
+            const imageFiles = [];
+            for (const item of clip.items) {
+                if (item.kind !== 'file') continue;
+                if (!item.type.startsWith('image/')) continue;
+                const blob = item.getAsFile();
+                if (blob) imageFiles.push(blob);
+            }
+            if (imageFiles.length > 0 && typeof hooks.onPasteFiles === 'function') {
+                ev.preventDefault();
+                void hooks.onPasteFiles(imageFiles);
+                return;
+            }
+
             ev.preventDefault();
-            const text = ev.clipboardData?.getData('text/plain') ?? '';
+            const text = clip.getData('text/plain') ?? '';
             if (text) {
                 document.execCommand('insertText', false, text);
             }

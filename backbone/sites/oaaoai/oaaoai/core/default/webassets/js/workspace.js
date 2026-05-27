@@ -106,6 +106,23 @@ function pageIdToPath(pageId) {
 /** Query keys preserved when navigating to Chat — reload restores open thread ({@see chat-panel.js}). */
 const WORKSPACE_CHAT_PRESERVED_QUERY_KEYS = ['conversation_id', 'share'];
 
+function workspaceStripChatDeepLinkQuery() {
+    const u = new URL(window.location.href);
+    let changed = false;
+    for (const key of WORKSPACE_CHAT_PRESERVED_QUERY_KEYS) {
+        if (u.searchParams.has(key)) {
+            u.searchParams.delete(key);
+            changed = true;
+        }
+    }
+    if (!changed) return;
+    const qs = u.searchParams.toString();
+    const next = `${u.pathname}${qs ? `?${qs}` : ''}${u.hash}`;
+    const prev =
+        window.history.state && typeof window.history.state === 'object' ? window.history.state : {};
+    window.history.replaceState({ ...prev, chatConversationId: null }, '', next);
+}
+
 /**
  * SPA {@code navigate()} writes path-only URLs; keep vault explorer fragments on the vault page
  * ({@see oaaoai/vault/default/webassets/js/vault-panel.js vaultWriteLocationHashFromNav}).
@@ -1389,6 +1406,7 @@ export function initWorkspaceShell() {
         if (!el || el.dataset.oaaoChromeBound === '1') return;
         el.dataset.oaaoChromeBound = '1';
         el.addEventListener('click', async () => {
+            workspaceStripChatDeepLinkQuery();
             const hasChat = spaPages().some((p) => p.page_id === 'workspace/chat');
             if (hasChat) {
                 await navigateFn('workspace/chat', { replace: false });

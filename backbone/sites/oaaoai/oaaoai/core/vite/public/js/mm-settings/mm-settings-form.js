@@ -13,38 +13,6 @@ function escapeHtml(v) {
         .replace(/"/g, '&quot;');
 }
 
-/** @type {Record<'understand'|'generate'|'edit', Array<{id: string, label: string}>>} */
-const FALLBACK_TASKS_BY_AXIS = {
-    understand: [
-        { id: 'x2t_image', label: 'Image → text' },
-        { id: 'x2t_video', label: 'Video → text' },
-    ],
-    generate: [
-        { id: 't2i', label: 'Text → image' },
-        { id: 't2v', label: 'Text → video' },
-    ],
-    edit: [
-        { id: 'image_edit', label: 'Image edit' },
-        { id: 'video_edit', label: 'Video edit' },
-    ],
-};
-
-/**
- * @param {'understand'|'generate'|'edit'} axis
- * @param {Array<Record<string, unknown>>} [mediaCapabilities]
- */
-function tasksForAxis(axis, mediaCapabilities) {
-    const list = Array.isArray(mediaCapabilities) ? mediaCapabilities : [];
-    const filtered = list.filter((row) => String(row.mm_axis ?? '') === axis);
-    if (filtered.length > 0) {
-        return filtered.map((row) => ({
-            id: String(row.task_id ?? ''),
-            label: String(row.label ?? row.task_id ?? ''),
-        }));
-    }
-    return FALLBACK_TASKS_BY_AXIS[axis];
-}
-
 /**
  * @param {(s: string) => string} esc
  * @param {Array<Record<string, unknown>>} [modules]
@@ -67,6 +35,25 @@ function pythonModuleOptionsHtml(esc, modules, selected) {
         .join('');
 }
 
+/** @type {Record<string, Record<string, unknown>>} */
+const FALLBACK_MM_MODULES = {
+    mm_lance: {
+        module_id: 'mm_lance',
+        i18n_label_key: 'settings.mm.module.mm_lance.label',
+        i18n_desc_key: 'settings.mm.module.mm_lance.desc',
+        config_fields: [
+            {
+                key: 'base_url',
+                type: 'url',
+                label_key: 'settings.mm.config.base_url',
+                placeholder: 'http://host.docker.internal:8787',
+                env_fallback: 'OAAO_LANCE_BASE_URL',
+                hint_key: 'settings.mm.config.base_url_hint',
+            },
+        ],
+    },
+};
+
 /**
  * @param {string} moduleId
  * @param {Array<Record<string, unknown>>} [modules]
@@ -74,7 +61,16 @@ function pythonModuleOptionsHtml(esc, modules, selected) {
 function moduleRegistryRow(moduleId, modules) {
     const list = Array.isArray(modules) ? modules : [];
     const id = moduleId === 'lance' ? 'mm_lance' : moduleId;
-    return list.find((row) => String(row.module_id ?? '') === id) ?? null;
+    const found = list.find((row) => String(row.module_id ?? '') === id);
+    if (found) {
+        const fb = FALLBACK_MM_MODULES[id];
+        const fields = Array.isArray(found.config_fields) ? found.config_fields : [];
+        if (fb && fields.length === 0 && Array.isArray(fb.config_fields)) {
+            return { ...found, config_fields: fb.config_fields };
+        }
+        return found;
+    }
+    return FALLBACK_MM_MODULES[id] ?? null;
 }
 
 /**
@@ -139,7 +135,7 @@ export function syncMmModuleConfigButton(form, modules = []) {
         } else {
             status.textContent = oaaoT(
                 'settings.mm.config.not_configured',
-                'No worker URL — set Config or rely on orchestrator env fallback.',
+                'No worker URL — use Config or set orchestrator env fallback (OAAO_LANCE_BASE_URL).',
             );
             status.classList.remove('fg-[var(--grid-success,#15803d)]');
             status.classList.add('fg-[var(--grid-ink-muted)]');
@@ -150,23 +146,15 @@ export function syncMmModuleConfigButton(form, modules = []) {
 /**
  * @param {(s: string) => string} esc
  * @param {'understand'|'generate'|'edit'} axis
- * @param {string} defaultTask
- * @param {Array<Record<string, unknown>>} [mediaCapabilities]
+ * @param {string} i18nKey
+ * @param {string} fallback
  */
-function axisTaskFieldHtml(esc, axis, defaultTask, mediaCapabilities) {
-    const tasks = tasksForAxis(axis, mediaCapabilities);
-    const taskId = defaultTask || tasks[0]?.id || '';
-    const taskOpts = tasks
-        .map((t) => `<option value="${esc(t.id)}"${t.id === taskId ? ' selected' : ''}>${esc(t.label)}</option>`)
-        .join('');
+function mmAxisInfoHtml(esc, axis, i18nKey, fallback) {
     const title = esc(oaaoT(`settings.mm.section_${axis}`, axis));
     return `
-<fieldset class="grid gap-sm min-w-0 max-w-xl border border-[var(--grid-line)] rounded-lg p-md" data-mm-axis="${esc(axis)}">
+<fieldset class="grid gap-sm min-w-0 max-w-xl border border-[var(--grid-line)] rounded-lg p-md" data-mm-axis="${esc(axis)}" data-mm-auto-task="1">
   <legend class="text-[0.875rem] fw-semibold fg-[var(--grid-ink)] px-1">${title}</legend>
-  <label class="flex flex-col gap-0.5 text-[0.8125rem]">
-    <span class="fw-medium">${esc(oaaoT('settings.mm.default_task', 'Default task'))}</span>
-    <select name="default_task" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-paper)]">${taskOpts}</select>
-  </label>
+  <p class="text-[0.8125rem] fg-[var(--grid-ink-muted)] m-0 leading-snug">${esc(oaaoT(i18nKey, fallback))}</p>
 </fieldset>`;
 }
 
@@ -188,9 +176,24 @@ export function mmSettingsFormHtml(esc, registry = {}) {
     <p id="oaao-mm-module-config-status" class="text-[0.75rem] fg-[var(--grid-ink-muted)] m-0 min-h-[1rem]" role="status"></p>
     <span class="text-[0.75rem] fg-[var(--grid-ink-muted)]">${esc(oaaoT('settings.mm.module_hint', 'One module handles all multimodal tasks for now.'))}</span>
   </div>
-  ${axisTaskFieldHtml(esc, 'understand', 'x2t_image', registry.mediaCapabilities)}
-  ${axisTaskFieldHtml(esc, 'generate', 't2i', registry.mediaCapabilities)}
-  ${axisTaskFieldHtml(esc, 'edit', 'image_edit', registry.mediaCapabilities)}
+  ${mmAxisInfoHtml(
+        esc,
+        'understand',
+        'settings.mm.understand_auto',
+        'Orchestrator picks task from attachment type: images → Image→text, videos → Video→text. Audio uses ASR.',
+    )}
+  ${mmAxisInfoHtml(
+        esc,
+        'generate',
+        'settings.mm.generate_auto',
+        'Orchestrator picks task from user intent: default Text→image; video/animation requests → Text→video.',
+    )}
+  ${mmAxisInfoHtml(
+        esc,
+        'edit',
+        'settings.mm.edit_auto',
+        'Orchestrator picks task from source attachment: images → Image edit, videos → Video edit.',
+    )}
   <div class="flex flex-wrap items-center gap-2">
     <button type="submit" class="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-[0.8125rem] fw-semibold bg-[var(--grid-accent,#2563eb)] fg-white border-0 cursor-pointer font-inherit">${esc(oaaoT('settings.mm.save', 'Save'))}</button>
   </div>
@@ -227,51 +230,18 @@ export function fillMmSettingsForm(form, config, registry = {}) {
     if (bu) moduleConfig.base_url = bu;
     writeModuleConfigToForm(form, moduleConfig);
 
-    const axes = config.axes && typeof config.axes === 'object' ? /** @type {Record<string, unknown>} */ (config.axes) : {};
-    for (const axis of /** @type {const} */ (['understand', 'generate', 'edit'])) {
-        const fieldset = form.querySelector(`fieldset[data-mm-axis="${axis}"]`);
-        if (!(fieldset instanceof HTMLFieldSetElement)) continue;
-        const axisRow = axes[axis];
-        const task =
-            axisRow && typeof axisRow === 'object'
-                ? String(/** @type {Record<string, unknown>} */ (axisRow).default_task ?? '')
-                : '';
-        const tasks = tasksForAxis(axis, registry.mediaCapabilities);
-        const taskId = task || tasks[0]?.id || '';
-        const taskEl = fieldset.querySelector('select[name="default_task"]');
-        if (taskEl instanceof HTMLSelectElement) {
-            if (![...taskEl.options].some((o) => o.value === taskId) && taskId) {
-                const opt = document.createElement('option');
-                opt.value = taskId;
-                opt.textContent = taskId;
-                taskEl.append(opt);
-            }
-            taskEl.value = taskId;
-        }
-    }
-
     syncMmModuleConfigButton(form, registry.modules ?? []);
 }
 
 /**
  * @param {HTMLFormElement} form
- * @returns {{ python_module: string, module_config: Record<string, string>, axes: Record<'understand'|'generate'|'edit', { default_task: string }> }}
+ * @returns {{ python_module: string, module_config: Record<string, string> }}
  */
 export function readMmSettingsConfig(form) {
     const modEl = form.querySelector('select[name="python_module"]');
     const python_module = modEl instanceof HTMLSelectElement ? modEl.value : 'mm_lance';
     const module_config = readModuleConfigFromForm(form);
-    /** @type {Record<'understand'|'generate'|'edit', { default_task: string }>} */
-    const axes = { understand: { default_task: 'x2t_image' }, generate: { default_task: 't2i' }, edit: { default_task: 'image_edit' } };
-    for (const axis of /** @type {const} */ (['understand', 'generate', 'edit'])) {
-        const fieldset = form.querySelector(`fieldset[data-mm-axis="${axis}"]`);
-        if (!(fieldset instanceof HTMLFieldSetElement)) continue;
-        const taskEl = fieldset.querySelector('select[name="default_task"]');
-        if (taskEl instanceof HTMLSelectElement) {
-            axes[axis] = { default_task: taskEl.value };
-        }
-    }
-    return { python_module, module_config, axes };
+    return { python_module, module_config };
 }
 
 /**

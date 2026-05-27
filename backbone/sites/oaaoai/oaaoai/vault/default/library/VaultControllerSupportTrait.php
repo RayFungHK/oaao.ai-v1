@@ -1966,4 +1966,5 @@ trait VaultControllerSupportTrait
         }
     
         return $roots;
+    }
 }

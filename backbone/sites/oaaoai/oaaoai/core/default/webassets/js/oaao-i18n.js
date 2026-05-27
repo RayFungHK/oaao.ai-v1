@@ -102,7 +102,7 @@ const OAAO_I18N_BASE = {
             'Python module for understand / generate / edit (e.g. mm_lance). No Purpose allocation required.',
         'settings.mm.title': 'Multimodal',
         'settings.mm.intro':
-            'Choose one Python module for multimodal understand / generate / edit. No LLM endpoint or Purpose allocation row — the orchestrator calls the registered module directly.',
+            'Choose one Python module for multimodal understand / generate / edit. Tasks are picked automatically by the orchestrator — you only configure the module and worker URL.',
         'settings.mm.module_hint': 'One module handles all tasks for now (multi-module selection later).',
         'settings.mm.backend': 'Backend',
         'settings.mm.backend_endpoint': 'HTTP endpoint (OpenAI-compat)',
@@ -111,8 +111,14 @@ const OAAO_I18N_BASE = {
         'settings.mm.python_module': 'Python module',
         'settings.mm.default_task': 'Default task',
         'settings.mm.section_understand': 'Understand',
+        'settings.mm.understand_auto':
+            'Orchestrator picks task from attachment type: images → Image→text, videos → Video→text. Audio uses ASR.',
         'settings.mm.section_generate': 'Generate',
+        'settings.mm.generate_auto':
+            'Orchestrator picks task from user intent: default Text→image; video/animation requests → Text→video.',
         'settings.mm.section_edit': 'Edit',
+        'settings.mm.edit_auto':
+            'Orchestrator picks task from source attachment: images → Image edit, videos → Video edit.',
         'settings.mm.save': 'Save',
         'settings.mm.loading': 'Loading multimodal settings…',
         'settings.mm.load_failed': 'Failed to load multimodal settings.',
@@ -139,7 +145,8 @@ const OAAO_I18N_BASE = {
             'CUDA: http://lance-cuda:8787 in Docker. MLX Mac: http://host.docker.internal:8787 (sidecar on host).',
         'settings.mm.config.env_fallback': 'Orchestrator env fallback: {{url}}',
         'settings.mm.config.configured': 'Worker URL set — applies on next chat (no restart).',
-        'settings.mm.config.not_configured': 'No worker URL — open Config or set orchestrator env fallback.',
+        'settings.mm.config.not_configured':
+            'No worker URL — use Config or set orchestrator env fallback (OAAO_LANCE_BASE_URL).',
         'settings.mm.config.cancel': 'Cancel',
         'settings.mm.config.save': 'Save & apply',
 
@@ -828,7 +835,7 @@ const OAAO_I18N_BASE = {
             '理解／生成／編輯用的 Python 模組（如 mm_lance）。不需用途分配。',
         'settings.mm.title': '多模態',
         'settings.mm.intro':
-            '選擇一個 Python 模組處理多模態理解／生成／編輯。不需 LLM 端點或 purpose 列 — orchestrator 直接呼叫已註冊模組。',
+            '選擇一個 Python 模組處理多模態理解／生成／編輯。任務由 orchestrator 自動判斷 — 此處只需設定模組與 worker URL。',
         'settings.mm.module_hint': '目前由單一模組處理全部任務（日後支援多模組選擇）。',
         'settings.mm.backend': '後端',
         'settings.mm.backend_endpoint': 'HTTP 端點（OpenAI 相容）',
@@ -837,8 +844,14 @@ const OAAO_I18N_BASE = {
         'settings.mm.python_module': 'Python 模組',
         'settings.mm.default_task': '預設任務',
         'settings.mm.section_understand': '理解',
+        'settings.mm.understand_auto':
+            'orchestrator 依附件類型選任務：圖片 → 圖轉文字、影片 → 影片轉文字；音訊走 ASR。',
         'settings.mm.section_generate': '生成',
+        'settings.mm.generate_auto':
+            'orchestrator 依使用者意圖選任務：預設文字→圖片；提及影片／動畫 → 文字→影片。',
         'settings.mm.section_edit': '編輯',
+        'settings.mm.edit_auto':
+            'orchestrator 依來源附件選任務：圖片 → 圖片編輯、影片 → 影片編輯。',
         'settings.mm.save': '儲存',
         'settings.mm.loading': '載入多模態設定…',
         'settings.mm.load_failed': '無法載入多模態設定。',
@@ -864,7 +877,8 @@ const OAAO_I18N_BASE = {
             'CUDA Docker：http://lance-cuda:8787。Mac MLX：http://host.docker.internal:8787（host 上跑 sidecar）。',
         'settings.mm.config.env_fallback': 'Orchestrator 環境變數後備：{{url}}',
         'settings.mm.config.configured': '已設定 worker URL — 下次對話即生效（無需重啟）。',
-        'settings.mm.config.not_configured': '尚未設定 worker URL — 請開啟 Config 或使用 orchestrator 環境變數。',
+        'settings.mm.config.not_configured':
+            '尚未設定 worker URL — 請按「設定」或設定 orchestrator 環境變數 OAAO_LANCE_BASE_URL。',
         'settings.mm.config.cancel': '取消',
         'settings.mm.config.save': '儲存並套用',
 
