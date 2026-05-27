@@ -13,10 +13,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from oaao_orchestrator.routes._shared_models import EndpointPayload
 
-
-def resolve_api_key(ep: EndpointPayload | None) -> str | None:
+def resolve_api_key(ep: Any | None) -> str | None:
     """Bearer token from sidecar env (per ``EndpointPayload.api_key_env``)."""
     if ep is None:
         fb = os.environ.get("OPENAI_API_KEY")

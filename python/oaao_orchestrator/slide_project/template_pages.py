@@ -521,6 +521,10 @@ def apply_template_pages_to_slides(
             row["layout_locked"] = True
             row["layout_source"] = "template"
 
+        seeds = page.get("slot_seeds")
+        if isinstance(seeds, dict):
+            row["slot_seeds"] = {str(k): str(v)[:2000] for k, v in seeds.items() if str(v).strip()}
+
         teaching = str(row.get("slide_teaching_brief") or row.get("focus") or "").strip()
         if teaching:
             row["slide_teaching_brief"] = teaching[:1200]

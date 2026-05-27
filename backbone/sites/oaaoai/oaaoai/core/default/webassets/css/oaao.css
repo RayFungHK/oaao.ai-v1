@@ -1107,6 +1107,83 @@ button.oaao-vault-menu-active {
     color: var(--grid-accent);
 }
 
+[data-module='oaao-vault'] .oaao-vault-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+    min-width: 0;
+    padding: 0.875rem 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--grid-line);
+    background: var(--grid-panel-bright);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.04);
+    cursor: default;
+    outline: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+[data-module='oaao-vault'] .oaao-vault-card:hover {
+    background: color-mix(in srgb, var(--grid-line) 12%, var(--grid-panel-bright));
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-title {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--grid-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-desc {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--grid-ink-muted);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-stats {
+    margin: 0;
+    font-size: 0.72rem;
+    color: var(--grid-caption);
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--grid-line);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--grid-ink);
+    background: var(--grid-paper);
+    cursor: pointer;
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-btn:hover {
+    background: color-mix(in srgb, var(--grid-line) 25%, var(--grid-paper));
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-btn--ghost {
+    background: transparent;
+}
+
+[data-module='oaao-vault'] .oaao-vault-card-btn--ghost:hover {
+    background: color-mix(in srgb, var(--grid-line) 25%, transparent);
+}
+
 [data-module='oaao-vault'] .oaao-vault-card.oaao-vault-card--selected {
     border-color: color-mix(in srgb, var(--grid-accent) 55%, var(--grid-line));
     background: color-mix(in srgb, var(--grid-accent) 8%, var(--grid-panel-bright));

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from oaao_orchestrator.slide_project.template_pages import (
     apply_template_pages_to_slides,
+    build_page_plan_row,
     build_template_pages,
-    infer_layout_from_profile_slide,
     slot_seeds_for_layout,
 )
 from oaao_orchestrator.slide_project.template_registry import reload_templates
@@ -15,7 +15,7 @@ def setup_module() -> None:
     reload_templates()
 
 
-def test_infer_faq_layout() -> None:
+def test_build_page_plan_row_faq_via_llm_layout() -> None:
     prof = {
         "index": 3,
         "title_guess": "常見問題",
@@ -23,8 +23,13 @@ def test_infer_faq_layout() -> None:
         "bullet_count": 2,
         "has_table": False,
     }
-    layout = infer_layout_from_profile_slide(prof, index=3, total=5)
-    assert layout == "faq_split"
+    row = build_page_plan_row(
+        prof,
+        index=3,
+        total=5,
+        llm_row={"layout": "faq_split"},
+    )
+    assert row["layout"] == "faq_split"
 
 
 def test_build_template_pages_has_slot_seeds() -> None:
@@ -46,7 +51,10 @@ def test_build_template_pages_has_slot_seeds() -> None:
             },
         ]
     }
-    pages = build_template_pages(profile, layout_hints=["title_content", "faq_split"])
+    pages = build_template_pages(
+        profile,
+        llm_pages=[{"index": 2, "layout": "faq_split"}],
+    )
     assert len(pages) == 2
     assert pages[0]["layout"] == "title_hero"
     assert pages[1]["layout"] == "faq_split"
@@ -69,7 +77,8 @@ def test_apply_template_pages_locks_layout() -> None:
                     "bullet_count": 2,
                 },
             ]
-        }
+        },
+        llm_pages=[{"index": 2, "layout": "faq_split"}],
     )
     out = apply_template_pages_to_slides(outline, tpl)
     assert out[1]["layout"] == "faq_split"

@@ -12,7 +12,10 @@ from oaao_orchestrator.planner_llm import (
     planner_mode,
     planner_output_to_run_plan,
 )
-from oaao_orchestrator.run_executor import _append_tasks_to_plan, _insert_tasks_before_llm_stream
+from oaao_orchestrator.run_executor_plan import (
+    append_tasks_to_plan as _append_tasks_to_plan,
+    insert_tasks_before_llm_stream as _insert_tasks_before_llm_stream,
+)
 from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskType
 
 

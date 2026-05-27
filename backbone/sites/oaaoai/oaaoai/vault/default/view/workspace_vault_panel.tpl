@@ -138,6 +138,80 @@
             min-width: 36rem;
             width: 100%;
         }
+        /* Vault gallery cards — semantic CSS (no Tailwind JIT dependency). */
+        .oaao-vault-root .oaao-vault-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            min-height: 0;
+            min-width: 0;
+            padding: 0.875rem 1rem;
+            border-radius: 10px;
+            border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+            background: var(--grid-panel-bright, #fff);
+            box-shadow: 0 1px 3px rgb(0 0 0 / 0.04);
+            cursor: default;
+            outline: none;
+            transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .oaao-vault-root .oaao-vault-card:hover {
+            background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.08)) 12%, var(--grid-panel-bright, #fff));
+        }
+        .oaao-vault-root .oaao-vault-card-title {
+            margin: 0;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            line-height: 1.35;
+            color: var(--grid-ink, #111);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .oaao-vault-root .oaao-vault-card-desc {
+            margin: 0;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            color: var(--grid-ink-muted, #666);
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 3;
+            overflow: hidden;
+        }
+        .oaao-vault-root .oaao-vault-card-stats {
+            margin: 0;
+            font-size: 0.72rem;
+            color: var(--grid-caption, #888);
+        }
+        .oaao-vault-root .oaao-vault-card-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            height: 2.25rem;
+            padding: 0 0.75rem;
+            border-radius: 8px;
+            border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.08));
+            font: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--grid-ink, #111);
+            background: var(--grid-paper, #f8f8f7);
+            cursor: pointer;
+        }
+        .oaao-vault-root .oaao-vault-card-btn:hover {
+            background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.08)) 25%, var(--grid-paper, #f8f8f7));
+        }
+        .oaao-vault-root .oaao-vault-card-btn--ghost {
+            background: transparent;
+        }
+        .oaao-vault-root .oaao-vault-card-btn--ghost:hover {
+            background: color-mix(in srgb, var(--grid-line, rgba(0, 0, 0, 0.08)) 25%, transparent);
+        }
+        .oaao-vault-root .oaao-vault-card.oaao-vault-card--selected {
+            border-color: color-mix(in srgb, var(--grid-accent, #2563eb) 55%, var(--grid-line, rgba(0, 0, 0, 0.08)));
+            background: color-mix(in srgb, var(--grid-accent, #2563eb) 8%, var(--grid-panel-bright, #fff));
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--grid-accent, #2563eb) 28%, transparent);
+        }
     </style>
     <header class="shrink-0 px-md py-sm border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]">
         <h1 class="text-[0.9375rem] fw-semibold fg-[var(--grid-ink)] m-0 tracking-tight" data-i18n="workspace.vault_panel_title">Vault</h1>

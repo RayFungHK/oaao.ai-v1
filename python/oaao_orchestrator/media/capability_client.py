@@ -72,10 +72,9 @@ class MediaCapabilityClient:
                 )
             ).strip()
             client = inputs.get("http_client")
-            owns_client = not isinstance(client, httpx.AsyncClient)
+            owns_client = client is None
             if owns_client:
                 client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0))
-            assert isinstance(client, httpx.AsyncClient)
             try:
                 text = await openai_vision_caption(
                     client,
@@ -84,7 +83,7 @@ class MediaCapabilityClient:
                     prompt=prompt,
                 )
             finally:
-                if owns_client:
+                if owns_client and hasattr(client, "aclose"):
                     await client.aclose()
             if not text:
                 return {

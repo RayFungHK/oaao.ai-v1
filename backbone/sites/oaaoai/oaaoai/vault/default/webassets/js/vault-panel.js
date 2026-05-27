@@ -4673,14 +4673,12 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
         if (!Number.isFinite(vid) || vid < 1) continue;
 
         const card = document.createElement('article');
-        card.className =
-            'oaao-vault-card rounded-[10px] border-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] p-md flex flex-col gap-2 min-h-0 shadow-none cursor-default outline-none transition-colors hover:bg-[var(--grid-line)]/12';
+        card.className = 'oaao-vault-card';
         card.tabIndex = -1;
         card.dataset.oaaoVaultCardId = String(vid);
 
         const title = document.createElement('h3');
-        title.className =
-            'text-[0.9375rem] fw-semibold fg-[var(--grid-ink)] m-0 leading-snug truncate';
+        title.className = 'oaao-vault-card-title';
         title.textContent =
             typeof node.name === 'string' && node.name.trim() ? node.name.trim() : `Vault #${vid}`;
 
@@ -4697,7 +4695,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
                 : Math.floor(Number(node.document_count ?? 0));
 
         const stats = document.createElement('p');
-        stats.className = 'text-[0.72rem] fg-[var(--grid-caption)] m-0';
+        stats.className = 'oaao-vault-card-stats';
         stats.textContent =
             lang === 'zh-Hant'
                 ? `${fc} 個資料夾 · ${dc} 個檔案`
@@ -4724,8 +4722,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
 
         const openBtn = document.createElement('button');
         openBtn.type = 'button';
-        openBtn.className =
-            'rounded-[8px] h-9 px-3 text-[0.75rem] fw-semibold fg-[var(--grid-ink)] bg-[var(--grid-paper)] border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25 shrink-0 inline-flex items-center justify-center';
+        openBtn.className = 'oaao-vault-card-btn';
         openBtn.textContent = vaultSidebarUiString('vault_card_open');
         openBtn.addEventListener(
             'click',
@@ -4739,8 +4736,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
         const configBtn = document.createElement('button');
         configBtn.type = 'button';
         configBtn.dataset.oaaoVaultCardConfig = '1';
-        configBtn.className =
-            'rounded-[8px] h-9 px-3 text-[0.75rem] fw-semibold fg-[var(--grid-ink)] bg-transparent border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25 shrink-0 inline-flex items-center justify-center';
+        configBtn.className = 'oaao-vault-card-btn oaao-vault-card-btn--ghost';
         configBtn.textContent = vaultSidebarUiString('vault_card_config');
         configBtn.addEventListener(
             'click',
@@ -4762,7 +4758,7 @@ function paintVaultGallery(rlShell, rows, navigate, handlers, signal) {
         card.append(title);
         if (desc) {
             const dp = document.createElement('p');
-            dp.className = 'text-[0.75rem] fg-[var(--grid-ink-muted)] m-0 leading-snug line-clamp-3';
+            dp.className = 'oaao-vault-card-desc';
             dp.textContent = desc;
             card.append(dp);
         }
