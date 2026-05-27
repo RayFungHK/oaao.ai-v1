@@ -6,7 +6,7 @@
 
 import { oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
 import { oaaoT } from '@oaao/core-js/oaao-i18n.js';
-import { mountDailyTokenHeatmap } from './dashboard-usage-heatmap.js';
+import { mountUserUsageOverview } from './user-usage-overview.js';
 import {
     settingsActionButton,
     settingsCard,
@@ -66,110 +66,7 @@ export async function mountPreferencesPanel(host, ctx = {}) {
  * @param {HTMLElement} host
  */
 async function mountDashboardPanel(host) {
-    host.replaceChildren();
-    oaaoMountLoadingLogo(host, { fill: true, label: oaaoT('preferences.dashboard.loading') });
-
-    try {
-        const res = await fetch(userApiUrl('dashboard'), { credentials: 'same-origin' });
-        const json = await res.json();
-        host.replaceChildren();
-
-        if (!res.ok || !json?.success) {
-            host.append(errorLine(json?.message || oaaoT('preferences.dashboard.load_failed')));
-            return;
-        }
-
-        const d = json.data ?? {};
-        const unlimited = Boolean(d.credits_unlimited);
-        const balance = d.credit_balance;
-        const tokens30 = Number(d.tokens_30d ?? 0);
-        const creditsUsed = Number(d.credits_used_30d ?? 0);
-
-        const page = settingsPageStack();
-
-        const dailyRows = Array.isArray(d.daily_tokens) ? d.daily_tokens : [];
-        const heatCard = settingsCard();
-        heatCard.append(mountDailyTokenHeatmap({ dailyRows, tokens365d: Number(d.tokens_365d ?? 0) }));
-        page.append(wrapSettingsSection(oaaoT('preferences.dashboard.section_usage', 'Usage'), heatCard));
-
-        const summaryCard = settingsCard();
-        const summaryBody = document.createElement('div');
-        summaryBody.className = 'flex flex-col min-w-0';
-        summaryBody.append(
-            settingsCardRow({ label: oaaoT('preferences.dashboard.tokens_30d'), valueText: formatNum(tokens30) }, false),
-            settingsCardRow(
-                {
-                    label: oaaoT('preferences.dashboard.credits_balance'),
-                    valueText: unlimited ? oaaoT('preferences.dashboard.unlimited') : formatNum(balance ?? 0, 2),
-                },
-                true,
-            ),
-            settingsCardRow(
-                {
-                    label: oaaoT('preferences.dashboard.credits_used_30d'),
-                    valueText: formatNum(creditsUsed, 2),
-                },
-                true,
-            ),
-            settingsCardRow(
-                {
-                    label: oaaoT('preferences.dashboard.credits_policy', 'Credit policy'),
-                    description: oaaoT('preferences.dashboard.hint'),
-                },
-                true,
-            ),
-        );
-        summaryCard.append(summaryBody);
-        page.append(wrapSettingsSection(oaaoT('preferences.dashboard.section_credits', 'Credits'), summaryCard));
-
-        const usage = Array.isArray(d.usage_by_kind) ? d.usage_by_kind : [];
-        if (usage.length) {
-            const usageCard = settingsCard();
-            const usageBody = document.createElement('div');
-            usageBody.className = 'flex flex-col min-w-0';
-            for (let i = 0; i < usage.length; i++) {
-                const row = usage[i];
-                usageBody.append(
-                    settingsCardRow(
-                        {
-                            label: String(row.event_kind ?? ''),
-                            valueText: `${formatNum(row.qty ?? 0)} ${String(row.unit ?? '')}`.trim(),
-                        },
-                        i > 0,
-                    ),
-                );
-            }
-            usageCard.append(usageBody);
-            page.append(wrapSettingsSection(oaaoT('preferences.dashboard.usage_breakdown'), usageCard));
-        }
-
-        const ledger = Array.isArray(d.ledger_recent) ? d.ledger_recent : [];
-        if (ledger.length) {
-            const ledgerCard = settingsCard();
-            const ledgerBody = document.createElement('div');
-            ledgerBody.className = 'flex flex-col min-w-0';
-            for (let i = 0; i < Math.min(ledger.length, 8); i++) {
-                const row = ledger[i];
-                const delta = Number(row.delta_credits ?? 0);
-                ledgerBody.append(
-                    settingsCardRow(
-                        {
-                            label: String(row.reason ?? ''),
-                            valueText: `${delta >= 0 ? '+' : ''}${formatNum(delta, 3)}`,
-                        },
-                        i > 0,
-                    ),
-                );
-            }
-            ledgerCard.append(ledgerBody);
-            page.append(wrapSettingsSection(oaaoT('preferences.dashboard.recent_credits'), ledgerCard));
-        }
-
-        host.append(page);
-    } catch {
-        host.replaceChildren();
-        host.append(errorLine(oaaoT('preferences.dashboard.load_failed')));
-    }
+    await mountUserUsageOverview(host, userApiUrl('dashboard'));
 }
 
 /**
@@ -650,13 +547,6 @@ async function mountPersonalizationPanel(host) {
         host.replaceChildren();
         host.append(errorLine(oaaoT('preferences.personalization.load_failed')));
     }
-}
-
-/** @param {number} n @param {number} [frac] */
-function formatNum(n, frac = 0) {
-    const v = Number(n);
-    if (!Number.isFinite(v)) return '0';
-    return frac > 0 ? v.toFixed(frac) : String(Math.round(v));
 }
 
 export default mountPreferencesPanel;

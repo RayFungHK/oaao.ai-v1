@@ -12,6 +12,7 @@ Status: **partial foundation shipped** — ledger + debit on chat completion; **
 | Admin assign | `POST /user/api/users_save` with `credit_balance` |
 | Config | Endpoint `config_json.tokens_per_credit`; purpose `meta_json.credit_multiplier`; chat profile `config_json.credit_multiplier` |
 | User UI | Preferences → **Dashboard** (30d tokens, balance, ledger snippet); **Personal** (profile / password / language) |
+| Admin UI | Settings → **Users** — click login or **Usage** for nested usage overview (heatmap + consumption, same as Preferences Dashboard) |
 
 ### Credit formula
 
@@ -64,4 +65,7 @@ UPDATE oaao_user SET credit_balance = credit_balance + 100 WHERE user_id = ?;
 - `core/default/library/UsageEventRepository.php`
 - `auth/default/controller/api/_ensure_credit_schema.php`
 - `core/default/webassets/js/user-preferences-panels.js`
+- `core/default/webassets/js/user-usage-overview.js`
+- `core/default/webassets/js/oaao-access-settings-panel.js`
+- `user/default/controller/api/users_dashboard.php`
 - `core/default/controller/core.php` (PreferencesRegister seed)

@@ -1443,6 +1443,37 @@ button.oaao-vault-menu-active {
     pointer-events: auto;
 }
 
+.oaao-app .oaao-notifications-menu {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.oaao-app .oaao-notifications-anchor {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: auto;
+    z-index: 90;
+}
+
+.oaao-app .oaao-notifications-anchor.hidden,
+.oaao-app .oaao-notifications-anchor[hidden] {
+    display: none !important;
+}
+
+.oaao-app .oaao-notifications-panel {
+    min-width: 16rem;
+    max-width: min(22rem, calc(100vw - 2rem));
+    max-height: min(20rem, calc(100vh - 6rem));
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 10px;
+    border: 1px solid var(--grid-line);
+    background-color: var(--grid-panel-bright);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
 /* ── JIT fallbacks (JS-mounted panels — px-3.5 / fg-white often not emitted) ───── */
 
 .oaao-app .fg-white,

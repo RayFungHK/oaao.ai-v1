@@ -38,6 +38,7 @@ return new class extends Controller {
                 'POST notifications_mark_read'  => 'notifications_mark_read',
                 'POST notifications_send'       => 'notifications_send',
                 'GET users_list'        => 'users_list',
+                'GET users_dashboard'   => 'users_dashboard',
                 'POST users_save'       => 'users_save',
             ],
         ]);

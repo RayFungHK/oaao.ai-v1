@@ -3,6 +3,8 @@
  */
 
 import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
+import { oaaoT } from './oaao-i18n.js';
+import { mountUserUsageOverview } from './user-usage-overview.js';
 
 const FEATURE_KEYS = ['chat', 'vault', 'workspace', 'settings'];
 const LIMIT_KEYS = ['workspace_max', 'vault_max', 'storage_bytes_max'];
@@ -151,7 +153,7 @@ function buildUsersTable(users, groups, ctx, pagination, host) {
         const tr = document.createElement('tr');
         const status = user.disabled ? 'disabled' : 'active';
         tr.innerHTML = `
-            <td class="fw-medium">${escapeHtml(String(user.login_name || ''))}</td>
+            <td class="fw-medium"><button type="button" class="oaao-access-user-link">${escapeHtml(String(user.login_name || ''))}</button></td>
             <td>${escapeHtml(String(user.display_name || '—'))}</td>
             <td>${escapeHtml(String(user.role || 'user'))}</td>
             <td>${escapeHtml(String(user.permission_group_name || '—'))}</td>
@@ -159,11 +161,21 @@ function buildUsersTable(users, groups, ctx, pagination, host) {
             <td class="oaao-access-table-actions"></td>`;
         const actions = tr.querySelector('.oaao-access-table-actions');
         if (actions instanceof HTMLElement) {
-            const editBtn = tableActionBtn('Edit');
+            const usageBtn = tableActionBtn(oaaoT('settings.users.usage_btn', 'Usage'));
+            usageBtn.addEventListener('click', () => {
+                void openUserUsageDialog(user, ctx);
+            });
+            const editBtn = tableActionBtn(oaaoT('settings.users.edit_btn', 'Edit'));
             editBtn.addEventListener('click', () => {
                 void openUserDialog(user, groups, ctx, () => mountUsersPanel(host, ctx, pagination.page));
             });
-            actions.append(editBtn);
+            actions.append(usageBtn, editBtn);
+        }
+        const loginLink = tr.querySelector('.oaao-access-user-link');
+        if (loginLink instanceof HTMLButtonElement) {
+            loginLink.addEventListener('click', () => {
+                void openUserUsageDialog(user, ctx);
+            });
         }
         tbody.append(tr);
     }
@@ -225,6 +237,46 @@ function buildGroupsTable(groups, ctx, pagination, host) {
 }
 
 /**
+ * @param {Record<string, unknown>} user
+ * @param {Record<string, unknown>} ctx
+ */
+async function openUserUsageDialog(user, ctx) {
+    const Dialog = ctx.Dialog;
+    if (typeof Dialog !== 'function') {
+        window.alert('Dialog component unavailable.');
+        return;
+    }
+
+    const uid = Number(user.user_id ?? 0);
+    if (!Number.isFinite(uid) || uid < 1) return;
+
+    const login = String(user.login_name ?? '').trim();
+    const display = String(user.display_name ?? '').trim();
+    const titleName = display || login || oaaoT('settings.users.usage_title', 'Usage overview');
+    const title = oaaoT('settings.users.usage_title_named', '{name} — usage').replace('{name}', titleName);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'min-w-0 max-h-[min(70vh,36rem)] overflow-y-auto overflow-x-hidden [padding:0.25rem_0.125rem]';
+
+    new Dialog({
+        id: `oaao-user-usage-${uid}`,
+        title,
+        content: wrap,
+        size: 'lg',
+        closable: true,
+        buttons: [{ text: oaaoT('settings.users.usage_close', 'Close'), color: 'muted', role: 'cancel' }],
+        onOpen(ctrl) {
+            ctx.JIT?.hydrate?.(/** @type {HTMLElement} */ (ctrl.body ?? wrap));
+            void mountUserUsageOverview(wrap, `/user/api/users_dashboard?user_id=${uid}`, {
+                loadingLabel: oaaoT('settings.users.usage_loading', 'Loading usage…'),
+                loadFailedLabel: oaaoT('settings.users.usage_load_failed', 'Could not load usage for this user.'),
+                maxWidthClass: 'max-w-full',
+            });
+        },
+    });
+}
+
+/**
  * @param {Record<string, unknown>|null} user
  * @param {Array<Record<string, unknown>>} groups
  * @param {Record<string, unknown>} ctx
@@ -263,6 +315,22 @@ async function openUserDialog(user, groups, ctx, reload) {
     status.className = 'text-xs fg-[var(--grid-ink-muted)] m-0 hidden';
     status.setAttribute('role', 'status');
     form.append(status);
+
+    if (isEdit) {
+        const usageRow = document.createElement('div');
+        usageRow.className = 'flex justify-end pt-1';
+        const usageLink = document.createElement('button');
+        usageLink.type = 'button';
+        usageLink.className =
+            'border-0 bg-transparent p-0 font-inherit text-xs fw-medium fg-[var(--grid-accent)] cursor-pointer hover:underline';
+        usageLink.textContent = oaaoT('settings.users.usage_view_link', 'View usage overview');
+        usageLink.addEventListener('click', () => {
+            void openUserUsageDialog(user, ctx);
+        });
+        usageRow.append(usageLink);
+        form.append(usageRow);
+    }
+
     wrap.append(form);
 
     new Dialog({
@@ -646,7 +714,18 @@ if (typeof document !== 'undefined' && !document.getElementById('oaao-access-pan
             background: var(--grid-nav);
         }
         .oaao-access-table tbody tr:last-child td { border-bottom: 0; }
-        .oaao-access-table-actions { width: 5rem; text-align: right; white-space: nowrap; }
+        .oaao-access-table-actions { width: 8.5rem; text-align: right; white-space: nowrap; }
+        .oaao-access-user-link {
+            border: 0;
+            background: transparent;
+            padding: 0;
+            font: inherit;
+            font-weight: 500;
+            color: var(--grid-ink);
+            cursor: pointer;
+            text-align: left;
+        }
+        .oaao-access-user-link:hover { color: var(--grid-accent); text-decoration: underline; }
     `;
     document.head.append(style);
 }
