@@ -30,6 +30,28 @@ function Remove-EnvKv($Key) {
     [System.IO.File]::WriteAllText($EnvFile, ($out -join "`n") + "`n", $Utf8NoBom)
 }
 
+function Wait-OrchHealthy {
+    param([int]$MaxSeconds = 90)
+    Write-Host "Waiting for orchestrator health (up to ${MaxSeconds}s)..."
+    $deadline = (Get-Date).AddSeconds($MaxSeconds)
+    while ((Get-Date) -lt $deadline) {
+        docker compose --env-file $EnvFile --project-directory $Root exec -T orchestrator python -c @"
+import urllib.request
+try:
+    urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=3).read(1)
+    raise SystemExit(0)
+except Exception:
+    raise SystemExit(1)
+"@ 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Orchestrator is healthy.'
+            return
+        }
+        Start-Sleep -Seconds 2
+    }
+    throw "Orchestrator did not become healthy within ${MaxSeconds}s"
+}
+
 function Verify-Backend {
     $secretLine = (Get-Content $EnvFile | Where-Object { $_ -match '^OAAO_ORCH_SHARED_SECRET=' } | Select-Object -First 1)
     if (-not $secretLine) { throw 'OAAO_ORCH_SHARED_SECRET missing in docker/env' }
@@ -49,12 +71,12 @@ with urllib.request.urlopen(req, timeout=10) as r:
 
 Push-Location $Root
 try {
-    if ($Check) { Verify-Backend; return }
+    if ($Check) { Wait-OrchHealthy; Verify-Backend; return }
     if ($Rollback) {
         Set-EnvKv 'OAAO_QUEUE_BACKEND' 'memory'
         Remove-EnvKv 'OAAO_QUEUE_REDIS_URL'
         docker compose --env-file $EnvFile --project-directory $Root up -d --force-recreate orchestrator
-        Start-Sleep -Seconds 3
+        Wait-OrchHealthy
         Verify-Backend
         return
     }
@@ -63,7 +85,7 @@ try {
     Set-EnvKv 'OAAO_QUEUE_BACKEND' 'redis'
     Set-EnvKv 'OAAO_QUEUE_REDIS_URL' $RedisUrl
     docker compose --env-file $EnvFile --project-directory $Root up -d --force-recreate orchestrator
-    Start-Sleep -Seconds 5
+    Wait-OrchHealthy
     Verify-Backend
     Write-Host 'Monitor: bash scripts/redis_canary_monitor.sh --interval 900 --duration 86400'
 } finally {

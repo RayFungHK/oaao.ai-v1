@@ -32,12 +32,27 @@ set_env_kv() {
   fi
 }
 
+wait_orch_healthy() {
+  local max="${1:-90}"
+  echo "Waiting for orchestrator health (up to ${max}s)..."
+  for _ in $(seq 1 "${max}"); do
+    if "${COMPOSE[@]}" exec -T orchestrator python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=3).read(1)" >/dev/null 2>&1; then
+      echo "Orchestrator is healthy."
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Orchestrator did not become healthy within ${max}s" >&2
+  exit 1
+}
+
 remove_env_kv() {
   local key="$1"
   sed -i.bak "/^${key}=/d" "${ENV_FILE}" 2>/dev/null || true
 }
 
 verify_backend() {
+  wait_orch_healthy
   local secret
   secret="$(grep -E '^OAAO_ORCH_SHARED_SECRET=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r' || true)"
   if [[ -z "${secret}" ]]; then
@@ -67,7 +82,6 @@ case "${MODE}" in
     remove_env_kv "OAAO_QUEUE_REDIS_URL"
     echo "Rollback: OAAO_QUEUE_BACKEND=memory in ${ENV_FILE}"
     "${COMPOSE[@]}" up -d --force-recreate orchestrator
-    sleep 3
     verify_backend
     exit 0
     ;;
@@ -89,14 +103,6 @@ grep -E '^OAAO_QUEUE_(BACKEND|REDIS_URL)=' "${ENV_FILE}" || true
 
 echo "== Recreate orchestrator =="
 "${COMPOSE[@]}" up -d --force-recreate orchestrator
-
-echo "Waiting for orchestrator health..."
-for i in $(seq 1 30); do
-  if "${COMPOSE[@]}" exec -T orchestrator python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=3).read(1)" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 2
-done
 
 verify_backend
 echo ""
