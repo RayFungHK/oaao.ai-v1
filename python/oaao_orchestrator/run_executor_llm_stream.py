@@ -77,7 +77,7 @@ async def handle_llm_stream_task(
 
     from oaao_orchestrator.chat_helpers import (
         _chat_completions_url,
-        _sanitize_client_text,
+        upstream_http_error_payload,
     )
 
     inject_compose_vault_awareness(
@@ -187,12 +187,25 @@ async def handle_llm_stream_task(
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code if exc.response is not None else 0
                 raw = (exc.response.text if exc.response is not None else str(exc))[:800]
+                logger.warning(
+                    "upstream_http_error status=%s url=%s ref=%s",
+                    status,
+                    url,
+                    getattr(req.endpoint, "endpoint_ref", ""),
+                )
+                err_payload = upstream_http_error_payload(
+                    status,
+                    raw,
+                    endpoint_base_url=str(getattr(req.endpoint, "base_url", "") or ""),
+                    endpoint_ref=str(getattr(req.endpoint, "endpoint_ref", "") or ""),
+                    endpoint_model=str(getattr(req.endpoint, "model", "") or ""),
+                )
                 await run.append(
                     StreamEnvelope(
                         phase=PHASE_SYSTEM,
                         kind="error",
                         text=f"upstream_http_{status}",
-                        payload={"body": _sanitize_client_text(raw, max_len=600)},
+                        payload=err_payload,
                     )
                 )
                 state.task_failed = True
@@ -217,14 +230,25 @@ async def handle_llm_stream_task(
                 if resp.status_code < 200 or resp.status_code >= 300:
                     txt = await resp.aread()
                     raw = txt.decode("utf-8", errors="replace")[:800]
+                    logger.warning(
+                        "upstream_http_error status=%s url=%s ref=%s",
+                        resp.status_code,
+                        url,
+                        getattr(req.endpoint, "endpoint_ref", ""),
+                    )
+                    err_payload = upstream_http_error_payload(
+                        resp.status_code,
+                        raw,
+                        endpoint_base_url=str(getattr(req.endpoint, "base_url", "") or ""),
+                        endpoint_ref=str(getattr(req.endpoint, "endpoint_ref", "") or ""),
+                        endpoint_model=str(getattr(req.endpoint, "model", "") or ""),
+                    )
                     await run.append(
                         StreamEnvelope(
                             phase=PHASE_SYSTEM,
                             kind="error",
                             text=f"upstream_http_{resp.status_code}",
-                            payload={
-                                "body": _sanitize_client_text(raw, max_len=600)
-                            },
+                            payload=err_payload,
                         )
                     )
                     state.task_failed = True

@@ -23,6 +23,7 @@
             min-height: 0;
             width: 100%;
             overflow: hidden;
+            background: var(--grid-panel-bright, #fff);
         }
         /* ResourceList scroll — breadcrumb fixed; list body scrolls ({@see vault-panel.js}). */
         .oaao-vault-tree-scroll {
@@ -88,6 +89,55 @@
                 border-left: 1px solid var(--grid-line);
             }
         }
+        /* Chrome padding + ResourceList cell spacing — ships with panel (no oaao.css / JIT cache dependency). */
+        .oaao-vault-root > header {
+            padding: 0.5rem 1rem;
+            box-sizing: border-box;
+        }
+        .oaao-vault-root [data-oaao-vault-new-folder-wrap] {
+            padding: 0.25rem 1rem;
+            box-sizing: border-box;
+            background: var(--grid-paper, #f8f8f7);
+        }
+        .oaao-vault-root .oaao-vault-bc {
+            padding: 0.25rem 0.75rem;
+            box-sizing: border-box;
+            background: var(--grid-paper, #f8f8f7);
+        }
+        .oaao-vault-root .oaao-vault-document-detail > div:first-child,
+        .oaao-vault-root .oaao-vault-document-detail > .flex-1 {
+            padding: 0.5rem 1rem;
+            box-sizing: border-box;
+        }
+        .oaao-vault-root .resource-list-container {
+            --rl-bg: var(--grid-panel-bright, #fff);
+            --rl-border: var(--grid-line);
+            --rl-text: var(--grid-ink);
+            --rl-text-muted: var(--grid-caption);
+            --rl-hover-header: color-mix(in srgb, var(--grid-line) 42%, var(--grid-panel-bright));
+            --rl-hover-row-bg: color-mix(in srgb, var(--grid-line) 32%, var(--grid-panel-bright));
+            --rl-cell-px: 0.75rem;
+            --rl-cell-py: 0.75rem;
+            --rl-header-py: 0.625rem;
+            background-color: var(--grid-panel-bright, #fff);
+        }
+        .oaao-vault-root .resource-list-wrapper {
+            background-color: var(--grid-panel-bright, #fff);
+        }
+        .oaao-vault-root .resource-list-th,
+        .oaao-vault-root .resource-list-td {
+            padding: var(--rl-cell-py) var(--rl-cell-px);
+            box-sizing: border-box;
+            background-color: var(--grid-panel-bright, #fff);
+        }
+        .oaao-vault-root .resource-list-th-select,
+        .oaao-vault-root .resource-list-td-select {
+            padding: var(--rl-cell-py) 0.35rem var(--rl-cell-py) 0.75rem;
+        }
+        .oaao-vault-root .resource-list-table {
+            min-width: 36rem;
+            width: 100%;
+        }
     </style>
     <header class="shrink-0 px-md py-sm border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]">
         <h1 class="text-[0.9375rem] fw-semibold fg-[var(--grid-ink)] m-0 tracking-tight" data-i18n="workspace.vault_panel_title">Vault</h1>
@@ -102,7 +152,7 @@
         <div data-oaao-vault-panel-page="browse" class="flex flex-1 min-h-0 flex-col overflow-hidden">
 
             <div data-oaao-vault-new-folder-wrap
-                class="hidden relative shrink-0 px-md py-xs border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel)] flex flex-row flex-wrap items-stretch gap-2">
+                class="hidden relative shrink-0 px-md py-xs border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] flex flex-row flex-wrap items-stretch gap-2">
                 <label class="sr-only" for="oaao-vault-new-folder-input"
                     data-i18n="workspace.vault_new_folder_label">New folder name</label>
                 <input id="oaao-vault-new-folder-input" type="text" maxlength="120" autocomplete="off"

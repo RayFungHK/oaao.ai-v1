@@ -56,7 +56,6 @@ const PDLG_CONTENT_JIT = [
     '[overscroll-behavior-y:contain]',
     'px-8',
     'py-6',
-    'bg-[var(--grid-nav)]',
 ].join(' ');
 
 const PDLG_ITEM_JIT = [

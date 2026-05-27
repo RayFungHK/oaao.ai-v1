@@ -17,6 +17,7 @@ from oaao_orchestrator.post_stream_prompt import (
     resolve_prompt_path,
 )
 from oaao_orchestrator.queue_backend import QueueBackend, build_queue_backend
+from oaao_orchestrator.queue_backend import RedisStreamQueueBackend
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,24 @@ class QueuePool:
 
     def worker_count(self) -> int:
         return len(self._workers)
+
+    async def metrics_snapshot(self) -> dict[str, object]:
+        backend = self._backend
+        if isinstance(backend, RedisStreamQueueBackend):
+            return await backend.metrics_snapshot(pool_id=self.settings.pool_id)
+        if hasattr(backend, "metrics_snapshot"):
+            raw = backend.metrics_snapshot()  # type: ignore[operator]
+            if isinstance(raw, dict):
+                raw["pool_id"] = self.settings.pool_id
+                return raw
+        return {
+            "pool_id": self.settings.pool_id,
+            "backend": "memory",
+            "queue_depth": self.queue_depth(),
+            "pending_count": 0,
+            "oldest_pending_age_sec": None,
+            "xack_failures": 0,
+        }
 
     async def start(self) -> None:
         n = int(self.settings.worker_number)

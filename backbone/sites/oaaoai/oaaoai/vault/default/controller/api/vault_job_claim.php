@@ -43,17 +43,35 @@ return function (): void {
         $hookFilter = trim($body['hook_id']);
     }
 
+    $ingestOnly = ! empty($body['ingest_only']);
+
     $pdo->beginTransaction();
 
     try {
+        $backpressure = '';
+        if ($ingestOnly) {
+            $backpressure = " AND hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')";
+        } elseif ($hookFilter === '') {
+            $backpressure = " AND (
+                hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')
+                OR NOT EXISTS (
+                    SELECT 1 FROM oaao_vault_job j2
+                    WHERE j2.status = 'queued'
+                      AND j2.hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')
+                )
+            )";
+        }
+
         $sql = 'WITH picked AS (
             SELECT job_id FROM oaao_vault_job
-            WHERE status = \'queued\'
+            WHERE (
+                status = \'queued\'
                OR (
                     status = \'running\'
                     AND claimed_at IS NOT NULL
                     AND claimed_at < CURRENT_TIMESTAMP - INTERVAL \'15 minutes\'
-               )';
+               )
+            )' . $backpressure;
         if ($hookFilter !== '') {
             $sql .= ' AND hook_id = :hook_id';
         }

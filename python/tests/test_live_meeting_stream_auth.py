@@ -33,8 +33,8 @@ def test_public_urls_persists_token(hub):
     token = urls["stream_token"]
 
     assert token
-    assert len(token) >= 16
-    assert hub._stream_tokens[sid] == token
+    assert len(token) >= 32
+    assert hub.validate_stream_token(sid, token)
     # W10-S2: ws_audio_url must carry the token so the JS PCM uplink authenticates.
     assert urls["ws_audio_url"].endswith(f"?token={token}")
     assert urls["ws_audio_url"].startswith(f"/v1/live/{sid}/audio")
@@ -79,12 +79,13 @@ async def test_stop_session_evicts_token(hub, monkeypatch):
         workspace_id=None,
         user_id=None,
     )
-    hub.public_urls(session.session_id, public_base="")
-    assert hub.validate_stream_token(session.session_id, hub._stream_tokens[session.session_id])
+    urls = hub.public_urls(session.session_id, public_base="")
+    token = urls["stream_token"]
+    assert hub.validate_stream_token(session.session_id, token)
 
     ok = await hub.stop_session(session.session_id, keep_audio=False)
     assert ok is True
-    assert session.session_id not in hub._stream_tokens
+    assert hub.validate_stream_token(session.session_id, token) is False
 
 
 # ── W10-S2: WebSocket audio uplink rejects callers without the per-session token ──

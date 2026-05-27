@@ -865,7 +865,7 @@ const OAAO_I18N_BASE = {
         'settings.slot.mm_understand.label': '多模態理解',
         'settings.slot.mm_generate.label': '多模態生成',
         'settings.slot.mm_edit.label': '多模態編輯',
-        'settings.slot.mm.pipeline_hint': '模組選擇在「設定 → 多模態」。',
+        'settings.slot.mm.pipeline_hint': '後端（端點或 Lance）在「設定 → 多模態」設定。',
 
         'settings.mm.module.mm_lance.label': 'Lance（mm_lance）',
         'settings.mm.module.mm_lance.desc':

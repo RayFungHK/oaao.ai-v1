@@ -10,6 +10,20 @@ from oaao_orchestrator.db.pg import pg_connection, pool_available
 
 logger = logging.getLogger(__name__)
 
+_INGEST_HOOKS = ("vh.rag.audio_asr", "vh.rag.document_embed")
+
+# When embed/ASR jobs are waiting, defer graph/transcript so uploads are not starved by graph backlog.
+_BACKPRESSURE_WHEN_INGEST_QUEUED = """
+    AND (
+        hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')
+        OR NOT EXISTS (
+            SELECT 1 FROM oaao_vault_job j2
+            WHERE j2.status = 'queued'
+              AND j2.hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')
+        )
+    )
+"""
+
 _CLAIM_ORDER = """
     ORDER BY
         CASE hook_id
@@ -160,14 +174,37 @@ def reclaim_orphan_running_jobs() -> int:
     return count
 
 
-def claim_next_job(*, hook_id: str = "") -> dict[str, Any] | None:
+def has_queued_ingest_jobs() -> bool:
+    """True when at least one embed/ASR job is waiting (used for ingest worker reservation)."""
+    if not pool_available():
+        return False
+    from psycopg.rows import dict_row
+
+    with pg_connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM oaao_vault_job
+            WHERE status = 'queued'
+              AND hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')
+            LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+    return row is not None
+
+
+def claim_next_job(*, hook_id: str = "", ingest_only: bool = False) -> dict[str, Any] | None:
     if not pool_available():
         return None
     hook_filter = ""
     params: list[Any] = []
-    if hook_id.strip():
+    if ingest_only:
+        hook_filter += " AND hook_id IN ('vh.rag.audio_asr', 'vh.rag.document_embed')"
+    elif hook_id.strip():
         hook_filter = " AND hook_id = %s"
         params.append(hook_id.strip())
+    else:
+        hook_filter += _BACKPRESSURE_WHEN_INGEST_QUEUED
     sql = _CLAIM_SQL.format(hook_filter=hook_filter)
     from psycopg.rows import dict_row
 

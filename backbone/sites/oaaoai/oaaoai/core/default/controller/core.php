@@ -350,6 +350,23 @@ return new class extends Controller {
             ]
         );
 
+        $creditJs = '/webassets/core/default/js/oaao-credit-settings-panel.js';
+
+        SettingsRegister::add(
+            'settings-credit',
+            'Credits',
+            'Credit factors',
+            'Token→credit ratios, purpose multipliers, and multimodal resolution billing.',
+            'coins',
+            [
+                'sort'            => 28,
+                'panel_js_module' => $creditJs,
+                'label_key'       => 'settings.nav.credit.label',
+                'title_key'       => 'settings.nav.credit.title',
+                'sub_key'         => 'settings.nav.credit.sub',
+            ]
+        );
+
         SettingsRegister::add(
             'settings-purposes',
             'Purpose allocation',

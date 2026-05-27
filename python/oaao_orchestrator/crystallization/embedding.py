@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from oaao_orchestrator.vault_graph_rag import (
+from oaao_orchestrator.vault_rag.embed import (
     _extract_embedding_vector,
     _resolve_secret,
     ensure_url_scheme,

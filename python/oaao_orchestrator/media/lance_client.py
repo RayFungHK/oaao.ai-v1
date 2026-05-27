@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from oaao_orchestrator.media.lance_gradio_client import run_lance_gradio_task
+from oaao_orchestrator.media.lance_gateway import probe_gateway, run_lance_gateway_task
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def lance_base_url() -> str:
 
 def _lance_api_style() -> str:
     raw = os.environ.get("OAAO_LANCE_API_STYLE", "").strip().lower()
-    if raw in {"gradio", "sidecar", "v1"}:
+    if raw in {"gradio", "sidecar", "v1", "gateway"}:
         return raw
     return "auto"
 
@@ -32,7 +33,7 @@ async def run_lance_task(
     inputs: dict[str, Any],
     base_url: str | None = None,
 ) -> dict[str, Any] | None:
-    """POST task to Lance sidecar ({@code /v1/task}) or Gradio ({@code /gradio_api/call/run_task})."""
+    """POST task to Lance Gateway ({@code /v1/*}), legacy sidecar ({@code /v1/task}), or Gradio."""
     base = (base_url or lance_base_url()).strip().rstrip("/")
     if not base:
         return None
@@ -40,6 +41,14 @@ async def run_lance_task(
     style = _lance_api_style()
     if style == "gradio":
         return await run_lance_gradio_task(client, task=task, inputs=inputs, base_url=base)
+
+    if style == "gateway" or (style == "auto" and await probe_gateway(base, client)):
+        gw = await run_lance_gateway_task(client, task=task, inputs=inputs, base_url=base)
+        if gw is not None:
+            return gw
+
+    if style == "gateway":
+        return {"ok": False, "error": "lance_gateway_unreachable"}
 
     url = f"{base}/v1/task"
     try:

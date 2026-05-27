@@ -79,6 +79,12 @@ final class MmModuleSettings
             }
         }
 
+        if (isset($data['credit_factors']) && \is_array($data['credit_factors'])) {
+            $out['credit_factors'] = CreditFactorsCatalog::normalizeMmCreditFactors($data['credit_factors']);
+        } else {
+            $out['credit_factors'] = CreditFactorsCatalog::defaultMmCreditFactors();
+        }
+
         return $out;
     }
 
@@ -115,11 +121,18 @@ final class MmModuleSettings
             }
         }
 
+        $creditFactors = CreditFactorsCatalog::defaultMmCreditFactors();
+        $rawCredit = $config['credit_factors'] ?? null;
+        if (\is_array($rawCredit)) {
+            $creditFactors = CreditFactorsCatalog::normalizeMmCreditFactors($rawCredit);
+        }
+
         $payload = json_encode(
             [
-                'python_module' => $moduleId,
-                'module_config' => $moduleConfig,
-                'axes'          => $axes,
+                'python_module'  => $moduleId,
+                'module_config'  => $moduleConfig,
+                'axes'           => $axes,
+                'credit_factors' => $creditFactors,
             ],
             JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
         );

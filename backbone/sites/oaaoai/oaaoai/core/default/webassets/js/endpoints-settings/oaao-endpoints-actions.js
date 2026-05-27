@@ -12,7 +12,6 @@ import {
     patchPurposesChatProfileDefault,
 } from '../../../../chat/default/js/chat-settings-panel.js';
 import { oaaoT } from '../oaao-i18n.js';
-import { oaaoRazyToastFire } from '../oaao-razy-toast.js';
 import { oaaoMountLoadingLogo } from '../oaao-loading-logo.js';
 import { replaceChildrenParsed, ruiBuild } from '../oaao-jit-dsl.js';
 import { endpointsApiUrl, chatApiUrl, endpointsFetchJson } from './api.js';
@@ -30,56 +29,6 @@ import {
 
 const razyui = (await import(oaaoCoreWebasset('razyui/razyui.js'))).default;
 
-/** @param {unknown} raw */
-function parseJsonObject(raw) {
-    try {
-        const v = JSON.parse(String(raw ?? '{}'));
-        return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
-    } catch {
-        return {};
-    }
-}
-
-/** @param {unknown} configRaw @param {FormDataEntryValue|null} tokensPerCredit */
-function mergeTokensPerCreditIntoConfigJson(configRaw, tokensPerCredit) {
-    const cfg = parseJsonObject(configRaw);
-    const v = String(tokensPerCredit ?? '').trim();
-    if (v === '') {
-        delete cfg.tokens_per_credit;
-    } else {
-        const n = Number(v);
-        if (Number.isFinite(n) && n > 0) cfg.tokens_per_credit = n;
-    }
-    return Object.keys(cfg).length ? JSON.stringify(cfg) : '';
-}
-
-/** @param {unknown} configRaw */
-function readTokensPerCreditFromConfig(configRaw) {
-    const cfg = parseJsonObject(configRaw);
-    const v = cfg.tokens_per_credit;
-    return v != null && v !== '' ? String(v) : '';
-}
-
-/** @param {unknown} metaRaw @param {FormDataEntryValue|null} mult */
-function mergeCreditMultiplierIntoMetaJson(metaRaw, mult) {
-    const meta = parseJsonObject(metaRaw);
-    const v = String(mult ?? '').trim();
-    if (v === '') {
-        delete meta.credit_multiplier;
-    } else {
-        const n = Number(v);
-        if (Number.isFinite(n) && n > 0) meta.credit_multiplier = n;
-    }
-    return Object.keys(meta).length ? JSON.stringify(meta) : '';
-}
-
-/** @param {unknown} metaRaw */
-function readCreditMultiplierFromMeta(metaRaw) {
-    const meta = parseJsonObject(metaRaw);
-    const v = meta.credit_multiplier;
-    return v != null && v !== '' ? String(v) : '';
-}
-
 async function ensureComboboxRegistered() {
     if (!rt.comboboxModulePromise) {
         const href = resolveShellRegistryUrl('/webassets/core/default/razyui/component/Combobox.js');
@@ -94,7 +43,7 @@ async function ensureComboboxRegistered() {
 }
 
 /** @param {HTMLFormElement} form */
-export function syncEndpointBaseUrlFieldForAsrLive(form) {
+function syncEndpointBaseUrlFieldForAsrLive(form) {
     const types = readEndpointTypesFromForm(form);
     const live = types.split(',').some((t) => t.trim() === 'asr.live');
     const label = form.querySelector('[data-oaao-ep-base-url-label]');
@@ -272,20 +221,12 @@ async function confirmDestructive(title, htmlBody) {
 async function reload(host) {
     const mode = readPanelMode(host);
     if (mode === 'endpoints') {
-        const [er, sr] = await Promise.all([
-            endpointsFetchJson(endpointsApiUrl('endpoints_list')),
-            endpointsFetchJson(`${endpointsApiUrl('endpoints_usage_stats')}?days=14`),
-        ]);
+        const er = await endpointsFetchJson(endpointsApiUrl('endpoints_list'));
         if (!er.res.ok || !er.data?.success) {
             throw new Error(typeof er.data?.message === 'string' ? er.data.message : oaaoT('settings.errors.load_endpoints'));
         }
         rt.state.endpoints = Array.isArray(er.data.endpoints) ? er.data.endpoints : [];
-        rt.state.endpointUsageStats =
-            sr.res.ok && sr.data?.success && sr.data.stats && typeof sr.data.stats === 'object'
-                ? /** @type {Record<string, unknown>} */ (sr.data.stats)
-                : {};
     } else {
-        rt.state.endpointUsageStats = {};
         const [er, pr, cr] = await Promise.all([
             endpointsFetchJson(endpointsApiUrl('endpoints_list')),
             endpointsFetchJson(endpointsApiUrl('purposes_list')),
@@ -334,7 +275,6 @@ function fillEndpointForm(form, row) {
     set('api_key_ref', String(row.api_key_ref ?? ''));
     if (cb instanceof HTMLInputElement) cb.checked = Number(row.is_enabled) === 1;
     set('config_json', String(row.config_json ?? ''));
-    set('tokens_per_credit', readTokensPerCreditFromConfig(row.config_json));
 }
 
 /** @param {HTMLFormElement} form @param {Record<string, unknown>|null} row @param {string} [suggestedPurposeKey] */
@@ -367,7 +307,6 @@ function fillPurposeForm(form, row, suggestedPurposeKey) {
     if (cb instanceof HTMLInputElement) cb.checked = Number(row.is_enabled) === 1;
     set('sort_order', String(row.sort_order ?? '500'));
     set('meta_json', String(row.meta_json ?? ''));
-    set('credit_multiplier', readCreditMultiplierFromMeta(row.meta_json));
 }
 
 /** @returns {Promise<typeof import('./purpose-editor-form.js')>} */
@@ -423,10 +362,7 @@ async function openEndpointEditor(host, row) {
                         model: String(fd.get('model') || '').trim(),
                         api_key_ref: String(fd.get('api_key_ref') || '').trim(),
                         is_enabled: fd.get('is_enabled') === 'on',
-                        config_json: mergeTokensPerCreditIntoConfigJson(
-                            fd.get('config_json'),
-                            fd.get('tokens_per_credit'),
-                        ),
+                        config_json: String(fd.get('config_json') || '').trim(),
                     };
                     if (msgEl) msgEl.textContent = oaaoT('settings.endpoints.dialog.saving');
                     const { res, data } = await endpointsFetchJson(endpointsApiUrl('endpoints_save'), {
@@ -449,7 +385,6 @@ async function openEndpointEditor(host, row) {
                         if (msgEl) msgEl.textContent = e instanceof Error ? e.message : oaaoT('settings.endpoints.dialog.reload_failed');
                         return false;
                     }
-                    oaaoRazyToastFire(oaaoT('settings.endpoints.saved'), 'success');
                     return undefined;
                 },
             },
@@ -522,8 +457,6 @@ async function openPurposeEditorAsync(host, row, opts) {
                     if (formMod.isAsrRoutingPurposeKey(purposeKey)) {
                         const ex = rt.state.purposes.find((r) => String(r.purpose_key ?? '') === purposeKey);
                         metaJson = String(ex?.meta_json ?? metaJson);
-                    } else {
-                        metaJson = mergeCreditMultiplierIntoMetaJson(metaJson, fd.get('credit_multiplier'));
                     }
                     const payload = {
                         ...(idStr ? { id: parseInt(idStr, 10) } : {}),
@@ -556,7 +489,6 @@ async function openPurposeEditorAsync(host, row, opts) {
                         if (msgEl) msgEl.textContent = e instanceof Error ? e.message : oaaoT('settings.purpose.dialog.reload_failed');
                         return false;
                     }
-                    oaaoRazyToastFire(oaaoT('settings.purpose.saved'), 'success');
                     return undefined;
                 },
             },
@@ -699,7 +631,6 @@ function bindPanelDelegation(host) {
                 }
                 try {
                     await reload(host);
-                    oaaoRazyToastFire(oaaoT('settings.purpose.saved'), 'success');
                 } catch (e) {
                     window.alert(e instanceof Error ? e.message : oaaoT('settings.purpose.dialog.reload_failed'));
                 }

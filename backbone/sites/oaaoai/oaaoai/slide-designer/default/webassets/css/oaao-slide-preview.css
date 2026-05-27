@@ -571,16 +571,9 @@
     padding-top: 0.15rem;
 }
 
-.oaao-tpl-gallery-page-body--wide,
-.oaao-tpl-gallery-page-header--wide {
-    max-width: none;
-    margin-inline: 0;
+.oaao-tpl-gallery-shell {
+    min-width: 0;
 }
-
-.oaao-tpl-gallery-page-body--wide.oaao-tpl-gallery-grid {
-    width: 100%;
-}
-
 
 @media (min-width: 768px) {
     .oaao-tpl-gallery-grid {

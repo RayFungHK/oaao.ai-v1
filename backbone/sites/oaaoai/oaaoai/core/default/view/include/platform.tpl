@@ -12,6 +12,8 @@
                 </div>
             </div>
             <div class="flex items-center gap-md shrink-0">
+                <span class="oaao-build-info-line text-[0.6875rem] font-mono fg-[var(--grid-caption)] shrink-0 max-w-[14rem] truncate"
+                    role="status" aria-live="polite"></span>
                 <span id="platform-user-label" class="text-[0.8125rem] fg-[var(--grid-ink-muted)] truncate max-w-[16rem]"></span>
                 <button type="button" id="platform-logout"
                     class="rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium fg-[var(--grid-ink)] bg-transparent border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[rgba(55,53,47,0.04)]">

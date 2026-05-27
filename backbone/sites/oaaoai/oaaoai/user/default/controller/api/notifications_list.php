@@ -1,5 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
+use Oaaoai\Core\NotificationRepository;
+use Oaaoai\Core\OaaoBuildInfo;
+
 /**
  * GET /user/api/notifications_list — unread + recent notifications for signed-in user.
  */
@@ -26,7 +31,10 @@ return function (): void {
     $uid = (int) ($user->user_id ?? 0);
     $db = $auth->getDB();
     if (! $db instanceof \Razy\Database || ! \oaao_auth_database_is_pgsql($db)) {
-        echo json_encode(['success' => true, 'notifications' => [], 'unread_count' => 0]);
+        echo json_encode(
+            OaaoBuildInfo::mergeBuild(['success' => true, 'notifications' => [], 'unread_count' => 0]),
+            JSON_UNESCAPED_UNICODE,
+        );
 
         return;
     }
@@ -43,12 +51,10 @@ return function (): void {
     require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_notification_schema.php';
     oaao_auth_ensure_notification_schema($pdo);
 
-    require_once dirname(__DIR__, 4) . '/core/default/library/NotificationRepository.php';
-
     $unreadOnly = isset($_GET['unread_only']) && (string) $_GET['unread_only'] === '1';
     $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 
-    $repo = new \Oaaoai\Core\NotificationRepository($pdo);
+    $repo = new NotificationRepository($pdo);
     $rows = $repo->listForUser($uid, $limit, $unreadOnly);
     $notifications = [];
     foreach ($rows as $row) {
@@ -69,9 +75,12 @@ return function (): void {
         $notifications[] = $row;
     }
 
-    echo json_encode([
-        'success'       => true,
-        'notifications' => $notifications,
-        'unread_count'  => $repo->unreadCount($uid),
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(
+        OaaoBuildInfo::mergeBuild([
+            'success'       => true,
+            'notifications' => $notifications,
+            'unread_count'  => $repo->unreadCount($uid),
+        ]),
+        JSON_UNESCAPED_UNICODE,
+    );
 };

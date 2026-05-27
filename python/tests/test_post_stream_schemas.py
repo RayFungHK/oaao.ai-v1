@@ -25,3 +25,13 @@ def test_parse_iqs_and_accs() -> None:
 
 def test_parse_invalid_returns_none() -> None:
     assert parse_plugin_score("iqs", {"bad": True}) is None
+
+
+def test_accs_reasons_coerce_non_string_values() -> None:
+    accs = AccsScoreResult(
+        accs=0.72,
+        dimensions={"alignment": 0.8},
+        reasons={"user_correction": 0, "action": "ship"},
+    )
+    assert accs.reasons["user_correction"] == "0"
+    assert accs.reasons["action"] == "ship"

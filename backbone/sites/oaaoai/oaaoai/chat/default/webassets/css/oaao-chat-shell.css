@@ -1424,20 +1424,6 @@
     min-width: 0;
 }
 
-.oaao-app .oaao-chat-assistant-summary-logging {
-    display: inline;
-    white-space: nowrap;
-}
-
-.oaao-app .oaao-chat-assistant-summary-sep {
-    font-size: 0.7rem;
-    line-height: 1.375;
-    color: var(--grid-caption, #6b7280);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-variant-numeric: tabular-nums;
-    user-select: none;
-}
-
 .oaao-app .oaao-chat-run-meta-info {
     display: inline;
     margin: 0;

@@ -194,11 +194,88 @@ export function mmSettingsFormHtml(esc, registry = {}) {
         'settings.mm.edit_auto',
         'Orchestrator picks task from source attachment: images → Image edit, videos → Video edit.',
     )}
+  <fieldset id="oaao-mm-credit-factors" class="grid gap-sm min-w-0 max-w-2xl border border-[var(--grid-line)] rounded-lg p-md">
+    <legend class="text-[0.875rem] fw-semibold fg-[var(--grid-ink)] px-1">${esc(oaaoT('settings.mm.credit_legend', 'Credit consumption (generate / edit)'))}</legend>
+    <p class="text-[0.8125rem] fg-[var(--grid-ink-muted)] m-0 leading-snug">${esc(oaaoT('settings.mm.credit_hint', 'Credits debited per run by task and output resolution tier (1k–8k).'))}</p>
+    <div data-oaao-mm-credit-table="1"></div>
+    <input type="hidden" name="credit_factors_json" value="{}" />
+  </fieldset>
   <div class="flex flex-wrap items-center gap-2">
     <button type="submit" class="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-[0.8125rem] fw-semibold bg-[var(--grid-accent,#2563eb)] fg-white border-0 cursor-pointer font-inherit">${esc(oaaoT('settings.mm.save', 'Save'))}</button>
   </div>
   <p id="oaao-mm-settings-msg" class="text-[0.8125rem] fg-[var(--grid-caution,#b45309)] min-h-[1.25rem]" role="status"></p>
 </form>`;
+}
+
+/**
+ * @param {HTMLFormElement} form
+ * @param {Record<string, unknown>} factors
+ */
+function writeCreditFactorsToForm(form, factors) {
+    const hidden = form.querySelector('input[name="credit_factors_json"]');
+    if (hidden instanceof HTMLInputElement) {
+        hidden.value = JSON.stringify(factors && typeof factors === 'object' ? factors : {});
+    }
+    renderCreditFactorsTable(form, factors);
+}
+
+/** @param {HTMLFormElement} form @returns {Record<string, unknown>} */
+function readCreditFactorsFromForm(form) {
+    const hidden = form.querySelector('input[name="credit_factors_json"]');
+    if (!(hidden instanceof HTMLInputElement)) return {};
+    try {
+        const parsed = JSON.parse(hidden.value || '{}');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+const MM_CREDIT_TASKS = ['t2i', 't2v', 'image_edit', 'video_edit'];
+const MM_CREDIT_TIERS = ['1k', '2k', '4k', '8k'];
+
+/**
+ * @param {HTMLFormElement} form
+ * @param {Record<string, unknown>} factors
+ */
+function renderCreditFactorsTable(form, factors) {
+    const host = form.querySelector('[data-oaao-mm-credit-table]');
+    if (!(host instanceof HTMLElement)) return;
+    host.textContent = '';
+    const tasks = factors.tasks && typeof factors.tasks === 'object' ? factors.tasks : {};
+    const table = document.createElement('table');
+    table.className = 'w-full border-collapse text-[0.8125rem]';
+    table.innerHTML = `<thead><tr class="bg-[rgba(0,0,0,0.03)]"><th class="text-left p-2 border border-[var(--grid-line)]">Task</th>${MM_CREDIT_TIERS.map((t) => `<th class="text-left p-2 border border-[var(--grid-line)]">${t}</th>`).join('')}</tr></thead>`;
+    const tbody = document.createElement('tbody');
+    for (const task of MM_CREDIT_TASKS) {
+        const tr = document.createElement('tr');
+        const taskRow = tasks[task] && typeof tasks[task] === 'object' ? tasks[task] : {};
+        tr.innerHTML = `<td class="p-2 border border-[var(--grid-line)] font-mono text-xs">${task}</td>${MM_CREDIT_TIERS.map((tier) => {
+            const val = /** @type {Record<string, unknown>} */ (taskRow)[tier];
+            const num = typeof val === 'number' ? val : parseFloat(String(val ?? '1')) || 1;
+            return `<td class="p-1 border border-[var(--grid-line)]"><input type="number" min="0" step="0.01" data-mm-credit-task="${task}" data-mm-credit-tier="${tier}" value="${num}" class="w-full rounded border border-[var(--grid-line)] px-1 py-1 text-xs font-mono bg-[var(--grid-paper)]" /></td>`;
+        }).join('')}`;
+        tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    host.appendChild(table);
+
+    host.querySelectorAll('input[data-mm-credit-task]').forEach((inp) => {
+        if (!(inp instanceof HTMLInputElement)) return;
+        inp.addEventListener('change', () => {
+            const current = readCreditFactorsFromForm(form);
+            const taskMap = current.tasks && typeof current.tasks === 'object' ? current.tasks : {};
+            const task = inp.dataset.mmCreditTask ?? '';
+            const tier = inp.dataset.mmCreditTier ?? '';
+            if (!task || !tier) return;
+            const row = taskMap[task] && typeof taskMap[task] === 'object' ? taskMap[task] : {};
+            row[tier] = parseFloat(inp.value) || 0;
+            taskMap[task] = row;
+            current.tasks = taskMap;
+            current.resolutions = MM_CREDIT_TIERS;
+            writeCreditFactorsToForm(form, current);
+        });
+    });
 }
 
 /**
@@ -230,18 +307,21 @@ export function fillMmSettingsForm(form, config, registry = {}) {
     if (bu) moduleConfig.base_url = bu;
     writeModuleConfigToForm(form, moduleConfig);
 
+    writeCreditFactorsToForm(form, config.credit_factors && typeof config.credit_factors === 'object' ? config.credit_factors : {});
+
     syncMmModuleConfigButton(form, registry.modules ?? []);
 }
 
 /**
  * @param {HTMLFormElement} form
- * @returns {{ python_module: string, module_config: Record<string, string> }}
+ * @returns {{ python_module: string, module_config: Record<string, string>, credit_factors: Record<string, unknown> }}
  */
 export function readMmSettingsConfig(form) {
     const modEl = form.querySelector('select[name="python_module"]');
     const python_module = modEl instanceof HTMLSelectElement ? modEl.value : 'mm_lance';
     const module_config = readModuleConfigFromForm(form);
-    return { python_module, module_config };
+    const credit_factors = readCreditFactorsFromForm(form);
+    return { python_module, module_config, credit_factors };
 }
 
 /**

@@ -31,7 +31,7 @@ Razy controllers do not auto-emit OpenAPI. The canonical list:
 | `/vault/storage/{ref}` | GET | `vault.php` (delegates to `VaultStorageUtil::streamBinaryFile`) | Range 206/416 support |
 | `/chat/run` | POST | `chat.php` | Public — proxied through Razy auth |
 
-Full enumeration: `scripts/list_php_routes.php` (W12-S2 follow-up — emit JSON for ingestion by the unified docs page).
+Full enumeration: `scripts/list_php_routes.php` (W12-S2 — emits JSON for unified docs ingestion).
 
 ## 3. Versioning policy
 
@@ -44,7 +44,7 @@ Full enumeration: `scripts/list_php_routes.php` (W12-S2 follow-up — emit JSON 
 | --- | --- |
 | Swagger UI | `https://api.<env>.oaao.ai/docs` |
 | Raw OpenAPI | `https://api.<env>.oaao.ai/openapi.json` |
-| Contracts repo | `https://api.<env>.oaao.ai/contracts/v1/<name>.json` (W12-S2 follow-up — wire static route) |
+| Contracts repo | `https://api.<env>.oaao.ai/contracts/v1/<name>.json` (W12-S2 — static route on orchestrator) |
 
 ## 5. Local discovery
 

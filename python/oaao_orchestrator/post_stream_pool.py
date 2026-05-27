@@ -2,22 +2,64 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import signal
 from pathlib import Path
 from typing import Any
 
 from oaao_orchestrator.config_models import EndpointSnapshot
 from oaao_orchestrator.queue_backend import apply_concurrency_cap
+from oaao_orchestrator.queue_metrics import effective_queue_backend_name
 from oaao_orchestrator.queue_pool import QueuePool, load_pool_settings, spawn_post_stream_jobs
 
 logger = logging.getLogger(__name__)
 
 _pools: list[QueuePool] = []
+_reload_requested = False
+_reload_watcher: asyncio.Task[Any] | None = None
+_sighup_installed = False
 
 
-async def start_post_stream_pools() -> None:
-    global _pools
+def request_post_stream_reload() -> None:
+    """W8-S3 — SIGHUP / admin hook to rebuild pools with fresh env."""
+    global _reload_requested
+    _reload_requested = True
+    logger.info(
+        "post_stream reload requested (backend=%s kill_switch=%s)",
+        effective_queue_backend_name(),
+        os.environ.get("OAAO_QUEUE_KILL_SWITCH", ""),
+    )
+
+
+def _install_sighup_reload_handler() -> None:
+    global _sighup_installed
+    if _sighup_installed:
+        return
+    try:
+        signal.signal(signal.SIGHUP, lambda *_: request_post_stream_reload())
+        _sighup_installed = True
+        logger.info("post_stream SIGHUP reload handler installed")
+    except (ValueError, OSError):
+        logger.debug("post_stream SIGHUP handler unavailable on this platform")
+
+
+async def _reload_watcher_loop() -> None:
+    global _reload_requested
+    while True:
+        await asyncio.sleep(1.0)
+        if not _reload_requested:
+            continue
+        _reload_requested = False
+        logger.info("post_stream reloading pools")
+        await stop_post_stream_pools()
+        await start_post_stream_pools(skip_watcher=True)
+
+
+async def start_post_stream_pools(*, skip_watcher: bool = False) -> None:
+    global _pools, _reload_watcher
+    _install_sighup_reload_handler()
     raw = os.environ.get("OAAO_QUEUE_POOLS_JSON", "").strip()
     if not raw:
         logger.info("post_stream pools disabled (OAAO_QUEUE_POOLS_JSON unset)")
@@ -46,10 +88,13 @@ async def start_post_stream_pools() -> None:
     for pool in _pools:
         await pool.start()
     logger.info(
-        "post_stream pools started count=%s ids=%s",
+        "post_stream pools started count=%s ids=%s backend=%s",
         len(_pools),
         [p.settings.pool_id for p in _pools],
+        effective_queue_backend_name(),
     )
+    if not skip_watcher and _reload_watcher is None:
+        _reload_watcher = asyncio.create_task(_reload_watcher_loop())  # noqa: RUF006
 
 
 async def stop_post_stream_pools() -> None:

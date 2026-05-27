@@ -1,5 +1,7 @@
 /** JSON fetch helpers for endpoints / chat APIs from the settings panel. */
 
+import { oaaoBuildFromResponse, oaaoMessageWithBuild } from '../oaao-build-stamp.js';
+
 function endpointsApiBase() {
     const authBase = (typeof document !== 'undefined' && document.body?.dataset?.authBase || '').trim();
     if (authBase) {
@@ -61,4 +63,16 @@ export async function endpointsFetchJson(url, options = {}) {
         data = {};
     }
     return { res, data };
+}
+
+/**
+ * @param {unknown} data
+ * @param {string} fallback
+ */
+export function endpointsErrorMessage(data, fallback) {
+    const msg =
+        data && typeof data === 'object' && typeof /** @type {Record<string, unknown>} */ (data).message === 'string'
+            ? String(/** @type {Record<string, unknown>} */ (data).message)
+            : fallback;
+    return oaaoMessageWithBuild(msg, oaaoBuildFromResponse(data));
 }

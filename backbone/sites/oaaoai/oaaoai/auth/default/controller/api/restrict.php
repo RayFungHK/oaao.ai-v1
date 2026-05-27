@@ -1,5 +1,7 @@
 <?php
 
+use Oaaoai\Core\OaaoBuildInfo;
+
 /**
  * Session gate — same identity as {@see resolveUser()} / {@see api/me}.
  *
@@ -19,11 +21,19 @@ return function (bool $ajax = false): void {
     if ($ajax || ! empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
         http_response_code(401);
         header('Content-Type: application/json; charset=UTF-8');
-        echo json_encode([
+        $payload = [
             'success' => false,
             'message' => 'Not authenticated',
             'data'    => ['sign_in_path' => $this->signInPath()],
-        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        ];
+        $this->api('core');
+        try {
+            if (class_exists(OaaoBuildInfo::class)) {
+                $payload = OaaoBuildInfo::mergeBuild($payload);
+            }
+        } catch (\Throwable) {
+        }
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         exit;
     }
 

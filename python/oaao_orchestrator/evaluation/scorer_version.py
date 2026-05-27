@@ -8,7 +8,15 @@ IQS_SCORER_VERSION = "iqs_v2"
 ACCS_SCORER_VERSION = "accs_v2"
 
 IQS_DIMENSION_KEYS = frozenset(DIMENSION_WEIGHTS.keys())
-ACCS_DIMENSION_KEYS = frozenset({"alignment", "accuracy", "hallucination_penalty"})
+ACCS_DIMENSION_KEYS = frozenset(
+    {
+        "alignment",
+        "accuracy",
+        "hallucination_penalty",
+        "citation_fidelity",
+        "source_analysis",
+    }
+)
 
 LEGACY_SCORER_VERSIONS = frozenset({"", "post_stream_v1"})
 

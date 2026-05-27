@@ -2830,7 +2830,7 @@ function vaultGetExplorerChildren(tree, nav) {
 function vaultRenderBreadcrumb(navHost, tree, nav, onNavigate) {
     navHost.textContent = '';
     navHost.className =
-        'oaao-vault-bc w-full shrink-0 min-h-[1.75rem] px-sm py-xs border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-panel)] flex items-center gap-2';
+        'oaao-vault-bc w-full shrink-0 min-h-[1.75rem] px-sm py-xs border-b-[1px] border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] flex items-center gap-2';
 
     const row = document.createElement('div');
     row.className =
@@ -4421,10 +4421,7 @@ function renderVaultDetailPanel(docNode, mount, signal) {
  */
 async function hydrateVaultMountJit(mount) {
     try {
-        const razyHref = oaaoPrefixedSitePath('/webassets/core/default/razyui/razyui.js');
-        const R = await import(/* webpackIgnore: true */ razyHref);
-        const pkg = R?.default ?? R;
-        const JIT = pkg?.JIT;
+        const JIT = await razyui.load('JIT');
         const root =
             typeof mount.closest === 'function'
                 ? mount.closest('.oaao-vault-root')
@@ -4857,7 +4854,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
                     key: 'sizeLabel',
                     label: vaultSidebarUiString('col_size'),
                     sortable: false,
-                    width: '4.25rem',
+                    width: '5.5rem',
                     align: 'right',
                     nowrap: true,
                 },
@@ -4866,7 +4863,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
                     label: vaultSidebarUiString('col_status'),
                     html: true,
                     sortable: false,
-                    minWidth: '6.5rem',
+                    minWidth: '9rem',
                 },
             ],
             data: flatData,
@@ -5152,6 +5149,7 @@ async function mountVaultExplorer(host, treeRows, signal, handlers, mount) {
         syncVaultExplorerScrollHeights(mount);
         vaultBindRlShellScrollSync(mount, rlShell);
         requestAnimationFrame(() => syncVaultExplorerScrollHeights(mount));
+        if (mount instanceof HTMLElement) await hydrateVaultMountJit(mount);
     };
 
     vaultExplorerRedraw = () => {

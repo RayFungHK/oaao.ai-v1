@@ -138,14 +138,41 @@ async def rescore_turn_item(
             coach_endpoint=coach_endpoint,
             grounding_context=grounding_context,
         )
+        if accs_result.skipped or accs_result.score <= 0:
+            from oaao_orchestrator.evaluation.accs import _score_accs_heuristic
+
+            accs_result = await _score_accs_heuristic(
+                user_message=item.user_message,
+                llm_output=item.assistant_content,
+                evidence=evidence,
+            )
+            accs_result.source = "heuristic_rescore_fallback"
+        if accs_result.score <= 0:
+            return
+        from oaao_orchestrator.evaluation.conversation_health import (
+            is_user_correction,
+            topic_shift_flag,
+        )
+
+        user_correction = 1 if is_user_correction(item.user_message or "") else 0
+        topic_shift = topic_shift_flag(
+            user_message=item.user_message or "",
+            accs_factors=dict(accs_result.factors or {}),
+            accs_score=float(accs_result.score),
+        )
         await upsert_turn_score(
             plugin_id="accs",
             meta=meta,
             score=AccsScoreResult(
                 accs=float(accs_result.score),
                 dimensions=dict(accs_result.factors or {}),
-                reasons={"action": accs_result.action, "source": accs_result.source},
+                reasons={
+                    "action": accs_result.action,
+                    "source": accs_result.source,
+                    "user_correction": user_correction,
+                },
             ),
+            topic_shift=topic_shift,
         )
 
 

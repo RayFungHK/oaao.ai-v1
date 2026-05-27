@@ -28,6 +28,10 @@ jobs:
         working-directory: python
         run: python -m pytest tests/test_orchestrator_bridge_contract.py -q
 
+      - name: Contract schema tests (W7-S2)
+        working-directory: python
+        run: python -m pytest tests/test_contracts_v1.py tests/test_contracts_php_mirror.py -q
+
       - name: Hook resilience tests
         working-directory: python
         run: python -m pytest tests/test_pipeline_hook_resilience.py -q
@@ -66,6 +70,23 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8103/health
           OAAO_ORCHESTRATOR_INTERNAL_URL=http://127.0.0.1:8103 bash ../scripts/oaao_orchestrator_smoke.sh
+
+  perf-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CI + orchestrator deps
+        run: |
+          pip install -r python/requirements-ci.txt
+          pip install -r python/requirements-orchestrator-app.txt
+
+      - name: Perf regression gate (W12-S1 / Top-20 #19)
+        run: bash scripts/perf_regression_gate.sh
 
   audit-full:
     runs-on: ubuntu-latest
@@ -218,6 +239,7 @@ jobs:
       - bridge-and-contract
       - orchestrator-smoke
       - audit-full
+      - perf-gate
       - php-style
       - python-lint
       - security-audit
@@ -229,6 +251,7 @@ jobs:
           BRIDGE: ${{ needs.bridge-and-contract.result }}
           SMOKE: ${{ needs.orchestrator-smoke.result }}
           AUDIT: ${{ needs.audit-full.result }}
+          PERF: ${{ needs.perf-gate.result }}
           STYLE: ${{ needs.php-style.result }}
           LINT: ${{ needs.python-lint.result }}
           SECAUDIT: ${{ needs.security-audit.result }}
@@ -251,6 +274,7 @@ jobs:
             echo "| bridge-and-contract | $(icon "$BRIDGE") $BRIDGE | required |"
             echo "| orchestrator-smoke  | $(icon "$SMOKE")  $SMOKE  | required |"
             echo "| audit-full          | $(icon "$AUDIT")  $AUDIT  | required |"
+            echo "| perf-gate           | $(icon "$PERF")  $PERF  | required (W12-S1) |"
             echo "| php-style           | $(icon "$STYLE")  $STYLE  | advisory (W2-S2) |"
             echo "| python-lint         | $(icon "$LINT")   $LINT   | required (ruff hard-fail, W4-S1 P2) |"
             echo "| security-audit      | $(icon "$SECAUDIT") $SECAUDIT | required (W11-S3 P2; composer audit still advisory) |"
@@ -261,12 +285,13 @@ jobs:
           BRIDGE: ${{ needs.bridge-and-contract.result }}
           SMOKE: ${{ needs.orchestrator-smoke.result }}
           AUDIT: ${{ needs.audit-full.result }}
+          PERF: ${{ needs.perf-gate.result }}
           LINT: ${{ needs.python-lint.result }}
           SECAUDIT: ${{ needs.security-audit.result }}
         run: |
           set -eu
           fail=0
-          for r in "$BRIDGE" "$SMOKE" "$AUDIT" "$LINT" "$SECAUDIT" ; do
+          for r in "$BRIDGE" "$SMOKE" "$AUDIT" "$PERF" "$LINT" "$SECAUDIT" ; do
             case "$r" in
               success) ;;
               skipped) ;;

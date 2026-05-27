@@ -266,6 +266,8 @@
                                     class="w-full text-left px-3 py-2 text-[0.8125rem] fg-[var(--grid-accent)] bg-transparent border-none cursor-pointer font-inherit hover:bg-[var(--grid-line)]/35">
                                     <span data-i18n="workspace.sign_out">Sign out</span>
                                 </button>
+                                <p class="oaao-build-info-line px-3 py-2 mb-0 mt-0 text-[0.6875rem] font-mono fg-[var(--grid-caption)] border-t-[1px] border-solid border-[var(--grid-line)] truncate"
+                                    role="status" aria-live="polite"></p>
                             </div>
                         </div>
                     </div>

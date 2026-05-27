@@ -522,6 +522,7 @@ return new class extends Controller {
                 'POST purposes_delete'  => 'purposes_delete',
                 'GET mm_settings'       => 'mm_settings',
                 'POST mm_settings_save' => 'mm_settings_save',
+                'GET credit_factors'    => 'credit_factors',
                 'POST funasr_ensure'      => 'funasr_ensure',
                 'POST funasr_nano_ensure' => 'funasr_nano_ensure',
             ],

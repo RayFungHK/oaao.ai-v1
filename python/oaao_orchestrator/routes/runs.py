@@ -18,7 +18,6 @@ same singletons without a circular import.
 
 from __future__ import annotations
 
-import secrets
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from oaao_orchestrator.agent_ask import ASK_DECISION_SKIP
 from oaao_orchestrator.routes._deps import require_internal_token
-from oaao_orchestrator.streaming_state import _stream_tokens, registry
+from oaao_orchestrator.streaming_state import registry, stream_tokens
 
 router = APIRouter(tags=["runs"])
 
@@ -79,8 +78,7 @@ async def subscribe_stream(
     token: str = Query(...),
     since_seq: int = Query(0, ge=0),
 ) -> StreamingResponse:
-    exp = _stream_tokens.get(run_id)
-    if not exp or not secrets.compare_digest(exp, token):
+    if not stream_tokens.validate(run_id, token):
         raise HTTPException(status_code=403, detail="bad_stream_token")
 
     run = registry.get(run_id)

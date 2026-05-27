@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from oaao_orchestrator.cors_config import resolve_cors_config
 from oaao_orchestrator.log_config import configure_oaao_logging
+from oaao_orchestrator.research_cron_poll import research_cron_poll_loop
 from oaao_orchestrator.research_fetch_poll import research_fetch_poll_loop
 from oaao_orchestrator.research_refetch_poll import research_refetch_poll_loop
 from oaao_orchestrator.routes.admin import router as _admin_router
@@ -34,6 +35,7 @@ from oaao_orchestrator.routes.slides import router as _slides_router
 from oaao_orchestrator.routes.turn_scores import router as _turn_scores_router
 from oaao_orchestrator.routes.version import router as _version_router
 from oaao_orchestrator.routes.media import router as _media_router
+from oaao_orchestrator.routes.contracts import router as _contracts_router
 from oaao_orchestrator.build_info import load_build_info
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
@@ -55,6 +57,7 @@ async def _lifespan(app: FastAPI):
     poll_task = asyncio.create_task(vault_job_poll_loop())
     research_poll_task = asyncio.create_task(research_fetch_poll_loop())
     research_refetch_poll_task = asyncio.create_task(research_refetch_poll_loop())
+    research_cron_task = asyncio.create_task(research_cron_poll_loop())
     await start_post_stream_pools()
     try:
         await ensure_evolution_collections()
@@ -73,6 +76,7 @@ async def _lifespan(app: FastAPI):
     poll_task.cancel()
     research_poll_task.cancel()
     research_refetch_poll_task.cancel()
+    research_cron_task.cancel()
     try:
         await poll_task
     except asyncio.CancelledError:
@@ -83,6 +87,10 @@ async def _lifespan(app: FastAPI):
         pass
     try:
         await research_refetch_poll_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await research_cron_task
     except asyncio.CancelledError:
         pass
 
@@ -136,8 +144,9 @@ from oaao_orchestrator.routes._shared_models import EndpointPayload  # noqa: E40
 # Streaming state moved to streaming_state.py so routes/runs.py can share it
 # without creating an import cycle with app.py.
 from oaao_orchestrator.streaming_state import (  # noqa: E402, F401
-    _stream_tokens,
     registry,
+    stream_tokens,
+    _stream_tokens,
 )
 
 # W5-S1 — health + admin routes extracted to oaao_orchestrator.routes.* and
@@ -157,5 +166,6 @@ app.include_router(_skills_router)
 app.include_router(_slides_router)
 app.include_router(_turn_scores_router)
 app.include_router(_media_router)
+app.include_router(_contracts_router)
 
 

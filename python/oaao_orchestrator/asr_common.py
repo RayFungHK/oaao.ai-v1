@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from oaao_orchestrator.subprocess_pool import run_exec
 from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
@@ -250,8 +251,9 @@ async def ffprobe_duration_sec(src_path: str) -> float | None:
         str(src_path),
     ]
     try:
-        proc = await asyncio.create_subprocess_exec(
+        proc = await run_exec(
             *cmd,
+            lane="ffmpeg",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -367,8 +369,9 @@ async def ffmpeg_extract_wav_clip(
         out_path,
     ]
     try:
-        proc = await asyncio.create_subprocess_exec(
+        proc = await run_exec(
             *cmd,
+            lane="ffmpeg",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -436,8 +439,9 @@ async def ffmpeg_segment_wav_mono16k(
             pattern,
         ]
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await run_exec(
                 *cmd,
+                lane="ffmpeg",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -542,8 +546,9 @@ async def ffmpeg_to_wav_mono16k(src_path: str) -> str | None:
         out,
     ]
     try:
-        proc = await asyncio.create_subprocess_exec(
+        proc = await run_exec(
             *cmd,
+            lane="ffmpeg",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )

@@ -20,7 +20,13 @@ final class TurnScorerVersion
     private const IQS_DIMS = ['clarity', 'specificity', 'actionability', 'context_completeness'];
 
     /** @var list<string> */
-    private const ACCS_DIMS = ['alignment', 'accuracy', 'hallucination_penalty'];
+    private const ACCS_DIMS = [
+        'alignment',
+        'accuracy',
+        'hallucination_penalty',
+        'citation_fidelity',
+        'source_analysis',
+    ];
 
     public static function combined(): string
     {

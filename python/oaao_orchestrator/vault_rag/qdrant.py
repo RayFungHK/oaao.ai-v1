@@ -6,7 +6,12 @@ from typing import Any
 
 import httpx
 
+from oaao_orchestrator.vault_rag.embed import _env, _resolve_secret
+from oaao_orchestrator.vault_rag.passages import PassagePick, select_passages_for_vault
+
 logger = logging.getLogger(__name__)
+
+
 def _qdrant_must_filter(
     vault_id: int,
     document_ids: list[int] | None = None,
@@ -117,9 +122,9 @@ async def _record_passages_via_scope_scroll(
     min_score: float,
     seen: set[str],
     default_qdrant: str,
-) -> list[_PassagePick]:
+) -> list[PassagePick]:
     """Load transcript summaries (then other segments) for PHP-scoped audio/docs without embedding."""
-    all_picks: list[_PassagePick] = []
+    all_picks: list[PassagePick] = []
     for profile in profiles:
         vid = int(profile.get("vault_id") or 0)
         if vid < 1:
@@ -147,7 +152,7 @@ async def _record_passages_via_scope_scroll(
             for h in hits:
                 eff = float(h.get("score") or score)
                 ranked.append((eff, h))
-        vault_picks, _ = _select_passages_for_vault(
+        vault_picks, _ = select_passages_for_vault(
             ranked,
             vault_id=vid,
             per_vault_limit=per_vault_limit,
@@ -166,9 +171,9 @@ async def _handbook_passages_via_vault_scroll(
     min_score: float,
     seen: set[str],
     default_qdrant: str,
-) -> list[_PassagePick]:
+) -> list[PassagePick]:
     """Whole-vault scroll when vector search returns 0 hits but embedded chunks exist (handbook PDFs)."""
-    all_picks: list[_PassagePick] = []
+    all_picks: list[PassagePick] = []
     for profile in profiles:
         vid = int(profile.get("vault_id") or 0)
         if vid < 1:
@@ -193,7 +198,7 @@ async def _handbook_passages_via_vault_scroll(
             if not isinstance(h, dict):
                 continue
             ranked.append((float(h.get("score") or 0.55), h))
-        vault_picks, _ = _select_passages_for_vault(
+        vault_picks, _ = select_passages_for_vault(
             ranked,
             vault_id=vid,
             per_vault_limit=per_vault_limit,

@@ -8492,15 +8492,6 @@ function ensureTurnScorePillFloater(pill) {
 const oaaoRunMetaInfoFloaterBound = new WeakSet();
 
 function createRunMetaLoggingLink() {
-    const unit = document.createElement('span');
-    unit.dataset.oaaoChat = 'assistant-summary-logging';
-    unit.className = 'oaao-chat-assistant-summary-logging';
-
-    const sep = document.createElement('span');
-    sep.className = 'oaao-chat-assistant-summary-sep';
-    sep.setAttribute('aria-hidden', 'true');
-    sep.textContent = ' · ';
-
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.dataset.oaaoChat = 'run-meta-info';
@@ -8508,16 +8499,17 @@ function createRunMetaLoggingLink() {
     btn.textContent = oaaoChatT('chat.run_meta.logging', 'Logging');
     btn.setAttribute('aria-label', oaaoChatT('chat.run_meta.logging_tip', 'Pipeline timing log'));
     btn.setAttribute('aria-expanded', 'false');
-
-    unit.append(sep, btn);
-    return unit;
+    return btn;
 }
 
 /**
- * @param {HTMLElement} unit
+ * @param {HTMLElement} host Logging button or legacy wrapper.
  */
-function ensureRunMetaInfoFloater(unit) {
-    const btn = unit.querySelector('[data-oaao-chat="run-meta-info"]');
+function ensureRunMetaInfoFloater(host) {
+    const btn =
+        host.matches('[data-oaao-chat="run-meta-info"]')
+            ? host
+            : host.querySelector('[data-oaao-chat="run-meta-info"]');
     if (!(btn instanceof HTMLElement) || oaaoRunMetaInfoFloaterBound.has(btn)) return;
     oaaoRunMetaInfoFloaterBound.add(btn);
     const show = () => {
@@ -8565,8 +8557,9 @@ function turnScorePendingFromRow(row) {
     const accs = Number(row.accs);
     const pendingIqs = Boolean(row.needs_iqs_rescore) || !(Number.isFinite(iqs) && iqs > 0);
     const accsExpected = turnScoreAccsExpected(row, null);
-    const pendingAccs =
-        accsExpected && (Boolean(row.needs_accs_rescore) || !(Number.isFinite(accs) && accs > 0));
+    const accsHasScore = Number.isFinite(accs) && accs > 0;
+    // Score present → show pill; needs_accs_rescore only drives background rescore, not "…" UI.
+    const pendingAccs = accsExpected && !accsHasScore;
     return { pendingIqs, pendingAccs };
 }
 
@@ -9643,31 +9636,34 @@ function applyAssistantRunSummaryToRow(outer, meta) {
         }
     }
 
-    const textEl = wrap.querySelector('[data-oaao-chat="assistant-summary"]');
-    if (textEl instanceof HTMLElement) textEl.textContent = line;
-
     const pt = meta.pipeline_timing;
     const tip =
         pt && typeof pt === 'object'
             ? formatPipelineTimingTooltip(/** @type {Record<string, unknown>} */ (pt), meta.duration_ms)
             : '';
-    let loggingUnit = wrap.querySelector('[data-oaao-chat="assistant-summary-logging"]');
+
+    const textEl = wrap.querySelector('[data-oaao-chat="assistant-summary"]');
+    if (textEl instanceof HTMLElement) {
+        textEl.textContent = tip ? `${line} · ` : line;
+    }
+
+    const legacyLoggingWrap = wrap.querySelector('[data-oaao-chat="assistant-summary-logging"]');
+    let loggingBtn = wrap.querySelector('[data-oaao-chat="run-meta-info"]');
+    if (legacyLoggingWrap instanceof HTMLElement && loggingBtn instanceof HTMLElement) {
+        legacyLoggingWrap.replaceWith(loggingBtn);
+    }
     if (tip) {
-        if (!(loggingUnit instanceof HTMLElement)) {
-            loggingUnit = createRunMetaLoggingLink();
-            ensureRunMetaInfoFloater(loggingUnit);
+        if (!(loggingBtn instanceof HTMLElement)) {
+            loggingBtn = createRunMetaLoggingLink();
+            ensureRunMetaInfoFloater(loggingBtn);
         }
-        const infoBtn = loggingUnit.querySelector('[data-oaao-chat="run-meta-info"]');
-        if (infoBtn instanceof HTMLElement) {
-            infoBtn.dataset.oaaoRunMetaTip = tip;
-            infoBtn.hidden = false;
-        }
-        loggingUnit.hidden = false;
-        if (textEl instanceof HTMLElement && textEl.nextElementSibling !== loggingUnit) {
-            textEl.insertAdjacentElement('afterend', loggingUnit);
+        loggingBtn.dataset.oaaoRunMetaTip = tip;
+        loggingBtn.hidden = false;
+        if (textEl instanceof HTMLElement && textEl.nextElementSibling !== loggingBtn) {
+            textEl.insertAdjacentElement('afterend', loggingBtn);
         }
     } else {
-        loggingUnit?.remove();
+        loggingBtn?.remove();
     }
 }
 

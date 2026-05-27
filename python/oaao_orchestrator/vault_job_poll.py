@@ -13,10 +13,8 @@ from urllib.parse import urlparse
 import httpx
 
 from oaao_orchestrator.php_boundary import assert_php_http_allowed, vault_job_claim_via_postgres
-from oaao_orchestrator.vault_audio_asr import process_vault_audio_asr
-from oaao_orchestrator.vault_document_embed import process_vault_document_embed
-from oaao_orchestrator.vault_graph_index import process_vault_graph_index
-from oaao_orchestrator.vault_transcript_summary import process_vault_transcript_summary
+from oaao_orchestrator.vault_job_dispatch import build_vault_job_finish_body, stub_finish_payload
+from oaao_orchestrator.vault_job_idle import vault_job_idle_sleep_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +59,7 @@ def _html_diag_sample(body: str) -> str:
 
 def _stub_finish_payload(job_id: int) -> dict[str, Any]:
     mode = (os.environ.get("OAAO_VAULT_JOB_STUB_MODE") or "fail").strip().lower()
-    if mode == "complete":
-        return {"job_id": job_id, "status": "completed"}
-    return {"job_id": job_id, "status": "failed", "error": "orchestrator_stub_no_processing"}
+    return stub_finish_payload(job_id, stub_mode=mode)
 
 
 def _is_compose_web_boot_wait(host: str, err: BaseException) -> bool:
@@ -97,17 +93,29 @@ async def _claim_vault_job(
     connect_fail_seq: list[int],
     host: str,
     interval: float,
+    worker_id: int = 0,
+    worker_count: int = 1,
 ) -> dict[str, Any] | None:
+    ingest_only = False
+    if worker_id == 0 and worker_count > 1:
+        from oaao_orchestrator.vault_job_pg import has_queued_ingest_jobs
+
+        ingest_only = await asyncio.to_thread(has_queued_ingest_jobs)
+
     if use_pg_claim:
         from oaao_orchestrator.vault_job_pg import claim_next_job
 
-        return await asyncio.to_thread(claim_next_job)
+        return await asyncio.to_thread(claim_next_job, ingest_only=ingest_only)
+
+    claim_body: dict[str, Any] = {}
+    if ingest_only:
+        claim_body["ingest_only"] = True
 
     assert_php_http_allowed(claim_url, context="vault_job_claim")
     r = await client.post(
         claim_url,
         headers=hdr,
-        json={},
+        json=claim_body,
     )
     if r.status_code >= 400:
         logger.warning("vault_job_poll: claim HTTP %s — %s", r.status_code, r.text[:500])
@@ -176,28 +184,8 @@ async def _process_claimed_vault_job(
         path,
     )
 
-    if hook == "vh.rag.document_embed":
-        st, ferr, extras = await process_vault_document_embed(client, job)
-        finish_body: dict[str, Any] = {"job_id": jid, "status": st, **extras}
-        if st != "completed":
-            finish_body["error"] = (ferr or "document_embed_failed")[:4000]
-    elif hook == "vh.rag.graph_index":
-        st, ferr, extras = await process_vault_graph_index(client, job)
-        finish_body = {"job_id": jid, "status": st, **extras}
-        if st != "completed":
-            finish_body["error"] = (ferr or "graph_index_failed")[:4000]
-    elif hook == "vh.rag.audio_asr":
-        st, ferr, extras = await process_vault_audio_asr(client, job)
-        finish_body = {"job_id": jid, "status": st, **extras}
-        if st != "completed":
-            finish_body["error"] = (ferr or "audio_asr_failed")[:4000]
-    elif hook == "vh.rag.transcript_summary":
-        st, ferr, extras = await process_vault_transcript_summary(client, job)
-        finish_body = {"job_id": jid, "status": st, **extras}
-        if st != "completed":
-            finish_body["error"] = (ferr or "transcript_summary_failed")[:4000]
-    else:
-        finish_body = _stub_finish_payload(jid)
+    stub_mode = (os.environ.get("OAAO_VAULT_JOB_STUB_MODE") or "fail").strip().lower()
+    finish_body = await build_vault_job_finish_body(client, job, stub_mode=stub_mode)
 
     assert_php_http_allowed(finish_url, context="vault_job_finish")
     fr = await client.post(
@@ -224,8 +212,9 @@ async def _vault_job_worker_loop(
     host: str,
     interval: float,
     connect_fail_seq: list[int],
+    worker_count: int,
 ) -> None:
-    del worker_id
+    empty_streak = 0
     while True:
         try:
             job = await _claim_vault_job(
@@ -236,10 +225,19 @@ async def _vault_job_worker_loop(
                 connect_fail_seq=connect_fail_seq,
                 host=host,
                 interval=interval,
+                worker_id=worker_id,
+                worker_count=worker_count,
             )
             if not job:
-                await asyncio.sleep(interval)
+                empty_streak += 1
+                await asyncio.sleep(
+                    vault_job_idle_sleep_seconds(
+                        empty_streak=empty_streak,
+                        base_interval=interval,
+                    )
+                )
                 continue
+            empty_streak = 0
             await _process_claimed_vault_job(
                 client,
                 job,
@@ -364,6 +362,7 @@ async def vault_job_poll_loop() -> None:
                     host=host,
                     interval=interval,
                     connect_fail_seq=connect_fail_seq,
+                    worker_count=worker_count,
                 )
             )
             for i in range(worker_count)

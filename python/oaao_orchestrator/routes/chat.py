@@ -12,14 +12,13 @@ the pattern used by the other ``routes/*.py`` modules.
 from __future__ import annotations
 
 import asyncio
-import secrets
 import uuid
 
 from fastapi import APIRouter, Depends
 
 from oaao_orchestrator.chat_models import ChatRunRequest
 from oaao_orchestrator.routes._deps import require_internal_token
-from oaao_orchestrator.streaming_state import _stream_tokens, registry
+from oaao_orchestrator.streaming_state import registry, stream_tokens
 
 router = APIRouter(
     tags=["chat"],
@@ -37,8 +36,7 @@ async def _run_llm_stream(*, run_id: str, req: ChatRunRequest) -> None:
 async def start_chat_run(req: ChatRunRequest) -> dict[str, str]:
     run_id = str(uuid.uuid4())
     registry.create(run_id)
-    token = secrets.token_hex(24)
-    _stream_tokens[run_id] = token
+    token = stream_tokens.mint(run_id)
 
     asyncio.create_task(_run_llm_stream(run_id=run_id, req=req))  # noqa: RUF006
 

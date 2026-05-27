@@ -24,11 +24,14 @@ return function (): void {
         }
     }
 
-    echo json_encode([
-        'success'              => true,
-        'web'                  => $web,
-        'orchestrator'         => $orchPayload,
-        'stack_mismatch'       => $mismatch,
-        'orchestrator_reachable' => $orchPayload !== null,
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(
+        \Oaaoai\Core\OaaoBuildInfo::mergeBuild([
+            'success'              => true,
+            'web'                  => $web,
+            'orchestrator'         => $orchPayload,
+            'stack_mismatch'       => $mismatch,
+            'orchestrator_reachable' => $orchPayload !== null,
+        ]),
+        JSON_UNESCAPED_UNICODE,
+    );
 };

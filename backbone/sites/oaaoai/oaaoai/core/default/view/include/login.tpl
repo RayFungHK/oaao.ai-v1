@@ -45,6 +45,7 @@
 
         <!-- Footer -->
         <div class="oaao-login-footer">
+            <p class="oaao-build-info-line oaao-login-build-info mb-3" role="status" aria-live="polite"></p>
             <span class="block mb-4 fg-[var(--grid-ink-muted)]" data-i18n="auth.footer">from oaao.ai</span>
             <span>
                 <a href="#" class="fg-[var(--grid-caption)] no-underline hover:underline" data-i18n="auth.terms">Terms of Use</a>

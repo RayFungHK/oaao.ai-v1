@@ -176,6 +176,7 @@ services:
       OAAO_AUTH_SQLITE_PATH: ${OAAO_AUTH_SQLITE_CONTAINER:-/var/www/html/sites/oaaoai/oaaoai/auth/data/oaao_local.sqlite}
       OAAO_PG_URL: postgresql://${OAAO_PG_USER:-oaao}:${OAAO_PG_PASSWORD:-oaao_dev}@postgres:5432/${OAAO_PG_DB:-oaao}
       OAAO_VAULT_JOB_CLAIM_MODE: ${OAAO_VAULT_JOB_CLAIM_MODE:-auto}
+      OAAO_VAULT_JOB_WORKERS: ${OAAO_VAULT_JOB_WORKERS:-5}
       OAAO_CHAT_PERSIST_MODE: ${OAAO_CHAT_PERSIST_MODE:-auto}
       OAAO_QUEUE_POOLS_JSON: ${OAAO_QUEUE_POOLS_JSON:-/app/python/config/queue_pools.docker.json}
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}

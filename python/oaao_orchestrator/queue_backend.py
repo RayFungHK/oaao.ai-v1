@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from oaao_orchestrator.config_models import QueueJobPayload
 
+from oaao_orchestrator.queue_metrics import effective_queue_backend_name, global_queue_metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -165,6 +167,13 @@ class MemoryQueueBackend:
     def qsize(self) -> int:
         return int(self._queue.qsize())
 
+    def metrics_snapshot(self) -> dict[str, object]:
+        snap = global_queue_metrics().snapshot(
+            backend="memory",
+            queue_depth=self.qsize(),
+        )
+        return snap.as_dict(pool_id="")
+
     def closed(self) -> bool:
         return self._closed
 
@@ -210,6 +219,7 @@ class RedisStreamQueueBackend:
         self._maxlen = maxlen
         self._closed = False
         self._group_ready = False
+        self._cached_depth = 0
 
     async def _ensure_group(self) -> None:
         if self._group_ready:
@@ -266,17 +276,46 @@ class RedisStreamQueueBackend:
         try:
             payload_json = fields.get("json") if isinstance(fields, dict) else None
             if not payload_json:
-                await self._redis.xack(self._stream_key, self._group, entry_id)
+                try:
+                    await self._redis.xack(self._stream_key, self._group, entry_id)
+                except Exception:  # noqa: BLE001
+                    global_queue_metrics().note_xack_failure()
                 return None
             job = _Payload.model_validate_json(payload_json)
         finally:
-            await self._redis.xack(self._stream_key, self._group, entry_id)
+            try:
+                await self._redis.xack(self._stream_key, self._group, entry_id)
+            except Exception:  # noqa: BLE001
+                global_queue_metrics().note_xack_failure()
         return job
 
+    async def refresh_depth(self) -> int:
+        try:
+            self._cached_depth = int(await self._redis.xlen(self._stream_key))
+        except Exception:  # noqa: BLE001
+            logger.debug("queue_backend: xlen failed", exc_info=True)
+        return self._cached_depth
+
+    async def metrics_snapshot(self, *, pool_id: str) -> dict[str, object]:
+        depth = await self.refresh_depth()
+        pending_count = 0
+        try:
+            pending = await self._redis.xpending(self._stream_key, self._group)
+            if isinstance(pending, (list, tuple)) and pending:
+                pending_count = int(pending[0] or 0)
+        except Exception:  # noqa: BLE001
+            logger.debug("queue_backend: xpending failed", exc_info=True)
+        snap = global_queue_metrics().snapshot(
+            backend="redis",
+            queue_depth=depth,
+            pending_count=pending_count,
+        )
+        out = snap.as_dict(pool_id=pool_id)
+        out["stream_key"] = self._stream_key
+        return out
+
     def qsize(self) -> int:
-        # Redis xlen is async; expose 0 here to satisfy the Protocol cheaply.
-        # Pools should treat redis qsize as advisory; metrics will land in W8-S3.
-        return 0
+        return self._cached_depth
 
     def closed(self) -> bool:
         return self._closed
@@ -297,10 +336,11 @@ class RedisStreamQueueBackend:
 def build_queue_backend(*, pool_id: str) -> QueueBackend:
     """Return the backend dictated by env. Always falls back to memory.
 
-    - `OAAO_QUEUE_BACKEND=redis` + `OAAO_QUEUE_REDIS_URL` → Redis stream.
-    - anything else → bounded `MemoryQueueBackend`.
+    - ``OAAO_QUEUE_BACKEND=redis`` + ``OAAO_QUEUE_REDIS_URL`` → Redis stream.
+    - ``OAAO_QUEUE_KILL_SWITCH=1`` → force memory (W8-S3 kill-switch).
+    - anything else → bounded ``MemoryQueueBackend``.
     """
-    backend = (os.environ.get("OAAO_QUEUE_BACKEND") or "").strip().lower()
+    backend = effective_queue_backend_name()
     if backend == "redis":
         url = (os.environ.get("OAAO_QUEUE_REDIS_URL") or "").strip()
         if not url:

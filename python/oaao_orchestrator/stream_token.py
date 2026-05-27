@@ -119,6 +119,11 @@ class StreamTokenStore:
         with self._lock:
             return self._store.pop(subject_id, None) is not None
 
+    def clear(self) -> None:
+        """Test / teardown helper — drop all minted tokens."""
+        with self._lock:
+            self._store.clear()
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._store)

@@ -3,13 +3,7 @@
  */
 
 .oaao-agents-grid-host {
-    padding-inline: 1rem;
-}
-
-@media (min-width: 640px) {
-    .oaao-agents-grid-host {
-        padding-inline: 2rem;
-    }
+    padding-inline: 0;
 }
 
 .oaao-agents-grid {

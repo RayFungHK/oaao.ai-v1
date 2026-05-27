@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/library/_bootstrap.php';
+require_once __DIR__ . '/_internal_auth.php';
 
 use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\research\ResearchRepository;
@@ -11,17 +12,37 @@ use oaaoai\research\ResearchRepository;
  * POST /research/api/cron_run — run all due watches (internal token or authenticated owner batch).
  */
 return function (): void {
-    $ctx = $this->oaao_research_require_pg();
-    if ($ctx === null) {
-        return;
-    }
+    header('Content-Type: application/json; charset=UTF-8');
 
-    $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-    $secret = ($secret !== false && trim((string) $secret) !== '')
-        ? trim((string) $secret)
-        : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
-    $hdr = $_SERVER['HTTP_X_OAAO_INTERNAL_TOKEN'] ?? '';
-    $internal = \is_string($hdr) && $hdr !== '' && hash_equals($secret, $hdr);
+    $internal = oaao_research_internal_token_ok();
+    if ($internal) {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        $pdo = $db?->getDBAdapter();
+        if (! ($pdo instanceof \PDO)) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Database unavailable'], JSON_UNESCAPED_UNICODE);
+
+            return;
+        }
+        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
+        if ($db) {
+            oaao_auth_ensure_pg_core_tables($db);
+        }
+        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_research_schema.php';
+        oaao_auth_ensure_research_schema($pdo);
+        $ctx = [
+            'uid'       => 0,
+            'tenant_id' => 0,
+            'db'        => $db,
+            'pdo'       => $pdo,
+        ];
+    } else {
+        $ctx = $this->oaao_research_require_pg();
+        if ($ctx === null) {
+            return;
+        }
+    }
 
     $repo = new ResearchRepository($ctx['db']);
     $due = $repo->listDueWatches(20);

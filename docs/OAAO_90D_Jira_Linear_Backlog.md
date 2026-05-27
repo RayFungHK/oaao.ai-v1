@@ -23,9 +23,9 @@
 - ✅ **W4-S2** 結構化錯誤回報 — [python/oaao_orchestrator/errors.py](../python/oaao_orchestrator/errors.py) (`OAAOErrorCode` StrEnum + `OAAOError` dataclass + HTTP/WS close mappings) mirrored by [backbone/.../OaaoErrorCode.php](../backbone/sites/oaaoai/oaaoai/core/default/library/OaaoErrorCode.php); 7 contract tests in [test_errors_contract.py](../python/tests/test_errors_contract.py) including a PHP-mirror parity test.
 - ✅ **W7-S1** Cross-tier contract schemas (EPIC-2 foundation) — versioned JSON Schemas in [contracts/v1/](../contracts/v1/) (`error.json`, `chat-run.request.json`, `vault-job.envelope.json`); Python loader [oaao_orchestrator/contracts.py](../python/oaao_orchestrator/contracts.py) with optional `jsonschema` validator + minimal fallback; 10 tests in [test_contracts_v1.py](../python/tests/test_contracts_v1.py).
 - ✅ **W3-S3** Dead-code marking & retirement list v1 — [docs/W3_S3_DeadCode_Retirement.md](W3_S3_DeadCode_Retirement.md) catalogues 20 candidates (files, dirs, symbols) across `oaao.ai-v1/` with reason / risk / retire-by-sprint; deletion deferred to W6+ behind owner sign-off + CI re-introduction guard.
-- ✅ **W5-S1 (phase 1)** Orchestrator route split — `/health` + 10 `/v1/admin/*` routes extracted to [python/oaao_orchestrator/routes/](../python/oaao_orchestrator/routes/) (`admin.py`, `health.py`, `_deps.py`, `__init__.py`); shared `X-OAAO-Internal-Token` guard centralised in `routes._deps.require_internal_token`; `app.py` reduced from 1862 → 1707 LOC (-155, -8.3%). Verified: 48 routes registered, 46/3 pytest passed/skipped, ruff clean. Phase 2 (slides / research / mine / live) tracked under W5-S1.
-- ✅ **W5-S2 (phase 1)** Run-executor service split — upstream LLM sampling + timeout helpers extracted to [python/oaao_orchestrator/run_executor_upstream.py](../python/oaao_orchestrator/run_executor_upstream.py) (`resolve_max_tokens`, `apply_upstream_sampling`, `llm_stream_timeout`, `LLM_STREAM_READ_TIMEOUT_SEC`); `run_executor.py` re-exports under original underscore names so internal callers need no churn; 11 contract tests in [test_run_executor_upstream.py](../python/tests/test_run_executor_upstream.py). Phase 2 will extract the pipeline-timing cluster.
-- ✅ **W6-S1 (phase 1)** Vault controller split — pure storage utilities extracted to [backbone/.../VaultStorageUtil.php](../backbone/sites/oaaoai/oaaoai/vault/default/library/VaultStorageUtil.php) (`unlinkStorageFile`, `streamBinaryFile` with HTTP Range 206/416 support); controller methods now single-line delegations; [vault.php](../backbone/sites/oaaoai/oaaoai/vault/default/controller/vault.php) reduced 2210 → 2152 LOC (-58, -2.6%); `php -l` clean; zero behavioural change.
+- ✅ **W5-S1 (phase 1–2)** Orchestrator route split — all `/v1/*` routers use `Depends(require_internal_token)` via [routes/_deps.py](../python/oaao_orchestrator/routes/_deps.py); [app.py](../python/oaao_orchestrator/app.py) **168 LOC** (mount + lifespan only).
+- ✅ **W5-S2 (phase 1–2)** Run-executor service split — upstream + pipeline-timing + 15 dispatch modules; [run_executor.py](../python/oaao_orchestrator/run_executor.py) **316 LOC**.
+- ✅ **W6-S1 (phase 1–2)** Vault controller split — logic in `controller/api/*.php` + `Vault*Util` / trait; [vault.php](../backbone/sites/oaaoai/oaaoai/vault/default/controller/vault.php) **202 LOC**.
 - ✅ **W6-S2** Vault/chat regression test expansion — [test_vault_job_poll_helpers.py](../python/tests/test_vault_job_poll_helpers.py) (12 cases: poll headers, HTML diag sampler, stub finish payload, compose web boot detector) + [test_queue_pool_backend_smoke.py](../python/tests/test_queue_pool_backend_smoke.py) (3 lifecycle cases) covering post-stream chat path.
 - ✅ **W7-S2** Queue boundary abstraction — `QueueBackend` Protocol + `MemoryQueueBackend` in [python/oaao_orchestrator/queue_backend.py](../python/oaao_orchestrator/queue_backend.py); `QueuePool` now accepts `backend=` injection and delegates `put` / `get` / `qsize` / `close`; 13 contract tests in [test_queue_backend.py](../python/tests/test_queue_backend.py).
 - ✅ **W8-S1** Redis queue backend rollout (canary) — `RedisStreamQueueBackend` (XADD / XREADGROUP / XACK) in [queue_backend.py](../python/oaao_orchestrator/queue_backend.py) with lazy `redis.asyncio` import; activated by `OAAO_QUEUE_BACKEND=redis` + `OAAO_QUEUE_REDIS_URL=...`; factory falls back to memory backend when redis pkg/url missing; 4-stage canary plan + rollback documented in [W8_S1_RedisCanaryPlan.md](W8_S1_RedisCanaryPlan.md).
@@ -40,14 +40,22 @@
 - ✅ **W12-S2** Unified API docs entry — [W12_S2_UnifiedAPIDocs.md](W12_S2_UnifiedAPIDocs.md) (FastAPI `/openapi.json`+`/docs`+`/redoc`, PHP Razy route table, versioning policy, local discovery).
 - ✅ **W13-S1** Load test, rollback & go/no-go — [W13_S1_LoadTest_GoNoGo.md](W13_S1_LoadTest_GoNoGo.md) (k6/locust profiles, 7 SLO targets, go/no-go checklist, rollback rehearsal protocol).
 
+- ✅ **W7-S2 (CI gate)** — `jsonschema` in [requirements-ci.txt](../python/requirements-ci.txt); CI runs [test_contracts_v1.py](../python/tests/test_contracts_v1.py) + [test_contracts_php_mirror.py](../python/tests/test_contracts_php_mirror.py).
+- ✅ **W8-S3** Queue metrics + kill-switch — [queue_metrics.py](../python/oaao_orchestrator/queue_metrics.py); Redis `xlen`/`xpending`/`xack_failures`; `OAAO_QUEUE_KILL_SWITCH` + SIGHUP reload in [post_stream_pool.py](../python/oaao_orchestrator/post_stream_pool.py).
+- ✅ **W9-S3** Redis-backed `TTLCache` peer — env-gated `RedisTTLCache` + `make_ttl_cache()` in [cache.py](../python/oaao_orchestrator/cache.py).
+- ✅ **W10-S3** Stream token store migration — [streaming_state.py](../python/oaao_orchestrator/streaming_state.py) + [live_meeting/hub.py](../python/oaao_orchestrator/live_meeting/hub.py) use `StreamTokenStore`.
+- ✅ **W12-S2 (follow-up)** — [scripts/list_php_routes.php](../scripts/list_php_routes.php) JSON emitter + `GET /contracts/v1/{name}` in [routes/contracts.py](../python/oaao_orchestrator/routes/contracts.py).
+- ✅ **Top-20 #5 (phase 2)** — `vault_graph_rag.py` slimmed to ~590 LOC; passage/message logic in [vault_rag/passages.py](../python/oaao_orchestrator/vault_rag/passages.py) + [messages.py](../python/oaao_orchestrator/vault_rag/messages.py).
+- ✅ **Top-20 #15** — [subprocess_pool.py](../python/oaao_orchestrator/subprocess_pool.py) lane caps + ASR/ffmpeg + FunASR docker wiring; metrics in work_queues status.
+- ✅ **Top-20 #17** — [store_session.py](../python/oaao_orchestrator/slide_project/store_session.py); `store.py` 325 LOC.
+- ✅ **Top-20 #19** — [scripts/perf_regression_gate.sh](../scripts/perf_regression_gate.sh) + CI `perf-gate` job.
+- ✅ **Top-20 #8 (ops)** — [W8_S3_RedisCanaryRollout.md](W8_S3_RedisCanaryRollout.md) Stage 2–4 checklist.
+- 🟡 **Top-20 #9 (phase 1)** — [vault_job_dispatch.py](../python/oaao_orchestrator/vault_job_dispatch.py) + idle backoff + [W9_S1_VaultJobWorkerPhase1.md](W9_S1_VaultJobWorkerPhase1.md); browser SSE Phase 2 open.
+- 🟡 **Top-20 #16 (phase 1)** — [SlideTemplateStoragePaths.php](../backbone/sites/oaaoai/oaaoai/slide-designer/default/library/SlideTemplateStoragePaths.php); Html enrichment split deferred.
+
 ### In progress / next P0 batch
-- ⬜ **W5-S1 phase 2 / W5-S2 phase 2** Migrate remaining inline `/v1/*` auth guards in `app.py` to `Depends(require_internal_token)`; extract pipeline-timing helpers from `run_executor.py`.
-- ⬜ **W6-S1 phase 2** Continue vault controller decomposition (storage-layer DB ops, retrieval profile glue) into additional `library/Vault*Util.php` classes.
-- ⬜ **W7-S2 (CI gate)** Wire `jsonschema` into CI `python-lint` job and add PHP fixtures asserting on `contracts/v1/*.json`.
-- ⬜ **W8-S3** Queue metrics + kill-switch (Redis depth, oldest_pending_age, xack_failures; SIGHUP backend swap).
-- ⬜ **W9-S3** Promote `TTLCache` to Redis-backed peer once W9 metrics confirm hit-rate ROI.
-- ⬜ **W10-S3** Migrate `app.py` + `live_meeting/hub.py` legacy `_stream_tokens` dicts to `StreamTokenStore`.
-- ⬜ **W12-S2 (follow-up)** `scripts/list_php_routes.php` JSON emitter + static `/contracts/v1/*` route on FastAPI.
+- **#9 phase 2** — vault ingest SSE + Redis queue consumer
+- **#16 phase 2** — `SlideTemplateStorageHtml.php` extraction
 
 ---
 

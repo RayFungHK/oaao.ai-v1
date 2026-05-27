@@ -246,9 +246,8 @@ body {
     flex-direction: column;
 }
 
-/* Workspace shell layouts — Split (Chat/Vault) vs Gallery (centered 48rem) vs Rail-only (full-width main). */
-.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-sidebar-column,
-.oaao-app #workspace-view.oaao-workspace-layout--rail-only #workspace-sidebar-column {
+/* Workspace shell layouts — Split (Chat/Vault: rail + sidebar + main) vs Gallery (Agents/Templates: rail + main). */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-sidebar-column {
     display: none !important;
     width: 0 !important;
     max-width: 0 !important;
@@ -258,39 +257,28 @@ body {
     visibility: hidden !important;
 }
 
-/* Override JIT {@code w-max} / {@code md:w-auto} on aside — gallery/rail-only is rail-only at every breakpoint. */
-.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-shell-aside.oaao-shell-aside,
-.oaao-app #workspace-view.oaao-workspace-layout--rail-only #workspace-shell-aside.oaao-shell-aside {
+/* Override JIT {@code w-max} / {@code md:w-auto} on aside — gallery is rail-only at every breakpoint. */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-shell-aside.oaao-shell-aside {
     flex: 0 0 var(--oaao-rail-width, 52px) !important;
     width: var(--oaao-rail-width, 52px) !important;
     max-width: var(--oaao-rail-width, 52px) !important;
     min-width: var(--oaao-rail-width, 52px) !important;
 }
 
-.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-main,
-.oaao-app #workspace-view.oaao-workspace-layout--rail-only #workspace-main {
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-main {
     flex: 1 1 0% !important;
     min-width: 0;
     width: auto !important;
     max-width: none !important;
 }
 
-.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-module-mount:not(.hidden),
-.oaao-app #workspace-view.oaao-workspace-layout--rail-only #workspace-module-mount:not(.hidden) {
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-module-mount:not(.hidden) {
     display: flex !important;
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
     width: 100%;
     max-width: none;
-}
-
-.oaao-app #workspace-view.oaao-workspace-layout--split #workspace-module-mount:not(.hidden) > .oaao-vault-root,
-.oaao-app #workspace-module-mount:not(.hidden) > .oaao-vault-root {
-    flex: 1 1 0%;
-    min-height: 0;
-    min-width: 0;
-    overflow: hidden;
 }
 
 .oaao-app #workspace-view.oaao-workspace-layout--split #workspace-module-mount:not(.hidden) {
@@ -301,8 +289,7 @@ body {
     width: 100%;
 }
 
-.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-header-tenant-label,
-.oaao-app #workspace-view.oaao-workspace-layout--rail-only #workspace-header-tenant-label {
+.oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-header-tenant-label {
     display: inline-block;
 }
 
@@ -310,9 +297,17 @@ body {
     display: none;
 }
 
-/* Gallery + rail-only tool pages — centered reading column (48rem = 768px). */
-.oaao-app #workspace-view.oaao-workspace-layout--gallery .oaao-gallery-page-column,
-.oaao-app #workspace-view.oaao-workspace-layout--rail-only .oaao-gallery-page-column {
+/* Gallery pages (Agents, Templates) — centered reading column (48rem = 768px). */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery .oaao-gallery-page-column {
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    box-sizing: border-box;
+}
+
+/* Slide templates + Agents — single shell column (do not rely on JIT max-w-[48rem]). */
+.oaao-app #workspace-view.oaao-workspace-layout--gallery [data-module="oaao-slide-templates"] .oaao-tpl-gallery-shell,
+.oaao-app #workspace-view.oaao-workspace-layout--gallery [data-module="oaao-agents"] .oaao-agents-shell {
     width: 100%;
     max-width: 48rem;
     margin-inline: auto;
@@ -637,21 +632,18 @@ body {
 }
 
 @media (min-width: 768px) {
-    .oaao-app #workspace-view.oaao-workspace-layout--gallery > .workspace-shell-inner,
-    .oaao-app #workspace-view.oaao-workspace-layout--rail-only > .workspace-shell-inner {
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery > .workspace-shell-inner {
         flex-direction: row;
     }
 
-    .oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-shell-aside.oaao-shell-aside,
-    .oaao-app #workspace-view.oaao-workspace-layout--rail-only #workspace-shell-aside.oaao-shell-aside {
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery #workspace-shell-aside.oaao-shell-aside {
         position: relative;
         transform: none !important;
     }
 }
 
 @media (max-width: 767px) {
-    .oaao-app #workspace-view.oaao-workspace-layout--gallery.oaao-shell-drawer-open #workspace-shell-aside.oaao-shell-aside,
-    .oaao-app #workspace-view.oaao-workspace-layout--rail-only.oaao-shell-drawer-open #workspace-shell-aside.oaao-shell-aside {
+    .oaao-app #workspace-view.oaao-workspace-layout--gallery.oaao-shell-drawer-open #workspace-shell-aside.oaao-shell-aside {
         flex: 0 0 var(--oaao-rail-width, 52px) !important;
         width: var(--oaao-rail-width, 52px) !important;
         max-width: var(--oaao-rail-width, 52px) !important;
@@ -901,8 +893,10 @@ button.oaao-vault-menu-active {
 /*
  * Explorer primary column ({@see workspace_vault_panel.tpl}).
  */
-[data-module='oaao-vault'] .oaao-vault-explorer-column {
+[data-module='oaao-vault'] .oaao-vault-explorer-column,
+.oaao-vault-root .oaao-vault-explorer-column {
     isolation: isolate;
+    background: var(--grid-panel-bright, #fff);
 }
 
 /* Tree host — flex column; breadcrumb fixed, list scrolls in rl-shell ({@see vault-panel.js}). */
@@ -920,13 +914,40 @@ button.oaao-vault-menu-active {
     overflow: hidden;
     font-size: 0.8125rem;
     color: var(--grid-ink);
-    background: var(--grid-paper);
+    background: var(--grid-panel-bright, #fff);
 }
 
 [data-module='oaao-vault'] .oaao-vault-bc,
 .oaao-vault-root .oaao-vault-bc {
     flex-shrink: 0;
     min-height: 1.75rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--grid-paper, #f8f8f7);
+}
+
+/*
+ * Vault panel chrome padding — do not rely on JIT {@code px-md}/{@code py-sm} alone
+ * ({@see workspace_vault_panel.tpl}; {@see hydrateVaultMountJit}).
+ */
+[data-module='oaao-vault'] .oaao-vault-root > header,
+.oaao-vault-root > header {
+    padding: 0.5rem 1rem;
+}
+
+[data-module='oaao-vault'] [data-oaao-vault-new-folder-wrap],
+.oaao-vault-root [data-oaao-vault-new-folder-wrap] {
+    padding: 0.25rem 1rem;
+    background: var(--grid-paper, #f8f8f7);
+}
+
+[data-module='oaao-vault'] .oaao-vault-document-detail > div:first-child,
+.oaao-vault-root .oaao-vault-document-detail > div:first-child {
+    padding: 0.5rem 1rem;
+}
+
+[data-module='oaao-vault'] .oaao-vault-document-detail > .flex-1,
+.oaao-vault-root .oaao-vault-document-detail > .flex-1 {
+    padding: 0.5rem 1rem;
 }
 
 [data-module='oaao-vault'] .oaao-vault-rl-shell,
@@ -946,6 +967,13 @@ button.oaao-vault-menu-active {
     flex: 1 1 0%;
     min-height: 0;
     overflow: hidden;
+    --rl-bg: var(--grid-panel-bright, #fff);
+    --rl-border: var(--grid-line);
+    --rl-text: var(--grid-ink);
+    --rl-text-muted: var(--grid-caption);
+    --rl-hover-header: color-mix(in srgb, var(--grid-line) 42%, var(--grid-panel-bright));
+    --rl-hover-row-bg: color-mix(in srgb, var(--grid-line) 32%, var(--grid-panel-bright));
+    background-color: var(--grid-panel-bright, #fff);
 }
 
 [data-module='oaao-vault'] .oaao-vault-rl-shell .resource-list-wrapper,
@@ -957,6 +985,25 @@ button.oaao-vault-menu-active {
     overflow-y: auto !important;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    background-color: var(--grid-panel-bright, #fff);
+}
+
+[data-module='oaao-vault'] .oaao-vault-rl-shell .resource-list-table,
+.oaao-vault-root .oaao-vault-rl-shell .resource-list-table {
+    min-width: 36rem;
+    width: 100%;
+}
+
+[data-module='oaao-vault'] .oaao-vault-rl-shell .resource-list-th,
+.oaao-vault-root .oaao-vault-rl-shell .resource-list-th,
+[data-module='oaao-vault'] .oaao-vault-rl-shell .resource-list-td,
+.oaao-vault-root .oaao-vault-rl-shell .resource-list-td {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    box-sizing: border-box;
+    background-color: var(--grid-panel-bright, #fff);
 }
 
 /*
@@ -1113,6 +1160,10 @@ button.oaao-vault-menu-active {
     box-shadow: inset 3px 0 0 0 var(--grid-accent);
 }
 
+[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus.is-selected td {
+    background-color: color-mix(in srgb, var(--grid-accent) 16%, var(--grid-line) 42%, var(--grid-panel-bright));
+}
+
 [data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus.is-selected td:first-child {
     box-shadow: inset 3px 0 0 0 var(--grid-accent);
 }
@@ -1187,14 +1238,6 @@ button.oaao-vault-menu-active {
     white-space: nowrap;
 }
 
-[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus.is-selected td {
-    background-color: color-mix(in srgb, var(--grid-accent) 16%, var(--grid-line) 42%, var(--grid-panel-bright));
-}
-
-[data-module='oaao-vault'] tr.resource-list-row.oaao-vault-row-focus.is-selected td:first-child {
-    box-shadow: inset 3px 0 0 0 var(--grid-accent);
-}
-
 [data-module='oaao-vault'] .resource-list-row-select,
 [data-module='oaao-vault'] .resource-list-select-all {
     width: 0.9375rem;
@@ -1206,8 +1249,10 @@ button.oaao-vault-menu-active {
 
 [data-module='oaao-vault'] td.resource-list-td-select,
 [data-module='oaao-vault'] th.resource-list-th-select {
-    padding-left: 0.35rem;
+    padding-left: 0.75rem;
     padding-right: 0.35rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
     vertical-align: middle;
 }
 
@@ -1378,37 +1423,6 @@ button.oaao-vault-menu-active {
     position: relative;
 }
 
-/* Notification bell — anchor below icon (plain CSS; Tailwind arbitrary top-* may not hydrate). */
-.oaao-app .oaao-notifications-menu {
-    position: relative;
-}
-
-.oaao-app .oaao-notifications-anchor {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    padding-top: 6px;
-    z-index: 90;
-}
-
-.oaao-app .oaao-notifications-anchor.hidden,
-.oaao-app .oaao-notifications-anchor[hidden] {
-    display: none !important;
-}
-
-.oaao-app .oaao-notifications-panel {
-    min-width: 18rem;
-    max-width: min(24rem, calc(100vw - 2rem));
-    max-height: min(60vh, 420px);
-    overflow-x: hidden;
-    overflow-y: auto;
-    border-radius: 10px;
-    border: 1px solid var(--grid-line);
-    background: var(--grid-panel-bright);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-    padding: 4px 0;
-}
-
 .oaao-app .oaao-user-menu-panel {
     position: absolute;
     top: calc(100% + 6px);
@@ -1501,21 +1515,16 @@ button.oaao-vault-menu-active {
 }
 
 /* Version / build visibility (dev + deploy mismatch) */
-.oaao-version-badge {
-    position: fixed;
-    right: max(0.75rem, env(safe-area-inset-right, 0px));
-    bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
-    z-index: 12040;
-    padding: 0.35rem 0.55rem;
-    border-radius: 999px;
-    font-size: 11px;
+.oaao-build-info-line {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    color: var(--grid-ink-muted, #666);
-    background: color-mix(in srgb, var(--grid-paper, #fafafa) 92%, transparent);
-    border: 1px solid var(--grid-line, rgba(0, 0, 0, 0.12));
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-    pointer-events: none;
-    user-select: none;
+    letter-spacing: -0.01em;
+    user-select: text;
+}
+
+.oaao-login-build-info {
+    text-align: center;
+    font-size: 0.6875rem;
+    color: var(--grid-caption, #888);
 }
 
 .oaao-version-stale-banner {

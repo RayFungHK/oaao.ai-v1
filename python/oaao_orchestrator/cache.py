@@ -202,3 +202,121 @@ def register_cache(cache: TTLCache[Any]) -> None:
 def caches_snapshot() -> list[dict[str, Any]]:
     with _registry_lock:
         return [c.snapshot() for c in _caches.values()]
+
+
+def cache_backend_name() -> str:
+    return (os.environ.get("OAAO_CACHE_BACKEND") or "memory").strip().lower() or "memory"
+
+
+class RedisTTLCache[T]:
+    """Optional Redis-backed TTL cache (W9-S3) — env-gated peer to in-process ``TTLCache``."""
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        url: str,
+        ttl_seconds: float | None = None,
+        max_entries: int | None = None,
+    ) -> None:
+        self._name = name
+        self._url = url
+        self._ttl = ttl_seconds if ttl_seconds is not None else default_ttl_seconds()
+        self._max = max_entries if max_entries is not None else default_max_entries()
+        self.stats = CacheStats()
+        self._redis: Any = None
+
+    def _client(self) -> Any:
+        if self._redis is None:
+            try:
+                import redis
+            except ImportError as exc:  # pragma: no cover
+                raise RuntimeError("redis package required for OAAO_CACHE_BACKEND=redis") from exc
+            self._redis = redis.from_url(self._url, decode_responses=True)
+        return self._redis
+
+    def _key(self, key: str) -> str:
+        return f"oaao:cache:{self._name}:{key}"
+
+    def get(self, key: str, default: T | None = None) -> T | None:
+        import json
+
+        raw = self._client().get(self._key(key))
+        if raw is None:
+            self.stats.misses += 1
+            return default
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            self.stats.misses += 1
+            return default
+        self.stats.hits += 1
+        return value  # type: ignore[return-value]
+
+    def set(self, key: str, value: T) -> None:
+        import json
+
+        payload = json.dumps(value, ensure_ascii=False)
+        ttl = int(self._ttl) if self._ttl > 0 else None
+        client = self._client()
+        client.set(self._key(key), payload, ex=ttl)
+        if self._max > 0:
+            pattern = f"oaao:cache:{self._name}:*"
+            keys = list(client.scan_iter(match=pattern, count=self._max + 8))
+            if len(keys) > self._max:
+                for stale in keys[: len(keys) - self._max]:
+                    client.delete(stale)
+                    self.stats.evicted += 1
+
+    def invalidate(self, key: str) -> bool:
+        return bool(self._client().delete(self._key(key)))
+
+    def clear(self) -> None:
+        client = self._client()
+        for stale in client.scan_iter(match=f"oaao:cache:{self._name}:*", count=256):
+            client.delete(stale)
+
+    def __len__(self) -> int:
+        return sum(
+            1 for _ in self._client().scan_iter(match=f"oaao:cache:{self._name}:*", count=256)
+        )
+
+    def name(self) -> str:
+        return self._name
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "name": self._name,
+            "backend": "redis",
+            "size": len(self),
+            "max_entries": self._max,
+            "ttl_seconds": self._ttl,
+            **self.stats.snapshot(),
+        }
+
+
+def make_ttl_cache[T](
+    *,
+    name: str,
+    max_entries: int | None = None,
+    ttl_seconds: float | None = None,
+) -> TTLCache[T] | RedisTTLCache[T]:
+    """Factory — ``OAAO_CACHE_BACKEND=redis`` + URL selects Redis peer."""
+    if cache_backend_name() == "redis":
+        url = (
+            os.environ.get("OAAO_CACHE_REDIS_URL")
+            or os.environ.get("OAAO_QUEUE_REDIS_URL")
+            or ""
+        ).strip()
+        if url:
+            cache: TTLCache[T] | RedisTTLCache[T] = RedisTTLCache(
+                name=name,
+                url=url,
+                max_entries=max_entries,
+                ttl_seconds=ttl_seconds,
+            )
+            register_cache(cache)  # type: ignore[arg-type]
+            return cache
+    cache = TTLCache(max_entries=max_entries, ttl_seconds=ttl_seconds, name=name)
+    register_cache(cache)
+    return cache

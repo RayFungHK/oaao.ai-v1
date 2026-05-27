@@ -25,7 +25,6 @@ export function purposeEditorFormHtml(epOpts, opts, esc) {
     <select name="default_endpoint_id" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]"><option value="">${noneOpt}</option>${epOpts}</select></label>
   <label class="flex items-center gap-2 text-[0.8125rem] cursor-pointer"><input type="checkbox" name="is_enabled" checked class="rounded border-[var(--grid-line)]" /><span>${esc(oaaoT('settings.purposes.enabled'))}</span></label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${esc(oaaoT('settings.pu.form.sort_order'))}</span><input name="sort_order" type="number" value="500" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs" /></label>
-  <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${esc(oaaoT('settings.pu.form.credit_multiplier'))}</span><span class="text-[0.75rem] fg-[var(--grid-ink-muted)]">${esc(oaaoT('settings.pu.form.credit_multiplier_hint'))}</span><input name="credit_multiplier" type="number" min="0.01" step="0.01" placeholder="1" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs max-w-[12rem]" /></label>
   ${metaJsonField}
   <p id="oaao-pu-dlg-msg" class="text-[0.8125rem] fg-[var(--grid-caution,#b45309)] min-h-[1.25rem]" role="status"></p>
 </form>`;

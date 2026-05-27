@@ -114,4 +114,33 @@ final class OaaoBuildInfo
             'component'  => (string) ($info['component'] ?? 'oaaoai-v1'),
         ];
     }
+
+    /**
+     * Compact build stamp for JSON API envelopes ({@code build} on each response).
+     *
+     * @return array{build_id: string, git_sha: string, version: string}
+     */
+    public static function stamp(): array
+    {
+        $info = self::load();
+        $sha = (string) ($info['git_sha'] ?? '');
+
+        return [
+            'build_id' => (string) ($info['build_id'] ?? 'unknown'),
+            'git_sha'  => $sha !== '' ? substr($sha, 0, 12) : '',
+            'version'  => (string) ($info['version'] ?? '0.0.0'),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
+     */
+    public static function mergeBuild(array $payload): array
+    {
+        $payload['build'] = self::stamp();
+
+        return $payload;
+    }
 }

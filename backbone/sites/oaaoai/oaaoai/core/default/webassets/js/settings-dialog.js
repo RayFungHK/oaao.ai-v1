@@ -354,12 +354,7 @@ export async function openWorkspaceSettingsDialog(razyui) {
             hydrated.add(sec.section_id);
         } catch (e) {
             console.warn('[oaao] settings-dialog: ensurePanel failed', sec.section_id, e);
-            const detail = e instanceof Error ? e.message : String(e ?? '');
-            host.innerHTML = `<p class="text-sm fg-[var(--grid-ink-muted)]">${oaaoT('settings.dialog.panel_error')}</p>${
-                detail
-                    ? `<p class="text-xs fg-[var(--grid-caution,#b45309)] mt-2 font-mono break-all">${escapeHtml(detail)}</p>`
-                    : ''
-            }`;
+            host.innerHTML = `<p class="text-sm fg-[var(--grid-ink-muted)]">${oaaoT('settings.dialog.panel_error')}</p>`;
         } finally {
             try {
                 JIT?.hydrate(host);

@@ -86,6 +86,64 @@ def _sanitize_client_text(text: str, *, max_len: int = 480) -> str:
     return s
 
 
+_CF_HTML_RE = re.compile(r"<!doctype\s+html|<html[\s>]", re.IGNORECASE)
+_CF_TITLE_RE = re.compile(r"<title>\s*([^<]+?)\s*</title>", re.IGNORECASE)
+
+
+def _endpoint_host_label(base_url: str) -> str:
+    if not base_url.strip():
+        return ""
+    try:
+        from urllib.parse import urlparse
+
+        return urlparse(_ensure_url_scheme(base_url)).hostname or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def upstream_http_error_payload(
+    status: int,
+    raw: str,
+    *,
+    endpoint_base_url: str = "",
+    endpoint_ref: str = "",
+    endpoint_model: str = "",
+) -> dict[str, Any]:
+    """SSE-safe upstream HTTP error — never ship Cloudflare HTML pages to the client."""
+    host = _endpoint_host_label(endpoint_base_url)
+    label = (endpoint_ref or endpoint_model or host or "LLM endpoint").strip()
+    low = raw.lower()
+    is_cf_html = status >= 500 and (
+        _CF_HTML_RE.search(raw[:512]) is not None
+        or "cloudflare" in low
+        or "bad gateway" in low
+        or "error code:" in low
+    )
+    out: dict[str, Any] = {}
+    if host:
+        out["endpoint_host"] = host
+    if is_cf_html:
+        title_m = _CF_TITLE_RE.search(raw)
+        title = title_m.group(1).strip() if title_m else f"HTTP {status}"
+        host_bit = f" ({host})" if host and host not in label else ""
+        out["body"] = (
+            f"{title} — Cloudflare cannot reach the inference origin for «{label}»{host_bit}. "
+            "Start or repair the vLLM/Ollama service behind that hostname, or change Settings → Endpoints."
+        )
+        out["hint"] = (
+            "This is an upstream/infrastructure fault, not an OAAO application bug. "
+            "Verify the GPU server is running and Cloudflare DNS/proxy targets a healthy origin."
+        )
+        return out
+    out["body"] = _sanitize_client_text(raw, max_len=600)
+    if status in (502, 503, 504):
+        out["hint"] = (
+            "Upstream returned an error. Confirm the inference server for this endpoint is running "
+            "and reachable from the orchestrator container."
+        )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Planner endpoint resolution
 # ---------------------------------------------------------------------------

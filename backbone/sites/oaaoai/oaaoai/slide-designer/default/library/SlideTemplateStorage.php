@@ -14,130 +14,63 @@ namespace oaaoai\slide_designer;
  */
 final class SlideTemplateStorage
 {
-    public static function distributorDataDir(): string
+    public static function distributorDataDir()
     {
-        return dirname(__DIR__, 3) . '/data';
+        return SlideTemplateStoragePaths::distributorDataDir();
     }
-
-    public static function defaultRoot(): string
+    public static function defaultRoot()
     {
-        return self::distributorDataDir() . '/slide-templates/custom';
+        return SlideTemplateStoragePaths::defaultRoot();
     }
-
     /** @deprecated Legacy path before templates moved under {@code data/}. */
-    public static function legacyRoot(): string
+    public static function legacyRoot()
     {
-        return dirname(__DIR__, 3) . '/auth/data/slide-templates/custom';
+        return SlideTemplateStoragePaths::legacyRoot();
     }
-
-    public static function root(): string
+    public static function root()
     {
-        $env = getenv('OAAO_SLIDE_TEMPLATE_CUSTOM_ROOT');
-        if (is_string($env) && trim($env) !== '') {
-            return rtrim(trim($env), '/\\');
-        }
-
-        $preferred = self::defaultRoot();
-        $legacy = self::legacyRoot();
-        if (is_dir($preferred) || ! is_dir($legacy)) {
-            return $preferred;
-        }
-
-        return $legacy;
+        return SlideTemplateStoragePaths::root();
     }
-
-    public static function incomingDir(): string
+    public static function incomingDir()
     {
-        $dir = self::root() . '/incoming';
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        return $dir;
+        return SlideTemplateStoragePaths::incomingDir();
     }
-
     /**
      * @return array{scope: string, tenant_id: int|null, owner_user_id: int|null}
      */
-    public static function partitionFromScope(array $ctx, string $scope): array
+    public static function partitionFromScope(array $ctx, string $scope)
     {
-        $scope = SlideTemplateScope::normalizeScope($scope);
-        if ($scope === SlideTemplateScope::GLOBAL) {
-            return ['scope' => $scope, 'tenant_id' => null, 'owner_user_id' => null];
-        }
-        if ($scope === SlideTemplateScope::TENANT) {
-            $tid = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : 0;
-
-            return ['scope' => $scope, 'tenant_id' => $tid > 0 ? $tid : null, 'owner_user_id' => null];
-        }
-
-        $uid = (int) ($ctx['user_id'] ?? 0);
-
-        return [
-            'scope'           => SlideTemplateScope::PERSONAL,
-            'tenant_id'       => isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : null,
-            'owner_user_id'   => $uid > 0 ? $uid : null,
-        ];
+        return SlideTemplateStoragePaths::partitionFromScope($ctx, $scope);
     }
-
     /**
      * @param array{scope: string, tenant_id: int|null, owner_user_id: int|null} $part
      */
-    public static function scopeBase(array $part): string
+    public static function scopeBase(array $part)
     {
-        $scope = SlideTemplateScope::normalizeScope($part['scope'] ?? null);
-        if ($scope === SlideTemplateScope::GLOBAL) {
-            return self::root() . '/global';
-        }
-        if ($scope === SlideTemplateScope::TENANT) {
-            $tid = (int) ($part['tenant_id'] ?? 0);
-
-            return self::root() . '/tenant/' . max(1, $tid);
-        }
-        $uid = (int) ($part['owner_user_id'] ?? 0);
-
-        return self::root() . '/personal/' . max(1, $uid);
+        return SlideTemplateStoragePaths::scopeBase($part);
     }
-
     /**
      * @param array{scope: string, tenant_id: int|null, owner_user_id: int|null} $part
      */
-    public static function templateJsonPath(string $templateId, array $part): string
+    public static function templateJsonPath(string $templateId, array $part)
     {
-        $safe = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($templateId)));
-
-        return self::scopeBase($part) . '/' . $safe . '.json';
+        return SlideTemplateStoragePaths::templateJsonPath($templateId, $part);
     }
-
-    public static function previewHtmlUrl(string $templateId, int $page): string
+    public static function previewHtmlUrl(string $templateId, int $page)
     {
-        return '/slide-designer/api/template_preview_html?' . http_build_query([
-            'template_id' => trim($templateId),
-            'page'        => max(1, $page),
-        ]);
+        return SlideTemplateStoragePaths::previewHtmlUrl($templateId, $page);
     }
-
-    public static function masterHtmlUrl(string $templateId, int $page): string
+    public static function masterHtmlUrl(string $templateId, int $page)
     {
-        return '/slide-designer/api/template_master_html?' . http_build_query([
-            'template_id' => trim($templateId),
-            'page'        => max(1, $page),
-        ]);
+        return SlideTemplateStoragePaths::masterHtmlUrl($templateId, $page);
     }
-
-    public static function thumbnailApiUrl(string $templateId): string
+    public static function thumbnailApiUrl(string $templateId)
     {
-        return '/slide-designer/api/template_thumbnail?' . http_build_query([
-            'template_id' => trim($templateId),
-        ]);
+        return SlideTemplateStoragePaths::thumbnailApiUrl($templateId);
     }
-
-    public static function renderSlideApiUrl(string $templateId, int $page): string
+    public static function renderSlideApiUrl(string $templateId, int $page)
     {
-        return '/slide-designer/api/template_render?' . http_build_query([
-            'template_id' => trim($templateId),
-            'page'        => max(1, $page),
-        ]);
+        return SlideTemplateStoragePaths::renderSlideApiUrl($templateId, $page);
     }
 
     /**
@@ -775,11 +708,9 @@ final class SlideTemplateStorage
     /**
      * @param array{scope: string, tenant_id: int|null, owner_user_id: int|null} $part
      */
-    public static function templateAssetDir(string $templateId, array $part): string
+    public static function templateAssetDir(string $templateId, array $part)
     {
-        $safe = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($templateId)));
-
-        return self::scopeBase($part) . '/' . $safe;
+        return SlideTemplateStoragePaths::templateAssetDir($templateId, $part);
     }
 
     /**

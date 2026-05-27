@@ -1,7 +1,9 @@
 /**
- * Version / build badge + stale-deploy banner (dev visibility).
- * Compares page-embedded build_id with live {@code GET /api/build_info}.
+ * Build/version line in shell chrome + stale-deploy banner.
+ * Per-message stamps: {@see oaao-build-stamp.js} / {@see oaao-razy-toast.js}.
  */
+
+import { oaaoBuildTooltip, oaaoEmbeddedBuild, oaaoFormatBuildLine, oaaoMessageWithBuild } from './oaao-build-stamp.js';
 
 /** @returns {string} */
 function mountPrefix() {
@@ -17,35 +19,55 @@ function buildInfoUrl() {
     return `${mountPrefix()}/api/build_info`;
 }
 
-/** @returns {{ version: string, buildId: string, gitSha: string }} */
-function embeddedBuild() {
-    const body = typeof document !== 'undefined' ? document.body : null;
-    return {
-        version: (body?.dataset?.oaaoVersion ?? '').trim() || '0.0.0',
-        buildId: (body?.dataset?.oaaoBuildId ?? '').trim() || 'unknown',
-        gitSha: (body?.dataset?.oaaoGitSha ?? '').trim() || '',
-    };
+/** @param {Record<string, unknown>} [data] */
+function renderBuildInfoLines(data) {
+    const embedded = oaaoEmbeddedBuild();
+    const web = data?.web && typeof data.web === 'object' ? /** @type {Record<string, unknown>} */ (data.web) : null;
+    const orch =
+        data?.orchestrator && typeof data.orchestrator === 'object'
+            ? /** @type {Record<string, unknown>} */ (data.orchestrator)
+            : null;
+    const version = String(web?.version ?? embedded.version ?? '0.0.0');
+    const label = oaaoFormatBuildLine({ version, web: web ?? undefined, orchestrator: orch ?? undefined });
+    const tip = oaaoBuildTooltip({ version, web: web ?? undefined, orchestrator: orch ?? undefined, page: embedded });
+    document.querySelectorAll('.oaao-build-info-line').forEach((el) => {
+        if (!(el instanceof HTMLElement)) {
+            return;
+        }
+        el.textContent = label;
+        el.title = tip;
+    });
 }
 
-/** @param {string} buildId @param {string} gitSha */
-function formatLabel(buildId, gitSha) {
-    const embedded = embeddedBuild();
-    const ver = embedded.version;
-    const short = (gitSha || buildId || '').slice(0, 12);
-    return short ? `v${ver} · ${short}` : `v${ver}`;
-}
+/** @param {Record<string, unknown>} data */
+function applyBuildInfo(data) {
+    const embedded = oaaoEmbeddedBuild();
+    renderBuildInfoLines(data);
+    const web = data.web && typeof data.web === 'object' ? /** @type {Record<string, unknown>} */ (data.web) : {};
+    const liveBuildId = String(web.build_id ?? data.build_id ?? '');
 
-function ensureBadge() {
-    let el = document.getElementById('oaao-version-badge');
-    if (el) {
-        return el;
+    const stackMismatch = data.stack_mismatch === true;
+    const pageStale = liveBuildId !== '' && embedded.buildId !== '' && liveBuildId !== embedded.buildId;
+
+    if (stackMismatch) {
+        const orch =
+            data.orchestrator && typeof data.orchestrator === 'object'
+                ? /** @type {Record<string, unknown>} */ (data.orchestrator)
+                : {};
+        showStaleBanner(
+            oaaoMessageWithBuild(
+                `Stack mismatch: web ${embedded.buildId} vs orchestrator ${String(orch.build_id ?? '?')} — refresh or rebuild containers.`,
+                web,
+            ),
+        );
+    } else if (pageStale) {
+        showStaleBanner(
+            oaaoMessageWithBuild(
+                `New build deployed (${liveBuildId}). Your page is still on ${embedded.buildId} — reload to pick up changes.`,
+                web,
+            ),
+        );
     }
-    el = document.createElement('div');
-    el.id = 'oaao-version-badge';
-    el.className = 'oaao-version-badge';
-    el.title = 'oaao.ai build';
-    document.body.appendChild(el);
-    return el;
 }
 
 function ensureBanner() {
@@ -62,33 +84,6 @@ function showStaleBanner(message) {
     banner.classList.remove('hidden');
 }
 
-/** @param {Record<string, unknown>} data */
-function applyBuildInfo(data) {
-    const embedded = embeddedBuild();
-    const web = data.web && typeof data.web === 'object' ? /** @type {Record<string, unknown>} */ (data.web) : {};
-    const liveBuildId = String(web.build_id ?? data.build_id ?? '');
-    const liveSha = String(web.git_sha ?? data.git_sha ?? '');
-    const badge = ensureBadge();
-    badge.textContent = formatLabel(liveBuildId || embedded.buildId, liveSha || embedded.gitSha);
-
-    const stackMismatch = data.stack_mismatch === true;
-    const pageStale = liveBuildId !== '' && embedded.buildId !== '' && liveBuildId !== embedded.buildId;
-
-    if (stackMismatch) {
-        const orch =
-            data.orchestrator && typeof data.orchestrator === 'object'
-                ? /** @type {Record<string, unknown>} */ (data.orchestrator)
-                : {};
-        showStaleBanner(
-            `Stack mismatch: web ${embedded.buildId} vs orchestrator ${String(orch.build_id ?? '?')} — refresh or rebuild containers.`,
-        );
-    } else if (pageStale) {
-        showStaleBanner(
-            `New build deployed (${liveBuildId}). Your page is still on ${embedded.buildId} — reload to pick up changes.`,
-        );
-    }
-}
-
 async function pollBuildInfo() {
     try {
         const res = await fetch(buildInfoUrl(), { credentials: 'include', headers: { Accept: 'application/json' } });
@@ -97,21 +92,19 @@ async function pollBuildInfo() {
         }
         const data = await res.json();
         if (data && typeof data === 'object') {
-            applyBuildInfo(data);
+            applyBuildInfo(/** @type {Record<string, unknown>} */ (data));
         }
     } catch {
-        /* offline / auth gate — badge stays on embedded values */
+        /* offline — keep page-embedded label */
     }
 }
 
-/** Mount badge and start polling when shell is up. */
+/** Mount build line + stale-deploy polling. */
 export function initOaaoVersionBadge() {
     if (typeof document === 'undefined') {
         return;
     }
-    const embedded = embeddedBuild();
-    const badge = ensureBadge();
-    badge.textContent = formatLabel(embedded.buildId, embedded.gitSha);
+    renderBuildInfoLines();
     void pollBuildInfo();
     window.setInterval(() => {
         void pollBuildInfo();

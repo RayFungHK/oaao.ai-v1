@@ -7,12 +7,28 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
+def _coerce_reason_map(v: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for k, raw in v.items():
+        if raw is None:
+            continue
+        out[str(k)] = str(raw)
+    return out
+
+
 class IqsScoreResult(BaseModel):
     """Input Quality Score — dimensions 0–1, overall iqs 0–1."""
 
     iqs: float = Field(ge=0.0, le=1.0)
     dimensions: dict[str, float] = Field(default_factory=dict)
     reasons: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("reasons", mode="before")
+    @classmethod
+    def _coerce_reasons(cls, v: Any) -> dict[str, str]:
+        if not isinstance(v, dict):
+            return {}
+        return _coerce_reason_map(v)
 
     @field_validator("dimensions")
     @classmethod
@@ -32,6 +48,13 @@ class AccsScoreResult(BaseModel):
     accs: float = Field(ge=0.0, le=1.0)
     dimensions: dict[str, float] = Field(default_factory=dict)
     reasons: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("reasons", mode="before")
+    @classmethod
+    def _coerce_reasons(cls, v: Any) -> dict[str, str]:
+        if not isinstance(v, dict):
+            return {}
+        return _coerce_reason_map(v)
 
     @field_validator("dimensions")
     @classmethod

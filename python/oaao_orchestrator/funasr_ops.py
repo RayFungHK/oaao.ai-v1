@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from oaao_orchestrator.asr_funasr import funasr_transcribe_url
+from oaao_orchestrator.subprocess_pool import run_sync
 from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
@@ -156,8 +157,9 @@ def _compose_file_args(project_dir: str) -> tuple[str, list[str]]:
 
 
 def _has_docker_compose_v2(docker_bin: str, env: dict[str, str]) -> bool:
-    probe = subprocess.run(
+    probe = run_sync(
         [docker_bin, "compose", "version"],
+        lane="docker",
         env=env,
         capture_output=True,
         text=True,
@@ -174,8 +176,9 @@ def _try_start_stopped_funasr() -> dict[str, Any]:
 
     project = compose_project_name()
     env = _docker_env()
-    list_proc = subprocess.run(
+    list_proc = run_sync(
         [docker_bin, "ps", "-a", "--filter", f"name={project}-funasr", "--format", "{{.Names}}"],
+        lane="docker",
         env=env,
         capture_output=True,
         text=True,
@@ -190,8 +193,9 @@ def _try_start_stopped_funasr() -> dict[str, Any]:
     running: list[str] = []
     errors: list[str] = []
     for name in names:
-        state_proc = subprocess.run(
+        state_proc = run_sync(
             [docker_bin, "inspect", "-f", "{{.State.Running}}", name],
+            lane="docker",
             env=env,
             capture_output=True,
             text=True,
@@ -201,8 +205,9 @@ def _try_start_stopped_funasr() -> dict[str, Any]:
         if (state_proc.stdout or "").strip().lower() == "true":
             running.append(name)
             continue
-        proc = subprocess.run(
+        proc = run_sync(
             [docker_bin, "start", name],
+            lane="docker",
             env=env,
             capture_output=True,
             text=True,
@@ -309,8 +314,9 @@ def _compose_up_sync(
 
     started = time.monotonic()
     try:
-        proc = subprocess.run(
+        proc = run_sync(
             cmd,
+            lane="docker",
             cwd=project_dir,
             env=env,
             capture_output=True,

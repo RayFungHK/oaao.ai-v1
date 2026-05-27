@@ -42,6 +42,11 @@ return function (): void {
         $cfg['module_config'] = $moduleConfigIn;
     }
 
+    $creditIn = $input['credit_factors'] ?? null;
+    if (\is_array($creditIn)) {
+        $cfg['credit_factors'] = $creditIn;
+    }
+
     if (! MmModuleSettings::save($cfg)) {
         http_response_code(400);
         echo json_encode(

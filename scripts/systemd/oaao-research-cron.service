@@ -1,0 +1,11 @@
+[Unit]
+Description=OAAO Article Research due-watch cron
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=OAAO_ENV_FILE=/opt/oaao.ai-v1/docker/env
+ExecStart=/opt/oaao.ai-v1/scripts/oaao_research_cron.sh
+
+[Install]
+WantedBy=multi-user.target

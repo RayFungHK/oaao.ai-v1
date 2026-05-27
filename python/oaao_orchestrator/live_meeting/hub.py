@@ -52,6 +52,7 @@ from oaao_orchestrator.streaming.events import (
     PHASE_LIVE,
     StreamEnvelope,
 )
+from oaao_orchestrator.stream_token import StreamTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ _bridge_emit_at: dict[str, float] = {}
 _stream_silent_tasks: dict[str, asyncio.Task[Any]] = {}
 _partial_seq: dict[str, int] = {}
 _last_bubble_emit: dict[str, float] = {}
-# W10-S1: minted stream tokens for GET /v1/live/{id}/stream — validated with secrets.compare_digest.
-_stream_tokens: dict[str, str] = {}
+# W10-S3: per-session stream tokens for live SSE / WS auth.
+_stream_tokens: StreamTokenStore = StreamTokenStore()
 
 STREAM_SILENT_TIMEOUT_SEC = 12.0
 
@@ -688,7 +689,7 @@ async def stop_session(session_id: str, *, keep_audio: bool) -> bool:
                 logger.warning("live_meeting asr_task_error id=%s err=%s", session_id, result)
     _asr_tasks.pop(session_id, None)
     _runtime.pop(session_id, None)
-    _stream_tokens.pop(session_id, None)
+    _stream_tokens.revoke(session_id)
     drop_live_stream(session_id)
     session.mark_stopped(keep_audio=keep_audio)
     if not keep_audio:
@@ -815,10 +816,7 @@ async def subscribe_live_stream(session_id: str, *, since_seq: int = 0):
 
 def public_urls(session_id: str, *, public_base: str) -> dict[str, str]:
     base = (public_base or "").rstrip("/")
-    token = secrets.token_hex(16)
-    # W10-S1: persist token so the SSE endpoint can validate the caller.
-    # W10-S2: same token gates the WS audio uplink (passed via ?token= query).
-    _stream_tokens[session_id] = token
+    token = _stream_tokens.mint(session_id, nbytes=16)
     return {
         "ws_audio_url": f"/v1/live/{session_id}/audio?token={token}",
         "stream_url": f"{base}/v1/live/{session_id}/stream",
@@ -827,19 +825,12 @@ def public_urls(session_id: str, *, public_base: str) -> dict[str, str]:
 
 
 def validate_stream_token(session_id: str, token: str) -> bool:
-    """Constant-time check for ``GET /v1/live/{session_id}/stream`` token query.
-
-    Returns ``True`` only when a token has been minted for ``session_id`` via
-    :func:`public_urls` and the supplied ``token`` matches exactly.
-    """
+    """Constant-time check for live stream / WS token."""
     sid = (session_id or "").strip()
     supplied = (token or "").strip()
     if not sid or not supplied:
         return False
-    expected = _stream_tokens.get(sid)
-    if not expected:
-        return False
-    return secrets.compare_digest(expected, supplied)
+    return _stream_tokens.validate(sid, supplied)
 
 
 async def _await_first_frame_auth(

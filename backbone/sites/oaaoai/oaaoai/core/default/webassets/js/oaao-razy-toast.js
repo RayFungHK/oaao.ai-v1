@@ -3,6 +3,7 @@
  */
 
 import razyui from 'razyui';
+import { oaaoMessageWithBuild } from './oaao-build-stamp.js';
 
 /** @type {Promise<unknown> | null} */
 let toastCtorPromise = null;
@@ -28,16 +29,18 @@ function loadToastCtor() {
 /**
  * @param {string} message
  * @param {'success' | 'error' | 'info' | 'warning'} [kind]
+ * @param {unknown} [build] optional API {@code build} stamp (falls back to page embedded)
  */
-export async function oaaoRazyToast(message, kind = 'info') {
+export async function oaaoRazyToast(message, kind = 'info', build) {
     try {
         const Toast = await loadToastCtor();
+        const stamped = oaaoMessageWithBuild(message, build);
         const opts = /** @type {const} */ ({ duration: 2400, position: 'bottom-right' });
         const k = kind === 'error' ? 'error' : kind === 'success' ? 'success' : kind === 'warning' ? 'warning' : 'info';
-        if (k === 'error') Toast.error(message, opts);
-        else if (k === 'success') Toast.success(message, opts);
-        else if (k === 'warning') Toast.warning(message, opts);
-        else Toast.info(message, opts);
+        if (k === 'error') Toast.error(stamped, opts);
+        else if (k === 'success') Toast.success(stamped, opts);
+        else if (k === 'warning') Toast.warning(stamped, opts);
+        else Toast.info(stamped, opts);
     } catch (err) {
         console.warn('[oaao] RazyUI toast failed', err);
     }
@@ -46,7 +49,8 @@ export async function oaaoRazyToast(message, kind = 'info') {
 /**
  * @param {string} message
  * @param {'success' | 'error' | 'info' | 'warning'} [kind]
+ * @param {unknown} [build]
  */
-export function oaaoRazyToastFire(message, kind = 'info') {
-    void oaaoRazyToast(message, kind);
+export function oaaoRazyToastFire(message, kind = 'info', build) {
+    void oaaoRazyToast(message, kind, build);
 }
