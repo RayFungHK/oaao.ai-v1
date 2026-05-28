@@ -33,7 +33,13 @@ class SearchHit:
 class SearchProvider(Protocol):
     provider_id: str
 
-    async def search(self, query: str, *, limit: int = 5) -> list[SearchHit]:
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        language: str | None = None,
+    ) -> list[SearchHit]:
         ...
 
 
@@ -53,14 +59,24 @@ class SearxngProvider:
     def __init__(self, base_url: str | None = None) -> None:
         self._base = (base_url or searxng_base_url()).rstrip("/")
 
-    async def search(self, query: str, *, limit: int = 5) -> list[SearchHit]:
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        language: str | None = None,
+    ) -> list[SearchHit]:
         q = (query or "").strip()
         if not q or not self._base:
             if not self._base:
                 logger.info("searxng search skipped — OAAO_SEARXNG_URL not set")
             return []
         cap = max(1, min(int(limit), 10))
-        params = urlencode({"q": q, "format": "json"})
+        query_params: dict[str, str] = {"q": q, "format": "json"}
+        lang = (language or "").strip()
+        if lang:
+            query_params["language"] = lang
+        params = urlencode(query_params)
         url = f"{self._base}/search?{params}"
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
@@ -124,6 +140,7 @@ async def search_multi(
     *,
     limit: int = 5,
     provider_ids: list[str] | None = None,
+    language: str | None = None,
 ) -> list[dict[str, Any]]:
     """Try providers in order; return normalized hit dicts (deduped by URL)."""
     ids = provider_ids or default_provider_priority()
@@ -134,7 +151,7 @@ async def search_multi(
         prov = get_search_provider(pid)
         if prov is None:
             continue
-        hits = await prov.search(query, limit=cap)
+        hits = await prov.search(query, limit=cap, language=language)
         for hit in hits:
             url = (hit.url or "").strip()
             key = url.lower() if url else hit.title.lower()

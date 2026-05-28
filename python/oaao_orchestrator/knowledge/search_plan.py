@@ -11,9 +11,22 @@ from oaao_orchestrator.corpus.llm import _extract_json_object, chat_completion_t
 from oaao_orchestrator.knowledge.orientation_models import OrientationJsonV1
 from oaao_orchestrator.knowledge.orientation_store import load_effective_orientation
 from oaao_orchestrator.knowledge.scope import parse_tenant_id
+from oaao_orchestrator.knowledge.search_language import resolve_searxng_language
 from oaao_orchestrator.vault_graph_rag import last_user_query
 
 logger = logging.getLogger(__name__)
+
+
+def _plan_search_language(
+    *,
+    display_locale: str | None = None,
+    orientation: OrientationJsonV1 | None = None,
+) -> str | None:
+    orient_lang = orientation.language if orientation is not None else None
+    return resolve_searxng_language(
+        display_locale=display_locale,
+        orientation_language=orient_lang,
+    )
 
 _SEARCH_PLAN_SYSTEM = """You plan web search queries for oaao.ai global knowledge (tenant / platform scope).
 Return ONLY JSON:
@@ -71,6 +84,7 @@ async def build_search_plan(
     messages: list[dict[str, Any]],
     knowledge: dict[str, Any] | None = None,
     llm_cfg: dict[str, Any] | None = None,
+    display_locale: str | None = None,
 ) -> dict[str, Any]:
     """
     Build a search plan for ``WebSearchAgent``.
@@ -82,6 +96,10 @@ async def build_search_plan(
     if tid is None and isinstance(knowledge, dict):
         tid = parse_tenant_id(knowledge.get("tenant_id"))
     orientation = load_effective_orientation(tenant_id=tid, workspace_id=workspace_id)
+    search_language = _plan_search_language(
+        display_locale=display_locale,
+        orientation=orientation,
+    )
     llm_cfg = llm_cfg or _resolve_search_plan_llm_cfg(knowledge)
 
     if llm_cfg and user_query:
@@ -119,20 +137,26 @@ async def build_search_plan(
                     }
                 )
             if queries:
-                return {
+                out = {
                     "version": 1,
                     "method": "llm",
                     "queries": queries,
                     "orientation_snapshot": orient_blob if orient_blob else None,
                 }
+                if search_language:
+                    out["search_language"] = search_language
+                return out
 
     queries = _fallback_queries(user_query=user_query, orientation=orientation)
-    return {
+    out = {
         "version": 1,
         "method": "stub_fallback",
         "queries": queries,
         "orientation_snapshot": orientation.model_dump() if orientation else None,
     }
+    if search_language:
+        out["search_language"] = search_language
+    return out
 
 
 async def execute_search_plan(
@@ -146,6 +170,7 @@ async def execute_search_plan(
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
     cap = max(1, min(int(limit_per_query), 10))
+    language = str(plan.get("search_language") or "").strip() or None
     for row in plan.get("queries") or []:
         if not isinstance(row, dict):
             continue
@@ -153,7 +178,7 @@ async def execute_search_plan(
         if not q:
             continue
         provider = str(row.get("provider") or "searxng").strip() or "searxng"
-        hits = await search_multi(q, limit=cap, provider_ids=[provider])
+        hits = await search_multi(q, limit=cap, provider_ids=[provider], language=language)
         for hit in hits:
             url = str(hit.get("url") or "").strip().lower()
             key = url or str(hit.get("title") or "").lower()

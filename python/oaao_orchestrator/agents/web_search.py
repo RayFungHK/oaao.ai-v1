@@ -89,11 +89,13 @@ class WebSearchAgent:
 
             async def _build_plan() -> None:
                 nonlocal search_plan
+                display_locale = getattr(req, "display_locale", None) if req is not None else None
                 search_plan = await build_search_plan(
                     tenant_id=int(tenant_id) if tenant_id else None,
                     workspace_id=int(workspace_id) if workspace_id else None,
                     messages=list(ctx.messages or []),
                     knowledge=knowledge,
+                    display_locale=str(display_locale).strip() if display_locale else None,
                 )
 
             await run_agent_task_step(

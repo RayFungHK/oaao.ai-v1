@@ -31,5 +31,20 @@ async def test_build_search_plan_stub_without_llm() -> None:
     assert plan["queries"][0]["q"]
 
 
+async def test_build_search_plan_includes_search_language_from_display_locale() -> None:
+    plan = await build_search_plan(
+        tenant_id=None,
+        workspace_id=None,
+        messages=[{"role": "user", "content": "DJI Osmo Pocket 4"}],
+        knowledge=None,
+        display_locale="zh-Hant",
+    )
+    assert plan.get("search_language") == "zh-TW"
+
+
 def test_build_search_plan_sync_entry() -> None:
     asyncio.run(test_build_search_plan_stub_without_llm())
+
+
+def test_build_search_plan_display_locale_sync() -> None:
+    asyncio.run(test_build_search_plan_includes_search_language_from_display_locale())

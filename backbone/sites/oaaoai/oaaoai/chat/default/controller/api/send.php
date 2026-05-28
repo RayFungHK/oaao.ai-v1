@@ -17,6 +17,7 @@ use oaaoai\chat\PlannerAgentRegister;
 use oaaoai\chat\SkillsManifestStorage;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\MmModuleSettings;
+use oaaoai\user\UserDisplayPreferences;
 use oaaoai\user\UserPersonalization;
 
 /**
@@ -990,6 +991,9 @@ return function (): void {
                     ? UserPersonalization::loadForUser($canonPdoForPersonalization, $uid)
                     : UserPersonalization::defaults(),
             );
+            $payload['display_locale'] = $canonPdoForPersonalization instanceof \PDO
+                ? UserDisplayPreferences::localeForUser($canonPdoForPersonalization, $uid)
+                : UserDisplayPreferences::DEFAULT_LOCALE;
 
             $corpusIdRaw = $input['corpus_id'] ?? null;
             $corpusIdSend = ($corpusIdRaw === null || $corpusIdRaw === '') ? 0 : (int) $corpusIdRaw;

@@ -90,9 +90,9 @@ return function (): void {
         if ($chatEndpointId > 0 && $canonPdo instanceof \PDO) {
             $canonDb = $this->api('auth')?->getDB();
             if ($canonDb instanceof \Razy\Database) {
-                $binding = \oaaoai\chat\ChatOrchestratorBootstrap::resolveBindingForProfile($canonDb, $chatEndpointId);
+                $binding = ChatOrchestratorBootstrap::resolveBindingForProfile($canonDb, $chatEndpointId);
                 $contextLimit = ChatContextUsage::resolveContextLimitFromBinding($binding);
-                $tokenizerProfile = \oaaoai\chat\ChatTokenEstimator::resolveProfileFromBinding($binding);
+                $tokenizerProfile = ChatTokenEstimator::resolveProfileFromBinding($binding);
             }
         }
 

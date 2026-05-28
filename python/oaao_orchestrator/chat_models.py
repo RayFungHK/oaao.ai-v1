@@ -191,3 +191,7 @@ class ChatRunRequest(BaseModel):
         default=False,
         description="Composer globe toggle — allow web_search agent for this turn when planner or guards request it.",
     )
+    display_locale: str | None = Field(
+        default=None,
+        description="User Preferences display locale (BCP47, e.g. zh-Hant, en) — SearXNG language filter for web search.",
+    )

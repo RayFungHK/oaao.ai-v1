@@ -179,13 +179,19 @@ def build_scheduled_search_plan(
                         }
                     )
     gated, skipped = filter_scheduled_queries(queries[:cap], orientation)
-    return {
+    from oaao_orchestrator.knowledge.search_plan import _plan_search_language
+
+    search_language = _plan_search_language(orientation=orientation)
+    out: dict[str, Any] = {
         "version": 1,
         "method": "scheduled_refresh",
         "queries": gated,
         "skipped_topics": skipped,
         "orientation_snapshot": orientation.model_dump() if orientation else None,
     }
+    if search_language:
+        out["search_language"] = search_language
+    return out
 
 
 async def refresh_knowledge_scope(
