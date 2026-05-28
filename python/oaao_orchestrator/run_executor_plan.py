@@ -66,6 +66,21 @@ def materials_end_snapshot(
     return out
 
 
+def slide_deck_persist_summary(slide_project_meta: dict[str, Any] | None) -> str | None:
+    """Short assistant bubble when compose was skipped and slide_designer produced the deck."""
+    if not isinstance(slide_project_meta, dict):
+        return None
+    title = str(slide_project_meta.get("title") or "").strip() or "Slide deck"
+    count = slide_project_meta.get("slide_count")
+    try:
+        n = int(count) if count is not None else 0
+    except (TypeError, ValueError):
+        n = 0
+    if n > 0:
+        return f"Slide deck ready: **{title}** ({n} slides). Open Desk mode to preview and export."
+    return f"Slide deck ready: **{title}**. Open Desk mode to preview and export."
+
+
 def tool_chain_from_plan(plan: RunPlan | None) -> list[str]:
     """Agent kinds executed this run — used for crystallization sealing."""
     if plan is None:

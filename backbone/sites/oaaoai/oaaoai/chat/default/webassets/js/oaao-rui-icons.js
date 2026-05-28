@@ -202,11 +202,16 @@ export function mountRuiIconSync(host, name, opts = {}) {
 }
 
 /**
- * Material list row icon by category.
+ * Material list row icon by category or mime.
  *
  * @param {string} category
+ * @param {string} [mime]
  */
-export function materialIconName(category) {
+export function materialIconName(category, mime = '') {
+    const m = String(mime ?? '').toLowerCase();
+    if (m.includes('spreadsheet') || m.includes('excel') || m.endsWith('.sheet')) return 'table';
+    if (m.includes('wordprocessing') || m.includes('msword')) return 'file-text';
+    if (m.includes('pdf')) return 'file-text';
     const c = String(category ?? '').toLowerCase();
     if (c === 'image') return 'image';
     if (c === 'code') return 'code';

@@ -38,6 +38,8 @@ Rules:
   * slide 1 → title_hero; last → summary; FAQ/Q&A → faq_split; case study → two_column; architecture → three_cards; tips → quote_focus; KPIs → metric_row; chapter break → section_divider.
   * Use at least 4 different layout types in a 10-slide deck.
 - Match the user's language (zh-Hant if user writes Chinese).
+- If web search excerpts appear below, treat them as the PRIMARY factual source (specs, dates, pricing).
+- Do not invent product specs; do not replace a product-specific deck with a generic "platform" marketing template.
 - Never say you cannot access the user's vault, knowledge base, or private documents.
 - If vault/handbook excerpts appear in the user message, treat them as the primary source — do not substitute a generic industry template.
 - theme hints are palette families only — a later art-direction step locks ONE deck_theme for all slides."""
@@ -211,6 +213,35 @@ def _strip_fences(text: str) -> str:
     return raw.strip()
 
 
+def _ensure_outline_scripts(
+    slides: list[dict[str, Any]],
+    *,
+    deck_title: str,
+    topic: str,
+) -> list[dict[str, Any]]:
+    """Guarantee ``slide_script`` so deck_outline.md is never layout-only."""
+    topic_hint = (topic or deck_title).split("\n")[0][:120]
+    out: list[dict[str, Any]] = []
+    for row in slides:
+        spec = dict(row)
+        if not str(spec.get("slide_script") or "").strip():
+            idx = int(spec.get("index") or 1)
+            stitle = str(spec.get("title") or f"Slide {idx}")
+            spec["slide_script"] = (
+                f"本頁說明「{stitle}」：承接「{deck_title}」，"
+                f"以 {topic_hint} 為主軸，說明核心規格/賣點、使用情境與常見注意事項，並銜接下一主題。"
+            )[:800]
+        if not spec.get("outline_bullets"):
+            stitle = str(spec.get("title") or f"Slide {spec.get('index') or 1}")
+            spec["outline_bullets"] = [
+                f"{stitle} — 重點一",
+                "規格 / 功能亮點",
+                "使用情境或目標客群",
+            ]
+        out.append(spec)
+    return out
+
+
 async def generate_deck_outline(
     *,
     url: str | None,
@@ -242,6 +273,11 @@ async def generate_deck_outline(
 
     if not url or not model:
         fallback["title"] = topic.split("\n")[0][:80] or fallback["title"]
+        fallback["slides"] = _ensure_outline_scripts(
+            list(fallback["slides"]),
+            deck_title=str(fallback["title"]),
+            topic=topic,
+        )
         return fallback
 
     user_parts = [f"Topic / request:\n{topic}", f"Target slide_count: {fixed_count}."]
@@ -270,6 +306,11 @@ async def generate_deck_outline(
     if not isinstance(obj, dict):
         logger.warning("slide_outline_json_parse_failed")
         fallback["title"] = topic.split("\n")[0][:80] or fallback["title"]
+        fallback["slides"] = _ensure_outline_scripts(
+            list(fallback["slides"]),
+            deck_title=str(fallback["title"]),
+            topic=topic,
+        )
         return fallback
 
     from oaao_orchestrator.slide_project.outline_markdown import (
@@ -295,17 +336,15 @@ async def generate_deck_outline(
     slides.sort(key=lambda s: int(s["index"]))
     if not slides:
         fallback["title"] = title
+        fallback["slides"] = _ensure_outline_scripts(
+            list(fallback["slides"]),
+            deck_title=title,
+            topic=topic,
+        )
         return fallback
 
     slides = merge_manus_scripts_into_slides(slides, manus)
-    for spec in slides:
-        if not str(spec.get("slide_script") or "").strip():
-            idx = int(spec.get("index") or 1)
-            stitle = str(spec.get("title") or f"Slide {idx}")
-            spec["slide_script"] = (
-                f"本頁說明「{stitle}」：承接教材與 {title}，"
-                f"說明核心概念、實務做法與常見注意事項，並銜接下一主題。"
-            )[:800]
+    slides = _ensure_outline_scripts(slides, deck_title=title, topic=topic)
 
     count = int(obj.get("slide_count") or len(slides) or slide_count)
     count = max(len(slides), min(max(3, count), 20))

@@ -4,6 +4,11 @@ namespace Module\oaao\slide_designer;
 
 use Razy\Agent;
 use Razy\Controller;
+use oaaoai\slide_designer\SlideOrchestrator;
+use oaaoai\slide_designer\SlideProjectMaterial;
+use oaaoai\slide_designer\SlideProjectStorage;
+use oaaoai\slide_designer\SlideTemplateScope;
+use oaaoai\slide_designer\SlideTemplateStorage;
 
 /**
  * Slide designer — planner hooks, project file APIs, preview pipeline (SD-0–SD-4).
@@ -142,11 +147,9 @@ return new class extends Controller {
         if ($templateId === '') {
             return null;
         }
-        require_once dirname(__DIR__) . '/library/SlideTemplateStorage.php';
-        require_once dirname(__DIR__) . '/library/SlideTemplateScope.php';
         $auth = $this->api('auth');
-        $scope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
-        $row = \oaaoai\slide_designer\SlideTemplateStorage::resolveTemplateRecord($templateId, $scope);
+        $scope = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
+        $row = SlideTemplateStorage::resolveTemplateRecord($templateId, $scope);
         if ($row === null || (string) ($row['status'] ?? '') !== 'published') {
             return null;
         }
@@ -169,8 +172,7 @@ return new class extends Controller {
      */
     public function orchestratorSlideDesignerBase(array $extras = []): array
     {
-        require_once dirname(__DIR__) . '/library/SlideProjectStorage.php';
-        $payload = ['storage_root' => \oaaoai\slide_designer\SlideProjectStorage::root()];
+        $payload = ['storage_root' => SlideProjectStorage::root()];
 
         return $extras !== [] ? array_merge($payload, $extras) : $payload;
     }
@@ -188,11 +190,9 @@ return new class extends Controller {
         if ($templateId === '') {
             return null;
         }
-        require_once dirname(__DIR__) . '/library/SlideTemplateStorage.php';
-        require_once dirname(__DIR__) . '/library/SlideTemplateScope.php';
         $auth = $this->api('auth');
-        $scope = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
-        $tpl = \oaaoai\slide_designer\SlideTemplateStorage::resolveTemplateRecord($templateId, $scope);
+        $scope = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
+        $tpl = SlideTemplateStorage::resolveTemplateRecord($templateId, $scope);
         if (! \is_array($tpl) || (string) ($tpl['status'] ?? '') !== 'published') {
             return null;
         }
@@ -230,11 +230,9 @@ return new class extends Controller {
         if (! $chat) {
             return [];
         }
-        require_once dirname(__DIR__) . '/library/SlideTemplateScope.php';
-        require_once dirname(__DIR__) . '/library/SlideOrchestrator.php';
         $auth = $this->api('auth');
-        $ctx = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
-        $payload = \oaaoai\slide_designer\SlideOrchestrator::listTemplates($chat, $ctx, true, null);
+        $ctx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
+        $payload = SlideOrchestrator::listTemplates($chat, $ctx, true, null);
         $rows = \is_array($payload) ? ($payload['custom_templates'] ?? []) : [];
         if (! \is_array($rows)) {
             return [];
@@ -287,9 +285,7 @@ return new class extends Controller {
         if (! $chat) {
             return null;
         }
-        require_once dirname(__DIR__) . '/library/SlideOrchestrator.php';
-
-        return \oaaoai\slide_designer\SlideOrchestrator::discoverSkills(
+        return SlideOrchestrator::discoverSkills(
             $chat,
             $userMessage,
             $skillsCatalog,
@@ -307,9 +303,7 @@ return new class extends Controller {
         int $userId,
         string $projectId,
     ): ?array {
-        require_once dirname(__DIR__) . '/library/SlideProjectMaterial.php';
-
-        return \oaaoai\slide_designer\SlideProjectMaterial::resolveByProjectId(
+        return SlideProjectMaterial::resolveByProjectId(
             $pdo,
             $conversationId,
             $userId,
@@ -326,9 +320,7 @@ return new class extends Controller {
         int $userId,
         int $limit = 12,
     ): array {
-        require_once dirname(__DIR__) . '/library/SlideProjectMaterial.php';
-
-        return \oaaoai\slide_designer\SlideProjectMaterial::listPlannerRowsForConversation(
+        return SlideProjectMaterial::listPlannerRowsForConversation(
             $pdo,
             $conversationId,
             $userId,
@@ -345,9 +337,7 @@ return new class extends Controller {
         int $conversationId,
         string $uri,
     ): ?array {
-        require_once dirname(__DIR__) . '/library/SlideProjectMaterial.php';
-
-        return \oaaoai\slide_designer\SlideProjectMaterial::resolveDownloadPath(
+        return SlideProjectMaterial::resolveDownloadPath(
             $pdo,
             $userId,
             $conversationId,
@@ -357,9 +347,7 @@ return new class extends Controller {
 
     public function readSlideProjectTextFile(string $projectId, string $fileName, int $maxChars): string
     {
-        require_once dirname(__DIR__) . '/library/SlideProjectMaterial.php';
-
-        return \oaaoai\slide_designer\SlideProjectMaterial::readProjectTextFile($projectId, $fileName, $maxChars);
+        return SlideProjectMaterial::readProjectTextFile($projectId, $fileName, $maxChars);
     }
 
     /**
@@ -375,9 +363,7 @@ return new class extends Controller {
         ?int $workspaceId,
         array $meta,
     ): array {
-        require_once dirname(__DIR__) . '/library/SlideProjectMaterial.php';
-
-        return \oaaoai\slide_designer\SlideProjectMaterial::enrichAndSyncAssistantMeta(
+        return SlideProjectMaterial::enrichAndSyncAssistantMeta(
             $pdo,
             $conversationId,
             $messageId,

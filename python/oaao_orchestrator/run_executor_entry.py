@@ -111,3 +111,12 @@ def apply_corpus_style(*, req: Any, messages_for_llm: list[Any]) -> None:
     from oaao_orchestrator.corpus.style_context import apply_corpus_style as _apply
 
     _apply(req=req, messages_for_llm=messages_for_llm)
+
+
+def apply_accs_reflection_context(*, req: Any, messages_for_llm: list[Any]) -> None:
+    """Inject deferred ACCS coach critique from the prior assistant turn (PHP send payload)."""
+    from oaao_orchestrator.evaluation.accs_reflection_inject import (
+        apply_accs_reflection_context as _apply,
+    )
+
+    _apply(req=req, messages_for_llm=messages_for_llm)

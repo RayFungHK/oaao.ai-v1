@@ -36,6 +36,8 @@ import {
     openTaskMaterialsDialog,
 } from './task-materials-dialog.js';
 import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
+import { handleSkillSuggestedStream, handleSkillUpgradeSuggestedStream } from './conversation-skill-suggest.js';
+import { handleCalendarEventSuggestedStream } from './conversation-calendar-suggest.js';
 
 /** Align with auth SPA paths when the app lives under a subdirectory (same cookie path as `/auth/me`). */
 function chatApiBase() {
@@ -217,6 +219,57 @@ const CHAT_VAULT_SOURCE_UI = {
     type_folder: { en: 'Folder', 'zh-Hant': '資料夾' },
     type_file: { en: 'File', 'zh-Hant': '檔案' },
 };
+
+/** Composer library attach — distinct from vault picker (CS-2-S10). */
+const CHAT_LIBRARY_SOURCE_UI = {
+    dialog_title: { en: 'Attach library documents', 'zh-Hant': '附加 Library 文件' },
+    dialog_hint: {
+        en: 'Search library drafts by title. Attached docs enable Soft-RAG for this message only (distinct from Vault).',
+        'zh-Hant': '依標題搜尋 Library 草稿。附加後僅此則訊息啟用 Soft-RAG（與 Vault 不同）。',
+    },
+    search_placeholder: { en: 'Search library titles…', 'zh-Hant': '搜尋 Library 標題…' },
+    trigger_label_none: { en: '@ Library', 'zh-Hant': '@ Library' },
+    items_selected: { en: '{{n}} library docs', 'zh-Hant': '{{n}} 個 Library 文件' },
+    item_selected_one: { en: '1 library doc', 'zh-Hant': '1 個 Library 文件' },
+    empty_results: { en: 'No matching documents', 'zh-Hant': '找不到符合的文件' },
+    load_failed: { en: 'Could not search library', 'zh-Hant': '無法搜尋 Library' },
+    cancel: { en: 'Cancel', 'zh-Hant': '取消' },
+    apply: { en: 'Apply', 'zh-Hant': '套用' },
+    badge: { en: 'Library', 'zh-Hant': 'Library' },
+};
+
+function chatLibrarySourceUiLang() {
+    const raw = (document.documentElement.lang || navigator.language || 'en').toLowerCase();
+    if (raw.startsWith('zh')) return 'zh-Hant';
+
+    return 'en';
+}
+
+/** @param {keyof typeof CHAT_LIBRARY_SOURCE_UI} key */
+function chatLibrarySourceUiString(key) {
+    const row = CHAT_LIBRARY_SOURCE_UI[key];
+    if (!row) return '';
+    const lang = chatLibrarySourceUiLang();
+
+    return row[lang] ?? row.en ?? '';
+}
+
+/**
+ * @param {number} n
+ */
+function chatLibraryItemsSelectedLabel(n) {
+    const nf = Math.max(0, Math.floor(Number(n)));
+    if (nf === 1) return chatLibrarySourceUiString('item_selected_one');
+
+    return chatLibrarySourceUiString('items_selected').replace(/\{\{\s*n\s*\}\}/g, String(nf));
+}
+
+function chatLibraryApiUrl(path) {
+    const base = oaaoPrefixedSitePath('/library/api').replace(/\/{2,}/g, '/');
+    const p = String(path || '').replace(/^\//, '');
+
+    return p ? `${base}/${p}` : base;
+}
 
 function chatVaultSourceUiLang() {
     const raw = (document.documentElement.lang || navigator.language || 'en').toLowerCase();
@@ -460,7 +513,10 @@ function mountChatComposerFeatureToggles(host, signal) {
     const webSearchBtn = makeToggle({
         id: 'web_search',
         iconEl: buildOaaoComposerToggleGlobeIcon(),
-        title: oaaoChatT('workspace.composer.web_search', 'Web search'),
+        title: oaaoChatT(
+            'workspace.composer.web_search_hint',
+            oaaoChatT('workspace.composer.web_search', 'Force web search'),
+        ),
         pressed: chatComposerWebSearchEnabled,
         onToggle: (on) => {
             chatComposerWebSearchEnabled = on;
@@ -475,7 +531,10 @@ function mountChatComposerFeatureToggles(host, signal) {
     const plannerStepsBtn = makeToggle({
         id: 'planner_steps',
         iconEl: buildOaaoComposerTogglePlannerIcon(),
-        title: oaaoChatT('workspace.composer.planner_steps', 'Planner steps'),
+        title: oaaoChatT(
+            'workspace.composer.show_pipeline_hint',
+            oaaoChatT('workspace.composer.show_pipeline', 'Show pipeline steps'),
+        ),
         pressed: chatComposerShowPlannerSteps,
         onToggle: (on) => {
             chatComposerShowPlannerSteps = on;
@@ -863,6 +922,9 @@ async function mountVaultSourceComposerSlot(host, signal, onSourcesChange, zone 
     async function openPickerDialog() {
         if (signal.aborted || trigger.disabled) return;
 
+        const Dialog = await loadChatComposerDialogCtor();
+        if (signal.aborted || typeof Dialog !== 'function') return;
+
         await refill();
         if (signal.aborted) return;
 
@@ -870,22 +932,16 @@ async function mountVaultSourceComposerSlot(host, signal, onSourcesChange, zone 
             const fail = lastVaultTreeLoadOk
                 ? chatVaultSourceUiString('empty_scope')
                 : chatVaultSourceUiString('load_failed');
-            void loadChatComposerDialogCtor().then((Dialog) => {
-                if (typeof Dialog !== 'function') return;
-                void new Dialog({
-                    title: chatVaultSourceUiString('dialog_title'),
-                    content: fail,
-                    size: 'sm',
-                    closable: true,
-                    buttons: [{ text: chatVaultSourceUiString('cancel'), color: 'muted', role: 'cancel' }],
-                });
+            void new Dialog({
+                title: chatVaultSourceUiString('dialog_title'),
+                content: fail,
+                size: 'sm',
+                closable: true,
+                buttons: [{ text: chatVaultSourceUiString('cancel'), color: 'muted', role: 'cancel' }],
             });
 
             return;
         }
-
-        const Dialog = await loadChatComposerDialogCtor();
-        if (signal.aborted || typeof Dialog !== 'function') return;
 
         /** @type {Set<string>} */
         const draft = new Set(selectedKeys);
@@ -1124,6 +1180,250 @@ async function mountVaultSourceComposerSlot(host, signal, onSourcesChange, zone 
 
     syncFromDom();
     updateTriggerLabel();
+}
+
+/**
+ * Library multi-select — composer extra toolbar (CS-2-S10).
+ *
+ * @param {HTMLElement} host
+ * @param {AbortSignal} signal
+ * @param {(docs: Array<{ document_id: number, title: string }>) => void} onLibraryDocsChange
+ * @param {'composer_left' | 'composer_actions' | 'composer_extra_toolbar'} [zone]
+ */
+async function mountLibrarySourceComposerSlot(host, signal, onLibraryDocsChange, zone = 'composer_extra_toolbar') {
+    /** @type {Set<number>} */
+    const selectedIds = new Set(chatComposerLibraryDocs.map((d) => d.document_id));
+
+    const wrap = document.createElement('div');
+    wrap.setAttribute('data-oaao-chat', 'library-source-slot');
+    wrap.className =
+        zone === 'composer_extra_toolbar'
+            ? 'inline-flex flex-row flex-wrap items-center min-w-0 max-w-full fg-[var(--grid-ink-muted)] font-inherit text-[0.625rem] leading-tight'
+            : 'inline-flex flex-col gap-1 min-w-0 max-w-[min(100%,280px)] fg-[var(--grid-caption)] font-inherit text-[0.75rem] leading-tight';
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className =
+        zone === 'composer_extra_toolbar'
+            ? 'inline-flex flex-row items-center gap-1 min-w-0 max-w-[min(100%,240px)] rounded-full border-[1px] border-solid border-violet-4/55 bg-violet-1/35 fg-violet-9 px-2.5 py-1 text-[0.625rem] fw-medium font-inherit cursor-pointer hover:bg-violet-2/45 disabled:opacity-45 disabled:cursor-not-allowed'
+            : 'inline-flex items-center gap-1 min-w-0 max-w-[240px] truncate rounded-[8px] border-[1px] border-solid border-violet-4/55 bg-violet-1/35 fg-violet-9 px-2 py-1 text-[0.75rem] fw-medium font-inherit cursor-pointer hover:bg-violet-2/45 disabled:opacity-45 disabled:cursor-not-allowed';
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.setAttribute('aria-expanded', 'false');
+
+    const badge = document.createElement('span');
+    badge.className =
+        'inline-flex shrink-0 rounded-full px-1.5 py-px text-[0.5625rem] fw-semibold uppercase tracking-wide bg-violet-3/40 fg-violet-10';
+    badge.textContent = chatLibrarySourceUiString('badge');
+
+    function updateTriggerLabel() {
+        const n = selectedIds.size;
+        const label = n > 0 ? chatLibraryItemsSelectedLabel(n) : chatLibrarySourceUiString('trigger_label_none');
+        trigger.replaceChildren(badge.cloneNode(true), document.createTextNode(` ${label}`));
+    }
+
+    wrap.append(trigger);
+    host.append(wrap);
+
+    function syncFromSelection() {
+        /** @type {Array<{ document_id: number, title: string }>} */
+        const docs = [];
+        for (const row of chatComposerLibraryDocs) {
+            if (selectedIds.has(row.document_id)) docs.push(row);
+        }
+        onLibraryDocsChange(docs);
+        updateTriggerLabel();
+    }
+
+    async function openPickerDialog() {
+        if (signal.aborted) return;
+
+        const Dialog = await loadChatComposerDialogCtor();
+        if (signal.aborted || typeof Dialog !== 'function') return;
+
+        /** @type {Array<{ document_id: number, title: string, status?: string }>} */
+        let rows = [];
+        /** @type {Set<number>} */
+        const draft = new Set(selectedIds);
+
+        const body = document.createElement('div');
+        body.className = 'flex flex-col gap-3 min-w-0';
+
+        const hint = document.createElement('p');
+        hint.className = 'm-0 text-[0.8125rem] leading-snug fg-[var(--grid-caption)]';
+        hint.textContent = chatLibrarySourceUiString('dialog_hint');
+
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.className =
+            'w-full rounded-[8px] border border-solid border-[var(--grid-line)] px-3 py-2 text-[0.8125rem] bg-[var(--grid-paper)] font-inherit';
+        search.placeholder = chatLibrarySourceUiString('search_placeholder');
+
+        const list = document.createElement('div');
+        list.className =
+            'flex flex-col gap-1 max-h-[min(50vh,320px)] overflow-y-auto overscroll-contain min-h-[4rem]';
+
+        const status = document.createElement('p');
+        status.className = 'm-0 text-[0.75rem] fg-[var(--grid-caption)] min-h-[1rem]';
+
+        body.append(hint, search, list, status);
+
+        function renderList() {
+            list.replaceChildren();
+            if (!rows.length) {
+                const empty = document.createElement('p');
+                empty.className = 'm-0 px-1 py-2 text-[0.8125rem] fg-[var(--grid-caption)]';
+                empty.textContent = chatLibrarySourceUiString('empty_results');
+                list.append(empty);
+                return;
+            }
+            for (const row of rows) {
+                const id = Number(row.document_id);
+                if (!Number.isFinite(id) || id < 1) continue;
+                const lab = document.createElement('label');
+                lab.className =
+                    'flex items-start gap-2 rounded-[8px] px-2 py-2 cursor-pointer hover:bg-[var(--grid-line)]/20 min-w-0';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'mt-1 shrink-0';
+                cb.checked = draft.has(id);
+                cb.addEventListener('change', () => {
+                    if (cb.checked) draft.add(id);
+                    else draft.delete(id);
+                });
+
+                const col = document.createElement('span');
+                col.className = 'flex flex-col gap-0.5 min-w-0';
+
+                const title = document.createElement('span');
+                title.className = 'text-[0.8125rem] fw-semibold fg-[var(--grid-ink)] break-words';
+                title.textContent = String(row.title || 'Untitled').trim() || 'Untitled';
+
+                const sub = document.createElement('span');
+                sub.className = 'text-[0.6875rem] fg-[var(--grid-caption)]';
+                sub.textContent = `Library #${id}`;
+
+                col.append(title, sub);
+                lab.append(cb, col);
+                list.append(lab);
+            }
+        }
+
+        let searchTimer = null;
+        async function runSearch(q) {
+            status.textContent = '';
+            const params = new URLSearchParams();
+            const scope = workspaceChatQueryParams();
+            if (scope.workspace_id) params.set('workspace_id', String(scope.workspace_id));
+            if (q.trim()) params.set('q', q.trim());
+            params.set('limit', '30');
+            try {
+                const res = await fetch(chatLibraryApiUrl(`library_documents_search?${params}`), {
+                    credentials: 'include',
+                });
+                const data = await res.json();
+                if (!res.ok || !data?.success) {
+                    status.textContent = chatLibrarySourceUiString('load_failed');
+                    rows = [];
+                    renderList();
+                    return;
+                }
+                rows = Array.isArray(data?.data?.documents) ? data.data.documents : [];
+                renderList();
+            } catch {
+                status.textContent = chatLibrarySourceUiString('load_failed');
+                rows = [];
+                renderList();
+            }
+        }
+
+        search.addEventListener('input', () => {
+            if (searchTimer) clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                void runSearch(search.value);
+            }, 220);
+        });
+
+        await runSearch('');
+
+        void new Dialog({
+            title: chatLibrarySourceUiString('dialog_title'),
+            content: body,
+            size: 'sm',
+            closable: true,
+            buttons: [
+                { text: chatLibrarySourceUiString('cancel'), color: 'muted', role: 'cancel' },
+                {
+                    text: chatLibrarySourceUiString('apply'),
+                    color: 'accent',
+                    close: false,
+                    /** @param {{ close: () => void }} ctrl */
+                    action: async (ctrl) => {
+                        selectedIds.clear();
+                        for (const id of draft) selectedIds.add(id);
+                        /** @type {Array<{ document_id: number, title: string }>} */
+                        const next = [];
+                        for (const id of draft) {
+                            const hit =
+                                rows.find((r) => Number(r.document_id) === id) ||
+                                chatComposerLibraryDocs.find((r) => r.document_id === id);
+                            next.push({
+                                document_id: id,
+                                title: hit ? String(hit.title || 'Untitled') : `Library #${id}`,
+                            });
+                        }
+                        chatComposerLibraryDocs = next;
+                        persistLibraryChatDocs(next);
+                        onLibraryDocsChange(next);
+                        updateTriggerLabel();
+                        ctrl.close();
+                    },
+                },
+            ],
+            onOpen() {
+                trigger.setAttribute('aria-expanded', 'true');
+            },
+            onClose() {
+                trigger.setAttribute('aria-expanded', 'false');
+            },
+        });
+    }
+
+    trigger.addEventListener(
+        'click',
+        () => {
+            void openPickerDialog();
+        },
+        { signal },
+    );
+
+    document.addEventListener(
+        'oaao-workspace-scope-changed',
+        () => {
+            selectedIds.clear();
+            chatComposerLibraryDocs = [];
+            persistLibraryChatDocs([]);
+            syncFromSelection();
+        },
+        { signal },
+    );
+
+    updateTriggerLabel();
+}
+
+/**
+ * Built-in library attach picker — violet badge distinct from vault (CS-2-S10).
+ *
+ * @param {HTMLElement} mount
+ * @param {AbortSignal} signal
+ * @param {(docs: Array<{ document_id: number, title: string }>) => void} onLibraryDocsChange
+ */
+function mountChatComposerBuiltInLibraryUi(mount, signal, onLibraryDocsChange) {
+    const extraHost = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
+    if (extraHost instanceof HTMLElement) {
+        void mountLibrarySourceComposerSlot(extraHost, signal, onLibraryDocsChange, 'composer_extra_toolbar');
+        syncComposerExtraToolbarVisibility(mount);
+    }
 }
 
 /**
@@ -1868,9 +2168,61 @@ function loadChatComposerDialogCtor() {
     return chatComposerDialogCtorPromise;
 }
 
+/**
+ * Delete-chat confirmation — RazyUI Dialog (fallback to native confirm when Dialog unavailable).
+ *
+ * @param {{ chatTitle?: string }} [opts]
+ */
+async function confirmDeleteChatDialog(opts = {}) {
+    const fallbackMessage = oaaoChatT(
+        'chat.conversation_delete_confirm',
+        'Delete this chat and all messages? This cannot be undone.',
+    );
+    try {
+        const Dialog = await loadChatComposerDialogCtor();
+        if (!Dialog || typeof Dialog.confirm !== 'function') {
+            return window.confirm(fallbackMessage);
+        }
+
+        const title = oaaoChatT('chat.conversation_delete_confirm_title', 'Delete chat?');
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-col gap-2 text-[0.875rem]';
+        const p = document.createElement('p');
+        p.className = 'm-0 leading-snug fg-[var(--rui-text)]';
+        const chatTitle = String(opts.chatTitle ?? '').trim();
+        if (chatTitle) {
+            const strong = document.createElement('strong');
+            strong.textContent = chatTitle;
+            p.append('Delete ', strong, ' and all messages? This cannot be undone.');
+        } else {
+            p.textContent = fallbackMessage;
+        }
+        wrap.append(p);
+
+        return Dialog.confirm(title, wrap, {
+            size: 'sm',
+            overlayClose: false,
+            buttons: [
+                {
+                    text: oaaoChatT('common.cancel', 'Cancel'),
+                    color: 'muted',
+                    role: 'cancel',
+                },
+                {
+                    text: oaaoChatT('chat.conversation_delete', 'Delete'),
+                    color: 'danger',
+                    role: 'confirm',
+                },
+            ],
+        });
+    } catch {
+        return window.confirm(fallbackMessage);
+    }
+}
+
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260528-context-usage-fix-v95';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260528-composer-dialog-picker-v102';
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -2418,6 +2770,8 @@ button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after{content:'';
 .oaao-chat-thread-health__blank-fork{align-self:flex-start;font-size:0.75rem;color:color-mix(in srgb,#b45309 88%,var(--grid-ink,#111));background:transparent;border:0;cursor:pointer;padding:0;font-family:inherit;text-decoration:underline;text-underline-offset:2px}
 .oaao-chat-turn-score-pill--accs{flex-wrap:wrap;gap:0.2rem 0.35rem;max-width:100%}
 .oaao-chat-turn-score-pill__accs-sub{font-size:0.625rem;font-weight:600;opacity:.92;padding:0 0.2rem;border-radius:4px;background:color-mix(in srgb,#059669 12%,transparent)}
+.oaao-chat-accs-reflection-marker{display:inline-flex;align-items:center;font-size:0.625rem;font-weight:600;line-height:1.2;padding:0.12rem 0.4rem;border-radius:999px;border:1px solid color-mix(in srgb,#b45309 35%,transparent);background:color-mix(in srgb,#b45309 10%,transparent);color:color-mix(in srgb,#b45309 92%,var(--grid-ink,#111));margin-left:0.35rem;max-width:100%;cursor:help}
+.oaao-chat-accs-reflection-marker--applied{border-color:color-mix(in srgb,#059669 30%,transparent);background:color-mix(in srgb,#059669 10%,transparent);color:color-mix(in srgb,#059669 90%,var(--grid-ink,#111))}
 .oaao-chat-fork-handoff{border:1px solid color-mix(in srgb,#2563eb 28%,var(--grid-line));background:color-mix(in srgb,#2563eb 6%,var(--grid-panel-bright,#fff));border-radius:12px;padding:0.75rem 1rem;font-size:0.8125rem;line-height:1.45;color:var(--grid-ink,#111);max-width:100%;align-self:stretch}
 .oaao-chat-fork-handoff__label{font-size:0.6875rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:color-mix(in srgb,#2563eb 85%,var(--grid-ink));margin-bottom:0.35rem}
 .oaao-chat-turn-score-floater{position:absolute;min-width:9rem;max-width:min(16rem,70vw);padding:.4rem .55rem;border-radius:8px;border:1px solid var(--grid-line,rgba(0,0,0,.12));background:var(--grid-panel-bright,#fff);color:var(--grid-ink,#111);font-size:.6875rem;font-weight:500;line-height:1.45;white-space:pre-line;box-shadow:0 6px 18px rgba(0,0,0,.08);pointer-events:none;font-family:ui-sans-serif,system-ui,sans-serif}
@@ -8736,6 +9090,7 @@ function applyAssistantTurnScoreToRow(outer, turnScore) {
     const showAccs = accsExpected && (accsReady || pendingAccs);
     if (!showIqs && !showAccs) {
         outer.querySelector('[data-oaao-chat="turn-score"]')?.remove();
+        applyAccsReflectionMarkerToRow(outer, turnScore);
         return;
     }
     let wrap = outer.querySelector('[data-oaao-chat="turn-score"]');
@@ -8780,6 +9135,50 @@ function applyAssistantTurnScoreToRow(outer, turnScore) {
     if (!wrap.querySelector('[data-oaao-turn-score-pill]')) {
         wrap.remove();
     }
+    applyAccsReflectionMarkerToRow(outer, turnScore);
+}
+
+/**
+ * ACCS deferred-review marker — shown when background coach flagged the prior reply.
+ *
+ * @param {HTMLElement} outer
+ * @param {Record<string, unknown> | null | undefined} turnScore
+ */
+function applyAccsReflectionMarkerToRow(outer, turnScore) {
+    if (!(outer instanceof HTMLElement) || !turnScore || typeof turnScore !== 'object') return;
+    const reasons =
+        turnScore.accs_reasons && typeof turnScore.accs_reasons === 'object' && !Array.isArray(turnScore.accs_reasons)
+            ? /** @type {Record<string, unknown>} */ (turnScore.accs_reasons)
+            : null;
+    const deferred = Boolean(reasons?.reflection_deferred);
+    if (!deferred) {
+        outer.querySelector('[data-oaao-accs-reflection-marker]')?.remove();
+        return;
+    }
+    const consumed = Boolean(reasons?.reflection_consumed);
+    const critique = String(reasons?.reflection_critique ?? '').trim();
+    let marker = outer.querySelector('[data-oaao-accs-reflection-marker]');
+    if (!(marker instanceof HTMLElement)) {
+        marker = document.createElement('span');
+        marker.dataset.oaaoAccsReflectionMarker = '1';
+        marker.className = 'oaao-chat-accs-reflection-marker';
+        marker.setAttribute('role', 'note');
+        const wrap = outer.querySelector('[data-oaao-chat="turn-score"]');
+        if (wrap instanceof HTMLElement) {
+            wrap.append(marker);
+        } else {
+            const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
+            if (bubble instanceof HTMLElement) {
+                bubble.insertAdjacentElement('afterend', marker);
+            } else {
+                outer.append(marker);
+            }
+        }
+    }
+    marker.textContent = consumed ? 'ACCS applied' : 'ACCS review';
+    marker.title = critique || (consumed ? 'Coach critique was applied on the next turn.' : 'Coach review pending — will guide the next reply.');
+    marker.classList.toggle('oaao-chat-accs-reflection-marker--applied', consumed);
+    marker.classList.toggle('oaao-chat-accs-reflection-marker--pending', !consumed);
 }
 
 /**
@@ -10870,8 +11269,13 @@ let chatComposerStackObserver = null;
 /** @type {ChatVaultSourceRefPayload[]} */
 let chatComposerVaultSourceRefs = [];
 
+/** Library document picks — forwarded as {@code library_doc_ids} (CS-2-S10 Soft-RAG attach-only). */
+/** @type {Array<{ document_id: number, title: string }>} */
+let chatComposerLibraryDocs = [];
+
 const CHAT_SCOPE_AUTO_RAG_KEY = 'oaao_chat_scope_auto_rag';
 const CHAT_VAULT_SOURCE_REFS_KEY = 'oaao_vault_chat_source_refs';
+const CHAT_LIBRARY_DOC_IDS_KEY = 'oaao_chat_library_doc_ids';
 /** Must match {@code slide-template-api.js CHAT_PENDING_SLIDE_TEMPLATE_KEY}. */
 const CHAT_PENDING_SLIDE_TEMPLATE_KEY = 'oaao_chat_pending_slide_template';
 
@@ -10902,6 +11306,19 @@ function buildChatVaultSendExtra() {
     }
     if (chatComposerVaultSourceRefs.length === 0 && chatComposerVaultAutoRag) {
         vaultSendExtra.vault_auto_rag = true;
+    }
+    if (chatComposerLibraryDocs.length > 0) {
+        /** @type {number[]} */
+        const ids = [];
+        const seen = new Set();
+        for (const row of chatComposerLibraryDocs) {
+            const id = Math.floor(Number(row.document_id ?? 0));
+            if (!Number.isFinite(id) || id < 1 || seen.has(id)) continue;
+            seen.add(id);
+            ids.push(id);
+        }
+        ids.sort((a, b) => a - b);
+        vaultSendExtra.library_doc_ids = ids;
     }
 
     return vaultSendExtra;
@@ -10974,6 +11391,45 @@ function readStoredVaultChatSourceRefs() {
 function persistVaultChatSourceRefs(refs) {
     try {
         sessionStorage.setItem(CHAT_VAULT_SOURCE_REFS_KEY, JSON.stringify(refs.slice(0, 24)));
+    } catch {
+        /* ignore */
+    }
+}
+
+/**
+ * @returns {Array<{ document_id: number, title: string }>}
+ */
+function readStoredLibraryChatDocs() {
+    try {
+        const raw = sessionStorage.getItem(CHAT_LIBRARY_DOC_IDS_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        /** @type {Array<{ document_id: number, title: string }>} */
+        const out = [];
+        for (const row of parsed) {
+            if (!row || typeof row !== 'object') continue;
+            const id = Math.floor(Number(row.document_id ?? 0));
+            if (!Number.isFinite(id) || id < 1) continue;
+            out.push({
+                document_id: id,
+                title: typeof row.title === 'string' ? row.title : '',
+            });
+            if (out.length >= 12) break;
+        }
+
+        return out;
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * @param {Array<{ document_id: number, title: string }>} docs
+ */
+function persistLibraryChatDocs(docs) {
+    try {
+        sessionStorage.setItem(CHAT_LIBRARY_DOC_IDS_KEY, JSON.stringify(docs.slice(0, 12)));
     } catch {
         /* ignore */
     }
@@ -11090,6 +11546,7 @@ export async function mountShellPanel(mount) {
     const { signal } = panelAbort;
     chatComposerVaultAutoRag = readVaultAutoRagPreference();
     chatComposerVaultSourceRefs = readStoredVaultChatSourceRefs();
+    chatComposerLibraryDocs = readStoredLibraryChatDocs();
     chatComposerAttachments = [];
     chatComposerActiveMaterial = null;
     chatComposerActiveSlideTemplate = null;
@@ -11218,6 +11675,12 @@ export async function mountShellPanel(mount) {
         persistVaultChatSourceRefs(refs);
     };
     mountChatComposerBuiltInVaultUi(mount, signal, onVaultSourcesChange);
+
+    const onLibraryDocsChange = (docs) => {
+        chatComposerLibraryDocs = docs;
+        persistLibraryChatDocs(docs);
+    };
+    mountChatComposerBuiltInLibraryUi(mount, signal, onLibraryDocsChange);
 
     const composerFeatureToggles = mount.querySelector('[data-oaao-chat="composer-feature-toggles"]');
     if (composerFeatureToggles instanceof HTMLElement) {
@@ -11761,6 +12224,8 @@ export async function mountShellPanel(mount) {
         }
 
         let acc = '';
+        /** Incremental markdown renderer for this stream (stable-prefix cache). */
+        const streamMdView = createStreamingMarkdownView();
         /** @type {Record<string, unknown> | null} */
         let runMeta = null;
         /** @type {string[]} */
@@ -11797,15 +12262,29 @@ export async function mountShellPanel(mount) {
             if (!(bubble instanceof HTMLElement) || !body.trim()) return;
 
             if (finalize) {
+                streamMdView.reset();
                 applyAssistantMarkdown(bubble, body);
                 if (!String(acc ?? '').trim()) {
                     acc = body;
                 }
                 return;
             }
-            bubble.classList.remove('oaao-md-bubble');
-            bubble.style.whiteSpace = 'pre-wrap';
-            bubble.textContent = body;
+
+            let html = '';
+            if (chatMd && typeof chatMd.streamingMarkdownStableTail === 'function') {
+                html = streamMdView.html(body);
+            } else {
+                html = oaaoLightweightMarkdownToHtml(body);
+            }
+            if (html.trim()) {
+                bubble.classList.add('oaao-md-bubble');
+                bubble.style.whiteSpace = '';
+                bubble.innerHTML = html;
+            } else {
+                bubble.classList.remove('oaao-md-bubble');
+                bubble.style.whiteSpace = 'pre-wrap';
+                bubble.textContent = body;
+            }
         }
 
         function queueMdBubbleRender() {
@@ -11972,6 +12451,71 @@ export async function mountShellPanel(mount) {
                     if (
                         phase === 'system' &&
                         kind === 'status' &&
+                        text === 'skill_suggested' &&
+                        envelope.payload &&
+                        typeof envelope.payload === 'object'
+                    ) {
+                        const skillPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        if (isStreamConversationVisible()) {
+                            handleSkillSuggestedStream(
+                                mount,
+                                conversationId,
+                                skillPayload,
+                                chatApiUrl,
+                                () =>
+                                    conversationId && conversationId > 0
+                                        ? chatScopeBodyFieldsForConversation(conversationId)
+                                        : workspaceChatBodyFields(),
+                            );
+                        }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
+                        text === 'skill_upgrade_suggested' &&
+                        envelope.payload &&
+                        typeof envelope.payload === 'object'
+                    ) {
+                        const upgradePayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        if (isStreamConversationVisible()) {
+                            handleSkillUpgradeSuggestedStream(
+                                mount,
+                                conversationId,
+                                upgradePayload,
+                                chatApiUrl,
+                                () =>
+                                    conversationId && conversationId > 0
+                                        ? chatScopeBodyFieldsForConversation(conversationId)
+                                        : workspaceChatBodyFields(),
+                            );
+                        }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
+                        text === 'calendar_event_suggested' &&
+                        envelope.payload &&
+                        typeof envelope.payload === 'object' &&
+                        streamingMsgId &&
+                        streamingMsgId > 0
+                    ) {
+                        const calPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        if (isStreamConversationVisible()) {
+                            handleCalendarEventSuggestedStream(
+                                mount,
+                                conversationId,
+                                streamingMsgId,
+                                calPayload,
+                                () =>
+                                    conversationId && conversationId > 0
+                                        ? chatScopeBodyFieldsForConversation(conversationId)
+                                        : workspaceChatBodyFields(),
+                            );
+                        }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
                         text === 'reflection_complete' &&
                         envelope.payload &&
                         typeof envelope.payload === 'object' &&
@@ -11986,7 +12530,7 @@ export async function mountShellPanel(mount) {
                                 /** @type {Record<string, unknown>} */ (envelope.payload),
                             );
                             showActivityLog();
-                            appendActivityLine('[system] Reflection pass complete — reply revised');
+                            appendActivityLine('[system] ACCS coach review complete (legacy inline revise)');
                         }
                     }
                     if (
@@ -12618,14 +13162,9 @@ export async function mountShellPanel(mount) {
                         label: deleteLabel,
                         danger: true,
                         onSelect: async () => {
-                            if (
-                                !confirm(
-                                    oaaoChatT(
-                                        'chat.conversation_delete_confirm',
-                                        'Delete this chat and all messages?',
-                                    ),
-                                )
-                            ) {
+                            const chatTitle = String(row.title || `Chat ${id}`).trim();
+                            const ok = await confirmDeleteChatDialog({ chatTitle });
+                            if (!ok) {
                                 return;
                             }
                             const wasActive = activeConversationId === id;
@@ -13570,7 +14109,10 @@ export async function mountShellPanel(mount) {
         async () => {
             const cid = activeConversationId;
             if (!cid || cid < 1) return;
-            if (!confirm('Delete this chat and all messages?')) return;
+            const row = cachedConversations.find((r) => Number(r.id) === cid);
+            const chatTitle = String(row?.title || `Chat ${cid}`).trim();
+            const ok = await confirmDeleteChatDialog({ chatTitle });
+            if (!ok) return;
             await chatFetchJson(chatApiUrl('conversation_delete'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

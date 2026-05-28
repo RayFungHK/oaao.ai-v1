@@ -251,6 +251,10 @@ class RunPlan(BaseModel):
         default=None,
         description="Planner-suggested sidebar title for a new chat thread.",
     )
+    apply_skill_ids: list[str] = Field(
+        default_factory=list,
+        description="Micro skill ids applied this turn (CS-4-S7 usage tracking).",
+    )
 
     def task_list_payload(self, *, allowed_agents: list[str] | None = None) -> dict[str, Any]:
         from oaao_orchestrator.tasks.stream_emit import resolve_run_task_agent_kind

@@ -5,6 +5,97 @@ from __future__ import annotations
 from typing import Any
 
 
+def _slide_indices(manifest: dict[str, Any]) -> tuple[int, dict[int, dict[str, Any]], dict[int, dict[str, Any]]]:
+    """Return (total, pages_by_index, spec_by_index)."""
+    total = int(manifest.get("slide_count") or 0)
+    pages_by_index: dict[int, dict[str, Any]] = {}
+    for raw in manifest.get("pages") or []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            idx = int(raw.get("index") or 0)
+        except (TypeError, ValueError):
+            continue
+        if idx > 0:
+            pages_by_index[idx] = raw
+
+    spec_by_index: dict[int, dict[str, Any]] = {}
+    for raw in manifest.get("slides_spec") or []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            idx = int(raw.get("index") or 0)
+        except (TypeError, ValueError):
+            continue
+        if idx > 0:
+            spec_by_index[idx] = raw
+
+    if total < 1:
+        total = max(
+            (max(pages_by_index) if pages_by_index else 0),
+            (max(spec_by_index) if spec_by_index else 0),
+            0,
+        )
+    if total < 1 and (pages_by_index or spec_by_index):
+        total = max(len(pages_by_index), len(spec_by_index))
+
+    return total, pages_by_index, spec_by_index
+
+
+def _preview_url_for(project_id: str, slide_index: int, conversation_id: Any) -> str:
+    from oaao_orchestrator.slide_project.store import _slide_html_api_path
+
+    cid = str(conversation_id).strip() if conversation_id is not None else ""
+    return _slide_html_api_path(project_id, slide_index, cid or None)
+
+
+def _page_is_ready(page: dict[str, Any] | None) -> bool:
+    if not isinstance(page, dict):
+        return False
+    if page.get("has_html") is True:
+        return True
+    html_path = str(page.get("html_path") or "").strip()
+    return html_path.endswith("slide.html") or html_path.endswith(".html")
+
+
+def build_slide_preview_rows(manifest: dict[str, Any] | None) -> tuple[str, int, list[dict[str, Any]]]:
+    """Build preview strip rows from manifest pages + slides_spec (never hardcoded stubs)."""
+    m = manifest if isinstance(manifest, dict) else {}
+    project_id = str(m.get("project_id") or "").strip()
+    project_title = str(m.get("title") or "Slide deck").strip() or "Slide deck"
+    total, pages_by_index, spec_by_index = _slide_indices(m)
+
+    indices: set[int] = set(spec_by_index.keys()) | set(pages_by_index.keys())
+    if not indices and total > 0:
+        indices = set(range(1, total + 1))
+
+    slides: list[dict[str, Any]] = []
+    for idx in sorted(indices):
+        if total > 0 and idx > total:
+            continue
+        page = pages_by_index.get(idx)
+        spec = spec_by_index.get(idx, {})
+        title = str((page or {}).get("title") or spec.get("title") or f"Slide {idx}").strip()
+        preview_url = (page or {}).get("preview_url") if isinstance(page, dict) else None
+        if not preview_url and project_id:
+            preview_url = _preview_url_for(project_id, idx, m.get("conversation_id"))
+        row_total = total if total > 0 else max(len(indices), idx)
+        slides.append(
+            {
+                "index": idx,
+                "total": row_total,
+                "title": title or f"Slide {idx}",
+                "preview_kind": str((page or spec).get("theme") or "default"),
+                "preview_url": preview_url,
+                "status": "ready" if _page_is_ready(page) else "building",
+            }
+        )
+
+    if total < 1 and slides:
+        total = max(int(s.get("index") or 0) for s in slides)
+    return project_title, total, slides
+
+
 def build_slide_preview_strip_block(
     *,
     run_task_id: str,
@@ -12,47 +103,12 @@ def build_slide_preview_strip_block(
 ) -> dict[str, Any]:
     """Slide cards — real preview_url from on-disk project when manifest is provided."""
 
-    total = int((manifest or {}).get("slide_count") or 12)
-    project_title = str((manifest or {}).get("title") or "OAAO AI 平台管理層簡報")
-    pages = (manifest or {}).get("pages") if isinstance(manifest, dict) else None
-
-    slides: list[dict[str, Any]] = []
-    if isinstance(pages, list) and pages:
-        for p in pages:
-            if not isinstance(p, dict):
-                continue
-            idx = int(p.get("index") or 0) or 1
-            slides.append(
-                {
-                    "index": idx,
-                    "total": total,
-                    "title": str(p.get("title") or f"Slide {idx}"),
-                    "preview_kind": str(p.get("theme") or "executive_problem"),
-                    "preview_url": p.get("preview_url"),
-                    "status": "ready",
-                }
-            )
-    else:
-        slides = [
-            {
-                "index": 2,
-                "total": total,
-                "title": "為什麼現在需要這個平台",
-                "preview_kind": "executive_problem",
-                "status": "ready",
-            },
-            {
-                "index": 3,
-                "total": total,
-                "title": "OAAO 的定位很明確",
-                "preview_kind": "platform_layers",
-                "status": "ready",
-            },
-        ]
+    project_title, total, slides = build_slide_preview_rows(manifest)
+    m = manifest if isinstance(manifest, dict) else {}
 
     log_name = "export_ppt_fix.log"
     deck_artifact: dict[str, Any] | None = None
-    for f in (manifest or {}).get("files") or []:
+    for f in m.get("files") or []:
         if not isinstance(f, dict):
             continue
         name = str(f.get("name") or "").strip()
@@ -70,7 +126,7 @@ def build_slide_preview_strip_block(
 
     props: dict[str, Any] = {
         "run_task_id": run_task_id,
-        "project_id": (manifest or {}).get("project_id"),
+        "project_id": m.get("project_id"),
         "project_title": project_title,
         "slide_count": total,
         "slides": slides,

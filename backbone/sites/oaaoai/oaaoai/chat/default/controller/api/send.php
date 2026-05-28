@@ -1,5 +1,6 @@
 <?php
 
+use oaaoai\chat\ChatAccsReflection;
 use oaaoai\chat\ChatAttachmentManifest;
 use oaaoai\chat\ChatAttachmentStorage;
 use oaaoai\chat\ChatConversationMaterial;
@@ -652,6 +653,15 @@ return function (): void {
                     if (\is_array($cfgDec) && isset($cfgDec['supports_vision']) && $cfgDec['supports_vision']) {
                         $endpointPayload['capabilities'] = ['supports_vision' => true];
                     }
+                    if (\is_array($cfgDec)) {
+                        $endpointPayload['config'] = $cfgDec;
+                        foreach (['knowledge_cutoff', 'knowledge_until', 'training_cutoff'] as $cutKey) {
+                            if (isset($cfgDec[$cutKey]) && \is_string($cfgDec[$cutKey]) && trim($cfgDec[$cutKey]) !== '') {
+                                $endpointPayload['knowledge_cutoff'] = trim($cfgDec[$cutKey]);
+                                break;
+                            }
+                        }
+                    }
                 } catch (\JsonException) {
                 }
             }
@@ -703,6 +713,18 @@ return function (): void {
                 $chatPurposeKey = 'chat.profile.' . $profileIdForPurpose;
             }
             $payload['purpose_key'] = $chatPurposeKey;
+
+            if ($canonDb instanceof \Razy\Database) {
+                $reflectionCtx = ChatAccsReflection::consumePendingForSend(
+                    $canonDb,
+                    $splitDb,
+                    $conversationId,
+                    (int) $asstMsgId,
+                );
+                if ($reflectionCtx !== null) {
+                    $payload['accs_reflection_context'] = $reflectionCtx;
+                }
+            }
 
             $this->api('endpoints')?->ensureFeatureRegistries();
 
@@ -1014,6 +1036,20 @@ return function (): void {
                     $payload['corpus_id'] = $corpusIdSend;
                     $payload['corpus_style'] = $corpusStyle;
                 }
+            }
+
+            $libraryDocIds = [];
+            $libRaw = $input['library_doc_ids'] ?? $input['attached_library_doc_ids'] ?? null;
+            if (\is_array($libRaw)) {
+                foreach ($libRaw as $lid) {
+                    $n = (int) $lid;
+                    if ($n > 0) {
+                        $libraryDocIds[$n] = $n;
+                    }
+                }
+            }
+            if ($libraryDocIds !== []) {
+                $payload['library_doc_ids'] = array_values($libraryDocIds);
             }
 
             $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;

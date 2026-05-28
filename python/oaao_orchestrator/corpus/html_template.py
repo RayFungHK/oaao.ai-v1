@@ -6,13 +6,15 @@ import html
 import re
 from typing import Any
 
+from oaao_orchestrator.corpus.cjk_fonts import default_print_font_stack, resolve_print_css
+
 HTML_TEMPLATE_VERSION = 1
 _PARAM_KEY_RE = re.compile(r"[^a-z0-9_]+")
 
 _DEFAULT_PRINT_CSS = """\
 @page { size: A4; margin: 18mm 16mm; }
 body {
-  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  font-family: """ + default_print_font_stack() + """;
   font-size: 11pt;
   line-height: 1.45;
   color: #111;
@@ -40,6 +42,10 @@ body {
 .oaao-notice-salutation { margin: 0.5rem 0; }
 .oaao-notice-intro-text { margin: 0.5rem 0 0.75rem; line-height: 1.5; text-align: justify; }
 """
+
+def _print_css_with_cjk(template_css: str | None = None) -> str:
+    base = template_css.strip() if template_css and str(template_css).strip() else _DEFAULT_PRINT_CSS
+    return resolve_print_css(base)
 
 _FILE_REF_RE = re.compile(r"本函檔號\s*[：:]\s*(\S+)")
 _DATE_RE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
@@ -270,11 +276,26 @@ def build_html_template_v1(
     segments: list[dict[str, Any]],
     structure_blueprint: dict[str, Any] | None = None,
     profile_name: str = "",
+    document_type: str = "",
+    extraction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Heuristic print template from analyzed segments (template_block fields).
-    LLM refinement is optional in a later pass; analyze attaches this to style_json.meta.
+    Print template from analyzed segments or CS-1-S17/S18 extraction JSON.
+
+    When ``extraction`` is provided, schema-driven template wins over segment heuristics.
+    Otherwise falls back to segment-based heuristics (template_block fields).
     """
+    if extraction and document_type:
+        from oaao_orchestrator.corpus.html_template_schema import build_html_template_from_extraction
+
+        schema_tpl = build_html_template_from_extraction(
+            document_type=document_type,
+            extraction=extraction,
+            profile_name=profile_name,
+        )
+        if schema_tpl is not None:
+            return schema_tpl
+
     table_segs = [
         s
         for s in segments
@@ -504,14 +525,14 @@ def render_html_document(
         letterhead = _fill_notice_header_html(nh_html, nh_defaults, parameters) if nh_html else ""
         table_html = _html_table_body(columns, rows)
         body = f'<article class="oaao-corpus-page">{letterhead}{table_html}</article>'
-        css = str(template.get("css") or _DEFAULT_PRINT_CSS)
+        css = _print_css_with_cjk(str(template.get("css") or "") or None)
         return (
             "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
             f"<style>{css}</style></head><body>{body}</body></html>"
         )
 
     body = str(template.get("html_body") or "")
-    css = str(template.get("css") or _DEFAULT_PRINT_CSS)
+    css = _print_css_with_cjk(str(template.get("css") or "") or None)
     for key, val in parameters.items():
         safe = html.escape(str(val))
         body = body.replace(f"{{{{ {key} }}}}", safe)

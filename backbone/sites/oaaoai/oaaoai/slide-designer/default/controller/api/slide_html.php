@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/library/_bootstrap.php';
 
+use oaaoai\slide_designer\SlideCanvas;
 use oaaoai\slide_designer\SlideProjectRegistry;
 use oaaoai\slide_designer\SlideProjectStorage;
+use oaaoai\slide_designer\SlideTemplateScope;
+use oaaoai\slide_designer\SlideTemplateStorage;
 
 /**
  * GET /slide-designer/api/slide_html?project_id=&page=&conversation_id=
@@ -75,13 +78,11 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 2) . '/library/SlideCanvas.php';
-    require_once dirname(__DIR__, 2) . '/library/SlideTemplateStorage.php';
-    $html = \oaaoai\slide_designer\SlideCanvas::normalizeHtml($html);
+    $html = SlideCanvas::normalizeHtml($html);
 
     $auth = $this->api('auth');
-    $scopeCtx = \oaaoai\slide_designer\SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
-    $html = \oaaoai\slide_designer\SlideTemplateStorage::sanitizeSlideHtmlFontFaces($html, $scopeCtx);
+    $scopeCtx = SlideTemplateScope::contextFromAuthModule($user, $auth, $this->api('core'));
+    $html = SlideTemplateStorage::sanitizeSlideHtmlFontFaces($html, $scopeCtx);
 
     $templateId = trim((string) ($manifest['template_id'] ?? ''));
     $templatePage = $page;
@@ -106,14 +107,14 @@ return function (): void {
     }
 
     $slotsPath = \dirname($path) . '/slots.json';
-    $filledSlots = \oaaoai\slide_designer\SlideTemplateStorage::loadSlideSlotsFromPath($slotsPath);
+    $filledSlots = SlideTemplateStorage::loadSlideSlotsFromPath($slotsPath);
     $skipDecor = $filledSlots !== [];
     if ($skipDecor) {
-        $html = \oaaoai\slide_designer\SlideTemplateStorage::applyPptxSlotsToSlideHtml($html, $filledSlots);
+        $html = SlideTemplateStorage::applyPptxSlotsToSlideHtml($html, $filledSlots);
     }
 
     if ($templateId !== '') {
-        $html = \oaaoai\slide_designer\SlideTemplateStorage::enrichProjectSlideHtmlForPreview(
+        $html = SlideTemplateStorage::enrichProjectSlideHtmlForPreview(
             $html,
             $templateId,
             $templatePage,

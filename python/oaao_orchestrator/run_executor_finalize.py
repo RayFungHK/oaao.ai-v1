@@ -113,51 +113,9 @@ async def finalize_run(
     if iqs_snap is not None:
         metrics_payload.update(iqs_snap)
 
-    if not run.cancelled and not run_failed and streamed_parts:
-        try:
-            from oaao_orchestrator.evaluation.inline_reflection import (
-                maybe_reflect_and_revise,
-            )
-            from oaao_orchestrator.planner_llm import _last_user_message
-
-            coach_ep = req.uiqe if isinstance(req.uiqe, dict) else None
-            _rev_text, reflection_meta = await maybe_reflect_and_revise(
-                run=run,
-                user_message=_last_user_message(messages_for_llm),
-                assistant_text="".join(streamed_parts),
-                streamed_parts=streamed_parts,
-                messages_for_llm=messages_for_llm,
-                pipeline_snap=pipeline_snap if isinstance(pipeline_snap, dict) else None,
-                coach_endpoint=coach_ep,
-                llm_url=_chat_completions_url(req.endpoint.base_url),
-                api_key=_resolve_api_key(req.endpoint.api_key_env),
-                model=req.endpoint.model,
-            )
-            if reflection_meta:
-                metrics_payload.update(reflection_meta)
-
-            try:
-                cid = int(str(req.conversation_id or "0"))
-            except (TypeError, ValueError):
-                cid = 0
-            accs_hint = reflection_meta.get("accs_score") if isinstance(reflection_meta, dict) else None
-            if cid > 0 and isinstance(accs_hint, (int, float)) and 0 < float(accs_hint) < 0.65:
-                from oaao_orchestrator.evaluation.thread_health_stream import (
-                    emit_conversation_health_status,
-                    provisional_health_from_accs,
-                )
-                from oaao_orchestrator.planner_llm import _last_user_message
-
-                health = provisional_health_from_accs(
-                    conversation_id=cid,
-                    accs_score=float(accs_hint),
-                    user_message=_last_user_message(messages_for_llm),
-                )
-                if health is not None:
-                    metrics_payload["thread_health"] = health.to_dict()
-                    await emit_conversation_health_status(run, health)
-        except Exception:
-            logger.exception("inline_reflection_failed run_id=%s", run_id)
+    # ACCS coach review + optional rewrite run in post_stream_worker (non-blocking).
+    # Critique is injected on the *next* user turn via PHP accs_reflection_context.
+    metrics_payload["inline_reflection_deferred"] = True
 
     assistant_text = "".join(streamed_parts)
     persist_text = assistant_text.strip()
@@ -170,7 +128,99 @@ async def finalize_run(
                 "Check the LLM endpoint or Activity log, then retry."
             )
         else:
-            persist_text = "No reply text was generated for this turn."
+            from oaao_orchestrator.run_executor_plan import slide_deck_persist_summary
+
+            slide_summary = slide_deck_persist_summary(slide_project_meta)
+            persist_text = slide_summary or "No reply text was generated for this turn."
+
+    if not run.cancelled and persist_text:
+        try:
+            cid_skill = int(str(req.conversation_id or "0"))
+        except (TypeError, ValueError):
+            cid_skill = 0
+        if cid_skill > 0:
+            try:
+                from oaao_orchestrator.evaluation.skill_candidate import (
+                    classify_skill_candidate,
+                )
+                from oaao_orchestrator.evaluation.skill_suggested_stream import (
+                    emit_skill_suggested_status,
+                )
+
+                candidate = classify_skill_candidate(
+                    conversation_id=cid_skill,
+                    messages=messages_for_llm,
+                    assistant_text=persist_text,
+                )
+                if candidate is not None:
+                    payload_skill = candidate.to_dict()
+                    metrics_payload["skill_suggested"] = payload_skill
+                    await emit_skill_suggested_status(run, payload_skill)
+            except Exception:
+                logger.exception("skill_suggested_emit_failed run_id=%s", run_id)
+
+        applied_ids: list[str] = []
+        from oaao_orchestrator.tasks.models import RunPlan as _RunPlan
+
+        if isinstance(plan, _RunPlan) and plan.apply_skill_ids:
+            applied_ids = list(plan.apply_skill_ids)
+        if (
+            not run.cancelled
+            and not run_failed
+            and persist_text
+            and applied_ids
+            and run_principal is not None
+        ):
+            try:
+                from oaao_orchestrator._internal_secret import require_internal_secret
+                from oaao_orchestrator.evaluation.skill_upgrade import pick_skill_upgrade_candidate
+                from oaao_orchestrator.evaluation.skill_upgrade_stream import (
+                    emit_skill_upgrade_suggested_status,
+                )
+                from oaao_orchestrator.micro_skills.usage_sync import record_skill_usage_via_php
+
+                secret = require_internal_secret()
+                skill_rows = await record_skill_usage_via_php(
+                    principal=run_principal,
+                    skill_ids=applied_ids,
+                    shared_secret=secret,
+                )
+                if skill_rows:
+                    metrics_payload["skill_usage"] = skill_rows
+                    accs_hint = metrics_payload.get("accs_score")
+                    accs_val = float(accs_hint) if isinstance(accs_hint, (int, float)) else None
+                    upgrade = pick_skill_upgrade_candidate(
+                        conversation_id=cid_skill,
+                        skill_rows=skill_rows,
+                        accs_score=accs_val,
+                    )
+                    if upgrade is not None:
+                        payload_up = upgrade.to_dict()
+                        metrics_payload["skill_upgrade_suggested"] = payload_up
+                        await emit_skill_upgrade_suggested_status(run, payload_up)
+            except Exception:
+                logger.exception("skill_usage_record_failed run_id=%s", run_id)
+
+        if cid_skill > 0 and persist_text and not run.cancelled:
+            try:
+                from oaao_orchestrator.evaluation.calendar_event_candidate import (
+                    classify_calendar_event_candidate,
+                )
+                from oaao_orchestrator.evaluation.calendar_event_suggested_stream import (
+                    emit_calendar_event_suggested_status,
+                )
+
+                cal_candidate = classify_calendar_event_candidate(
+                    conversation_id=cid_skill,
+                    messages=messages_for_llm,
+                    assistant_text=persist_text,
+                )
+                if cal_candidate is not None:
+                    payload_cal = cal_candidate.to_dict()
+                    metrics_payload["calendar_event_suggested"] = payload_cal
+                    await emit_calendar_event_suggested_status(run, payload_cal)
+            except Exception:
+                logger.exception("calendar_event_suggested_emit_failed run_id=%s", run_id)
 
     if not run.cancelled:
         try:
@@ -185,7 +235,7 @@ async def finalize_run(
                 user_message=_last_user_message(messages_for_llm),
                 assistant_snippet=assistant_text,
                 chat_completions_url=_chat_completions_url(req.endpoint.base_url),
-                api_key=_resolve_api_key(req.endpoint.api_key_env),
+                api_key=_resolve_api_key(req.endpoint),
                 model=req.endpoint.model,
             )
             if conv_title:

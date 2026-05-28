@@ -145,6 +145,8 @@ def apply_outline_fields_from_llm_row(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("speaker_notes")
         or row.get("speaker_script")
         or row.get("outline")
+        or row.get("content")
+        or row.get("body")
         or ""
     ).strip()
     bullets = _normalize_bullets(row.get("bullets") or row.get("key_points"))

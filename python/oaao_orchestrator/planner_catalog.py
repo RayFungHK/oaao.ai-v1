@@ -16,11 +16,16 @@ AGENT_CATALOG: dict[str, AbilityHint] = {
     "slides": AbilityHint(name="Slides (legacy)", description="Generate presentation decks (stub)"),
     "slide_designer": AbilityHint(
         name="Slide designer",
-        description="Create and continue slide decks (outline, HTML, export)",
+        description="User requesting to create slides or presentation.",
     ),
     "image_gen": AbilityHint(name="Images", description="Generate images from prompts"),
     "web_search": AbilityHint(
-        name="Web search", description="Search the public web for live information"
+        name="Web search",
+        description=(
+            "User input has provided date and the latest LLM Knowledge date is not fulfilled; "
+            "or user request to fetch the data from web or online; or the LLM has less knowledge "
+            "to provide solution; or user requesting latest information."
+        ),
     ),
     "mcp_tool": AbilityHint(name="Integrations", description="Call connected MCP tools"),
 }

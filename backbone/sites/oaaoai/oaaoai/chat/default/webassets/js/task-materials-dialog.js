@@ -366,7 +366,7 @@ function renderList(root, rows, active, onFilter, opts) {
         iconWrap.className =
             'shrink-0 w-9 h-9 rounded-[8px] bg-[var(--grid-line)]/30 flex items-center justify-center';
         iconWrap.setAttribute('aria-hidden', 'true');
-        void mountRuiIcon(iconWrap, materialIconName(row.category), { size: 18, class: OAAO_RUI_ICON_SOFT_CLASS });
+        void mountRuiIcon(iconWrap, materialIconName(row.category, row.mime), { size: 18, class: OAAO_RUI_ICON_SOFT_CLASS });
 
         const body = document.createElement('div');
         body.className = 'min-w-0 flex-1 flex flex-col gap-0.5';

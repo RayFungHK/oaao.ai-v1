@@ -66,7 +66,9 @@ Rules:
   continue/regenerate/reuse turns (conversation_materials do not embed RAG text). false only when the user clearly
   needs no document grounding (pure chit-chat) or vault_scope=no.
 - needs_web_search: true when the user wants **current public web** facts (product launch, news, prices,
-  "on the internet", 網絡/網上/開售/最新消息). Set needs_vault_rag=false for those turns unless they also cite
+  "on the internet", 網絡/網上/開售/最新消息). Also true when the user cites a **date after the model knowledge
+  cutoff**, asks for **latest/current/recent** information, or explicitly wants **web/online** lookup — the model
+  cannot reliably answer from training alone. Set needs_vault_rag=false for those turns unless they also cite
   an internal handbook/volume in vault. Prefer type=agent web_search before llm_stream; do not rely on keyword lists in code.
 - skills_catalog (when present): pick apply_skill_ids for bound_template / conversation skills that fit this turn;
   use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI).

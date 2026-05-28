@@ -86,6 +86,14 @@ async def handle_llm_stream_task(
         vault_ran=bool(run_ctx.extra.get("vault_rag_ran")),
         passage_count=int(run_ctx.extra.get("vault_rag_passage_count") or 0),
     )
+    try:
+        from oaao_orchestrator.micro_skills.apply import inject_applied_micro_skills
+
+        applied = inject_applied_micro_skills(messages_for_llm, req=req, plan=plan)
+        if applied:
+            run_ctx.extra["applied_skill_ids"] = applied
+    except Exception:
+        logger.exception("inject_applied_micro_skills_failed run_task=%s", run_task.id)
     run_ctx.messages = list(messages_for_llm)
     _att_sys_msgs = [
         i

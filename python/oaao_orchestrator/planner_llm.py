@@ -92,86 +92,28 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
 DEFAULT_PLANNER_SYSTEM_REF = "materials/prompts/planning/planner_system.md"
 
 
-def _planner_system_prompt_inline(
+def _planner_system_prompt(
     *,
     allowed_agents: list[str],
     max_tasks: int,
     agent_guide: str,
+    planner_payload: dict[str, Any] | None = None,
 ) -> str:
-    agents_s = ", ".join(allowed_agents) if allowed_agents else "(none)"
-    guide_block = agent_guide.strip() if agent_guide.strip() else "(none)"
-    return f"""You are a task planner for an assistant run. Output ONLY valid JSON (no markdown prose).
+    """Load planner system text from purpose ``prompt.system_ref`` (markdown only)."""
+    from oaao_orchestrator.planning_prompt import render_planner_system_prompt
 
-Schema:
-{{
-  "tasks": [
-    {{
-      "id": "rt-1",
-      "title": "short user-visible label",
-      "type": "vault_rag | attachments | llm_stream | llm_call | agent | emit",
-      "agent_kind": "required when type=agent, one of: {agents_s}",
-      "requires_ask": false,
-      "ask_message": "optional — user-visible confirmation when requires_ask is true"
-    }}
-  ],
-  "abilities": [{{"name": "...", "description": "..."}}],
-  "report_after": ["rt-id", ...],
-  "slide_action": "regenerate | continue | new | null",
-  "use_material_id": "material_id from conversation_materials or null",
-  "needs_vault_rag": false,
-  "needs_web_search": false,
-  "apply_skill_ids": ["skill_id from skills_catalog when a micro skill applies"],
-  "suggest_skill": null | {{ "title": "...", "summary": "...", "preview_markdown": "..." }},
-  "conversation_title": "optional short thread title (max 8 words, user's language) for a new chat; omit when unclear"
-}}
+    return render_planner_system_prompt(
+        allowed_agents=allowed_agents,
+        max_tasks=max_tasks,
+        agent_guide=agent_guide,
+        planner_payload=planner_payload,
+    )
 
-Allowed agents (when to use type=agent — pick agent_kind from the list above):
-{guide_block}
 
-Rules:
-- At most {max_tasks} tasks.
-- Always end with exactly one task of type llm_stream (compose the user-facing answer).
-- Include vault_rag when the user needs document/knowledge retrieval and vault_scope=yes.
-- conversation_materials (when listed in the user turn context) are a **catalog only** (material_id, title,
-  project_id) — they do **not** contain vault/RAG passage text. Slide deck rows are not a substitute for retrieval.
-- **Continue / regenerate / reuse prior fetch**: when the user wants to continue, regenerate (regenerate, 重新生成,
-  重做), or reuse data from a prior run — set slide_action to continue or regenerate, set use_material_id when a
-  catalog row applies, and set needs_vault_rag=true when vault_scope=yes so vault_rag runs **before**
-  slide_designer and llm_stream. Do **not** skip vault_rag because conversation_materials or an existing deck exists.
-- Include attachments only when the user attached files.
-- Use type=agent when an allowed agent above matches the user's goal; set agent_kind accordingly.
-- Chain agents in sensible order (e.g. vault_rag or sandbox_code before slide_designer when data or code is needed).
-- office_generate: when the user wants a **downloadable PDF** from the active Corpus profile (corpus_id on the run),
-  add type=agent office_generate with params source=corpus_template, format=pdf, and optional brief. Use for formal
-  notices/reports; use llm_stream for markdown-only replies in chat.
-- Use each agent_kind at most once per plan (e.g. a single slide_designer task — use requires_ask on that task instead of a separate confirmation row).
-- **Multi-agent runs**: order tasks vault_rag → attachments → other agents → slide_designer (if needed) → llm_stream. Each type=agent is a separate checklist row; the runtime runs them sequentially, emits a short phase summary between agents, then asks before the next agent when needed.
-- **requires_ask** (type=agent only): follow each agent's [ask: …] guide. The first agent may need ask; later agents get an inter-agent ask automatically when another agent completed immediately before.
-- **Desk mode** (conversation mode_id=desk): only slide_designer fits naturally in the same thread. For sandbox_code, image_gen, or mcp_tool, set requires_ask=true and mention in ask_message that the user may **fork a new chat** for that agent mode or continue here. **web_search** never uses requires_ask — it runs as soon as it is scheduled.
-- report_after: ids of tasks after which a follow-up replan MAY run (typically vault_rag or agent steps).
-- abilities: optional chips for the UI; name capabilities you selected.
-- requires_ask: on type=agent only — set true when the agent guide marks [ask: …] and the user has not clearly
-  confirmed that capability (e.g. slide deck when they only asked a question). Provide ask_message in the user's language.
-- Do not set requires_ask on vault_rag, attachments, or llm_stream.
-- Handbook / manual Vol N teaching (教學, tutorial, course for a volume): include one type=agent slide_designer task
-  before llm_stream (requires_ask=true unless the user clearly declined slides). Do not substitute llm_call-only
-  "plan structure" steps for slide_designer when they want vol teaching content.
-- slide_action (required when the turn concerns slides): decide from the user message + conversation_materials —
-  regenerate = redo deck / new fan-out (regenerate, 重新生成, 重做); continue = resume an existing slide_project
-  (use use_material_id when picking a catalog row); new = fresh deck (template or first build). Do not rely on
-  keyword lists in code — your JSON choice drives execution.
-- use_material_id: when slide_action is continue or regenerate references an existing deck, set to the catalog
-  material_id (often slide-{{project_id}}).
-- needs_vault_rag: true when handbook/vault grounding is required and vault_scope=yes — **especially** on
-  continue/regenerate/reuse turns (conversation_materials do not embed RAG text). false only when the user clearly
-  needs no document grounding (pure chit-chat) or vault_scope=no.
-- needs_web_search: true when the user wants **current public web** facts (product launch, news, prices,
-  "on the internet", 網絡/網上/開售/最新消息). Set needs_vault_rag=false for those turns unless they also cite
-  an internal handbook/volume in vault. Prefer type=agent web_search before llm_stream; do not rely on keyword lists in code.
-- skills_catalog (when present): pick apply_skill_ids for bound_template / conversation skills that fit this turn;
-  use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI).
-- conversation_title: when the turn starts a new thread, suggest a concise sidebar title (max 8 words, user's language).
-  Omit or null when the topic is unclear — the chat model will title the thread later."""
+def _report_system_prompt(*, agent_guide: str) -> str:
+    from oaao_orchestrator.planning_prompt import render_report_system_prompt
+
+    return render_report_system_prompt(agent_guide=agent_guide)
 
 
 def _apply_public_web_planner_overrides(req: object, draft: PlannerOutputDraft) -> None:
@@ -182,67 +124,6 @@ def _apply_public_web_planner_overrides(req: object, draft: PlannerOutputDraft) 
         return
     draft.needs_web_search = True
     draft.needs_vault_rag = False
-
-
-def _planner_system_prompt(
-    *,
-    allowed_agents: list[str],
-    max_tasks: int,
-    agent_guide: str,
-    planner_payload: dict[str, Any] | None = None,
-) -> str:
-    """Load planner system text from purpose ``prompt.system_ref`` or inline fallback."""
-    from oaao_orchestrator.prompt_template import (
-        command_template_ref,
-        load_template_body,
-        prompt_config_from_purpose_payload,
-        render_template_text,
-    )
-
-    agents_s = ", ".join(allowed_agents) if allowed_agents else "(none)"
-    guide_block = agent_guide.strip() if agent_guide.strip() else "(none)"
-    prompt_cfg = prompt_config_from_purpose_payload(planner_payload if isinstance(planner_payload, dict) else None)
-    ref = ""
-    if isinstance(prompt_cfg, dict) and str(prompt_cfg.get("kind") or "") == "conversation":
-        ref = str(prompt_cfg.get("system_ref") or "").strip()
-    if not ref:
-        ref = command_template_ref(
-            None,
-            env_key="OAAO_PLANNER_SYSTEM_REF",
-            default_ref=DEFAULT_PLANNER_SYSTEM_REF,
-        )
-    body = load_template_body(ref=ref, fallback="")
-    if body and "{{" in body:
-        return render_template_text(
-            body,
-            {
-                "allowed_agents": agents_s,
-                "max_tasks": str(max_tasks),
-                "agent_guide": guide_block,
-            },
-        )
-    if body:
-        return body
-    return _planner_system_prompt_inline(
-        allowed_agents=allowed_agents,
-        max_tasks=max_tasks,
-        agent_guide=agent_guide,
-    )
-
-
-def _report_system_prompt(*, agent_guide: str) -> str:
-    guide_block = agent_guide.strip() if agent_guide.strip() else "(none)"
-    return f"""You decide whether to append follow-up run tasks before the final llm_stream answer.
-Output ONLY JSON: {{"append": [{{"id":"rt-x","title":"...","type":"vault_rag|attachments|llm_call|agent|emit","agent_kind":null}}]}}
-
-Allowed agents for type=agent:
-{guide_block}
-
-Rules:
-- Return {{"append": []}} if no extra step is needed.
-- Never append another llm_stream.
-- At most 2 append tasks.
-- Use agent_kind only from the allowed agents list when type=agent."""
 
 
 def _last_user_message(messages: list[dict[str, Any]]) -> str:
@@ -610,6 +491,7 @@ def _default_slide_designer_ask_message(
     user_msg: str,
     *,
     template_selected: bool,
+    handbook: bool = True,
 ) -> str:
     cjk = any("\u4e00" <= ch <= "\u9fff" for ch in user_msg)
     if template_selected:
@@ -618,10 +500,16 @@ def _default_slide_designer_ask_message(
             if cjk
             else "You selected a slide template. Start building the deck (outline, pages, export) now?"
         )
+    if handbook:
+        return (
+            "我可以啟動簡報設計，依手冊內容產出教學簡報（大綱、逐頁 HTML、匯出）。要繼續嗎？"
+            if cjk
+            else "I can run the slide designer to build a teaching deck (outline, per-slide HTML, export). Proceed?"
+        )
     return (
-        "我可以啟動簡報設計，依手冊內容產出教學簡報（大綱、逐頁 HTML、匯出）。要繼續嗎？"
+        "我可以啟動簡報設計，依你的需求製作簡報（大綱、逐頁 HTML、匯出）。要繼續嗎？"
         if cjk
-        else "I can run the slide designer to build a teaching deck (outline, per-slide HTML, export). Proceed?"
+        else "I can run the slide designer to build your deck (outline, per-slide HTML, export). Proceed?"
     )
 
 
@@ -836,6 +724,65 @@ def inject_slide_designer_for_teaching_intent(
     return out
 
 
+def inject_slide_designer_for_turn_intent(
+    specs: list[RunTaskSpec],
+    *,
+    allowed_agents: list[str],
+    messages: list[dict[str, Any]] | None,
+    slide_designer_cfg: dict[str, Any] | None,
+    req: object,
+) -> list[RunTaskSpec]:
+    """Append slide_designer when ``planning.intent`` scored slide need (promotional / generic decks)."""
+    turn_intent = getattr(req, "turn_intent", None)
+    if not isinstance(turn_intent, dict) or not turn_intent.get("needs_slide_designer"):
+        return specs
+    allowed_set = {a.strip() for a in allowed_agents if a.strip()}
+    if "slide_designer" not in allowed_set:
+        return specs
+    if any(
+        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "slide_designer"
+        for s in specs
+    ):
+        return specs
+    if isinstance(slide_designer_cfg, dict) and slide_designer_cfg.get("continuation"):
+        return specs
+
+    user_msg = _last_user_message(messages or [])
+    template_selected = _slide_template_selected(slide_designer_cfg)
+    if template_selected:
+        ask_msg = _default_slide_designer_ask_message(user_msg, template_selected=True)
+        slide_task = RunTaskSpec(
+            id="rt-slide-designer-intent-template",
+            title="Slide designer (selected template)",
+            type=RunTaskType.AGENT,
+            agent_kind="slide_designer",
+            params={"requires_ask": True, "ask_message": ask_msg},
+        )
+    else:
+        logger.info("inject_slide_designer_turn_intent user_snip=%r", user_msg[:120])
+        ask_msg = _default_slide_designer_ask_message(
+            user_msg,
+            template_selected=False,
+            handbook=False,
+        )
+        slide_task = RunTaskSpec(
+            id="rt-slide-designer-intent",
+            title="Slide designer",
+            type=RunTaskType.AGENT,
+            agent_kind="slide_designer",
+            params={"requires_ask": True, "ask_message": ask_msg},
+        )
+    streams = [i for i, s in enumerate(specs) if s.type == RunTaskType.LLM_STREAM]
+    insert_at = streams[0] if streams else len(specs)
+    out = list(specs)
+    out.insert(insert_at, slide_task)
+    total = len(out)
+    for idx, spec in enumerate(out, start=1):
+        spec.index = idx
+        spec.total = total
+    return out
+
+
 def apply_slide_fanout_to_specs(
     specs: list[RunTaskSpec],
     messages: list[dict[str, Any]] | None,
@@ -860,8 +807,12 @@ def apply_template_deck_plan_adjustments(
     specs: list[RunTaskSpec],
     slide_designer_cfg: dict[str, Any] | None,
 ) -> list[RunTaskSpec]:
-    """Selected PPTX template → slide_designer builds the deck; skip generic compose prose."""
-    if not _slide_template_selected(slide_designer_cfg):
+    """When slide_designer builds the deck, skip generic compose prose in chat."""
+    has_slide = any(
+        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "slide_designer"
+        for s in specs
+    )
+    if not has_slide:
         return specs
     return [s for s in specs if s.type != RunTaskType.LLM_STREAM]
 
@@ -925,12 +876,18 @@ def planner_output_to_run_plan(
             catalog=cat,
         )
     )
+    apply_ids = [
+        x.strip()
+        for x in (draft.apply_skill_ids or [])
+        if isinstance(x, str) and x.strip()
+    ][:12]
     return RunPlan(
         tasks=specs,
         abilities=abilities,
         report_after_task_ids=[x.strip() for x in draft.report_after if x.strip()],
         slide_designer=slide_cfg,
         conversation_title=normalize_conversation_title(draft.conversation_title) or None,
+        apply_skill_ids=apply_ids,
     )
 
 
@@ -999,6 +956,9 @@ async def plan_run_with_llm(
             f"turn_intent_web_search=yes{score_txt} — planning.intent hook scored public-web need; "
             "set needs_web_search=true and needs_vault_rag=false unless vault handbook is also required",
         )
+        cutoff_txt = str(turn_intent.get("llm_knowledge_cutoff") or "").strip()
+        if cutoff_txt:
+            flags.append(f"llm_knowledge_cutoff={cutoff_txt}")
     if composer_auto:
         flags.append(
             "composer_auto_source=yes — no manual vault picks; for public web/news/product "

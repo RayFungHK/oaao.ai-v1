@@ -614,6 +614,17 @@ return new class extends Controller {
         );
 
         SpaRegister::add(
+            'workspace/calendar',
+            'Calendar',
+            'Events and schedule',
+            'calendar',
+            [
+                'shell_panel_url' => '/calendar/workspace-panel',
+                'shell_js_module' => '/webassets/calendar/default/js/calendar-panel.js',
+            ]
+        );
+
+        SpaRegister::add(
             'workspace/live-meeting',
             'Live meeting',
             'Streaming meeting transcript — audio via orchestrator',

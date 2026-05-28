@@ -215,17 +215,31 @@ async def _run_evolution_post_stream(
             accs_score=float(accs_result.score),
         )
         if accs_result.score > 0:
+            accs_reasons: dict[str, Any] = {
+                "action": accs_result.action,
+                "source": accs_result.source,
+                "user_correction": user_correction,
+            }
+            from oaao_orchestrator.evaluation.deferred_reflection import (
+                build_deferred_reflection_reasons,
+                deferred_reflection_enabled,
+            )
+
+            if accs_result.action == "reflect" and deferred_reflection_enabled():
+                accs_reasons.update(build_deferred_reflection_reasons(accs_result))
+                logger.info(
+                    "accs_reflection_deferred conversation_id=%s assistant_message_id=%s score=%.3f",
+                    meta.get("conversation_id"),
+                    meta.get("assistant_message_id"),
+                    accs_result.score,
+                )
             await upsert_turn_score(
                 plugin_id="accs",
                 meta=meta,
                 score=AccsScoreResult(
                     accs=float(accs_result.score),
                     dimensions=dict(accs_result.factors or {}),
-                    reasons={
-                        "action": accs_result.action,
-                        "source": accs_result.source,
-                        "user_correction": user_correction,
-                    },
+                    reasons=accs_reasons,
                 ),
                 topic_shift=ts,
             )

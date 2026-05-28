@@ -28,4 +28,28 @@ function oaao_chat_ensure_micro_skill_schema(\PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_micro_skill_workspace
          ON oaao_micro_skill(workspace_id, status)',
     );
+
+    // CS-4-S1 v2 columns (idempotent ALTER for existing installs).
+    $cols = [];
+    foreach ($pdo->query('PRAGMA table_info(oaao_micro_skill)') as $row) {
+        if (\is_array($row) && isset($row['name'])) {
+            $cols[(string) $row['name']] = true;
+        }
+    }
+    if (! isset($cols['version'])) {
+        $pdo->exec('ALTER TABLE oaao_micro_skill ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+    }
+    if (! isset($cols['parent_skill_id'])) {
+        $pdo->exec('ALTER TABLE oaao_micro_skill ADD COLUMN parent_skill_id TEXT DEFAULT NULL');
+    }
+    if (! isset($cols['usage_count'])) {
+        $pdo->exec('ALTER TABLE oaao_micro_skill ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0');
+    }
+    if (! isset($cols['last_used_at'])) {
+        $pdo->exec('ALTER TABLE oaao_micro_skill ADD COLUMN last_used_at TEXT DEFAULT NULL');
+    }
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_micro_skill_parent
+         ON oaao_micro_skill(user_id, parent_skill_id)',
+    );
 }

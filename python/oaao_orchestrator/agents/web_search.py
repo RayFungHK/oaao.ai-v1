@@ -148,8 +148,9 @@ class WebSearchAgent:
                     lines.append(
                         f"[W{i}] {h.get('title', '')} — {h.get('url', '')}\n{h.get('snippet', '')}"
                     )
-                inject_system_message(list(ctx.messages), "\n\n".join(lines))
-                ctx.messages = list(ctx.messages)
+                msgs = list(ctx.messages or [])
+                inject_system_message(msgs, "\n\n".join(lines))
+                ctx.messages = msgs
 
             await run_agent_task_step(
                 run,

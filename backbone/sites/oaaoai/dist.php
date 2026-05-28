@@ -30,6 +30,7 @@ return [
             'oaaoai/research'      => 'default',
             'oaaoai/corpus'        => 'default',
             'oaaoai/library'       => 'default',
+            'oaaoai/calendar'      => 'default',
             'oaaoai/mine'          => 'default',
         ],
     ],

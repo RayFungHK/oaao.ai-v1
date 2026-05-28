@@ -183,9 +183,17 @@ class ChatRunRequest(BaseModel):
         default=None,
         description="Resolved corpus profile { name, description, status, style_json } from PHP send.",
     )
+    library_doc_ids: list[int] = Field(
+        default_factory=list,
+        description="CS-2-S8 — attached @library document ids; library_search runs only when non-empty.",
+    )
     knowledge: dict[str, Any] | None = Field(
         default=None,
         description="Resolved knowledge.* purposes (orientation LLM, future search plan).",
+    )
+    accs_reflection_context: dict[str, Any] | None = Field(
+        default=None,
+        description="Deferred ACCS coach critique from prior turn (PHP consume on send) — injected before compose.",
     )
     enable_web_search: bool = Field(
         default=False,

@@ -21,7 +21,7 @@ from oaao_orchestrator.tasks.stream_emit import emit_agent_ask, emit_task_list_s
 logger = logging.getLogger(__name__)
 
 # Agents that run immediately — no planner requires_ask or inter-agent confirmation.
-_AGENTS_RUN_WITHOUT_ASK: frozenset[str] = frozenset({"web_search"})
+_AGENTS_RUN_WITHOUT_ASK: frozenset[str] = frozenset({"web_search", "library_search"})
 
 _PHASE_SUMMARY_SYSTEM = """You write a brief phase summary for a multi-step assistant run.
 Output 2-4 sentences in the user's language (zh-Hant if the user wrote Chinese).

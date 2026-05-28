@@ -82,6 +82,11 @@ class SearxngProvider:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
                 resp = await client.get(url, headers={"Accept": "application/json"})
                 if resp.status_code >= 400:
+                    logger.warning(
+                        "searxng search HTTP %s url=%s",
+                        resp.status_code,
+                        url.split("?", 1)[0],
+                    )
                     return []
                 data = resp.json()
         except Exception:  # noqa: BLE001

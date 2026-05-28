@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatOrchestratorApi;
+use oaaoai\library\LibraryEmbedBootstrap;
+
 /**
  * POST /library/api/library_revision_save — { document_id, title?, blocks: [...] }
  */
@@ -74,6 +77,26 @@ return function (): void {
         $upd->execute([$title, $docId]);
 
         $pdo->commit();
+
+        // CS-2-S7 — best-effort Soft-RAG embed (non-blocking for save UX).
+        try {
+            require_once dirname(__DIR__, 2) . '/library/LibraryEmbedBootstrap.php';
+            $emb = LibraryEmbedBootstrap::resolveEmbedding($this);
+            $embCfg = LibraryEmbedBootstrap::embeddingCfgForPayload($emb);
+            $embedPayload = [
+                'tenant_id'   => $tenantId,
+                'document_id' => $docId,
+                'revision_id' => $revId,
+                'title'       => $title,
+                'blocks'      => array_values($blocks),
+            ];
+            if ($embCfg !== null) {
+                $embedPayload['embedding_cfg'] = $embCfg;
+            }
+            ChatOrchestratorApi::postInternalJson('/v1/library/embed', $embedPayload, 45);
+        } catch (\Throwable) {
+            // Save succeeded; embed can be retried via library_document_embed.
+        }
 
         echo json_encode([
             'success' => true,

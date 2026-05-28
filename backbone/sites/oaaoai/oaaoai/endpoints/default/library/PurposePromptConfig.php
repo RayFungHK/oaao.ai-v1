@@ -114,7 +114,14 @@ final class PurposePromptConfig
             'prompt' => [
                 'kind'             => self::KIND_COMMAND,
                 'template_ref'     => 'materials/prompts/planning/turn_agent_intent.md',
-                'variables'        => ['user_input'],
+                'variables'        => [
+                    'user_input',
+                    'llm_knowledge_cutoff',
+                    'current_date',
+                    'knowledge_gap_detected',
+                    'agent_registry_list',
+                    'agent_analysis_schema',
+                ],
                 'response_format'  => 'json',
             ],
         ];

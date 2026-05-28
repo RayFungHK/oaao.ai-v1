@@ -2,19 +2,46 @@
 
 from __future__ import annotations
 
-from oaao_orchestrator.agents.slide_pipeline_blocks import build_slide_preview_strip_block
+from oaao_orchestrator.agents.slide_pipeline_blocks import (
+    build_slide_preview_rows,
+    build_slide_preview_strip_block,
+)
 from oaao_orchestrator.tasks.models import AgentResult
 
 
-def test_build_slide_preview_strip_block_shape() -> None:
+def test_build_slide_preview_strip_block_empty_without_manifest() -> None:
     block = build_slide_preview_strip_block(run_task_id="rt-slides")
     assert block["type"] == "slide_preview_strip"
     assert block["zone"] == "after"
     props = block["props"]
     assert isinstance(props, dict)
     slides = props.get("slides")
-    assert isinstance(slides, list) and len(slides) >= 2
+    assert isinstance(slides, list) and len(slides) == 0
     assert props.get("material_thumb")
+
+
+def test_build_slide_preview_strip_from_slides_spec() -> None:
+    manifest = {
+        "project_id": "sp-1",
+        "title": "DJI Osmo Pocket 4P",
+        "slide_count": 10,
+        "conversation_id": 80,
+        "slides_spec": [{"index": i, "title": f"Slide {i} title"} for i in range(1, 11)],
+        "pages": [
+            {
+                "index": 1,
+                "title": "Cover",
+                "has_html": True,
+                "preview_url": "/slide-designer/api/slide_html?project_id=sp-1&page=1",
+            },
+        ],
+    }
+    _title, total, slides = build_slide_preview_rows(manifest)
+    assert total == 10
+    assert len(slides) == 10
+    assert slides[0]["status"] == "ready"
+    assert slides[1]["status"] == "building"
+    assert "為什麼現在需要這個平台" not in slides[1]["title"]
 
 
 def test_build_slide_preview_strip_block_deck_artifact() -> None:
@@ -26,6 +53,7 @@ def test_build_slide_preview_strip_block_deck_artifact() -> None:
             {
                 "index": 1,
                 "title": "Cover",
+                "has_html": True,
                 "preview_url": "/slide-designer/api/slide_html?project_id=proj-abc&page=1",
             },
         ],

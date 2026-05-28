@@ -72,6 +72,9 @@ async def apply_vault_rag_agent_result(
     brief = extra.get("vault_grounding_for_slides")
     if isinstance(brief, str) and brief.strip():
         run_ctx.extra["vault_grounding_for_slides"] = brief.strip()
+    from oaao_orchestrator.slide_project.rag_context import merge_slide_grounding_into_ctx
+
+    merge_slide_grounding_into_ctx(run_ctx, pipeline_snap=pipeline_snap)
     outcome = extra.get("vault_rag_outcome")
     if isinstance(outcome, dict):
         run_ctx.extra["vault_rag_ran"] = True

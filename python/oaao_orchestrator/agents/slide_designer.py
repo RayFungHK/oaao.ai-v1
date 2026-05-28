@@ -89,14 +89,19 @@ def _artifacts_from_manifest(manifest: dict[str, Any], run_task_id: str) -> list
 
 
 def _vault_grounding_from_ctx(ctx: RunContext) -> str:
-    raw = ctx.extra.get("vault_grounding_for_slides")
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
     from oaao_orchestrator.slide_project.rag_context import (
-        vault_grounding_from_messages,
+        resolve_slide_grounding_for_slides,
     )
 
-    return vault_grounding_from_messages(list(ctx.messages))
+    explicit = ctx.extra.get("slide_grounding_for_slides") or ctx.extra.get(
+        "vault_grounding_for_slides"
+    )
+    pipeline = ctx.extra.get("pipeline_snap_base")
+    return resolve_slide_grounding_for_slides(
+        list(ctx.messages),
+        explicit=explicit if isinstance(explicit, str) else None,
+        pipeline_snap=pipeline if isinstance(pipeline, dict) else None,
+    )
 
 
 def _llm_from_ctx(ctx: RunContext) -> tuple[str | None, str | None, str | None]:

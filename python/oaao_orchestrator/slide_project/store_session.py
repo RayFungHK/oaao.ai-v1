@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from oaao_orchestrator.slide_project.html_sandbox import validate_slide_html
 from oaao_orchestrator.slide_project.llm import (
     generate_deck_outline,
     generate_slide_html,

@@ -15,6 +15,7 @@ from oaao_orchestrator.corpus.document_markdown import (
     build_document_markdown,
     merge_document_markdown_meta,
 )
+from oaao_orchestrator.corpus.extraction import attach_extraction_meta, run_two_stage_extraction
 from oaao_orchestrator.corpus.schema_registry import (
     attach_document_type_meta,
     classify_document,
@@ -287,6 +288,12 @@ async def run_corpus_analyze(payload: dict[str, Any]) -> dict[str, Any]:
         )
     source_structure = score_sources_vs_corpus(per_source_rows, corpus_fp)
 
+    extraction = await run_two_stage_extraction(
+        markdown=merged,
+        document_type=classification.document_type,
+        llm_cfg=llm_cfg,
+    )
+
     meta = style.setdefault("meta", {})
     if isinstance(meta, dict):
         combined_md = "\n\n".join(all_text_parts)[:120_000]
@@ -308,6 +315,7 @@ async def run_corpus_analyze(payload: dict[str, Any]) -> dict[str, Any]:
             classification=classification,
             registry=schema_registry,
         )
+        attach_extraction_meta(meta, extraction)
         meta["segment_kinds"] = kinds
         meta["structure_blueprint"] = blueprint
         meta["corpus_fingerprint"] = corpus_fp
@@ -318,6 +326,8 @@ async def run_corpus_analyze(payload: dict[str, Any]) -> dict[str, Any]:
             segments=segments_out,
             structure_blueprint=blueprint,
             profile_name=str(payload.get("profile_name") or ""),
+            document_type=classification.document_type,
+            extraction=extraction.extraction,
         )
         attach_html_template_to_style_json(style, html_tpl)
 
@@ -328,6 +338,9 @@ async def run_corpus_analyze(payload: dict[str, Any]) -> dict[str, Any]:
         "style_json": style,
         "document_type": classification.document_type,
         "document_type_confidence": classification.confidence,
+        "extraction": extraction.extraction,
+        "extraction_partial": extraction.partial,
+        "extraction_errors": extraction.validation_errors,
         "segment_kind_summary": kinds,
         "structure_blueprint": blueprint,
         "source_structure": source_structure,

@@ -161,22 +161,58 @@ export async function fetchSlideDeckFromProject(projectId, conversationId) {
         const data = text ? JSON.parse(text) : {};
         const manifest = data?.data?.manifest;
         if (!manifest || typeof manifest !== 'object') return null;
-        const pages = manifest.pages;
-        if (!Array.isArray(pages) || !pages.length) return null;
+
+        const projectIdFromManifest = String(manifest.project_id ?? pid).trim();
+        const cidFromManifest = Number(manifest.conversation_id) || cid;
+        const totalCount = Number(manifest.slide_count) || 0;
+
+        /** @type {Map<number, Record<string, unknown>>} */
+        const pageByIndex = new Map();
+        const pagesRaw = manifest.pages;
+        if (Array.isArray(pagesRaw)) {
+            for (const raw of pagesRaw) {
+                if (!raw || typeof raw !== 'object') continue;
+                const row = /** @type {Record<string, unknown>} */ (raw);
+                const idx = Number(row.index) || 0;
+                if (idx > 0) pageByIndex.set(idx, row);
+            }
+        }
+
+        /** @type {Map<number, Record<string, unknown>>} */
+        const specByIndex = new Map();
+        const specsRaw = manifest.slides_spec;
+        if (Array.isArray(specsRaw)) {
+            for (const raw of specsRaw) {
+                if (!raw || typeof raw !== 'object') continue;
+                const row = /** @type {Record<string, unknown>} */ (raw);
+                const idx = Number(row.index) || 0;
+                if (idx > 0) specByIndex.set(idx, row);
+            }
+        }
+
+        /** @type {Set<number>} */
+        const indices = new Set([...pageByIndex.keys(), ...specByIndex.keys()]);
+        if (!indices.size && totalCount > 0) {
+            for (let i = 1; i <= totalCount; i += 1) indices.add(i);
+        }
+        if (!indices.size) return null;
+
+        const deckTotal =
+            totalCount > 0 ? totalCount : Math.max(...indices, 0);
 
         /** @type {SlidePreviewRow[]} */
         const slides = [];
-        for (const raw of pages) {
-            if (!raw || typeof raw !== 'object') continue;
-            const row = /** @type {Record<string, unknown>} */ (raw);
-            const idx = Number(row.index) || slides.length + 1;
-            let preview = String(row.preview_url ?? '').trim();
-            if (!preview) {
-                preview = slideHtmlPreviewPath(pid, idx, cid);
+        for (const idx of [...indices].sort((a, b) => a - b)) {
+            if (deckTotal > 0 && idx > deckTotal) continue;
+            const page = pageByIndex.get(idx) ?? {};
+            const spec = specByIndex.get(idx) ?? {};
+            let preview = String(page.preview_url ?? '').trim();
+            if (!preview && projectIdFromManifest) {
+                preview = slideHtmlPreviewPath(projectIdFromManifest, idx, cidFromManifest);
             }
             slides.push({
                 index: idx,
-                title: String(row.title ?? `Slide ${idx}`),
+                title: String(page.title ?? spec.title ?? `Slide ${idx}`),
                 preview_url: preview,
             });
         }

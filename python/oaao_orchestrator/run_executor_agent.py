@@ -153,6 +153,32 @@ async def handle_agent_task(
                     if isinstance(hits, list):
                         pipeline_snap["web_search_hits"] = hits
                     break
+                if isinstance(block, dict) and block.get("kind") == "library_search":
+                    hits = block.get("hits")
+                    if isinstance(hits, list):
+                        pipeline_snap["library_search_hits"] = hits
+                    break
+            if kind == "web_search":
+                from oaao_orchestrator.slide_project.rag_context import (
+                    merge_slide_grounding_into_ctx,
+                )
+
+                merge_slide_grounding_into_ctx(
+                    run_ctx,
+                    pipeline_snap=pipeline_snap if isinstance(pipeline_snap, dict) else None,
+                )
+        if kind == "library_search":
+            snap = agent_result.extra.get("pipeline_snap")
+            if isinstance(snap, dict):
+                pipeline_snap = snap
+            msgs = agent_result.extra.get("messages")
+            if isinstance(msgs, list):
+                messages_for_llm = list(msgs)
+                run_ctx.messages = list(messages_for_llm)
+            hits = agent_result.extra.get("library_search_hits")
+            if isinstance(hits, list) and pipeline_snap is not None:
+                pipeline_snap = dict(pipeline_snap)
+                pipeline_snap["library_search_hits"] = hits
         sp = agent_result.extra.get("slide_project")
         if isinstance(sp, dict) and sp.get("project_id"):
             slide_project_meta = sp

@@ -589,8 +589,13 @@ const OAAO_I18N_BASE = {
             'Create slide projects, per-page HTML, and deck export — continue in conversation materials',
         'workspace.task.agent_desc.image_gen': 'Generate images from prompts',
         'workspace.task.agent_desc.web_search': 'Search the public web for live information',
-        'workspace.composer.web_search': 'Web search',
-        'workspace.composer.planner_steps': 'Planner steps',
+        'workspace.composer.web_search': 'Force web search',
+        'workspace.composer.web_search_hint':
+            'Search the public web for this message (does not use the task planner LLM)',
+        'workspace.composer.show_pipeline': 'Show pipeline steps',
+        'workspace.composer.show_pipeline_hint':
+            'Show or hide the run checklist in the thread (UI only — does not enable the task planner)',
+        'workspace.composer.planner_steps': 'Show pipeline steps',
         'workspace.task.agent_desc.mcp_tool': 'Call connected MCP tools',
 
         'chat.materials.toolbar_tip': 'View all files in this task',
@@ -1583,8 +1588,11 @@ const OAAO_I18N_BASE = {
         'workspace.task.agent_desc.slide_designer': '建立簡報專案、逐頁 HTML 與匯出 — 可在對話素材庫延續',
         'workspace.task.agent_desc.image_gen': '依提示詞產生圖片',
         'workspace.task.agent_desc.web_search': '搜尋公開網路取得即時資訊',
-        'workspace.composer.web_search': '網路搜尋',
-        'workspace.composer.planner_steps': 'Planner 步驟',
+        'workspace.composer.web_search': '強制網路搜尋',
+        'workspace.composer.web_search_hint': '此則訊息改走公開網路搜尋（不經 Task planner LLM）',
+        'workspace.composer.show_pipeline': '顯示流程步驟',
+        'workspace.composer.show_pipeline_hint': '顯示或隱藏對話內的執行清單（僅 UI，不會啟用 Task planner）',
+        'workspace.composer.planner_steps': '顯示流程步驟',
         'workspace.task.agent_desc.mcp_tool': '呼叫已連線的 MCP 工具',
 
         'chat.materials.toolbar_tip': '查看此任務中的所有檔案',

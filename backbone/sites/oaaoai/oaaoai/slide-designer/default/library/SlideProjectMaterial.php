@@ -68,8 +68,8 @@ final class SlideProjectMaterial
             return null;
         }
 
-        $row = SlideProjectRegistry::fetchAccessRow($pdo, $projectId);
-        if ($row === null || ! SlideProjectRegistry::userMayAccess($row, $userId, $conversationId)) {
+        $row = SlideProjectRegistry::resolveProjectAccess($pdo, $projectId, $userId, $conversationId);
+        if ($row === null) {
             return null;
         }
 

@@ -8,6 +8,8 @@ it without creating a circular dependency on ``app.py``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -21,4 +23,12 @@ class EndpointPayload(BaseModel):
     model: str
     api_key_env: str | None = Field(
         default=None, description="Environment variable name on this process"
+    )
+    knowledge_cutoff: str | None = Field(
+        default=None,
+        description="ISO date (YYYY-MM-DD) — last day of reliable model training knowledge.",
+    )
+    config: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional endpoint config_json subset forwarded from PHP.",
     )

@@ -20,8 +20,10 @@
 
 ## Module autoload (Razy)
 
+Full reference: **[razy-module-autoload.md](./razy-module-autoload.md)**.
+
 - FQCN `oaaoai\chat\ChatContextUsage` → `oaaoai/chat/default/library/ChatContextUsage.php` via **ModuleScanner** (module must be **Loaded**; declare cross-module deps in `package.php` `require`, e.g. `oaaoai/endpoints`).
-- API closures (`controller/api/*.php`): use `use oaaoai\chat\…` only — **do not** `require_once` library files.
+- Chat API closures: use `use oaaoai\chat\…` only — **do not** `require_once` library files. Modules with closure-only APIs (e.g. slide-designer) use `library/_bootstrap.php` instead — see linked doc §4–5.
 - `dirname(__DIR__, N)` from `controller/api/` (N≈4 to `oaaoai/`) **≠** from `library/` (N≈3 to `oaaoai/`, N≈7 to repo root). Repo assets: `Oaaoai\Core\OaaoRepoPaths::root()` or `OAAO_REPO_ROOT`.
 
 ## Shipped (v1.2)

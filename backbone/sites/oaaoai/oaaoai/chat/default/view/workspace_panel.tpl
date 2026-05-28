@@ -65,6 +65,9 @@
                     <div data-oaao-chat="thread-health-banner"
                         class="oaao-chat-thread-health hidden w-full min-w-0 flex flex-col items-stretch gap-2 rounded-xl border px-3 py-2 text-[0.8125rem] leading-snug [box-sizing:border-box]"
                         role="status" aria-live="polite"></div>
+                    <div data-oaao-chat="thread-skill-suggest"
+                        class="hidden w-full min-w-0 flex flex-col items-stretch gap-2 [box-sizing:border-box]"
+                        role="status" aria-live="polite"></div>
                     <div data-oaao-chat="composer-desk-mode-bar" class="oaao-chat-composer-desk-mode-bar hidden">
                         <div data-oaao-chat="desk-mode-badge"
                             class="oaao-chat-desk-mode-badge inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[0.6875rem] fw-semibold border border-[var(--grid-accent,#2563eb)]/35 bg-[color-mix(in_srgb,var(--grid-accent,#2563eb)_10%,transparent)] fg-[var(--grid-accent,#2563eb)] shrink-0"

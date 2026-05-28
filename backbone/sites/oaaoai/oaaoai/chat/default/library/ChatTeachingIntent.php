@@ -192,12 +192,15 @@ final class ChatTeachingIntent
         string $userMessage,
         bool $hasPublishedSlideTemplate = false,
     ): array {
-        if (! self::impliesSlideDesignerForTemplate($hasPublishedSlideTemplate)) {
+        $kinds = PlannerAgentRegister::allKinds();
+        if (! \in_array('slide_designer', $kinds, true)) {
             return $allowedAgents;
         }
 
-        $kinds = PlannerAgentRegister::allKinds();
-        if (! \in_array('slide_designer', $kinds, true)) {
+        $needsSlide = self::impliesSlideDesignerForTemplate($hasPublishedSlideTemplate)
+            || self::userMessageImpliesSlideDesigner($userMessage);
+
+        if (! $needsSlide) {
             return $allowedAgents;
         }
 
@@ -207,6 +210,16 @@ final class ChatTeachingIntent
         }
 
         return array_values(array_unique($out));
+    }
+
+    private static function userMessageImpliesSlideDesigner(string $userMessage): bool
+    {
+        $s = trim($userMessage);
+        if ($s === '') {
+            return false;
+        }
+
+        return preg_match('/簡報|投影片|\bslide\b|\bdeck\b|presentation|\bppt\b/iu', $s) === 1;
     }
 
     /**

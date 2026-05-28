@@ -242,6 +242,9 @@ final class ChatConversationMaterial
     private static function normalizeArtifact(array $artifact, string $defaultTaskId): ?array
     {
         $id = isset($artifact['id']) && \is_string($artifact['id']) ? trim($artifact['id']) : '';
+        if ($id === '' && isset($artifact['material_id']) && \is_string($artifact['material_id'])) {
+            $id = trim($artifact['material_id']);
+        }
         if ($id === '') {
             return null;
         }

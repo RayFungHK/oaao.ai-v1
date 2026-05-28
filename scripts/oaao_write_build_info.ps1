@@ -16,11 +16,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
         if (-not $GitSha) { $GitSha = 'dev' }
         $GitBranch = (git rev-parse --abbrev-ref HEAD 2>$null)
         if (-not $GitBranch) { $GitBranch = 'local' }
-        git diff --quiet 2>$null
-        $w1 = $LASTEXITCODE -ne 0
-        git diff --cached --quiet 2>$null
-        $w2 = $LASTEXITCODE -ne 0
-        $Dirty = $w1 -or $w2
+        $Dirty = [bool](git status --porcelain 2>$null)
     } finally {
         Pop-Location
     }

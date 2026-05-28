@@ -22,6 +22,12 @@ _SLIDE_BUILD = re.compile(
     r"簡報|投影片|\bslide\b|\bdeck\b|presentation|\bppt\b",
     re.IGNORECASE,
 )
+
+
+def text_implies_slide_deck_request(text: str) -> bool:
+    """User clearly asks for slides/deck (intent fallback when planning.intent LLM unavailable)."""
+    s = (text or "").strip()
+    return bool(s and _SLIDE_BUILD.search(s))
 _TEACHING = re.compile(
     r"教學|teaching|tutorial|課程|lesson|curriculum|教案|講義",
     re.IGNORECASE,

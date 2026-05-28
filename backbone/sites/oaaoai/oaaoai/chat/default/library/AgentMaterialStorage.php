@@ -222,6 +222,8 @@ final class AgentMaterialStorage
             'webp' => 'image/webp',
             'gif'  => 'image/gif',
             'pdf'  => 'application/pdf',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'md'   => 'text/markdown',
             'txt'  => 'text/plain',
             'json' => 'application/json',

@@ -41,3 +41,10 @@ def test_attach_turn_intent_on_pydantic_request() -> None:
     _attach_turn_intent(req, {"needs_web_search": True, "analysis": {"web_search": 0.9}})
     assert req.turn_intent is not None
     assert req.turn_intent["needs_web_search"] is True
+
+
+def test_parse_turn_intent_response_slide_designer() -> None:
+    text = '{"analysis": {"web_search": 0.5, "slide_designer": 0.88}}'
+    signals = parse_turn_intent_response(text)
+    assert signals is not None
+    assert signals.analysis["slide_designer"] == 0.88

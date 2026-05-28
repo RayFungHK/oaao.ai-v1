@@ -88,8 +88,8 @@ final class SlideProjectRegistry
         int $userId,
         int $conversationId,
     ): ?array {
-        $row = self::fetchAccessRow($pdo, $projectId);
-        if ($row === null || ! self::userMayAccess($row, $userId, $conversationId)) {
+        $row = self::resolveProjectAccess($pdo, $projectId, $userId, $conversationId, true);
+        if ($row === null) {
             return null;
         }
         $manifest = self::loadManifest($projectId);
@@ -295,16 +295,24 @@ final class SlideProjectRegistry
             return null;
         }
 
+        $manifestUserId = (int) ($manifest['user_id'] ?? 0);
+        $manifestCid = (int) ($manifest['conversation_id'] ?? 0);
         $diskRow = [
             'project_id'      => $projectId,
-            'conversation_id' => (int) ($manifest['conversation_id'] ?? 0),
-            'user_id'         => (int) ($manifest['user_id'] ?? 0),
+            'conversation_id' => $manifestCid > 0 ? $manifestCid : $conversationId,
+            'user_id'         => $manifestUserId > 0 ? $manifestUserId : $userId,
         ];
         if (! self::userMayAccess($diskRow, $userId, $conversationId)) {
             return null;
         }
 
         if ($syncIndex) {
+            if ($manifestUserId < 1 && $userId > 0) {
+                $manifest['user_id'] = $userId;
+            }
+            if ($manifestCid < 1 && $conversationId > 0) {
+                $manifest['conversation_id'] = $conversationId;
+            }
             self::upsertIndexFromManifest($pdo, $manifest);
         }
 

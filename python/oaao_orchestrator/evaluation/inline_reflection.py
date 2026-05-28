@@ -1,7 +1,9 @@
 """
-Inline reflection — ACCS-triggered Main re-generate before ship (Evolution §6).
+Inline reflection — legacy synchronous path (Evolution §6).
 
-Runs synchronously in ``run_executor`` after the task loop, before ``system/end``.
+Production hot path: ACCS scores in ``post_stream_worker``; when action is ``reflect``,
+coach critique is stored on ``turn_score.accs_reasons`` and injected on the **next**
+user turn via ``accs_reflection_context`` (see ``deferred_reflection.py``).
 """
 
 from __future__ import annotations

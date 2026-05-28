@@ -856,6 +856,7 @@ return new class extends Controller {
                 'POST workspace_glossary'    => 'workspace_glossary',
                 'POST assistant_patch'       => 'assistant_patch',
                 'POST assistant_internal_sync' => 'assistant_internal_sync',
+                'POST skills_usage_record'     => 'skills_usage_record',
                 'POST turn_score_upsert'       => 'turn_score_upsert',
                 'POST conversation_archive'  => 'conversation_archive',
                 'POST conversation_delete'   => 'conversation_delete',

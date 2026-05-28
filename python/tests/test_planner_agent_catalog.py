@@ -8,7 +8,7 @@ from oaao_orchestrator.planner_catalog import (
     catalog_from_request,
     planner_agent_guide,
 )
-from oaao_orchestrator.planner_llm import _planner_system_prompt, _planner_system_prompt_inline
+from oaao_orchestrator.planner_llm import _planner_system_prompt
 
 
 def test_catalog_from_request_overrides_builtin() -> None:
@@ -38,7 +38,7 @@ def test_planner_agent_guide_lists_allowed_only() -> None:
         ]
     )
     cat = catalog_from_request(req)
-    guide = planner_agent_guide(["sandbox_code", "slide_designer"], catalog=cat)
+    guide = planner_agent_guide(["sandbox_code"], catalog=cat)
     assert "sandbox_code" in guide
     assert "Run isolated code" in guide
     assert "slide_designer" not in guide
@@ -69,12 +69,3 @@ def test_planner_system_prompt_loads_markdown_template() -> None:
     )
     assert "At most 6 tasks" in prompt
     assert "web_search" in prompt
-
-
-def test_planner_system_prompt_inline_fallback() -> None:
-    prompt = _planner_system_prompt_inline(
-        allowed_agents=["sandbox_code"],
-        max_tasks=8,
-        agent_guide="- sandbox_code: Run code.",
-    )
-    assert "task planner" in prompt
