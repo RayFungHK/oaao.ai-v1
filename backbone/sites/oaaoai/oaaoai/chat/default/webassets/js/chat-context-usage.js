@@ -35,12 +35,21 @@ const SEGMENT_COLORS = {
  * @param {number} conversationId
  * @param {number} chatEndpointId
  */
-async function fetchContextUsage(chatApiBase, conversationId, chatEndpointId) {
+/**
+ * @param {() => Record<string, string>} [getScopeQuery]
+ */
+async function fetchContextUsage(chatApiBase, conversationId, chatEndpointId, getScopeQuery) {
     const qs = new URLSearchParams({
         conversation_id: String(conversationId),
     });
     if (chatEndpointId > 0) {
         qs.set('chat_endpoint_id', String(chatEndpointId));
+    }
+    if (typeof getScopeQuery === 'function') {
+        const scope = getScopeQuery();
+        if (scope && typeof scope.workspace_id === 'string' && scope.workspace_id.trim() !== '') {
+            qs.set('workspace_id', scope.workspace_id.trim());
+        }
     }
     const res = await fetch(`${chatApiBase}context_usage?${qs}`, {
         credentials: 'include',
@@ -96,7 +105,14 @@ function syncComposerContextToolbarStrip(mount) {
  * @param {string} chatApiBase
  * @param {() => Promise<void>} reloadThread
  */
-export function mountChatContextUsage(mount, getConversationId, getChatEndpointId, chatApiBase, reloadThread) {
+export function mountChatContextUsage(
+    mount,
+    getConversationId,
+    getChatEndpointId,
+    chatApiBase,
+    reloadThread,
+    getScopeQuery,
+) {
     const extraHost = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
     if (!(extraHost instanceof HTMLElement)) return;
 
@@ -126,7 +142,7 @@ export function mountChatContextUsage(mount, getConversationId, getChatEndpointI
         btn.removeAttribute('aria-hidden');
         syncComposerContextToolbarStrip(mount);
         try {
-            const data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId());
+            const data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId(), getScopeQuery);
             const pct = Number(data?.percent_full ?? 0);
             const used = Number(data?.used_tokens ?? 0);
             const limit = Number(data?.context_limit_tokens ?? 0);
@@ -194,7 +210,7 @@ export function mountChatContextUsage(mount, getConversationId, getChatEndpointI
 
         let data;
         try {
-            data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId());
+            data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId(), getScopeQuery);
         } catch (err) {
             console.error('[oaao] context_usage', err);
             return;

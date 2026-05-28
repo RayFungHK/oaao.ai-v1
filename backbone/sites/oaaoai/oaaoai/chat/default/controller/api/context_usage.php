@@ -3,14 +3,23 @@
 declare(strict_types=1);
 
 use oaaoai\chat\ChatContextUsage;
+use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatOrchestratorBootstrap;
 use oaaoai\chat\ChatTokenEstimator;
+
+require_once __DIR__ . '/../../library/ChatContextUsage.php';
+require_once __DIR__ . '/../../library/ChatConversationScope.php';
+require_once __DIR__ . '/../../library/ChatHistorySettings.php';
+require_once __DIR__ . '/../../library/ChatOrchestratorBootstrap.php';
+require_once __DIR__ . '/../../library/ChatTokenEstimator.php';
 
 /**
  * GET /chat/api/context_usage?conversation_id=
  */
 return function (): void {
+    header('Content-Type: application/json; charset=UTF-8');
+
     [$splitDb, $user] = $this->oaao_chat_require_user();
     if (! $user || ! $splitDb instanceof \Razy\Database) {
         return;
@@ -38,22 +47,19 @@ return function (): void {
     }
 
     try {
-        $row = $splitDb->prepare()
-            ->select('id')
-            ->from('conversation')
-            ->where('id=?,user_id=?,workspace_id=?')
-            ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
-            ->limit(1)
-            ->query()
-            ->fetch();
-        if (! \is_array($row)) {
+        $row = ChatConversationScope::findOwnedByUser($splitDb, $uid, $cid, 'id, workspace_id');
+        if ($row === null) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Conversation not found']);
 
             return;
         }
 
-        $canonPdo = $this->getDB();
+        if ($wid === null) {
+            $wid = ChatConversationScope::normalizeWorkspaceId($row['workspace_id'] ?? null);
+        }
+
+        $canonPdo = $this->oaao_chat_canonical_pdo();
         $promptLimit = $canonPdo instanceof \PDO
             ? ChatHistorySettings::resolvePromptMessageLimit($canonPdo)
             : ChatHistorySettings::promptMessageLimit();
@@ -98,7 +104,15 @@ return function (): void {
 
         echo json_encode(['success' => true, 'data' => $usage], JSON_UNESCAPED_UNICODE);
     } catch (\Throwable $e) {
+        error_log('[oaao context_usage] ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Could not estimate context usage']);
+        $detail = getenv('OAAO_DEBUG') === '1' || getenv('APP_ENV') === 'development'
+            ? $e->getMessage()
+            : null;
+        echo json_encode([
+            'success' => false,
+            'message' => 'Could not estimate context usage',
+            'detail'  => $detail,
+        ], JSON_UNESCAPED_UNICODE);
     }
 };

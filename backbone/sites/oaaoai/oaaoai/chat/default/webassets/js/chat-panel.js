@@ -1870,7 +1870,7 @@ function loadChatComposerDialogCtor() {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260528-chat-context-toolbar-v94';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260528-context-usage-fix-v95';
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -13617,6 +13617,10 @@ export async function mountShellPanel(mount) {
                 if (cid > 0) {
                     await openConversation(cid, { replaceUrl: true, scroll: 'auto' });
                 }
+            },
+            () => {
+                const cid = Number(activeConversationId) || 0;
+                return cid > 0 ? chatScopeBodyFieldsForConversation(cid) : workspaceChatBodyFields();
             },
         );
     } catch (err) {

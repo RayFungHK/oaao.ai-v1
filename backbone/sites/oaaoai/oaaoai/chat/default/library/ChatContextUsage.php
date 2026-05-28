@@ -161,13 +161,27 @@ final class ChatContextUsage
         ?string $plannerModeId = 'default',
         ?string $tokenizerProfile = null,
     ): array {
-        require_once dirname(__DIR__, 4) . '/endpoints/default/library/FeatureRegistryBootstrap.php';
-        FeatureRegistryBootstrap::collect($controller);
+        $moduleRoot = dirname(__DIR__, 3);
+        require_once $moduleRoot . '/endpoints/default/library/FeatureRegistryBootstrap.php';
+        require_once $moduleRoot . '/endpoints/default/library/ToolServerRegister.php';
+        require_once $moduleRoot . '/endpoints/default/library/ChatAllowedAgentsPurposeConfig.php';
+        require_once __DIR__ . '/SkillsManifestStorage.php';
+        require_once __DIR__ . '/CrystallizedSkillsStorage.php';
+        require_once __DIR__ . '/PlannerAgentRegister.php';
+        require_once __DIR__ . '/MicroSkillCatalog.php';
+        require_once __DIR__ . '/ChatTokenEstimator.php';
+
+        try {
+            FeatureRegistryBootstrap::collect($controller);
+        } catch (\Throwable) {
+            /* registry optional for usage estimate */
+        }
 
         $system = 0;
+        $repoRoot = dirname(__DIR__, 7);
         $paths = [
-            dirname(__DIR__, 7) . '/docker/polish-templates/turn_agent_intent.md',
-            dirname(__DIR__, 7) . '/python/materials/prompts/planning/turn_agent_intent.md',
+            $repoRoot . '/docker/polish-templates/turn_agent_intent.md',
+            $repoRoot . '/python/materials/prompts/planning/turn_agent_intent.md',
         ];
         foreach ($paths as $path) {
             if (is_readable($path)) {
@@ -179,12 +193,16 @@ final class ChatContextUsage
             $system = 400;
         }
 
-        require_once dirname(__DIR__, 4) . '/user/default/library/UserPersonalization.php';
+        require_once $moduleRoot . '/user/default/library/UserPersonalization.php';
         if ($canonPdo instanceof \PDO && $userId > 0) {
-            $pers = UserPersonalization::forOrchestratorPayload(
-                UserPersonalization::loadForUser($canonPdo, $userId),
-            );
-            $system += self::estimateJsonTokens($pers, $tokenizerProfile);
+            try {
+                $pers = UserPersonalization::forOrchestratorPayload(
+                    UserPersonalization::loadForUser($canonPdo, $userId),
+                );
+                $system += self::estimateJsonTokens($pers, $tokenizerProfile);
+            } catch (\Throwable) {
+                /* personalization optional */
+            }
         }
 
         $toolServers = [];
@@ -217,21 +235,25 @@ final class ChatContextUsage
 
         $microTok = 0;
         if ($splitPdo instanceof \PDO && $userId > 0) {
-            $authApi = $controller->api('auth');
-            $slideDesignerApi = $controller->api('slide-designer');
-            $microTok = self::estimateJsonTokens(
-                MicroSkillCatalog::forPlanner(
-                    $splitPdo,
-                    (object) ['user_id' => $userId],
-                    $authApi,
-                    $userId,
-                    $workspaceId,
-                    null,
-                    $controller,
-                    $slideDesignerApi,
-                ),
-                $tokenizerProfile,
-            );
+            try {
+                $authApi = $controller->api('auth');
+                $slideDesignerApi = $controller->api('slide-designer');
+                $microTok = self::estimateJsonTokens(
+                    MicroSkillCatalog::forPlanner(
+                        $splitPdo,
+                        (object) ['user_id' => $userId],
+                        $authApi,
+                        $userId,
+                        $workspaceId,
+                        null,
+                        $controller,
+                        $slideDesignerApi,
+                    ),
+                    $tokenizerProfile,
+                );
+            } catch (\Throwable) {
+                $microTok = 0;
+            }
         }
         $skillsTok += $microTok;
 
