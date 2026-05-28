@@ -1315,6 +1315,238 @@ button.oaao-vault-menu-active {
     white-space: nowrap;
 }
 
+/* Corpus Studio — analyze progress (no JIT dependency) */
+/* Corpus gallery — two cards per row; activity text must not stretch the grid cell */
+[data-module="oaao-corpus"] .oaao-corpus-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    align-content: start;
+    min-width: 0;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-profile-grid > .oaao-corpus-profile-card,
+[data-module="oaao-corpus"] .oaao-corpus-profile-grid > article[data-corpus-card] {
+    min-width: 0;
+    max-width: 100%;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-profile-grid-empty {
+    grid-column: 1 / -1;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-card-activity-text {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+@container oaao-gallery (max-width: 28rem) {
+    [data-module="oaao-corpus"] .oaao-corpus-profile-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-card-head-actions {
+    align-items: center;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-spinner {
+    display: inline-block;
+    width: 0.875rem;
+    height: 0.875rem;
+    flex: 0 0 0.875rem;
+    border: 2px solid color-mix(in srgb, var(--grid-accent) 28%, transparent);
+    border-top-color: var(--grid-accent);
+    border-radius: 50%;
+    animation: oaao-corpus-spin 0.75s linear infinite;
+}
+
+@keyframes oaao-corpus-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-progress-track {
+    position: relative;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-progress-fill {
+    display: block;
+    width: 38%;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--grid-accent);
+    transform: translateX(-100%);
+    animation: oaao-corpus-progress-indeterminate 1.35s ease-in-out infinite;
+}
+
+@keyframes oaao-corpus-progress-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(320%);
+    }
+}
+
+[data-module="oaao-corpus"] [data-analyzing='1'] {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--grid-accent) 35%, transparent);
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-card-toolbar {
+    align-items: center;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-toolbar-chip,
+[data-module="oaao-corpus"] .oaao-corpus-toolbar-btn {
+    box-sizing: border-box;
+    height: 2rem;
+    min-height: 2rem;
+    line-height: 1.25;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-toolbar-btn-grow {
+    flex: 1 1 8rem;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-toolbar-icon {
+    width: 2rem;
+    flex: 0 0 2rem;
+    padding: 0;
+}
+
+[data-module="oaao-corpus"] [data-oaao-corpus-uploader-host].oaao-corpus-uploader-host-hidden {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    pointer-events: none;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-sources-uploader-host {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+[data-module="oaao-corpus"] .oaao-corpus-sources-uploader-host .uploader {
+    width: 100%;
+}
+
+/* Shared vault source picker ({@see oaao-vault-source-picker.js}) — Corpus, etc. */
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 0.25rem 0;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row {
+    --oaao-vault-picker-depth: 0;
+    display: grid;
+    grid-template-columns: 1.25rem 1fr auto;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    width: 100%;
+    margin: 0;
+    padding: 0.45rem 0.5rem 0.45rem calc(0.5rem + var(--oaao-vault-picker-depth) * 1.25rem);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--grid-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    position: relative;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row[data-depth]:not([data-depth='0'])::before {
+    content: '';
+    position: absolute;
+    left: calc(0.65rem + (var(--oaao-vault-picker-depth) - 1) * 1.25rem);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: color-mix(in srgb, var(--grid-line) 70%, transparent);
+    pointer-events: none;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row:hover {
+    background: color-mix(in srgb, var(--grid-line) 35%, var(--grid-panel-bright));
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row.is-active {
+    background: color-mix(in srgb, var(--grid-accent) 12%, var(--grid-panel-bright));
+    box-shadow: inset 3px 0 0 0 var(--grid-accent);
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.75rem;
+    color: var(--grid-ink-muted);
+    flex-shrink: 0;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-toggle.is-leaf {
+    opacity: 0.35;
+    cursor: default;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row[data-kind='vault'] .oaao-vault-picker-tree-label {
+    font-weight: 700;
+    font-size: 0.875rem;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row[data-kind='folder'] .oaao-vault-picker-tree-label {
+    font-weight: 600;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row[data-kind='document'] .oaao-vault-picker-tree-label {
+    font-weight: 400;
+    color: color-mix(in srgb, var(--grid-ink) 92%, var(--grid-ink-muted));
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-type {
+    font-size: 0.6875rem;
+    color: var(--grid-caption);
+    padding-right: 0.25rem;
+    white-space: nowrap;
+}
+
+[data-oaao-vault-source-picker='1'] .oaao-vault-picker-tree-row[data-kind='vault'] .oaao-vault-picker-tree-type {
+    font-weight: 600;
+    color: var(--grid-ink-muted);
+}
+
 [data-module='oaao-vault'] .resource-list-row-select,
 [data-module='oaao-vault'] .resource-list-select-all {
     width: 0.9375rem;

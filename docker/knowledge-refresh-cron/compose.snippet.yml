@@ -1,0 +1,31 @@
+# Append to docker-compose.yml or: docker compose -f docker-compose.yml -f docker/knowledge-refresh-cron/compose.snippet.yml --profile knowledge-cron up -d
+#
+# Standalone tick — reads tenant Settings via PHP knowledge_cron_run.
+# Prefer orchestrator knowledge_cron_poll_loop when OAAO_VAULT_JOB_POLL_BASE_URL is already set.
+
+services:
+  knowledge-refresh-cron:
+    <<: *oaao-env
+    profiles: ['knowledge-cron']
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
+    environment:
+      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:?required}
+      OAAO_KNOWLEDGE_CRON_BASE_URL: ${OAAO_KNOWLEDGE_CRON_BASE_URL:-http://web/endpoints/api}
+      OAAO_KNOWLEDGE_CRON_INTERVAL_SEC: ${OAAO_KNOWLEDGE_CRON_INTERVAL_SEC:-3600}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          curl -fsS -X POST \
+            -H "X-OAAO-Internal-Token: $$OAAO_ORCH_SHARED_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$${OAAO_KNOWLEDGE_CRON_BASE_URL%/}/knowledge_cron_run" \
+            || echo "[knowledge-refresh-cron] tick failed"
+          sleep "$${OAAO_KNOWLEDGE_CRON_INTERVAL_SEC:-3600}"
+        done

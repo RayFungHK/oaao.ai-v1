@@ -18,6 +18,7 @@ use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\FeatureRegistryBootstrap;
 use oaaoai\endpoints\LlmOrchestratorPayload;
 use oaaoai\endpoints\PurposeAllocationRegister;
+use oaaoai\endpoints\KnowledgeRefreshPurposeConfig;
 use oaaoai\endpoints\UiqePurposeConfig;
 use oaaoai\endpoints\MmPurposeConfig;
 use oaaoai\endpoints\AsrUserPreferenceRegister;
@@ -78,6 +79,43 @@ return new class extends Controller {
             if ($core) {
                 $core->bootstrapTenantContext($pdo);
             }
+        }
+
+        return $db;
+    }
+
+    /**
+     * Knowledge plane control — platform host + platform operator only (not tenant admin).
+     */
+    protected function oaao_endpoints_require_platform_knowledge_admin(): ?\Razy\Database
+    {
+        $db = $this->oaao_endpoints_require_admin();
+        if (! $db) {
+            return null;
+        }
+
+        $core = $this->api('core');
+        if (! $core || ! $core->tenantIsPlatform()) {
+            http_response_code(403);
+            echo json_encode(
+                ['success' => false, 'message' => 'Knowledge control plane is platform-only'],
+                JSON_UNESCAPED_UNICODE,
+            );
+
+            return null;
+        }
+
+        $auth = $this->api('auth');
+        $user = $auth ? $auth->getUser() : null;
+        $UserModel = $auth ? $auth->loadModel('User') : null;
+        if (! $UserModel || ! $UserModel::isPlatformOperator($user)) {
+            http_response_code(403);
+            echo json_encode(
+                ['success' => false, 'message' => 'Platform administrator required'],
+                JSON_UNESCAPED_UNICODE,
+            );
+
+            return null;
         }
 
         return $db;
@@ -352,12 +390,159 @@ return new class extends Controller {
         }
         $chat = $this->api('chat');
 
-        return UiqePurposeConfig::jobPayloadFromBinding(
+        return LlmOrchestratorPayload::fromBinding(
             $planBind,
-            $chat
-                ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
-                : static fn (string $ref): ?string => null,
+            $chat,
         );
+    }
+
+    /**
+     * Per-turn agent intent hook ({@code planning.intent.*}).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorPlannerIntentPayload(): ?array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return null;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $repo->ensurePlanningIntentPurposeRow();
+        $intentBind = $repo->resolvePlanningIntentBinding();
+        if ($intentBind === null) {
+            return null;
+        }
+        $chat = $this->api('chat');
+
+        return LlmOrchestratorPayload::fromBinding($intentBind, $chat);
+    }
+
+    /**
+     * EPIC-WS-1 — Knowledge plane LLM cfg (orientation + search-plan) for web_search → platform/tenant buckets.
+     *
+     * @return array{orientation?: array<string, mixed>, search_plan?: array<string, mixed>}|null
+     */
+    public function resolveOrchestratorKnowledgePayload(): ?array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return null;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $chat = $this->api('chat');
+        $infer = $chat
+            ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
+            : static fn (string $ref): ?string => null;
+
+        $out = [];
+        $orientBind = $repo->resolveKnowledgeOrientationBinding();
+        if ($orientBind !== null) {
+            $payload = UiqePurposeConfig::jobPayloadFromBinding($orientBind, $infer);
+            if ($payload !== null) {
+                $out['orientation'] = $payload;
+            }
+        }
+        $planBind = $repo->resolveKnowledgeSearchPlanBinding();
+        if ($planBind !== null) {
+            $payload = UiqePurposeConfig::jobPayloadFromBinding($planBind, $infer);
+            if ($payload !== null) {
+                $out['search_plan'] = $payload;
+            }
+        }
+        $classifyBind = $repo->resolveKnowledgeClassifyBinding();
+        if ($classifyBind !== null) {
+            $payload = UiqePurposeConfig::jobPayloadFromBinding($classifyBind, $infer);
+            if ($payload !== null) {
+                $out['knowledge.classify'] = $payload;
+            }
+        }
+        $distillBind = $repo->resolveKnowledgeDistillBinding();
+        if ($distillBind !== null) {
+            $payload = UiqePurposeConfig::jobPayloadFromBinding($distillBind, $infer);
+            if ($payload !== null) {
+                $out['knowledge.distill'] = $payload;
+            }
+        }
+
+        $out['scope'] = 'platform';
+        $refreshCfg = $repo->resolveKnowledgeRefreshConfig();
+        $vaultIds = KnowledgeRefreshPurposeConfig::resolveKnowledgeVaultIds($refreshCfg);
+        $platVault = (int) ($vaultIds['platform_vault_id'] ?? 0);
+        $tenantVault = (int) ($vaultIds['tenant_vault_id'] ?? 0);
+        if ($platVault > 0) {
+            $out['platform_vault_id'] = $platVault;
+            $out['web_vault_id'] = $platVault;
+        } elseif ($tenantVault > 0) {
+            $out['platform_vault_id'] = $tenantVault;
+            $out['web_vault_id'] = $tenantVault;
+        }
+        $refreshUid = KnowledgeRefreshPurposeConfig::resolveRefreshUserId($refreshCfg);
+        if ($refreshUid > 0) {
+            $out['refresh_user_id'] = $refreshUid;
+        }
+
+        $recallProfiles = $this->resolveKnowledgeRecallVaultProfiles();
+        if ($recallProfiles !== []) {
+            $out['recall_vault_profiles'] = $recallProfiles;
+        }
+
+        $out['refresh'] = $refreshCfg;
+        if (! ($refreshCfg['merge_recall'] ?? true)) {
+            $out['merge_recall'] = false;
+        }
+
+        return $out === [] ? null : $out;
+    }
+
+    /**
+     * WS-1-S8 — full Qdrant profiles for tenant/platform Knowledge vaults (RAG merge).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function resolveKnowledgeRecallVaultProfiles(): array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db instanceof Database) {
+            return [];
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $refresh = $repo->resolveKnowledgeRefreshConfig();
+        $vaultIds = KnowledgeRefreshPurposeConfig::resolveKnowledgeVaultIds($refresh);
+        /** @var list<int> $ids */
+        $ids = [];
+        foreach (['platform_vault_id', 'tenant_vault_id'] as $key) {
+            $v = (int) ($vaultIds[$key] ?? 0);
+            if ($v > 0 && ! in_array($v, $ids, true)) {
+                $ids[] = $v;
+            }
+        }
+        $ids = array_values(array_unique($ids, SORT_NUMERIC));
+        if ($ids === []) {
+            return [];
+        }
+
+        require_once dirname(__DIR__, 3) . '/vault/default/library/VaultRetrievalProfiles.php';
+        require_once dirname(__DIR__, 3) . '/vault/default/library/VaultQdrantCollectionResolver.php';
+
+        $chat = $this->api('chat');
+        $infer = $chat
+            ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
+            : static fn (string $ref): ?string => null;
+
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO) {
+            $core = $this->api('core');
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+                $slug = trim((string) $core->tenantContextSlug());
+                if ($slug !== '') {
+                    \oaaoai\vault\VaultQdrantCollectionResolver::setTenantSlug($slug);
+                }
+            }
+        }
+
+        return \oaaoai\vault\VaultRetrievalProfiles::fromVaultIds($db, $ids, $infer);
     }
 
     /**
@@ -474,7 +659,8 @@ return new class extends Controller {
             'resolveRunPlannerMode'               => 'resolveRunPlannerMode',
             'resolveOrchestratorPolishPayload'    => 'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload'      => 'resolveOrchestratorUiqePayload',
-            'resolveOrchestratorPlannerPayload'   => 'resolveOrchestratorPlannerPayload',
+            'resolveOrchestratorPlannerPayload'       => 'resolveOrchestratorPlannerPayload',
+            'resolveOrchestratorPlannerIntentPayload' => 'resolveOrchestratorPlannerIntentPayload',
             'resolveOrchestratorMmUnderstandPayload' => 'resolveOrchestratorMmUnderstandPayload',
             'resolveOrchestratorMmGeneratePayload'   => 'resolveOrchestratorMmGeneratePayload',
             'resolveOrchestratorMmEditPayload'         => 'resolveOrchestratorMmEditPayload',
@@ -548,7 +734,11 @@ return new class extends Controller {
                 'POST purposes_delete'  => 'purposes_delete',
                 'GET mm_settings'       => 'mm_settings',
                 'POST mm_settings_save' => 'mm_settings_save',
-                'GET credit_factors'    => 'credit_factors',
+                'GET credit_factors'           => 'credit_factors',
+                'GET knowledge_settings'       => 'knowledge_settings',
+                'POST knowledge_settings_save' => 'knowledge_settings_save',
+                'POST knowledge_cron_run'           => 'knowledge_cron_run',
+                'POST knowledge_platform_bootstrap' => 'knowledge_platform_bootstrap',
                 'POST funasr_ensure'      => 'funasr_ensure',
                 'POST funasr_nano_ensure' => 'funasr_nano_ensure',
                 'POST model_probe'        => 'model_probe',
@@ -581,6 +771,7 @@ return new class extends Controller {
             'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload',
             'resolveOrchestratorPlannerPayload',
+            'resolveOrchestratorPlannerIntentPayload',
             'getAsrUserPreferenceRegistry',
             'isPolishPurposeConfigured',
         ], true);

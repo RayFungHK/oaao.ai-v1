@@ -17,6 +17,19 @@ jobs:
       - name: PHP syntax (oaaoai)
         run: bash scripts/php_lint_oaaoai.sh
 
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer:v2
+          coverage: none
+
+      - name: Install Composer dev deps
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHPUnit (oaaoai — PLAT-2-S7 / CS-1)
+        run: bash scripts/run_phpunit_oaaoai.sh
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

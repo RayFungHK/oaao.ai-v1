@@ -587,6 +587,32 @@ return new class extends Controller {
             ]
         );
 
+        /**
+         * Corpus Studio — seeded like Vault/Research so {@code #workspace-rail-corpus} and {@code /workspace/corpus}
+         * work even when {@code oaaoai/corpus} {@code __onInit} order or load differs from shell JSON embed.
+         */
+        SpaRegister::add(
+            'workspace/corpus',
+            'Corpus',
+            'Style profiles from uploads or Vault sources',
+            'book-marked',
+            [
+                'shell_panel_url' => '/corpus/workspace-panel',
+                'shell_js_module' => '/webassets/corpus/default/js/corpus-panel.js',
+            ]
+        );
+
+        SpaRegister::add(
+            'workspace/library',
+            'Library',
+            'Documents with blocks + markdown mirror',
+            'file-text',
+            [
+                'shell_panel_url' => '/library/workspace-panel',
+                'shell_js_module' => '/webassets/library/default/js/library-panel.js',
+            ]
+        );
+
         SpaRegister::add(
             'workspace/live-meeting',
             'Live meeting',

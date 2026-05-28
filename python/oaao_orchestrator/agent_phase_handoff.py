@@ -20,6 +20,9 @@ from oaao_orchestrator.tasks.stream_emit import emit_agent_ask, emit_task_list_s
 
 logger = logging.getLogger(__name__)
 
+# Agents that run immediately — no planner requires_ask or inter-agent confirmation.
+_AGENTS_RUN_WITHOUT_ASK: frozenset[str] = frozenset({"web_search"})
+
 _PHASE_SUMMARY_SYSTEM = """You write a brief phase summary for a multi-step assistant run.
 Output 2-4 sentences in the user's language (zh-Hant if the user wrote Chinese).
 Summarize what the completed agent step achieved and what the next specialized agent will do.
@@ -168,6 +171,9 @@ async def maybe_inter_agent_handoff(
     next_ag = peek_next_agent_task(task_queue)
     if next_ag is None:
         return pipeline_snap
+    next_kind = (next_ag.agent_kind or "").strip()
+    if next_kind in _AGENTS_RUN_WITHOUT_ASK:
+        return pipeline_snap
     prior = (completed_task.agent_kind or "").strip()
     prepare_inter_agent_handoff(next_ag, prior_agent_kind=prior)
     _, updated = await emit_agent_phase_summary(
@@ -209,6 +215,8 @@ def resolve_agent_ask_prompt(
         return False, "", None
 
     kind = (run_task.agent_kind or "").strip()
+    if kind in _AGENTS_RUN_WITHOUT_ASK:
+        return False, "", None
     cat = catalog_from_request(req)
     mode_id = str(getattr(req, "mode_id", None) or "default")
     inter = bool((run_task.params or {}).get("inter_agent_handoff"))

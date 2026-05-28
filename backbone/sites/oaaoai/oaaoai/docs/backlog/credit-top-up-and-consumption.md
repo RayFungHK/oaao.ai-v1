@@ -12,7 +12,8 @@ Status: **partial foundation shipped** — ledger + debit on chat completion; **
 | Admin assign | `POST /user/api/users_save` with `credit_balance` |
 | Config | Endpoint `config_json.tokens_per_credit`; purpose `meta_json.credit_multiplier`; chat profile `config_json.credit_multiplier` |
 | User UI | Preferences → **Dashboard** (30d tokens, balance, ledger snippet); **Personal** (profile / password / language) |
-| Admin UI | Settings → **Users** — click login or **Usage** for nested usage overview (heatmap + consumption, same as Preferences Dashboard) |
+| Admin UI | Settings → **Users** — **Credits** column + **Credit balance** on edit user (empty = unlimited); **Usage** for heatmap |
+| Send gate | `POST /chat/api/send` returns **402** `credits_exhausted` when `credit_balance <= 0` |
 
 ### Credit formula
 
@@ -27,14 +28,14 @@ Defaults: `tokens_per_credit = 1000`, multipliers = `1`.
 ### Credit consumption (enhancements)
 
 - [ ] Debit on vault ASR / embed / graph_index (char/chunk-based conversion policy)
-- [ ] Block chat send when `credit_balance <= 0` (private tenant + public tenant)
+- [x] Block chat send when `credit_balance <= 0` (private tenant + public tenant)
 - [ ] Chat profile editor UI field for `credit_multiplier` (JSON manual edit today)
 - [ ] Per-tenant policy: enforce credits vs audit-only ledger when balance is NULL
 - [ ] Platform reconciliation view (tenant credits vs usage)
 
 ### Top-up
 
-- [ ] **Private tenant:** admin grant / adjust via Users settings UI (`credit_balance` field)
+- [x] **Private tenant:** admin grant / adjust via Users settings UI (`credit_balance` field)
 - [ ] **Public tenant:** self-serve purchase flow (payment provider TBD)
 - [ ] Ledger `reason = top_up` with positive `delta_credits` + payment reference in `meta_json`
 - [ ] Email/receipt hook (optional)

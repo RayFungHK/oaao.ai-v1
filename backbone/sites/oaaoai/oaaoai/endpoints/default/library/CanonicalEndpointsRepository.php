@@ -471,6 +471,162 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Per-turn agent intent hook LLM ({@code planning.intent.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolvePlanningIntentBinding(): ?array
+    {
+        return $this->resolveVaultPurposeBinding('planning.intent', 'planning.intent.primary', 'planning.intent');
+    }
+
+    /**
+     * Workspace orientation snapshot LLM ({@code knowledge.orientation.*} — EPIC-WS-1-S2).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveKnowledgeOrientationBinding(): ?array
+    {
+        return $this->resolvePurposeBindingWithChatFallback(
+            'knowledge.orientation',
+            'knowledge.orientation.primary',
+            'knowledge.orientation',
+        );
+    }
+
+    /**
+     * Web search multi-query planner ({@code knowledge.search_plan.*} — EPIC-WS-1-S3).
+     * Falls back to {@code knowledge.orientation.*} then {@code planning.*}.
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveKnowledgeSearchPlanBinding(): ?array
+    {
+        $bind = $this->resolvePurposeBindingWithChatFallback(
+            'knowledge.search_plan',
+            'knowledge.search_plan.primary',
+            'knowledge.search_plan',
+        );
+        if ($bind !== null) {
+            return $bind;
+        }
+
+        return $this->resolveKnowledgeOrientationBinding();
+    }
+
+    /**
+     * Knowledge bucket classify ({@code knowledge.classify.*} — EPIC-WS-1-S9).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveKnowledgeClassifyBinding(): ?array
+    {
+        return $this->resolvePurposeBindingWithChatFallback(
+            'knowledge.classify',
+            'knowledge.classify.primary',
+            'knowledge.classify',
+        );
+    }
+
+    /**
+     * Knowledge bucket distill ({@code knowledge.distill.*} — EPIC-WS-1-S9).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveKnowledgeDistillBinding(): ?array
+    {
+        $bind = $this->resolvePurposeBindingWithChatFallback(
+            'knowledge.distill',
+            'knowledge.distill.primary',
+            'knowledge.distill',
+        );
+        if ($bind !== null) {
+            return $bind;
+        }
+
+        return $this->resolveKnowledgeClassifyBinding();
+    }
+
+    /**
+     * WS-1-S6 — scheduled refresh + opt-out from {@code knowledge.platform.*} meta.
+     *
+     * @return array{
+     *   scheduled_enabled: bool,
+     *   interval_hours: float,
+     *   classify_after: bool,
+     *   merge_recall: bool,
+     *   do_not_search: list<string>
+     * }
+     */
+    public function resolveKnowledgeRefreshConfig(): array
+    {
+        $row = $this->findKnowledgePlatformPurposeRowForSettings();
+        if ($row === null) {
+            return KnowledgeRefreshPurposeConfig::defaults();
+        }
+        $meta = KnowledgeRefreshPurposeConfig::decodePurposeMeta($row['meta_json'] ?? null);
+
+        return KnowledgeRefreshPurposeConfig::refreshPayloadFromMeta($meta);
+    }
+
+    /**
+     * {@code knowledge.platform.*} purpose row for Settings → Knowledge (WS-1-S6).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findKnowledgePlatformPurposeRowForSettings(): ?array
+    {
+        $row = $this->findPurposeRowByPrefix(
+            'knowledge.platform',
+            'knowledge.platform.primary',
+            'knowledge.platform',
+        );
+        if ($row !== null) {
+            return $row;
+        }
+        $this->ensureKnowledgePlatformPurposeRow();
+
+        return $this->findPurposeRowByPrefix(
+            'knowledge.platform',
+            'knowledge.platform.primary',
+            'knowledge.platform',
+        );
+    }
+
+    public function ensureKnowledgePlatformPurposeRow(): void
+    {
+        if ($this->findPurposeRowByPrefix(
+            'knowledge.platform',
+            'knowledge.platform.primary',
+            'knowledge.platform',
+        ) !== null) {
+            return;
+        }
+
+        $endpointId = $this->resolveDefaultEndpointIdForPlanningBootstrap();
+        $meta = KnowledgeRefreshPurposeConfig::metaJsonFromForm(KnowledgeRefreshPurposeConfig::defaults());
+
+        try {
+            $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $metaJson = null;
+        }
+
+        $now = gmdate('Y-m-d H:i:s');
+        $this->insertPurpose([
+            'purpose_key'         => 'knowledge.platform.primary',
+            'label'               => 'Knowledge platform',
+            'description'         => 'Global Knowledge bucket refresh & opt-out (auto-created)',
+            'default_endpoint_id' => $endpointId,
+            'is_enabled'          => 1,
+            'sort_order'          => 63,
+            'meta_json'           => $metaJson,
+            'created_at'          => $now,
+            'updated_at'          => $now,
+        ]);
+    }
+
+    /**
      * Resolve vault-grounded summarisation LLM ({@code vault.*}).
      *
      * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null
@@ -682,6 +838,26 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Corpus Studio — style learning + generate preview ({@code corpus.style.*}).
+     * Falls back to {@code planning.*} then {@code chat.*} when unset.
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     */
+    public function resolveCorpusStyleBinding(): ?array
+    {
+        $bind = $this->resolvePurposeBindingWithChatFallback(
+            'corpus.style',
+            'corpus.style.primary',
+            'corpus.style',
+        );
+        if ($bind !== null) {
+            return $bind;
+        }
+
+        return $this->resolvePlanningBinding();
+    }
+
+    /**
      * Slide template import analyze / preview / fix LLM ({@code slide_template.*} purpose keys).
      *
      * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
@@ -778,10 +954,7 @@ final class CanonicalEndpointsRepository
         foreach (ChatAllowedAgentsPurposeConfig::allKinds() as $kind) {
             $enabledMap[$kind] = true;
         }
-        $meta = ChatRunPlannerPurposeConfig::mergeModeIntoMeta(
-            [],
-            ChatRunPlannerPurposeConfig::defaultMode(),
-        );
+        $meta = PurposePromptConfig::defaultPlanningPrimaryMeta(ChatRunPlannerPurposeConfig::defaultMode());
         $meta = ChatAllowedAgentsPurposeConfig::mergeAllowedIntoMeta($meta, $enabledMap);
 
         try {
@@ -798,6 +971,38 @@ final class CanonicalEndpointsRepository
             'default_endpoint_id' => $endpointId,
             'is_enabled'          => 1,
             'sort_order'          => 50,
+            'meta_json'           => $metaJson,
+            'created_at'          => $now,
+            'updated_at'          => $now,
+        ]);
+    }
+
+    /**
+     * Create {@code planning.intent.primary} when the intent slot exists but no row was saved yet.
+     */
+    public function ensurePlanningIntentPurposeRow(): void
+    {
+        if ($this->findPurposeRowByPrefix('planning.intent', 'planning.intent.primary', 'planning.intent') !== null) {
+            return;
+        }
+
+        $endpointId = $this->resolveDefaultEndpointIdForPlanningBootstrap();
+        $meta = PurposePromptConfig::defaultPlanningIntentMeta();
+
+        try {
+            $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $metaJson = null;
+        }
+
+        $now = gmdate('Y-m-d H:i:s');
+        $this->insertPurpose([
+            'purpose_key'         => 'planning.intent.primary',
+            'label'               => 'Planning intent',
+            'description'         => 'Per-turn agent intent scores before task planner (auto-created)',
+            'default_endpoint_id' => $endpointId,
+            'is_enabled'          => 1,
+            'sort_order'          => 51,
             'meta_json'           => $metaJson,
             'created_at'          => $now,
             'updated_at'          => $now,

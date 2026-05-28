@@ -167,12 +167,24 @@ async def _run_evolution_post_stream(
             vault_grounding_context_text,
         )
 
-        evidence = evidence_from_pipeline_snap(
-            pipeline_snap if isinstance(pipeline_snap, dict) else None,
+        from oaao_orchestrator.knowledge.promotion import (
+            coach_endpoint_from_request,
+            resolve_user_id,
+            schedule_web_knowledge_promotion,
+            web_knowledge_asset_id_from_pipeline,
+            web_search_evidence_from_pipeline,
         )
-        grounding_context = vault_grounding_context_text(
-            pipeline_snap if isinstance(pipeline_snap, dict) else None,
-        )
+
+        snap = pipeline_snap if isinstance(pipeline_snap, dict) else None
+        evidence = evidence_from_pipeline_snap(snap)
+        web_ev = web_search_evidence_from_pipeline(snap)
+        if web_ev:
+            evidence = list(evidence) + web_ev
+        grounding_context = vault_grounding_context_text(snap)
+        if web_ev:
+            grounding_context = (
+                f"{grounding_context}\n\nWeb search snippets: {len(web_ev)} source(s)."
+            )
 
         accs_result = await score_accs(
             user_message=user_msg,
@@ -288,6 +300,18 @@ async def _run_evolution_post_stream(
                     "accs_score": float(accs_result.score),
                     "tool_chain": _tool_chain_from_plan(plan),
                 }
+            )
+
+        asset_id = web_knowledge_asset_id_from_pipeline(snap)
+        if asset_id:
+            knowledge = getattr(req, "knowledge", None)
+            schedule_web_knowledge_promotion(
+                asset_id=asset_id,
+                user_id=resolve_user_id(req),
+                knowledge=knowledge if isinstance(knowledge, dict) else None,
+                coach_endpoint=coach_endpoint_from_request(req) or coach_endpoint,
+                workspace_id=getattr(req, "workspace_id", None),
+                assistant_text=assistant_text,
             )
     except Exception:
         logger.exception(

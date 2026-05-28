@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-style.json",
+  "title": "CorpusStyleJsonV1",
+  "description": "CS-1-S7 style_json stored on oaao_corpus_profile",
+  "type": "object",
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "structure": { "type": "object" },
+    "lexicon": { "type": "object" },
+    "formatting": { "type": "object" },
+    "tone": { "type": "string" },
+    "dos": { "type": "array", "items": { "type": "string" } },
+    "donts": { "type": "array", "items": { "type": "string" } },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "segment_count": { "type": "integer", "minimum": 0 },
+        "style_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "style_source": { "type": "string", "enum": ["heuristic", "llm", "manual"] },
+        "html_template": { "$ref": "corpus-html-template.json" },
+        "output_modes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["markdown", "html_pdf"] }
+        },
+        "structure_blueprint": { "type": "object" },
+        "document_type": { "type": "string" },
+        "document_type_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "document_type_method": { "type": "string", "enum": ["heuristic", "llm"] },
+        "document_type_reason": { "type": "string" },
+        "document_type_label": { "type": "string" },
+        "extraction_schema_id": { "type": "string" },
+        "layout_hint": {
+          "type": "string",
+          "enum": ["table_notice", "member_blocks", "prose", "generic"]
+        },
+        "schema_registry_version": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

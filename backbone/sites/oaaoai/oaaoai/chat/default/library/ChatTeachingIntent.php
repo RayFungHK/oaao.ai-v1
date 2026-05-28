@@ -5,77 +5,65 @@ declare(strict_types=1);
 namespace oaaoai\chat;
 
 /**
- * Detect handbook / vol teaching turns that should offer slide_designer (orchestrator inject mirrors this).
+ * Chat send-time helpers for slide templates and vault scope expansion.
+ *
+ * CS-AUDIT-4: Slide agent gating and vault scope use **data-driven** paths only.
+ * Orchestrator planner owns {@code slide_action} / agent plan (see {@code planner_llm.py});
+ * do not add English/Chinese keyword lists here.
  */
 final class ChatTeachingIntent
 {
+    /**
+     * @deprecated Use published template chip ({@see impliesSlideDesignerForTemplate}) only.
+     * Planner injects slide_designer from {@code slide_action} + teaching context.
+     */
     public static function impliesSlideDesigner(string $userMessage): bool
     {
-        $s = trim($userMessage);
-        if ($s === '') {
-            return false;
-        }
-
-        $low = mb_strtolower($s, 'UTF-8');
-        $handbook = self::containsAny($low, ['handbook', '手冊', 'manual'])
-            || self::containsAny($s, ['手冊']);
-        $vol = self::containsAny($low, ['vol', 'volume', 'vol.', 'vol3', 'vol.3'])
-            || preg_match('/第\s*[一二三四五六七八九十\d]+\s*[卷冊]/u', $s) === 1;
-        $teaching = self::containsAny($low, ['教學', 'teaching', 'tutorial', '課程', 'lesson', 'curriculum'])
-            || self::containsAny($s, ['教學', '教程']);
-        $slides = self::containsAny($low, ['簡報', '投影片', 'slide', 'deck', 'presentation', 'ppt']);
-
-        if ($slides && ($handbook || $teaching || $vol)) {
-            return true;
-        }
-
-        return $teaching && ($handbook || $vol);
+        return false;
     }
 
     /**
-     * User message targets a handbook / manual / named vault document — run vault RAG even without Auto Source toggle.
+     * @deprecated Replaced by composer filename match + vault_auto_rag in {@see send.php}.
      */
     public static function impliesVaultGrounding(string $userMessage): bool
     {
-        if (self::impliesSlideDesigner($userMessage)) {
+        return false;
+    }
+
+    /**
+     * Whether to run {@see ChatVaultScope::composerRefsMatchingMessage} for this turn.
+     */
+    public static function shouldTryComposerVaultMatch(
+        bool $vaultAutoRag,
+        bool $hasExplicitVaultRefs,
+        string $userMessage,
+    ): bool {
+        if ($vaultAutoRag || $hasExplicitVaultRefs) {
             return true;
         }
 
-        $s = trim($userMessage);
-        if ($s === '') {
-            return false;
-        }
+        return trim($userMessage) !== '';
+    }
 
-        $low = mb_strtolower($s, 'UTF-8');
-        $handbook = self::containsAny($low, ['handbook', '手冊', 'manual'])
-            || self::containsAny($s, ['手冊']);
-        $vol = self::containsAny($low, ['vol', 'volume', 'vol.', 'vol3', 'vol.3'])
-            || preg_match('/第\s*[一二三四五六七八九十\d]+\s*[卷冊]/u', $s) === 1;
-
-        if ($handbook && $vol) {
+    /**
+     * Expand vault composer scope when auto-RAG, explicit refs, composer doc match, or record lookup.
+     */
+    public static function shouldExpandVaultComposerScope(
+        bool $vaultAutoRag,
+        bool $hasExplicitVaultRefs,
+        bool $composerRefsMatched,
+        string $userMessage,
+    ): bool {
+        if ($vaultAutoRag || $hasExplicitVaultRefs || $composerRefsMatched) {
             return true;
         }
 
-        if (str_contains($low, 'regulatory handbook')) {
-            return true;
-        }
-
-        if (self::impliesPersonalRecordVaultLookup($s, $low)) {
-            return true;
-        }
-
-        if ((self::containsAny($low, ['vault']) || self::containsAny($s, ['知識庫', '知识库']))
-            && self::containsAny($s, ['再查', '重新查', '再搜', '重新搜', '再查一下'])
-            && self::containsAny($s, ['查', '搜', '找'])) {
-            return true;
-        }
-
-        return self::containsAny($low, ['知識庫', 'vault'])
-            && ($handbook || self::containsAny($low, ['document', '文件', 'upload', '上傳']));
+        return self::impliesPersonalRecordVaultLookup($userMessage);
     }
 
     /**
      * User asks about prior notes / recordings in the knowledge base (e.g. wallet usage mp3).
+     * Filename scoring in {@see ChatVaultScope::embeddedAudioRefsForRecordLookup} uses these cues only.
      */
     public static function impliesPersonalRecordVaultLookup(string $message, ?string $low = null): bool
     {
@@ -204,7 +192,7 @@ final class ChatTeachingIntent
         string $userMessage,
         bool $hasPublishedSlideTemplate = false,
     ): array {
-        if (! self::impliesSlideDesigner($userMessage) && ! self::impliesSlideDesignerForTemplate($hasPublishedSlideTemplate)) {
+        if (! self::impliesSlideDesignerForTemplate($hasPublishedSlideTemplate)) {
             return $allowedAgents;
         }
 

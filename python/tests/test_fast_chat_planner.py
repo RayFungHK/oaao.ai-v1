@@ -69,6 +69,20 @@ def test_attachments_use_fast_plan_not_llm_planner() -> None:
     assert [t.type for t in plan.tasks] == [RunTaskType.ATTACHMENTS, RunTaskType.LLM_STREAM]
 
 
+def test_auto_source_triggers_llm_planner_path() -> None:
+    req = SimpleNamespace(
+        enable_web_search=False,
+        vault_auto_rag=True,
+        vault_source_refs=[],
+        vault_source_ids=[],
+        vault_scope_documents={},
+        chat_attachments=[],
+        slide_designer=None,
+        messages=[{"role": "user", "content": "網絡上有沒有 DJI Pocket 4 Pro 開售消息？"}],
+    )
+    assert needs_multi_agent_turn(req) is True
+
+
 def test_attachments_skip_auto_vault_rag() -> None:
     req = SimpleNamespace(
         vault_auto_rag=True,

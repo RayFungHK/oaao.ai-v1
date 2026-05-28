@@ -85,6 +85,8 @@ def tool_chain_from_plan(plan: RunPlan | None) -> list[str]:
 
 def plan_pipeline_source(req: object) -> str:
     if not needs_multi_agent_turn(req):
+        if bool(getattr(req, "enable_web_search", False)):
+            return "composer_web_fast"
         return "fast_chat"
     if planner_enabled(req):
         return "llm_planner"

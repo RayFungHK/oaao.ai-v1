@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-html-template.json",
+  "title": "CorpusHtmlTemplateV1",
+  "description": "CS-1-S12 print template stored at style_json.meta.html_template",
+  "type": "object",
+  "required": ["version", "html_body", "parameters"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "page_size": { "type": "string", "enum": ["A4", "Letter"] },
+    "dominant_segment_kind": { "type": "string" },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "label", "type"],
+        "properties": {
+          "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "label": { "type": "string" },
+          "type": { "type": "string", "enum": ["string", "text", "date", "number"] },
+          "max_chars": { "type": "integer", "minimum": 1 },
+          "segment_kind": { "type": "string" },
+          "block_name": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "html_body": { "type": "string" },
+    "css": { "type": "string" },
+    "placeholder_syntax": { "type": "string" }
+  },
+  "additionalProperties": true
+}

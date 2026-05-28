@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 SIM_THRESHOLD = 0.88
 
 
+def should_skip_crystallized_skill_recall(req: object) -> bool:
+    """Do not replace an LLM-built plan with a sealed tool_chain shortcut."""
+    from oaao_orchestrator.planner import _composer_auto_vault_rag, needs_multi_agent_turn
+
+    if bool(getattr(req, "enable_web_search", False)):
+        return True
+    if _composer_auto_vault_rag(req):
+        return True
+    return needs_multi_agent_turn(req)
+
+
 async def _arango_patch_usage(skill_id: str, *, usage_count: int, last_used_at: str) -> None:
     from oaao_orchestrator.vault_arango import _arango_request, resolve_arango_from_profile
 

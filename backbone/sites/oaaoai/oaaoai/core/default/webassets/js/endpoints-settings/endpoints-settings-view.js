@@ -412,7 +412,23 @@ function readPurposeAllocationSlots() {
 }
 
 /** When {@code OAAO_PURPOSE_ALLOCATION_REGISTRY} is empty — matches {@see PurposeAllocationRegister} seed prefixes. */
-const ENDPOINT_TYPE_FALLBACK_PREFIXES = ['chat', 'embedding', 'rerank', 'rag', 'planning', 'vault', 'uiqe', 'asr', 'asr.live', 'asr_summary', 'other'];
+const ENDPOINT_TYPE_FALLBACK_PREFIXES = [
+    'chat',
+    'embedding',
+    'rerank',
+    'rag',
+    'planning',
+    'vault',
+    'uiqe',
+    'knowledge.orientation',
+    'knowledge.search_plan',
+    'knowledge.classify',
+    'knowledge.distill',
+    'asr',
+    'asr.live',
+    'asr_summary',
+    'other',
+];
 
 /**
  * Options for {@code endpoint_type}: purpose routing prefixes ({@code purpose_key} / allocation slots). Supports multi-select.

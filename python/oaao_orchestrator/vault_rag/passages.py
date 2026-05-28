@@ -459,6 +459,58 @@ _QUERY_TERM_STOP = frozenset(
 )
 
 
+def _retrieval_confidence_floor(min_score: float) -> float:
+    """Minimum top-hit score before Auto Source injects vault excerpts (no language heuristics)."""
+    raw = _env("OAAO_VAULT_RAG_CONFIDENCE_FLOOR", "")
+    if raw.strip():
+        try:
+            return max(0.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            pass
+    return max(float(min_score), 0.45)
+
+
+def _retrieval_confidence_margin() -> float:
+    raw = _env("OAAO_VAULT_RAG_CONFIDENCE_MARGIN", "0.08")
+    try:
+        return max(0.0, min(0.5, float(raw)))
+    except (TypeError, ValueError):
+        return 0.08
+
+
+def retrieval_confidence_sufficient(
+    picks: list[PassagePick],
+    *,
+    min_score: float,
+) -> bool:
+    """
+    Auto Source gate: inject excerpts only when vector retrieval has a clear top hit.
+
+    Public-web vs vault routing belongs in ``planner_llm`` / ``planning.intent`` — not keyword lists here.
+    """
+    scored: list[tuple[float, PassagePick]] = []
+    for pick in picks:
+        try:
+            s = float(pick.score)
+        except (TypeError, ValueError):
+            continue
+        if s >= float(min_score):
+            scored.append((s, pick))
+    if not scored:
+        return False
+    scored.sort(key=lambda row: row[0], reverse=True)
+    top = scored[0][0]
+    floor = _retrieval_confidence_floor(min_score)
+    if top < floor:
+        return False
+    if len(scored) >= 2:
+        second = scored[1][0]
+        margin = _retrieval_confidence_margin()
+        if top - second < margin and top < floor + 0.1:
+            return False
+    return True
+
+
 def _query_is_general_knowledge(query: str) -> bool:
     """Definition / concept questions — answer from LLM knowledge unless vault text clearly matches."""
     if _query_wants_meeting_record(query):

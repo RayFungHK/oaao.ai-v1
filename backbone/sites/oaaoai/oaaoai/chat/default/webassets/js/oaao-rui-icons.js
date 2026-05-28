@@ -1,7 +1,7 @@
 /**
  * Lazy RazyUI Icons — Lucide SVG with LineIcons font fallback.
  *
- * OAAO-critical glyphs ({@code package}, {@code square-dashed-kanban}, {@code gallery-thumbnails})
+ * OAAO-critical glyphs ({@code package}, {@code square-dashed-kanban}, {@code gallery-thumbnails}, {@code book-marked})
  * are embedded here because bundled {@code razyui-icons.css} may lag the font file; {@code Icons.js}
  * dynamic import can also fail on subdirectory mounts.
  *
@@ -44,6 +44,9 @@ const OAAO_SVG_ICONS = {
         '<path d="M8 7v7" /><path d="M12 7v4" /><path d="M16 7v9" /><path d="M5 3a2 2 0 0 0-2 2" /><path d="M9 3h1" /><path d="M14 3h1" /><path d="M19 3a2 2 0 0 1 2 2" /><path d="M21 9v1" /><path d="M21 14v1" /><path d="M21 19a2 2 0 0 1-2 2" /><path d="M14 21h1" /><path d="M9 21h1" /><path d="M5 21a2 2 0 0 1-2-2" /><path d="M3 14v1" /><path d="M3 9v1" />',
     'gallery-thumbnails':
         '<rect width="18" height="14" x="3" y="3" rx="2" /><path d="M4 21h1" /><path d="M9 21h1" /><path d="M14 21h1" /><path d="M19 21h1" />',
+    /** Corpus Studio rail + SPA nav ({@see workspace.tpl}, {@see corpus.php}). */
+    'book-marked':
+        '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" /><path d="M10 2v10l3-3 3 3V2" />',
     package:
         '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" /><path d="M12 22V12" /><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7" /><path d="m7.5 4.27 9 5.15" />',
     download:

@@ -36,7 +36,17 @@
       "type": ["array", "null"],
       "items": { "type": "object" }
     },
-    "tenant_id": { "type": ["integer", "null"], "minimum": 0 }
+    "tenant_id": { "type": ["integer", "null"], "minimum": 0 },
+    "corpus_id": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "CS-1-S10 — ready Corpus Studio profile id for style injection."
+    },
+    "corpus_style": {
+      "type": ["object", "null"],
+      "description": "Resolved style_json from PHP when corpus_id is set.",
+      "$ref": "corpus-style.json"
+    }
   },
   "additionalProperties": true
 }

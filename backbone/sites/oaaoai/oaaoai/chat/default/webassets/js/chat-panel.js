@@ -16,7 +16,7 @@ import {
     mountChatComposerEditor,
     removeTemplateSlugsFromEditor,
     setChatComposerEditorPlainText,
-} from './chat-composer-editor.js';
+} from './chat-composer-editor.js?v=20260528-nl91';
 import { uploadChatComposerAttachment } from './chat-composer-attach-upload.js';
 import {
     hydrateRuiIconSlots,
@@ -420,6 +420,11 @@ function syncComposerPlannerStepsVisibility(root) {
 function mountChatComposerFeatureToggles(host, signal) {
     chatComposerWebSearchEnabled = readComposerTogglePreference(CHAT_COMPOSER_WEB_SEARCH_KEY, false);
     chatComposerShowPlannerSteps = readComposerTogglePreference(CHAT_COMPOSER_PLANNER_STEPS_KEY, true);
+    try {
+        localStorage.removeItem('oaao_chat_corpus_id');
+    } catch {
+        /* ignore */
+    }
 
     const btnClass =
         'oaao-chat-composer-toggle inline-flex items-center justify-center w-8 h-8 p-0 [border:1px_solid_var(--grid-line)] rounded-full bg-transparent fg-[var(--grid-ink-muted)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)] cursor-pointer font-inherit shrink-0 transition-colors';
@@ -1865,7 +1870,7 @@ function loadChatComposerDialogCtor() {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260527-live-asr-polish-v86';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260528-chat-user-msg-newlines-v91';
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -2218,6 +2223,7 @@ button[data-oaao-chat='send'][data-oaao-composer-sending='1']{opacity:.85;cursor
 button[data-oaao-chat='send'][data-oaao-composer-sending='1']>[data-oaao-chat-icon='send']{opacity:0}
 button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after{content:'';position:absolute;left:50%;top:50%;width:1rem;height:1rem;margin:-.5rem 0 0 -.5rem;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:oaao-composer-send-spin .65s linear infinite;pointer-events:none}
 @keyframes oaao-composer-send-spin{to{transform:rotate(360deg)}}
+.oaao-chat-user-msg-bubble{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
 .oaao-chat-user-msg-attachments .oaao-chat-attachment-card{align-self:flex-end}
 .oaao-chat-attachment-card-icon{display:inline-flex;align-items:center;justify-content:center;width:2rem;height:2rem;flex-shrink:0;border-radius:8px;background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 28%,transparent);color:var(--grid-ink-muted,#666)}
 .oaao-chat-attachment-card-icon svg{width:18px;height:18px;display:block}
@@ -6762,8 +6768,11 @@ function createUserMessageTemplateRefsRow(tpl) {
 function mountUserMessageBubbleText(bubble, text) {
     bubble.replaceChildren();
     bubble.classList.remove('oaao-md-bubble');
+    bubble.classList.add('oaao-chat-user-msg-bubble');
     bubble.style.whiteSpace = 'pre-wrap';
-    bubble.textContent = text;
+    bubble.style.overflowWrap = 'anywhere';
+    bubble.style.wordBreak = 'break-word';
+    bubble.textContent = String(text ?? '').replace(/\r\n?/g, '\n');
 }
 
 /**
@@ -12827,7 +12836,7 @@ export async function mountShellPanel(mount) {
             const bubble = document.createElement('div');
             bubble.className =
                 role === 'user'
-                    ? 'rounded-[12px] px-md py-sm text-[0.875rem] leading-relaxed bg-[var(--grid-panel-bright)] border-[1px] border-solid border-[var(--grid-line)] shadow-[var(--oaao-surface-shadow)] w-full min-w-0 max-w-full'
+                    ? 'oaao-chat-user-msg-bubble rounded-[12px] px-md py-sm text-[0.875rem] leading-relaxed bg-[var(--grid-panel-bright)] border-[1px] border-solid border-[var(--grid-line)] shadow-[var(--oaao-surface-shadow)] w-full min-w-0 max-w-full'
                     : 'text-[0.875rem] leading-relaxed w-full min-w-0 max-w-full bg-transparent border-none shadow-none rounded-none px-0 py-0 box-border';
 
             if (mid !== null) {

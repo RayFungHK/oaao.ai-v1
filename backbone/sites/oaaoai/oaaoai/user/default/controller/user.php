@@ -41,9 +41,21 @@ return new class extends Controller {
                 'POST notifications_send'       => 'notifications_send',
                 'GET users_list'        => 'users_list',
                 'GET users_dashboard'   => 'users_dashboard',
-                'POST users_save'       => 'users_save',
+                'POST users_save'              => 'users_save',
+                'POST users_invite'            => 'users_invite',
+                'POST users_invite_resend'     => 'users_invite_resend',
+                'POST users_invite_revoke'     => 'users_invite_revoke',
+                'GET users_invitations_list'   => 'users_invitations_list',
+                'GET register_validate'        => 'register_validate',
+                'POST register_complete'       => 'register_complete',
+                'POST password_reset_request'  => 'password_reset_request',
+                'GET password_reset_validate'  => 'password_reset_validate',
+                'POST password_reset_complete' => 'password_reset_complete',
             ],
         ]);
+
+        $agent->addRoute('GET /user/register', 'panel/register_page');
+        $agent->addRoute('GET /user/reset-password', 'panel/reset_password_page');
 
         if ($coreApi) {
             $js = '/webassets/core/default/js/oaao-access-settings-panel.js';

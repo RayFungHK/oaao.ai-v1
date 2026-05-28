@@ -28,6 +28,8 @@ return [
             'oaaoai/vault'         => 'default',
             'oaaoai/live-meeting'  => 'default',
             'oaaoai/research'      => 'default',
+            'oaaoai/corpus'        => 'default',
+            'oaaoai/library'       => 'default',
             'oaaoai/mine'          => 'default',
         ],
     ],

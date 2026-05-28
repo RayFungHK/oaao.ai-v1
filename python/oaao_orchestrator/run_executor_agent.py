@@ -147,6 +147,12 @@ async def handle_agent_task(
             pipeline_snap["blocks"] = list(blocks) + [
                 b for b in extra_blocks if isinstance(b, dict)
             ]
+            for block in extra_blocks:
+                if isinstance(block, dict) and block.get("kind") == "web_search":
+                    hits = block.get("hits")
+                    if isinstance(hits, list):
+                        pipeline_snap["web_search_hits"] = hits
+                    break
         sp = agent_result.extra.get("slide_project")
         if isinstance(sp, dict) and sp.get("project_id"):
             slide_project_meta = sp

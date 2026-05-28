@@ -43,6 +43,76 @@ return function (array $payload): void {
         ]
     );
     PurposeAllocationRegister::add(
+        'pa-knowledge-orientation',
+        'Knowledge orientation',
+        'Knowledge orientation',
+        'Workspace topic snapshot from chat (<code class="font-mono text-xs">knowledge.orientation.*</code>) — EPIC-WS-1.',
+        'compass',
+        [
+            'sort' => 61,
+            'purpose_key_prefix' => 'knowledge.orientation',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.knowledge_orientation.label',
+            'sub_key'   => 'settings.slot.knowledge_orientation.sub',
+        ]
+    );
+    PurposeAllocationRegister::add(
+        'pa-knowledge-search-plan',
+        'Knowledge search plan',
+        'Knowledge search plan',
+        'Multi-query web search planner (<code class="font-mono text-xs">knowledge.search_plan.*</code>) — EPIC-WS-1.',
+        'search',
+        [
+            'sort' => 62,
+            'purpose_key_prefix' => 'knowledge.search_plan',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.knowledge_search_plan.label',
+            'sub_key'   => 'settings.slot.knowledge_search_plan.sub',
+        ]
+    );
+    PurposeAllocationRegister::add(
+        'pa-knowledge-platform',
+        'Knowledge platform',
+        'Knowledge platform',
+        'Scheduled refresh &amp; RAG merge (<code class="font-mono text-xs">knowledge.platform.*</code>) — EPIC-WS-1-S6.',
+        'globe',
+        [
+            'sort' => 60,
+            'purpose_key_prefix' => 'knowledge.platform',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.knowledge_platform.label',
+            'sub_key'   => 'settings.slot.knowledge_platform.sub',
+        ]
+    );
+    PurposeAllocationRegister::add(
+        'pa-knowledge-classify',
+        'Knowledge classify',
+        'Knowledge classify',
+        'Bucket re-classification (<code class="font-mono text-xs">knowledge.classify.*</code>) — EPIC-WS-1-S9.',
+        'tags',
+        [
+            'sort' => 63,
+            'purpose_key_prefix' => 'knowledge.classify',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.knowledge_classify.label',
+            'sub_key'   => 'settings.slot.knowledge_classify.sub',
+        ]
+    );
+    PurposeAllocationRegister::add(
+        'pa-knowledge-distill',
+        'Knowledge distill',
+        'Knowledge distill',
+        'Bucket distillation for RAG / training (<code class="font-mono text-xs">knowledge.distill.*</code>) — EPIC-WS-1-S9.',
+        'sparkles',
+        [
+            'sort' => 64,
+            'purpose_key_prefix' => 'knowledge.distill',
+            'module_code' => 'oaaoai/endpoints',
+            'label_key' => 'settings.slot.knowledge_distill.label',
+            'sub_key'   => 'settings.slot.knowledge_distill.sub',
+        ]
+    );
+    PurposeAllocationRegister::add(
         'pa-asr',
         'ASR',
         'ASR',

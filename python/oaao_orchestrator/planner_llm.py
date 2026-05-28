@@ -50,6 +50,10 @@ class PlannerOutputDraft(BaseModel):
         default=False,
         description="When true, include vault_rag before slide_designer if handbook/source grounding is needed.",
     )
+    needs_web_search: bool = Field(
+        default=False,
+        description="When true, include web_search agent for public internet / news / availability (not workspace vault).",
+    )
     apply_skill_ids: list[str] = Field(
         default_factory=list,
         description="skill_id values from skills_catalog to apply this turn (e.g. bound_template:tid).",
@@ -85,7 +89,10 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return extract_json_object(text)
 
 
-def _planner_system_prompt(
+DEFAULT_PLANNER_SYSTEM_REF = "materials/prompts/planning/planner_system.md"
+
+
+def _planner_system_prompt_inline(
     *,
     allowed_agents: list[str],
     max_tasks: int,
@@ -112,6 +119,7 @@ Schema:
   "slide_action": "regenerate | continue | new | null",
   "use_material_id": "material_id from conversation_materials or null",
   "needs_vault_rag": false,
+  "needs_web_search": false,
   "apply_skill_ids": ["skill_id from skills_catalog when a micro skill applies"],
   "suggest_skill": null | {{ "title": "...", "summary": "...", "preview_markdown": "..." }},
   "conversation_title": "optional short thread title (max 8 words, user's language) for a new chat; omit when unclear"
@@ -133,10 +141,13 @@ Rules:
 - Include attachments only when the user attached files.
 - Use type=agent when an allowed agent above matches the user's goal; set agent_kind accordingly.
 - Chain agents in sensible order (e.g. vault_rag or sandbox_code before slide_designer when data or code is needed).
+- office_generate: when the user wants a **downloadable PDF** from the active Corpus profile (corpus_id on the run),
+  add type=agent office_generate with params source=corpus_template, format=pdf, and optional brief. Use for formal
+  notices/reports; use llm_stream for markdown-only replies in chat.
 - Use each agent_kind at most once per plan (e.g. a single slide_designer task — use requires_ask on that task instead of a separate confirmation row).
 - **Multi-agent runs**: order tasks vault_rag → attachments → other agents → slide_designer (if needed) → llm_stream. Each type=agent is a separate checklist row; the runtime runs them sequentially, emits a short phase summary between agents, then asks before the next agent when needed.
 - **requires_ask** (type=agent only): follow each agent's [ask: …] guide. The first agent may need ask; later agents get an inter-agent ask automatically when another agent completed immediately before.
-- **Desk mode** (conversation mode_id=desk): only slide_designer fits naturally in the same thread. For sandbox_code, web_search, image_gen, or mcp_tool, set requires_ask=true and mention in ask_message that the user may **fork a new chat** for that agent mode or continue here.
+- **Desk mode** (conversation mode_id=desk): only slide_designer fits naturally in the same thread. For sandbox_code, image_gen, or mcp_tool, set requires_ask=true and mention in ask_message that the user may **fork a new chat** for that agent mode or continue here. **web_search** never uses requires_ask — it runs as soon as it is scheduled.
 - report_after: ids of tasks after which a follow-up replan MAY run (typically vault_rag or agent steps).
 - abilities: optional chips for the UI; name capabilities you selected.
 - requires_ask: on type=agent only — set true when the agent guide marks [ask: …] and the user has not clearly
@@ -154,10 +165,69 @@ Rules:
 - needs_vault_rag: true when handbook/vault grounding is required and vault_scope=yes — **especially** on
   continue/regenerate/reuse turns (conversation_materials do not embed RAG text). false only when the user clearly
   needs no document grounding (pure chit-chat) or vault_scope=no.
+- needs_web_search: true when the user wants **current public web** facts (product launch, news, prices,
+  "on the internet", 網絡/網上/開售/最新消息). Set needs_vault_rag=false for those turns unless they also cite
+  an internal handbook/volume in vault. Prefer type=agent web_search before llm_stream; do not rely on keyword lists in code.
 - skills_catalog (when present): pick apply_skill_ids for bound_template / conversation skills that fit this turn;
   use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI).
 - conversation_title: when the turn starts a new thread, suggest a concise sidebar title (max 8 words, user's language).
   Omit or null when the topic is unclear — the chat model will title the thread later."""
+
+
+def _apply_public_web_planner_overrides(req: object, draft: PlannerOutputDraft) -> None:
+    """Align planner JSON with globe / turn_intent public-web routing (skip vault unless scoped)."""
+    from oaao_orchestrator.planner import _explicit_vault_scope, _public_web_turn
+
+    if _explicit_vault_scope(req) or not _public_web_turn(req):
+        return
+    draft.needs_web_search = True
+    draft.needs_vault_rag = False
+
+
+def _planner_system_prompt(
+    *,
+    allowed_agents: list[str],
+    max_tasks: int,
+    agent_guide: str,
+    planner_payload: dict[str, Any] | None = None,
+) -> str:
+    """Load planner system text from purpose ``prompt.system_ref`` or inline fallback."""
+    from oaao_orchestrator.prompt_template import (
+        command_template_ref,
+        load_template_body,
+        prompt_config_from_purpose_payload,
+        render_template_text,
+    )
+
+    agents_s = ", ".join(allowed_agents) if allowed_agents else "(none)"
+    guide_block = agent_guide.strip() if agent_guide.strip() else "(none)"
+    prompt_cfg = prompt_config_from_purpose_payload(planner_payload if isinstance(planner_payload, dict) else None)
+    ref = ""
+    if isinstance(prompt_cfg, dict) and str(prompt_cfg.get("kind") or "") == "conversation":
+        ref = str(prompt_cfg.get("system_ref") or "").strip()
+    if not ref:
+        ref = command_template_ref(
+            None,
+            env_key="OAAO_PLANNER_SYSTEM_REF",
+            default_ref=DEFAULT_PLANNER_SYSTEM_REF,
+        )
+    body = load_template_body(ref=ref, fallback="")
+    if body and "{{" in body:
+        return render_template_text(
+            body,
+            {
+                "allowed_agents": agents_s,
+                "max_tasks": str(max_tasks),
+                "agent_guide": guide_block,
+            },
+        )
+    if body:
+        return body
+    return _planner_system_prompt_inline(
+        allowed_agents=allowed_agents,
+        max_tasks=max_tasks,
+        agent_guide=agent_guide,
+    )
 
 
 def _report_system_prompt(*, agent_guide: str) -> str:
@@ -536,25 +606,6 @@ def apply_slide_continuation_to_specs(
     return specs
 
 
-def _user_wants_handbook_teaching_slides(user_msg: str) -> bool:
-    """Heuristic when the LLM planner only queued vault + compose for handbook / vol teaching turns."""
-    s = (user_msg or "").strip()
-    if not s:
-        return False
-    low = s.lower()
-    handbook = any(k in low for k in ("handbook", "手冊", "manual"))
-    vol = any(k in low for k in ("vol", "volume", "vol.", "vol3", "vol.3", "冊", "卷"))
-    if not vol and re.search(r"第\s*[\d一二三四五六七八九十]+\s*[卷冊]", s):
-        vol = True
-    teaching = any(
-        k in low for k in ("教學", "teaching", "tutorial", "課程", "lesson", "curriculum")
-    )
-    slides = any(k in low for k in ("簡報", "投影片", "slide", "deck", "presentation", "ppt"))
-    if slides and (handbook or teaching or vol):
-        return True
-    return teaching and (handbook or vol)
-
-
 def _default_slide_designer_ask_message(
     user_msg: str,
     *,
@@ -642,6 +693,77 @@ def _plan_signals_handbook_vol_teaching(specs: list[RunTaskSpec]) -> bool:
     return False
 
 
+def inject_web_search_for_planner_intent(
+    specs: list[RunTaskSpec],
+    *,
+    allowed_agents: list[str],
+    needs_web_search: bool,
+) -> list[RunTaskSpec]:
+    if not needs_web_search:
+        return specs
+    allowed_set = {a.strip() for a in allowed_agents if a.strip()}
+    if "web_search" not in allowed_set:
+        return specs
+    if any(
+        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "web_search"
+        for s in specs
+    ):
+        return specs
+    streams = [i for i, s in enumerate(specs) if s.type == RunTaskType.LLM_STREAM]
+    insert_at = streams[0] if streams else len(specs)
+    task = RunTaskSpec(
+        id="rt-web-search",
+        title="Search the web",
+        type=RunTaskType.AGENT,
+        agent_kind="web_search",
+        params={"requires_ask": False},
+    )
+    out = list(specs)
+    out.insert(insert_at, task)
+    total = len(out)
+    for idx, spec in enumerate(out, start=1):
+        spec.index = idx
+        spec.total = total
+    return out
+
+
+def enrich_composer_web_search_plan(
+    plan: RunPlan,
+    req: object,
+    *,
+    allowed_agents: list[str],
+) -> RunPlan:
+    """Apply composer globe toggle only — no keyword routing.
+
+    When the user explicitly enabled Web search in the composer, inject ``web_search``
+    if the LLM planner omitted it. Public-web vs vault routing otherwise stays in
+    ``PlannerOutputDraft.needs_web_search`` / ``needs_vault_rag``.
+    """
+    if not bool(getattr(req, "enable_web_search", False)):
+        return plan
+    allowed_set = {a.strip() for a in allowed_agents if a.strip()}
+    if "web_search" not in allowed_set:
+        return plan
+
+    has_web = any(
+        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "web_search"
+        for s in plan.tasks
+    )
+    tasks = list(plan.tasks)
+    if not has_web:
+        tasks = inject_web_search_for_planner_intent(
+            tasks,
+            allowed_agents=allowed_agents,
+            needs_web_search=True,
+        )
+    plan.tasks = tasks
+    total = len(plan.tasks)
+    for idx, spec in enumerate(plan.tasks, start=1):
+        spec.index = idx
+        spec.total = total
+    return plan
+
+
 def inject_slide_designer_for_teaching_intent(
     specs: list[RunTaskSpec],
     *,
@@ -661,12 +783,16 @@ def inject_slide_designer_for_teaching_intent(
     if isinstance(slide_designer_cfg, dict) and slide_designer_cfg.get("continuation"):
         return specs
 
+    from oaao_orchestrator.slide_project.conversation_intent import (
+        wants_slide_designer_inject,
+    )
+
     template_selected = _slide_template_selected(slide_designer_cfg)
     user_msg = _last_user_message(messages or [])
-    if (
-        not template_selected
-        and not _user_wants_handbook_teaching_slides(user_msg)
-        and not _plan_signals_handbook_vol_teaching(specs)
+    if not wants_slide_designer_inject(
+        user_msg,
+        slide_designer_cfg=slide_designer_cfg,
+        plan_handbook_vol=_plan_signals_handbook_vol_teaching(specs),
     ):
         return specs
 
@@ -759,7 +885,10 @@ def planner_output_to_run_plan(
         conv_materials=conv_materials,
     )
     vault_scope = require_vault
-    require_vault = require_vault or bool(draft.needs_vault_rag)
+    if bool(draft.needs_web_search) and not bool(draft.needs_vault_rag):
+        require_vault = False
+    else:
+        require_vault = require_vault or bool(draft.needs_vault_rag)
     if vault_scope and _turn_reuses_prior_grounding(draft, slide_cfg):
         require_vault = True
     specs = _normalize_tasks(
@@ -767,6 +896,11 @@ def planner_output_to_run_plan(
         allowed_agents=allowed_agents,
         require_vault=require_vault,
         require_attachments=require_attachments,
+    )
+    specs = inject_web_search_for_planner_intent(
+        specs,
+        allowed_agents=allowed_agents,
+        needs_web_search=bool(draft.needs_web_search),
     )
     specs = inject_slide_designer_for_teaching_intent(
         specs,
@@ -808,7 +942,7 @@ async def plan_run_with_llm(
     model: str,
     allowed_agents: list[str],
 ) -> RunPlan | None:
-    from oaao_orchestrator.planner import _vault_rag_needed
+    from oaao_orchestrator.planner import _composer_auto_vault_rag, _vault_rag_needed
 
     max_tasks = max(2, min(12, int(os.environ.get("OAAO_RUN_PLANNER_MAX_TASKS", "8"))))
     user_msg = _last_user_message(getattr(req, "messages", []) or [])
@@ -834,11 +968,43 @@ async def plan_run_with_llm(
             extra = f" project_id={pid}" if pid else ""
             material_lines.append(f"- {mid} ({kind or 'file'}): {title or mid}{extra}")
 
+    composer_auto = _composer_auto_vault_rag(req)
+    if composer_auto:
+        vault_scope_flag = (
+            "optional — Auto Source (no manual vault picks); set needs_vault_rag=true only "
+            "for internal handbook/docs, not for public web/news/product launch questions"
+        )
+    else:
+        vault_scope_flag = "yes" if require_vault else "no"
     flags = [
-        f"vault_scope={'yes' if require_vault else 'no'}",
+        f"vault_scope={vault_scope_flag}",
         f"attachments={'yes' if require_attachments else 'no'}",
         f"allowed_agents={', '.join(allowed_agents) or 'none'}",
     ]
+    if bool(getattr(req, "enable_web_search", False)):
+        flags.append(
+            "composer_web_search=yes — user enabled Web search in composer; "
+            "set needs_web_search=true unless the turn is vault-only handbook lookup",
+        )
+    turn_intent = getattr(req, "turn_intent", None)
+    if isinstance(turn_intent, dict) and turn_intent.get("needs_web_search"):
+        web_score = turn_intent.get("analysis", {})
+        score_txt = ""
+        if isinstance(web_score, dict):
+            try:
+                score_txt = f" web_search={float(web_score.get('web_search', 0)):.2f}"
+            except (TypeError, ValueError):
+                score_txt = ""
+        flags.append(
+            f"turn_intent_web_search=yes{score_txt} — planning.intent hook scored public-web need; "
+            "set needs_web_search=true and needs_vault_rag=false unless vault handbook is also required",
+        )
+    if composer_auto:
+        flags.append(
+            "composer_auto_source=yes — no manual vault picks; for public web/news/product "
+            "launch questions set needs_web_search=true and needs_vault_rag=false; use "
+            "needs_vault_rag=true only when the user needs internal handbook or uploaded docs",
+        )
     sd_cfg = getattr(req, "slide_designer", None)
     if isinstance(sd_cfg, dict):
         tid = str(sd_cfg.get("template_id") or "").strip()
@@ -903,6 +1069,7 @@ async def plan_run_with_llm(
     skill_entries = micro_skills_catalog_from_request(req)
     if skill_entries:
         flags.append("skills_catalog:\n" + catalog_summary_for_planner(skill_entries))
+    planner_payload = getattr(req, "planner", None)
     messages = [
         {
             "role": "system",
@@ -910,6 +1077,7 @@ async def plan_run_with_llm(
                 allowed_agents=allowed_agents,
                 max_tasks=max_tasks,
                 agent_guide=agent_guide,
+                planner_payload=planner_payload if isinstance(planner_payload, dict) else None,
             ),
         },
         {
@@ -937,12 +1105,14 @@ async def plan_run_with_llm(
     except ValidationError:
         logger.warning("planner_schema_invalid")
         return None
+    _apply_public_web_planner_overrides(req, draft)
     sd_cfg = getattr(req, "slide_designer", None)
     slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
+    require_vault_norm = False if composer_auto else require_vault
     return planner_output_to_run_plan(
         draft,
         allowed_agents=allowed_agents,
-        require_vault=require_vault,
+        require_vault=require_vault_norm,
         require_attachments=require_attachments,
         catalog=catalog,
         messages=list(getattr(req, "messages", []) or []),

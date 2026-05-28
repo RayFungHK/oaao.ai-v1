@@ -57,8 +57,14 @@ return function (): void {
             $total = (int) ($countRow['c'] ?? $countRow['C'] ?? 0);
         }
 
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO) {
+            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
+            oaao_auth_ensure_credit_schema($pdo);
+        }
+
         $userQuery = $db->prepare()
-            ->select('user_id, login_name, display_name, email, role, disabled, permission_group_id, last_login, created_at')
+            ->select('user_id, login_name, display_name, email, role, disabled, permission_group_id, last_login, created_at, credit_balance')
             ->from('user');
         if ($tid > 0) {
             $userQuery = $userQuery->where('tenant_id=:tid')->assign(['tid' => $tid]);
@@ -96,6 +102,11 @@ return function (): void {
                     continue;
                 }
                 $gid = isset($row['permission_group_id']) ? (int) $row['permission_group_id'] : 0;
+                $cbRaw = $row['credit_balance'] ?? null;
+                $creditBalance = null;
+                if ($cbRaw !== null && $cbRaw !== '' && is_numeric($cbRaw)) {
+                    $creditBalance = (float) $cbRaw;
+                }
                 $out[] = [
                     'user_id'               => $uid,
                     'login_name'            => (string) ($row['login_name'] ?? ''),
@@ -107,6 +118,8 @@ return function (): void {
                     'permission_group_name' => ($gid > 0 && isset($groupNames[$gid])) ? $groupNames[$gid] : null,
                     'last_login'            => (string) ($row['last_login'] ?? ''),
                     'created_at'            => (string) ($row['created_at'] ?? ''),
+                    'credit_balance'        => $creditBalance,
+                    'credits_unlimited'     => $creditBalance === null,
                 ];
             }
         }

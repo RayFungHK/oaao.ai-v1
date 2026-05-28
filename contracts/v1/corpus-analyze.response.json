@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-analyze.response.json",
+  "title": "CorpusAnalyzeResponse",
+  "description": "CS-1-S6–S7 orchestrator analyze job result (subset)",
+  "type": "object",
+  "required": ["ok", "corpus_id", "segments", "style_json"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "corpus_id": { "type": "integer", "minimum": 1 },
+    "status": { "type": "string" },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "ordinal"],
+        "properties": {
+          "text": { "type": "string" },
+          "ordinal": { "type": "integer", "minimum": 0 },
+          "source_id": { "type": ["integer", "null"] },
+          "classify_json": {
+            "type": "object",
+            "properties": {
+              "segment_kind": {
+                "type": "string",
+                "enum": ["document_segment", "template_block", "structured_data"]
+              },
+              "fields": { "type": "array" },
+              "field_count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "style_json": { "$ref": "corpus-style.json" },
+    "document_type": { "type": "string" },
+    "document_type_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "structure_blueprint": { "type": "object" },
+    "source_structure": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": { "type": "integer", "minimum": 1 },
+          "label": { "type": "string" },
+          "similarity": { "type": ["number", "null"] },
+          "outlier": { "type": "boolean" },
+          "reason": { "type": "string" },
+          "segment_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -15,7 +15,7 @@
 # Override hostname: OAAO_PLATFORM_ADMIN_HOST=ops.example.com (also map in /etc/hosts or DNS)
 #   127.0.0.1 admin.localhost
 #
-# Intra-stack URLs: orchestrator → PHP uses `http://web/…`, DB → `postgres`, Qdrant → `http://qdrant:6333` (--profile vectors).
+# Intra-stack URLs: orchestrator → PHP uses `http://web/…`, DB → `postgres`, web search → `http://searxng:8080`, Qdrant → `http://qdrant:6333` (--profile vectors).
 # From inside a container `localhost` is that container alone; target another compose service by its **Compose service name** and the port it listens on **inside Docker**.
 # If the model runs on the host machine instead, use `host.docker.internal:<host-port>` from the orchestrator container.
 #
@@ -105,6 +105,7 @@ services:
       OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:?OAAO_ORCH_SHARED_SECRET is required (set in docker/env or your secret manager)}
       # Host routing (OAAO_APEX_DOMAIN, OAAO_CUSTOMER_HOSTS, OAAO_PLATFORM_*): set in docker/env — do not override here with empty defaults.
       OAAO_VAULT_STORAGE: ${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      OAAO_CORPUS_STORAGE: ${OAAO_CORPUS_STORAGE:-/var/www/html/storage/corpus}
       OAAO_MINE_DATA_ROOT: ${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
       OAAO_QDRANT_URL: ${OAAO_QDRANT_URL:-http://qdrant:6333}
       OAAO_ARANGO_URL: ${OAAO_ARANGO_URL:-http://arangodb:8529}
@@ -119,6 +120,7 @@ services:
       OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_DIR: ${OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_DIR:-/var/www/html/config/transcript-summary-templates}
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
       OAAO_BENCH_PROBE: ${OAAO_BENCH_PROBE:-}
+      OAAO_SEARXNG_URL: ${OAAO_SEARXNG_URL:-http://searxng:8080}
     volumes:
       # First: full host tree (`sites/`, `.htaccess`, Razy.phar). Later lines overlay config, adjunct DB, vault.
       # Image-only mode: comment this line out and rely on Dockerfile COPY after `docker compose build web`.
@@ -133,10 +135,35 @@ services:
       - ${OAAO_SLIDE_TEMPLATE_PATH:-./docker/data/slide-templates}:/var/www/html/sites/oaaoai/oaaoai/data/slide-templates
       # Vault binaries — shared with orchestrator when ingest reads payloads by absolute filesystem path.
       - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      # Corpus uploads — shared with orchestrator for analyze text extraction (overlay when host path ≠ ./backbone/storage/corpus).
+      - ${OAAO_CORPUS_STORAGE_HOST_PATH:-./backbone/storage/corpus}:${OAAO_CORPUS_STORAGE:-/var/www/html/storage/corpus}
       - ${OAAO_MINE_DATA_HOST_PATH:-./docker/data/mine}:${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
       # Transcript summary prompt templates (HiNote-style) — edit .md on host, reload dialog.
       - ${OAAO_TRANSCRIPT_SUMMARY_TEMPLATES_PATH:-./docker/transcript-summary-templates}:/var/www/html/config/transcript-summary-templates:ro
       - ${OAAO_LIVE_MEETING_HOST_PATH:-./docker/data/live-meeting}:${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+
+  # Meta-search for web_search agent + knowledge refresh (JSON API). Default on — cloud SKU includes live web.
+  searxng:
+    <<: *oaao-env
+    image: docker.io/searxng/searxng:${OAAO_SEARXNG_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: ${OAAO_SEARXNG_BASE_URL:-http://searxng:8080/}
+      SEARXNG_SECRET: ${OAAO_SEARXNG_SECRET:-oaao_dev_searxng_secret}
+    volumes:
+      - ./docker/searxng:/etc/searxng:ro
+    ports:
+      - '${OAAO_SEARXNG_HOST_PORT:-8088}:8080'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -q --spider http://127.0.0.1:8080/ || exit 1',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   orchestrator:
     <<: *oaao-env
@@ -144,6 +171,9 @@ services:
       context: .
       dockerfile: docker/orchestrator/Dockerfile
     restart: unless-stopped
+    depends_on:
+      searxng:
+        condition: service_started
     ports:
       - '${OAAO_SIDECAR_PORT:-8103}:8103'
     environment:
@@ -152,6 +182,9 @@ services:
       OAAO_VAULT_JOB_POLL_BASE_URL: ${OAAO_VAULT_JOB_POLL_BASE_URL:-http://web/vault/api}
       OAAO_VAULT_JOB_POLL_INTERVAL_SEC: ${OAAO_VAULT_JOB_POLL_INTERVAL_SEC:-4}
       OAAO_VAULT_JOB_STUB_MODE: ${OAAO_VAULT_JOB_STUB_MODE:-fail}
+      OAAO_CORPUS_STORAGE: ${OAAO_CORPUS_STORAGE:-/var/www/html/storage/corpus}
+      OAAO_CORPUS_JOB_STORE_DIR: ${OAAO_CORPUS_JOB_STORE_DIR:-/var/www/html/storage/orchestrator-corpus-jobs}
+      OAAO_AGENT_MATERIAL_ROOT: ${OAAO_AGENT_MATERIAL_ROOT:-/var/www/html/storage/agent-materials}
       OAAO_FUNASR_BASE_URL: ${OAAO_FUNASR_BASE_URL:-http://funasr:8765}
       OAAO_FUNASR_COMPOSE_ENABLED: ${OAAO_FUNASR_COMPOSE_ENABLED:-1}
       OAAO_LANCE_BASE_URL: ${OAAO_LANCE_BASE_URL:-http://lance:8787}
@@ -185,6 +218,12 @@ services:
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
       OAAO_POLISH_TEMPLATES_DIR: ${OAAO_POLISH_TEMPLATES_DIR:-/app/config/polish-templates}
       OAAO_MINE_DATA_ROOT: ${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
+      # Knowledge bucket cron (WS-1-S6) — POST /endpoints/api/knowledge_cron_run → reads Settings → /v1/knowledge/refresh
+      OAAO_KNOWLEDGE_CRON_POLL_INTERVAL_SEC: ${OAAO_KNOWLEDGE_CRON_POLL_INTERVAL_SEC:-3600}
+      OAAO_KNOWLEDGE_REFRESH_USER_ID: ${OAAO_KNOWLEDGE_REFRESH_USER_ID:-}
+      OAAO_KNOWLEDGE_TENANT_VAULT_ID: ${OAAO_KNOWLEDGE_TENANT_VAULT_ID:-}
+      OAAO_KNOWLEDGE_PLATFORM_VAULT_ID: ${OAAO_KNOWLEDGE_PLATFORM_VAULT_ID:-}
+      OAAO_SEARXNG_URL: ${OAAO_SEARXNG_URL:-http://searxng:8080}
     healthcheck:
       test:
         [
@@ -199,6 +238,9 @@ services:
       start_period: 25s
     volumes:
       - ${OAAO_VAULT_STORAGE_HOST_PATH:-./docker/data/vault}:${OAAO_VAULT_STORAGE:-/var/www/html/storage/vault}
+      - ${OAAO_CORPUS_STORAGE_HOST_PATH:-./backbone/storage/corpus}:${OAAO_CORPUS_STORAGE:-/var/www/html/storage/corpus}
+      - ${OAAO_CORPUS_JOB_STORE_HOST_PATH:-./docker/data/orchestrator-corpus-jobs}:${OAAO_CORPUS_JOB_STORE_DIR:-/var/www/html/storage/orchestrator-corpus-jobs}
+      - ${OAAO_AGENT_MATERIAL_HOST_PATH:-./backbone/storage/agent-materials}:${OAAO_AGENT_MATERIAL_ROOT:-/var/www/html/storage/agent-materials}
       - ${OAAO_MINE_DATA_HOST_PATH:-./docker/data/mine}:${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
       - ${OAAO_SLIDE_PROJECT_PATH:-./docker/data/slide-projects}:/var/www/html/sites/oaaoai/oaaoai/auth/data/slide-projects
       - ${OAAO_SLIDE_TEMPLATE_PATH:-./docker/data/slide-templates}:/var/www/html/sites/oaaoai/oaaoai/data/slide-templates
@@ -263,6 +305,33 @@ services:
     command: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
     volumes:
       - ${OAAO_REDIS_DATA_PATH:-./docker/data/redis}:/data
+
+  # WS-1-S5/S6 — optional Knowledge refresh tick (Settings → Knowledge). Prefer orchestrator knowledge_cron_poll_loop.
+  knowledge-refresh-cron:
+    <<: *oaao-env
+    profiles: ['knowledge-cron']
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
+    environment:
+      OAAO_ORCH_SHARED_SECRET: ${OAAO_ORCH_SHARED_SECRET:?OAAO_ORCH_SHARED_SECRET is required (set in docker/env or your secret manager)}
+      OAAO_KNOWLEDGE_CRON_BASE_URL: ${OAAO_KNOWLEDGE_CRON_BASE_URL:-http://web/endpoints/api}
+      OAAO_KNOWLEDGE_CRON_INTERVAL_SEC: ${OAAO_KNOWLEDGE_CRON_POLL_INTERVAL_SEC:-3600}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          curl -fsS -X POST \
+            -H "X-OAAO-Internal-Token: $$OAAO_ORCH_SHARED_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$${OAAO_KNOWLEDGE_CRON_BASE_URL%/}/knowledge_cron_run" \
+            || echo "[knowledge-refresh-cron] tick failed"
+          sleep "$${OAAO_KNOWLEDGE_CRON_INTERVAL_SEC:-3600}"
+        done
 
   # ── Lance mm_lance sidecars (optional profiles) — same HTTP contract POST /v1/task
   # Stub:     docker compose --profile lance up -d --build lance

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-document-classify.json",
+  "title": "CorpusDocumentClassifyV1",
+  "description": "CS-1-S16 LLM / API output for document_type classification",
+  "type": "object",
+  "required": ["document_type", "confidence"],
+  "properties": {
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "hk_member_notice_transfer",
+        "hk_member_registry_blocks",
+        "general_prose",
+        "contract",
+        "invoice",
+        "unknown"
+      ]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason": { "type": "string", "maxLength": 500 },
+    "layout_hint": {
+      "type": "string",
+      "enum": ["table_notice", "member_blocks", "prose", "generic"]
+    }
+  },
+  "additionalProperties": false
+}

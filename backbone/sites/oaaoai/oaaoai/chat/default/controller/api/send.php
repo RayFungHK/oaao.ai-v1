@@ -27,7 +27,8 @@ use oaaoai\user\UserPersonalization;
  *             "active_material_id"?: string — continue a slide deck ({@code slide-{project_id}}),
  *             "reuse_grounding_message_id"?: int — retry/regenerate: load material container from this assistant turn,
  *             "slide_template_id"?: string — published custom template for a new deck,
- *             "planner_mode_id"?: "default"|"tot"|"ddtree" — thread planner mode (persisted on new chats) }
+ *             "planner_mode_id"?: "default"|"tot"|"ddtree" — thread planner mode (persisted on new chats),
+ *             "corpus_id"?: number — Corpus Studio style injection (CS-1-S10); programmatic only, not chat composer }
  */
 return function (): void {
     [$splitDb, $user, $pdo] = $this->oaao_chat_require_user();
@@ -41,6 +42,29 @@ return function (): void {
         echo json_encode(['success' => false, 'message' => 'Invalid session']);
 
         return;
+    }
+
+    $authApi = $this->api('auth');
+    $canonDbEarly = $authApi ? $authApi->getDB() : null;
+    $canonPdoEarly = $canonDbEarly instanceof \Razy\Database ? $canonDbEarly->getDBAdapter() : null;
+    if ($canonPdoEarly instanceof \PDO) {
+        require_once dirname(__DIR__, 4) . '/core/default/library/CreditLedgerRepository.php';
+        $coreEarly = $this->api('core');
+        $tenantIdEarly = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
+        if ($tenantIdEarly < 1 && $coreEarly) {
+            $tenantIdEarly = $coreEarly->bootstrapTenantContext($canonPdoEarly);
+        }
+        $creditBlock = \Oaaoai\Core\CreditLedgerRepository::sendBlockedReason($canonPdoEarly, $tenantIdEarly, $uid);
+        if ($creditBlock !== null) {
+            http_response_code(402);
+            echo json_encode([
+                'success' => false,
+                'message' => $creditBlock,
+                'code'    => 'credits_exhausted',
+            ], JSON_UNESCAPED_UNICODE);
+
+            return;
+        }
     }
 
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -175,7 +199,6 @@ return function (): void {
 
     $assistantStub = '*(Preview)* Connect an LLM endpoint and sidecar to stream real replies. Stored locally: your message was received.';
 
-    $authApi = $this->api('auth');
     $canonDb = $authApi ? $authApi->getDB() : null;
 
     $hasPublishedSlideTemplate = false;
@@ -214,13 +237,16 @@ return function (): void {
         return;
     }
 
-    $expandVaultForGrounding = $vaultAutoRag
-        || ChatTeachingIntent::impliesVaultGrounding($orchestratorUserContent);
+    $hasExplicitVaultRefs = $vaultSourceRefs !== [] || $vaultSourceIds !== [];
+    /** @var list<array{kind: string, id: int, vault_id: int, name: string}> $matchedRefs */
+    $matchedRefs = [];
     if (
-        $expandVaultForGrounding
-        && $vaultSourceRefs === []
-        && $vaultSourceIds === []
-        && $canonDb instanceof \Razy\Database
+        $canonDb instanceof \Razy\Database
+        && ChatTeachingIntent::shouldTryComposerVaultMatch(
+            $vaultAutoRag,
+            $hasExplicitVaultRefs,
+            $orchestratorUserContent,
+        )
     ) {
         $matchedRefs = ChatVaultScope::composerRefsMatchingMessage(
             $canonDb,
@@ -228,6 +254,20 @@ return function (): void {
             $wid,
             $orchestratorUserContent,
         );
+    }
+
+    $expandVaultForGrounding = ChatTeachingIntent::shouldExpandVaultComposerScope(
+        $vaultAutoRag,
+        $hasExplicitVaultRefs,
+        $matchedRefs !== [],
+        $orchestratorUserContent,
+    );
+    if (
+        $expandVaultForGrounding
+        && $vaultSourceRefs === []
+        && $vaultSourceIds === []
+        && $canonDb instanceof \Razy\Database
+    ) {
         if (ChatTeachingIntent::impliesPersonalRecordVaultLookup($orchestratorUserContent)) {
             $audioRefs = ChatVaultScope::embeddedAudioRefsForRecordLookup(
                 $canonDb,
@@ -624,12 +664,7 @@ return function (): void {
             } else {
                 $allowedAgents = ChatAllowedAgentsPurposeConfig::defaultAllowed();
             }
-            if (! $enableWebSearch) {
-                $allowedAgents = array_values(array_filter(
-                    $allowedAgents,
-                    static fn (string $kind): bool => strtolower(trim($kind)) !== 'web_search',
-                ));
-            }
+            // Planner chooses web_search per turn (needs_web_search); do not strip from allowed_agents here.
             $allowedAgents = ChatTeachingIntent::ensureSlideDesignerAllowed(
                 $allowedAgents,
                 $orchestratorUserContent,
@@ -859,7 +894,11 @@ return function (): void {
                     if ($rag !== []) {
                         $payload['vault_rag'] = $rag;
                     }
-                    $payload['run_planner_mode'] = $endpointsApi->resolveRunPlannerMode();
+                    $runPlannerMode = $endpointsApi->resolveRunPlannerMode();
+                    if ($vaultAutoRag && $vaultSourceRefs === [] && $vaultSourceIds === []) {
+                        $runPlannerMode = \oaaoai\endpoints\ChatRunPlannerPurposeConfig::MODE_LLM;
+                    }
+                    $payload['run_planner_mode'] = $runPlannerMode;
                     $asr = $endpointsApi->resolveOrchestratorAsrPayload();
                     if ($asr !== null) {
                         $payload['asr'] = $asr;
@@ -875,6 +914,15 @@ return function (): void {
                     $planner = $endpointsApi->resolveOrchestratorPlannerPayload();
                     if ($planner !== null) {
                         $payload['planner'] = $planner;
+                    }
+                    $plannerIntent = $endpointsApi->resolveOrchestratorPlannerIntentPayload();
+                    if ($plannerIntent !== null) {
+                        $payload['planner_intent'] = $plannerIntent;
+                    }
+                    $knowledge = $endpointsApi->resolveOrchestratorKnowledgePayload();
+                    if ($knowledge !== null) {
+                        $knowledge['scope'] = 'platform';
+                        $payload['knowledge'] = $knowledge;
                     }
                 }
                 if ($wid !== null && $wid > 0) {
@@ -895,6 +943,27 @@ return function (): void {
                     ? UserPersonalization::loadForUser($canonPdoForPersonalization, $uid)
                     : UserPersonalization::defaults(),
             );
+
+            $corpusIdRaw = $input['corpus_id'] ?? null;
+            $corpusIdSend = ($corpusIdRaw === null || $corpusIdRaw === '') ? 0 : (int) $corpusIdRaw;
+            if ($corpusIdSend > 0 && $canonDb instanceof \Razy\Database) {
+                require_once dirname(__DIR__, 4) . '/corpus/default/library/CorpusStyleResolver.php';
+                $tenantForCorpus = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
+                if ($tenantForCorpus < 1) {
+                    $tenantForCorpus = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
+                }
+                $corpusStyle = \oaaoai\corpus\CorpusStyleResolver::forChatRun(
+                    $canonDb,
+                    $corpusIdSend,
+                    max(1, $tenantForCorpus),
+                    $uid,
+                    $wid,
+                );
+                if ($corpusStyle !== null) {
+                    $payload['corpus_id'] = $corpusIdSend;
+                    $payload['corpus_style'] = $corpusStyle;
+                }
+            }
 
             $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
             $payload['run_principal'] = ChatRunPrincipal::issue(

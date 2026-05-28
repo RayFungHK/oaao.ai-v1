@@ -187,11 +187,30 @@ return function (): void {
     $rerank = $endpointsApi?->resolveOrchestratorRerankPayload();
     $vaultRag = $endpointsApi?->resolveOrchestratorVaultRagConfig() ?? [];
 
+    $knowledge = $endpointsApi?->resolveOrchestratorKnowledgePayload();
+    $tenantId = 0;
+    $coreApi = $this->api('core');
+    if ($coreApi && method_exists($coreApi, 'tenantContextId')) {
+        $tenantId = (int) ($coreApi->tenantContextId() ?? 0);
+    }
+    if ($tenantId < 1 && isset($user->tenant_id)) {
+        $tenantId = (int) $user->tenant_id;
+    }
+
     $payload = [
         'query'                    => $query,
         'vault_retrieval_profiles' => $profiles,
         'vault_rag'                => $vaultRag,
     ];
+    if ($tenantId > 0) {
+        $payload['tenant_id'] = $tenantId;
+    }
+    if ($knowledge !== null && $knowledge !== []) {
+        if ($tenantId > 0 && ! isset($knowledge['tenant_id'])) {
+            $knowledge['tenant_id'] = $tenantId;
+        }
+        $payload['knowledge'] = $knowledge;
+    }
     if ($embedding !== null) {
         $payload['embedding'] = $embedding;
     }

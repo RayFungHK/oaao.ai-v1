@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/knowledge-web-asset.json",
+  "title": "WebKnowledgeAssetV1",
+  "description": "WS-1-S4 platform/tenant Knowledge bucket entry (public web capture) for oaao-level RAG supplement and training pipelines; workspace_id is attribution only",
+  "type": "object",
+  "required": ["version", "asset_id", "scope", "tier", "hits"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "asset_id": { "type": "string", "maxLength": 64 },
+    "scope": { "type": "string", "enum": ["platform", "tenant"] },
+    "tenant_id": { "type": ["integer", "null"], "minimum": 1 },
+    "workspace_id": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Contributing workspace (attribution)"
+    },
+    "conversation_id": { "type": ["string", "null"], "maxLength": 128 },
+    "run_id": { "type": ["string", "null"], "maxLength": 128 },
+    "tier": {
+      "type": "string",
+      "enum": ["session", "tenant", "vault", "evolution", "crystallized"]
+    },
+    "content_hash": { "type": "string", "maxLength": 64 },
+    "query": { "type": "string", "maxLength": 500 },
+    "plan_method": { "type": "string", "maxLength": 32 },
+    "hits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" },
+          "snippet": { "type": "string", "maxLength": 500 },
+          "provider": { "type": "string" },
+          "plan_query": { "type": "string" },
+          "plan_reason": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "orientation_topics": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 24
+    },
+    "accs_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "promoted_to_vault_id": { "type": ["integer", "null"], "minimum": 1 },
+    "evolution_patch_id": { "type": ["string", "null"] },
+    "created_at": { "type": "number" },
+    "meta": { "type": "object" }
+  },
+  "additionalProperties": true
+}

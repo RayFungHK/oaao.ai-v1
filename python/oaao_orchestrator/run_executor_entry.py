@@ -104,3 +104,10 @@ def apply_user_personalization(*, req: Any, messages_for_llm: list[Any]) -> None
     from oaao_orchestrator.user_personalization import apply_user_personalization as _apply
 
     _apply(req=req, messages_for_llm=messages_for_llm)
+
+
+def apply_corpus_style(*, req: Any, messages_for_llm: list[Any]) -> None:
+    """Inject Corpus Studio style_json when corpus_id is set (CS-1-S10)."""
+    from oaao_orchestrator.corpus.style_context import apply_corpus_style as _apply
+
+    _apply(req=req, messages_for_llm=messages_for_llm)

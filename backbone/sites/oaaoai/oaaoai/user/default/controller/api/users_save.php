@@ -170,56 +170,14 @@ return function (): void {
             )->execute([$cb, $uid]);
         }
     } else {
-        $dupWhere = 'login_name=?';
-        $dupParams = ['login_name' => $loginName];
-        if ($tid > 0) {
-            $dupWhere .= ',tenant_id=:tid';
-            $dupParams['tid'] = $tid;
-        }
-        $dup = $db->prepare()
-            ->select('user_id')
-            ->from('user')
-            ->where($dupWhere)
-            ->assign($dupParams)
-            ->limit(1)
-            ->query()
-            ->fetch();
-        if (\is_array($dup)) {
-            http_response_code(409);
-            echo json_encode(['success' => false, 'message' => 'login_name already in use']);
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Direct user creation is disabled. Send an invitation via users_invite.',
+            'code'    => 'invite_required',
+        ]);
 
-            return;
-        }
-        if ($password === '') {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'password required for new user']);
-
-            return;
-        }
-        $hash = password_hash($password, PASSWORD_BCRYPT);
-        if (! \is_string($hash)) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Could not hash password']);
-
-            return;
-        }
-
-        $db->insert('user', [
-            'login_name', 'password', 'display_name', 'email', 'role', 'disabled', 'permission_group_id', 'tenant_id', 'created_at',
-        ])
-            ->assign([
-                'login_name'          => $loginName,
-                'password'            => $hash,
-                'display_name'        => $displayName,
-                'email'               => $email,
-                'role'                => $role,
-                'disabled'            => $disabled ? 1 : 0,
-                'permission_group_id' => $groupId > 0 ? $groupId : null,
-                'tenant_id'           => $tid > 0 ? $tid : null,
-                'created_at'          => $now,
-            ])
-            ->query();
-        $uid = (int) $pdo->lastInsertId();
+        return;
     }
 
     $db->delete('group_member', ['user_id' => $uid])->query();

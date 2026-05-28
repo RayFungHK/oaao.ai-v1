@@ -224,19 +224,13 @@ def max_per_layout() -> dict[str, int]:
 
 
 def title_hint_layout(title: str) -> str | None:
-    t = (title or "").lower()
-    hints = plan_data().get("title_hints")
-    if not isinstance(hints, list):
-        return None
-    for row in hints:
-        if not isinstance(row, dict):
-            continue
-        layout = str(row.get("layout") or "").strip()
-        keywords = row.get("keywords")
-        if not layout or not isinstance(keywords, list):
-            continue
-        if any(str(k).lower() in t for k in keywords):
-            return layout
+    """
+    CS-AUDIT-3 — deprecated keyword routing from ``plan.json`` ``title_hints``.
+
+    Per-deck layout uses ``middle_rotation``, first/second/last rules, and
+    ``template_micro_skills`` LLM page pick — not title keyword lists.
+    """
+    del title  # unused
     return None
 
 

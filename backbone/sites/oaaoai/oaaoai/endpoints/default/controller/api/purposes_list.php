@@ -30,6 +30,7 @@ return function (): void {
     try {
         $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
         $repo->ensurePlanningPurposeRow();
+        $repo->ensurePlanningIntentPurposeRow();
         $repo->ensureAsrLivePurposeRow();
         $rows = $repo->listPurposesWithDefaultEndpointName();
         $epApi = $this->api('endpoints');

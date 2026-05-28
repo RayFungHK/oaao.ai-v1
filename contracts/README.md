@@ -11,6 +11,9 @@ contracts/
   v1/
     error.json              # W4-S2 canonical error envelope
     chat-run.request.json   # Orchestrator /chat/* + PHP relay payload
+    corpus-style.json       # CS-1-S7 style_json v1 on corpus_profile
+    corpus-analyze.response.json
+    corpus-generate.request.json
     vault-job.envelope.json # PHP /vault/api ↔ orchestrator job exchange
 ```
 

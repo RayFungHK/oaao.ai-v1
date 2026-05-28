@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-render.request.json",
+  "title": "CorpusRenderRequest",
+  "description": "CS-1-S13 POST /v1/corpus/render",
+  "type": "object",
+  "properties": {
+    "corpus_id": { "type": ["integer", "string"] },
+    "format": { "type": "string", "enum": ["html", "pdf"], "default": "html" },
+    "style_json": { "$ref": "corpus-style.json" },
+    "html_template": { "$ref": "corpus-html-template.json" },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "segments": { "type": "array" },
+    "structure_blueprint": { "type": "object" },
+    "profile_name": { "type": "string" },
+    "background": { "type": "boolean", "default": true },
+    "render_job_id": { "type": "string" },
+    "job_id": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -109,6 +109,20 @@ class VaultRagAgent:
                 ctx.messages = messages
                 if outcome is None:
                     outcome = VaultRagOutcome(passage_count=0, profile_hits=0)
+                if (outcome.passage_count if outcome else 0) < 1:
+                    knowledge = params.get("knowledge")
+                    if isinstance(knowledge, dict):
+                        from oaao_orchestrator.knowledge.recall import (
+                            build_knowledge_bucket_recall_block,
+                        )
+                        from oaao_orchestrator.knowledge.scope import parse_tenant_id
+                        from oaao_orchestrator.vault_graph_rag import inject_system_message
+
+                        tid = parse_tenant_id(knowledge.get("tenant_id"))
+                        block = build_knowledge_bucket_recall_block(tenant_id=tid)
+                        if block:
+                            inject_system_message(messages, block)
+                            ctx.messages = messages
                 pipeline_snap = build_pipeline_snapshot_for_rag(outcome, pipeline_snap)
 
             rag_steps_accum: list[dict[str, Any]] = []

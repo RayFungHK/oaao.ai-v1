@@ -1738,6 +1738,13 @@
     max-width: min(100%, 42rem);
 }
 
+/* User text bubble — preserve composer / pasted newlines (also rendered as <br> in JS). */
+.oaao-app .oaao-chat-user-msg-bubble {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 .oaao-app .oaao-chat-user-msg-refs .oaao-chat-template-slug {
     max-width: min(100%, 18rem);
 }

@@ -1,0 +1,20 @@
+# Internal meta-search for orchestrator web_search + knowledge refresh (JSON API).
+# Mounted at /etc/searxng/settings.yml — see docker-compose.yml service `searxng`.
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "OAAO"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "oaao_dev_searxng_secret"
+  limiter: false
+  image_proxy: false

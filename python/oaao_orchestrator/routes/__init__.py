@@ -17,6 +17,7 @@ Mounted so far:
 - routes.asr     — `/v1/asr/transcribe` + `/v1/funasr/{ensure,status}` (W5-S1 phase 6)
 - routes.skills  — `/v1/skills/discover` (W5-S1 phase 7)
 - routes.chat    — `/v1/runs/chat` (W5-S1 phase 8 — final; app.py route split complete)
+- routes.corpus  — `/v1/corpus/*` (CS-1-S6–S8 analyze)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from __future__ import annotations
 from oaao_orchestrator.routes.admin import router as admin_router
 from oaao_orchestrator.routes.asr import router as asr_router
 from oaao_orchestrator.routes.chat import router as chat_router
+from oaao_orchestrator.routes.corpus import router as corpus_router
 from oaao_orchestrator.routes.health import router as health_router
 from oaao_orchestrator.routes.live import router as live_router
 from oaao_orchestrator.routes.mine import router as mine_router
@@ -37,6 +39,7 @@ __all__ = [
     "admin_router",
     "asr_router",
     "chat_router",
+    "corpus_router",
     "health_router",
     "live_router",
     "mine_router",

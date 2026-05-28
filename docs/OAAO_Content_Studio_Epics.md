@@ -32,6 +32,22 @@
 
 **已具備基礎（本 backlog 假設可用）：** per-tenant object storage、Vault RAG、MicroSkill、crystallization、slide PPTX export、`AgentMaterialStorage`、workspace notification bell + dropdown panel 模式、**`OaaoBuildInfo`**（`VERSION` + `build_info.json`）、**`oaaoai/platform`** control plane（tenant registry）、tenant-scoped **`notifications_send`**（單 tenant 廣播）。
 
+### 0.1 商品化約束（硬性 — 全 Content Studio / 相關 Agent）
+
+**禁止** 以「單一客戶／單一公文版型」的 **hard code**（固定 regex 欄位名、寫死 HTML 欄位、if 文件標題則…）當作 **正式能力** 的實作方式。MVP 可短期存在 **behind `document_type` 外掛 schema**，但必須有明確替換路徑與測試，不得無限期累積。
+
+| 允許 | 禁止（商品化後） |
+|------|------------------|
+| **資料驅動**：`document_type` → JSON Schema / Pydantic / `contracts/v1` | 在 `segmenting.py` / `html_template.py` 新增「又一種通告」專用 regex 而無 schema |
+| **版面 → Markdown**（Docling / Unstructured / 等）再進 LLM | 只靠 `pypdf` 平面字串 + 猜 `\d{3}` 表格列 |
+| **兩階段 extraction**：Pass A 邊界+結構、Pass B 主文清洗；驗證失敗可重試／降級 | 一次 prompt 刮 JSON；失敗靜默空白 |
+| **Schema registry**（few-shot 隨 type 載入） | LLM fill 寫死 `id,before,after,…` 等欄位鍵 |
+| **租戶可選模板覆寫**（欄位標籤、CSS） | UI 只為單一 `layout_type=table` 寫死文案 |
+
+**Corpus 現況技術債（須 CS-1-S15–S18 替換，非擴寫）：** HK 行員通告 regex（`【第 N 號行員】`、`行員申請轉讓會籍`、`_TABLE_COLUMNS`）、表格 `layout_type` 启发式。
+
+**DoD 原則：** golden fixtures **≥3 種不同版式** 同一 pipeline 通過；未知版式 → `document_type=unknown` + 明確 UI，而非錯版 PDF。
+
 ---
 
 ## 1. 架構概覽
@@ -115,6 +131,92 @@ flowchart TB
 | **EPIC-PLAT-2** | User Invitation & Self-Registration | P0 | CS-W1 – CS-W3 | SMTP / mail ✅ · Auth ✅ |
 | **EPIC-UX-1** | Chat Model Params & Auto-Tuning | P1 | CS-W4 – CS-W12 | Chat run ✅ · `preferences_json` ✅ |
 | **EPIC-CS-P** | Platform 收尾（非功能） | P2 | 穿插 | OAAO 90D 剩餘項 |
+| **EPIC-EVOL-1** | IQS / ACCS / Reflection / Circuit breaker | P0 | Phase 8 · 穿插 | [Evolution_System_Design.md](./Evolution_System_Design.md) |
+| **EPIC-EVOL-2** | Crystallization + skill recall | P1 | Phase 9 | Qdrant + Arango `crystallized_skills` |
+| **EPIC-EVOL-3** | Evolution patches（Phase 11 cron） | P1 | Phase 11 | `evolution_patches` + auto-rollback |
+| **EPIC-INFRA-1** | Endpoint / LoRA purpose 矩陣 | P0 | CS-W2 · 穿插 | `oaao_endpoint`；見 §2.1 |
+| **EPIC-WS-1** | Web Search → **Knowledge buckets**（oaao 級 RAG 補充） | P1 | CS-W10+ | 見 §2.1 · [web-search-knowledge-evolution.md](./design/web-search-knowledge-evolution.md) |
+
+---
+
+## 2.1 EPIC-EVOL / EPIC-INFRA 與 Content Studio 并列總覽
+
+三條軸線與 CS **并列**，避免只做 Corpus regex 而忽略「智能資產」主線：
+
+| 軸線 | Epic | 產物（不綁單一 31B 主模型） | 規格 |
+|------|------|---------------------------|------|
+| **推理適配** | EPIC-INFRA-1 | LoRA / 專模經 **purpose** 掛載 | 本節 LoRA 矩陣 |
+| **執行時品質** | EPIC-EVOL-1 | IQS、ACCS、Reflection、熔斷 | [Evolution_System_Design.md](./Evolution_System_Design.md) |
+| **可重用知識/能力** | EPIC-EVOL-2、EPIC-EVOL-3、**EPIC-CS-4**、**EPIC-WS-1** | CrystallizedSkill、evolution patches、MicroSkill、**Knowledge buckets**（公開 web → 全站 RAG） | Evolution §8；CS-4；WS-1 設計稿 |
+| **文件智能（CS）** | EPIC-CS-1 S15–S18 | Markdown ingest → `document_type` → schema extract → template | §3；[稽核報告](./reports/Intelligence-vs-Hardcode-Audit.md) |
+
+```mermaid
+flowchart LR
+  INFRA[EPIC-INFRA-1 LoRA endpoints]
+  CS[EPIC-CS-1 Corpus S15-S18]
+  EVOL[EPIC-EVOL-1 IQS/ACCS]
+  ASSET[EPIC-EVOL-2/3 + CS-4 Skills]
+  INFRA --> CS
+  INFRA --> EVOL
+  EVOL --> ASSET
+  CS --> ASSET
+```
+
+### LoRA / purpose 矩陣（EPIC-INFRA-1）
+
+經 **`oaao_endpoint`** + orchestrator **`llm_cfg`** 注入；LoRA 權重在推理服務側掛載，**不是**存進 `style_json`。
+
+| Purpose（建議） | 消費者 | 任務 | 備註 |
+|-----------------|--------|------|------|
+| `corpus.analyze` | `POST /v1/corpus/analyze` | S15 Markdown 結構化、**S16 document_type**、S17 extract | 可綁 domain LoRA |
+| `corpus.style` | analyze tail / style_json | 風格 profile | 與 analyze 可同模或分模 |
+| `corpus.render_fill` | `POST /v1/corpus/render` | 模板參數 / table_rows | schema 鍵由 S16 registry 驅動 |
+| `planning` / `planning.coach` | planner、ToT/DDTree | 任務分解 | 見 Audit Phase 8 |
+| `evaluation.iqs` / `evaluation.accs` | post-stream、run preamble | IQS / ACCS coach（E4B） | Evolution §4–5 |
+| `evaluation.uiqe` | 舊稱兼容 | 同上 | 逐步遷移到 `evaluation.iqs` |
+| `chat.main` / `chat.fast` | llm_stream | 主對話 | Box1 31B / Box2 MoE |
+| `slide.template` | template_analyze / slot_plan | PPTX 槽位語義 | 已 LLM-first；禁 keyword 擴寫 |
+| `knowledge.orientation` | WS-1 orientation worker | 對話取向 / 定時搜尋主題 | EPIC-WS-1 ✅ |
+| `knowledge.search_plan` | WS-1-S3 search plan | 多查詢拆解（非 user 原文） | EPIC-WS-1 ✅ stub |
+| `knowledge.search_plan` | WS-1 web agent | 多查詢 + 引擎路由 | EPIC-WS-1 |
+| `knowledge.classify` | WS-1-S9（規劃） | bucket 再分類、主題標籤 | EPIC-WS-1 🔲 |
+| `knowledge.distill` | WS-1-S9（規劃） | 精華摘要 → 高效 RAG / patch | EPIC-WS-1 🔲 |
+
+**原則：** 新增業務欄位 → **S16 `document_type` + contract**；新增「理解能力」→ **purpose 矩陣加列**，而非 Python regex 分支。
+
+### EPIC-WS-1 — Web Search → Knowledge buckets（oaao 級 RAG 補充）
+
+**產品模型：** **Web search** 擷取中立公開資料 → 寫入 **platform Knowledge buckets**（oaao **自我演化** 技術，**tenant 不可見**）→ 依 **跨租戶對話／話題／關鍵字重要分數** 決定是否納入 **auto web search**；多次搜尋後評估 **更新密度、市場話題性、時效** — 低收益或過時則暫停，除非 **突破／關聯話題** 再啟動。定時 **分類、精華、ACCS 晉升**（Vault embed、`evolution_patches`）。**全系統** RAG 可引用；**非** workspace 或租戶管理員設定。
+
+**與其他軸線：** 有別於 workspace **Vault 勾選**（私有上傳）、**Corpus Studio**（企業文件風格／文員）、使用者 **preferences knowledge** 文字。
+
+**作用域：** **platform** catalog（預設）；**workspace / tenant_id 僅歸因**；**Platform console → Knowledge** 為唯一營運 UI。
+
+| Story | Summary | Priority |
+|-------|---------|----------|
+| **WS-1-S1** | `SearchProvider` 抽象 + SearXNG | ✅ P0 |
+| **WS-1-S2** | `orientation_json` + 對話尾隨更新 | ✅ P0 |
+| **WS-1-S3** | 多查詢 search plan（LLM，非 regex） | ✅ stub P1 |
+| **WS-1-S4** | bucket 條目 → Vault + embed + `evolution_patches` | ✅ ACCS gate |
+| **WS-1-S5** | 定時 refresh worker | ✅ `POST /v1/knowledge/refresh` |
+| **WS-1-S6** | Platform console → Knowledge（refresh、opt-out、RAG merge） | ✅ |
+| **WS-1-S10** | 話題重要分數 + 生命週期 gate（低 yield / 過時 / breakthrough） | ✅ |
+| **WS-1-S11** | 對話表批次 importance + platform Knowledge vault 自動 provision | ✅ |
+| **WS-1-S8** | 全系統 recall（bucket + knowledge vault 合併） | ✅ `recall.py` + RAG merge |
+| **WS-1-S9** | 定時分類／精華 + `knowledge.classify` / `knowledge.distill` | ✅ classify API + batch |
+
+設計草案：[web-search-knowledge-evolution.md](./design/web-search-knowledge-evolution.md)（§1.1 Knowledge buckets）。與 **EPIC-EVOL-2/3** 共用 ACCS 寫入門檻與可重用資產模型。
+
+### Sprint CS-AUDIT-1 — 智能稽核修復（與 S16 同 sprint）
+
+| ID | 項 | 動作 | 狀態 |
+|----|-----|------|------|
+| **AUDIT-1** | Corpus regex 擴寫禁令 | §0.1 + PR checklist | ✅ Epics |
+| **AUDIT-2** | **CS-1-S16** | `schema_registry.py` + `contracts/v1/corpus-extract-*.json` | ✅ 本輪 |
+| **AUDIT-3** | `slide_project/templates/plan.json` **keywords** | `title_hints` 清空；`title_hint_layout()` 不再 keyword 路由 | ✅ |
+| **AUDIT-4** | `ChatTeachingIntent.php` | 僅 template chip 開 slide_designer；vault 改 composer 檔名匹配 + `shouldExpandVaultComposerScope` | ✅ |
+| **AUDIT-5** | `live_meeting/bubble_engine.py` | 意圖改 LLM + glossary（可選 LoRA purpose） | 🔲 P2 |
+| **AUDIT-6** | CS-1-S17 / S18 | 兩階段 extract + schema-driven template | 🔲 |
 
 ---
 
@@ -122,13 +224,18 @@ flowchart TB
 
 ### 3.1 產品規格
 
+- **Runtime 分工（硬性）：** **Python orchestrator** = extract、segment、LLM style、markdown generate、HTML template build、render/PDF（CS-3）、background jobs。**PHP** = auth、workspace ACL、CRUD、storage locator、組 payload、**≤30s enqueue**、poll 轉發、結果落庫；**不得在 PHP-FPM 做 heavy load**（會阻塞 worker pool）。
 - **入口：** `registerSpaPage('workspace/corpus', …)`，Gallery layout（對齊 `workspace/templates`）。
 - **Corpus 實體：** 一筆 profile = 名稱 + 描述 + 標籤 + **style_json** + 來源清單 + 狀態（`draft` / `learning` / `ready` / `error`）。
 - **來源類型：**
   1. **Upload** — 直接上傳（docx/pdf/md/txt…）→ tenant storage `corpus` domain（或專用 prefix）。
   2. **Vault reference** — 選 **folder（container）** 或 **多個 document**；存 locator + vault_id，不複製正文（analyze 時 materialize/cache）。
-- **Pipeline：** ingest → extract segments（复用 vault extract）→ **classify**（genre / audience / tone / domain / language）→ **learn**（style_json：structure、lexicon、formatting、do/don't）→ **ready**。
-- **輸出：** Editor / Chat / Office 可選 `corpus_id`；Corpus page 內 **Generate preview** 驗收風格。
+- **Pipeline（目標架構，見 §0.1）：** ingest → **layout-aware Markdown** → **document_type** → schema extraction（兩階段 + 驗證）→ segments + **learn**（style_json）→ template 由 schema 生成 → **ready**。  
+  **現行 MVP：** ingest → vault 平面 extract → regex `segment_analyze_text` → 可選 LLM 貼標／style → heuristic `html_template`（**不得再擴寫 domain regex**）。
+- **雙軌輸出（硬性分工）：**
+  1. **Markdown 軌** — Chat 助理回覆、Library Editor（blocks + markdown mirror）、`CorpusGenerate` 預覽、CS-3 docx。內容可編、可 @library、可 crystallize。
+  2. **HTML Template 軌** — Analyze 產出 `style_json.meta.html_template`（`corpus_html_template_v1`：固定 HTML/CSS + `parameters[]`）。Generate / Chat / Office **只填參數再渲染**；**PDF 僅走此軌**（weasyprint / print CSS，對齊 CS-3-S3），不得用自由 markdown 拼版湊 PDF。
+- **輸出：** Editor / Chat 預設 Markdown 軌 + `corpus_id` 風格注入；Corpus page **Generate** 分「Markdown 預覽」與「渲染 PDF」；Office `office_generate` 可選 `source=corpus_template`。
 
 ### 3.2 Stories
 
@@ -145,8 +252,15 @@ flowchart TB
 | **CS-1-S9** | `CorpusGenerate` preview | P1 | python-lead | 輸入 brief → 套用 profile 生成 sample；Corpus page 內預覽 |
 | **CS-1-S10** | Chat / API contract：`corpus_id` | P1 | python-lead | `ChatRunRequest` + send.php 傳遞；planner system 注入 style block |
 | **CS-1-S11** | Contract tests + PHP/Python tests | P1 | qa-lead | schema 進 `contracts/v1/`；≥1 integration test analyze→profile |
+| **CS-1-S12** | Dual output：`corpus_html_template_v1` | P1 | python-lead | Analyze 寫入 `style_json.meta.html_template`（parameters + html_body + css）；heuristic 自 block 樹；`POST /v1/corpus/template/build` 可重算 |
+| **CS-1-S13** | Orchestrator `CorpusRender` | P1 | python-lead | `POST /v1/corpus/render`（`format=html\|pdf`，poll job）；HTML 填參；PDF skeleton→CS-3 weasyprint；contracts `corpus-render.*` |
+| **CS-1-S14** | Corpus UI：Markdown vs PDF | P2 | php-lead | Generate 對話框兩 tab；PDF 下載走 render job；顯示 template 參數預覽 |
+| **CS-1-S15** | Layout ingest → `document_markdown` | P0 | python-lead | `corpus/document_markdown.py`：LLM-first 結構化 Markdown（endpoint/LoRA 可經 `llm_cfg`）；fallback heuristic；寫入 `style_json.meta`；analyze 分段改吃 Markdown。稽核：[Intelligence-vs-Hardcode-Audit.md](./reports/Intelligence-vs-Hardcode-Audit.md) |
+| **CS-1-S16** | `document_type` + schema registry | P0 | python-lead | ✅ `corpus/schema_registry.py`；`contracts/v1/corpus-schema-registry.json`、`corpus-extract-*.json`；analyze 寫入 `meta.document_type*`；Pydantic `validate_extraction`；heuristic+LLM classify。與 **CS-AUDIT-1** 同 sprint |
+| **CS-1-S17** | 兩階段 extraction worker | P1 | python-lead | Pass A：區塊邊界+結構化 JSON；Pass B：主文/函首清洗；失敗 partial + `error` 可讀 |
+| **CS-1-S18** | Schema-driven `html_template` | P1 | python-lead | Template 由 extraction schema 生成 parameters/columns；**移除** CGSE 專用 regex 預設；golden ≥3 版式回歸 |
 
-**DoD（Epic）：** 使用者可在 Corpus page 從 upload 或 Vault 引用建立 profile，跑 analyze，編輯 style，並在 Chat 選 corpus 看到風格差異。
+**DoD（Epic）：** 使用者可在 Corpus page 從 upload 或 Vault 引用建立 profile，跑 analyze，編輯 style，並在 Chat 選 corpus 看到風格差異；具備 **html_template** 時可從 Corpus 觸發 **render PDF**（或收到明確的 renderer-not-ready）。
 
 ---
 
@@ -186,9 +300,11 @@ flowchart TB
 
 ### 5.1 產品規格
 
-- Planner agent / tool：`office_generate`（params: format, source: library_doc | message | corpus_brief, corpus_id?）。
+- Planner agent / tool：`office_generate`（params: format, source: `library_doc` \| `message` \| `corpus_brief` \| **`corpus_template`**, `corpus_id?`, `parameters?`）。
+- **PDF：** `source=corpus_template` 時走 Corpus **HTML Template 軌**（`POST /v1/corpus/render` `format=pdf`），非 markdown 轉版。
+- **DOCX：** 仍由 markdown/blocks 軌（Corpus 影響 heading/list 風格）。
 - 產物存 `agent_materials` domain；Materials dialog 下載。
-- Editor 快捷：Export → docx / pdf；（xlsx 可從 table block 匯出）。
+- Editor 快捷：Export → docx（markdown 軌）/ pdf（html template 或 blocks→html，依文件類型）。
 
 ### 5.2 Stories
 
@@ -196,7 +312,7 @@ flowchart TB
 |----------|---------|----------|-------|---------------------------|
 | **CS-3-S1** | Agent 註冊 + planner tool schema | P1 | python-lead | `PlannerAgentRegister` + OpenAI tool；manifest 文件 |
 | **CS-3-S2** | DOCX generator | P1 | python-lead | markdown/blocks → python-docx；Corpus 影響 heading/list 風格 |
-| **CS-3-S3** | PDF generator | P1 | python-lead | HTML/CSS 或 weasyprint；CJK font 配置 |
+| **CS-3-S3** | PDF generator | P1 | python-lead | weasyprint（或等價）接 CS-1-S13 render HTML；CJK `@font-face`；Corpus template 優先 |
 | **CS-3-S4** | XLSX generator | P2 | python-lead | table block → openpyxl；基本 styling |
 | **CS-3-S5** | Artifact persist + media URL | P1 | php-lead | `AgentMaterialStorage`；download API；TTL 可配置 |
 | **CS-3-S6** | Chat Materials UI | P1 | php-lead | task_materials 顯示 office 檔；重新生成 |
@@ -454,7 +570,7 @@ flowchart LR
 | **CS-P-S1** | Vault job ingest SSE Phase 2 | P1 | Top-20 #9 |
 | **CS-P-S2** | Redis queue canary Stage 2 ops | P1 | W8_S3 |
 | **CS-P-S3** | 更新 MIGRATION_LEGACY §4 parity 表 | P2 | 含 storage ✅、Corpus/Library 規劃 |
-| **CS-P-S4** | `contracts/v1` corpus + library schemas | P1 | W7 延伸 |
+| **CS-P-S4** | `contracts/v1` corpus + library schemas | P1 | W7 延伸；含 `corpus-html-template.json`、`corpus-render.*` |
 
 ---
 
@@ -465,7 +581,7 @@ flowchart LR
 | **CS-W1** | 1 | CS-1-S1…S5 + **PLAT-2-S1…S3**（Corpus page + invite schema/mail） |
 | **CS-W2** | 2 | CS-1-S6…S8 + **PLAT-2-S4…S5**（Analyze + learn + registration/reset pages） |
 | **CS-W3** | 3 | CS-2-S1…S3 + **PLAT-2-S6…S7**（Library module + invite admin UI + security tests） |
-| **CS-W4** | 4 | CS-1-S9…S11 + CS-4-S1…S3 + **UX-1-S1…S3**（Corpus preview + skill classifier + adv params） |
+| **CS-W4** | 4 | CS-1-S9…S11 + **CS-1-S12…S13**（dual output + render API）+ CS-4-S1…S3 + **UX-1-S1…S3** |
 | **CS-W5** | 5 | CS-2-S4…S6 + **UX-1-S4…S5**（Block Editor + preference questionnaire + tags） |
 | **CS-W6** | 6 | CS-2-S7…S9 + **UX-1-S6…S8**（Soft-RAG + Re-tune + personality packs + param mapping） |
 | **CS-W7** | 7 | CS-2-S10…S11 + CS-4-S4…S6 + **CS-5-S1…S3**（Composer @library + Skill dialog + Calendar shell） |
@@ -510,6 +626,7 @@ flowchart LR
 
 ## 16. 相關文件更新（實作後）
 
+- **設計包（實作前凍結）：** [docs/design/README.md](./design/README.md) — [corpus-studio.md](./design/corpus-studio.md) · [library-editor.md](./design/library-editor.md) · [user-invitation.md](./design/user-invitation.md)
 - [MIGRATION_LEGACY_OAAO.md](./MIGRATION_LEGACY_OAAO.md) — §3 Corpus/Library 對標表
 - [Manus_Gap_Analysis.md](./Manus_Gap_Analysis.md) — 檔案系統 write 軸（Library finalize 部分緩解）
-- `backbone/sites/oaaoai/oaaoai/docs/backlog/` — 可新增 `corpus-studio.md` / `library-editor.md` / **`platform-release-notes.md`** 鏈到本文件
+- `backbone/sites/oaaoai/oaaoai/docs/backlog/` — 其餘 Epic 設計包（productivity-agents、office-agent 等）見 design README「planned」

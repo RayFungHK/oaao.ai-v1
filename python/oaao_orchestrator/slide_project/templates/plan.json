@@ -16,14 +16,6 @@
     "three_cards": 1,
     "two_column": 1
   },
-  "title_hints": [
-    { "layout": "faq_split", "keywords": ["faq", "問答", "q&a", "常見問題", "錯誤排除"] },
-    { "layout": "two_column", "keywords": ["案例", "實戰", "case study", "example"] },
-    { "layout": "three_cards", "keywords": ["架構", "模組", "層", "architecture", "platform", "stack"] },
-    { "layout": "summary", "keywords": ["總結", "摘要", "summary", "next step", "下一步"] },
-    { "layout": "title_hero", "keywords": ["介紹", "歡迎", "opening", "cover"] },
-    { "layout": "quote_focus", "keywords": ["技巧", "最佳", "實踐", "tips", "best practice"] },
-    { "layout": "metric_row", "keywords": ["數據", "指標", "kpi", "成效", "metric"] },
-    { "layout": "section_divider", "keywords": ["章", "part", "section", "單元"] }
-  ]
+  "title_hints": [],
+  "_comment_title_hints": "CS-AUDIT-3: keyword title_hints removed. Layout per slide comes from LLM outline + template_micro_skills + middle_rotation; not keyword lists."
 }

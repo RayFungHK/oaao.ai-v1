@@ -45,6 +45,7 @@ from oaao_orchestrator.vault_rag.passages import (
     _passage_relevant_to_query,
     _picks_for_citations,
     _query_is_general_knowledge,
+    retrieval_confidence_sufficient,
     _query_wants_meeting_record,
     _query_wants_transcript_evidence,
     _rag_runtime_config,
@@ -362,15 +363,27 @@ async def augment_chat_messages_for_vault_rag(
                 gk_had_off_topic = True
                 all_picks = []
 
+    auto_source = vault_auto_rag and not manual_scope
     if all_picks and not handbook_turn and not wants_record and not explicit_scope and not vault_rescan:
-        strict_relevant = [
-            p for p in all_picks if _passage_relevant_to_query(query, p.passage, strict=True)
-        ]
-        if not strict_relevant:
-            gk_had_off_topic = True
-            all_picks = []
+        if auto_source:
+            if not retrieval_confidence_sufficient(all_picks, min_score=min_score):
+                gk_had_off_topic = True
+                all_picks = []
+            else:
+                all_picks = sorted(
+                    all_picks,
+                    key=lambda p: float(p.score or 0.0),
+                    reverse=True,
+                )[: max(6, per_vault_limit)]
         else:
-            all_picks = strict_relevant
+            strict_relevant = [
+                p for p in all_picks if _passage_relevant_to_query(query, p.passage, strict=True)
+            ]
+            if not strict_relevant:
+                gk_had_off_topic = True
+                all_picks = []
+            else:
+                all_picks = strict_relevant
 
     all_picks = _narrow_grounding_picks(query, all_picks)
 
@@ -383,6 +396,8 @@ async def augment_chat_messages_for_vault_rag(
     citation_picks = _picks_for_citations(query, cite_pool or all_picks, wants_gk=wants_gk)
 
     if handbook_turn or wants_record or explicit_scope or vault_rescan:
+        grounding_picks = all_picks[:32]
+    elif auto_source:
         grounding_picks = all_picks[:32]
     else:
         grounding_picks = citation_picks[:32]

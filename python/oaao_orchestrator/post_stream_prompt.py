@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import logging
-import os
-import re
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from oaao_orchestrator.prompt_template import (
+    load_template_body,
+    prompts_subdir,
+    render_template_text,
+    resolve_template_path,
+)
 
-_VAR_PATTERN = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+logger = logging.getLogger(__name__)
 
 _DEFAULT_WORKERS_DIR = Path("materials/prompts/workers")
 
@@ -21,27 +24,13 @@ _PLUGIN_PROMPT_REFS: dict[str, str] = {
 
 
 def workers_root() -> Path:
-    raw = os.environ.get("OAAO_MATERIALS_ROOT", "").strip()
-    if raw:
-        return Path(raw)
-    return Path("/app")
+    from oaao_orchestrator.prompt_template import materials_root
+
+    return materials_root()
 
 
 def resolve_prompt_path(ref: str) -> Path | None:
-    r = (ref or "").strip()
-    if not r:
-        return None
-    p = Path(r)
-    if p.is_file():
-        return p
-    rooted = workers_root() / r
-    if rooted.is_file():
-        return rooted
-    alt = workers_root() / _DEFAULT_WORKERS_DIR.name / Path(r).name
-    if alt.is_file():
-        return alt
-    logger.warning("post_stream prompt not found ref=%s", r)
-    return None
+    return resolve_template_path(ref, search_dirs=(prompts_subdir("workers"),))
 
 
 def prompt_ref_for_plugin(plugin_id: str, *, bundle_ref: str = "") -> str:
@@ -53,13 +42,7 @@ def prompt_ref_for_plugin(plugin_id: str, *, bundle_ref: str = "") -> str:
 
 def render_worker_prompt(path: Path, variables: dict[str, Any]) -> str:
     text = path.read_text(encoding="utf-8")
-    vars_map = {k: "" if v is None else str(v) for k, v in variables.items()}
-
-    def _sub(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return vars_map.get(key, match.group(0))
-
-    return _VAR_PATTERN.sub(_sub, text).strip()
+    return render_template_text(text, variables)
 
 
 def build_prompt_variables(meta: dict[str, Any]) -> dict[str, Any]:
@@ -75,3 +58,7 @@ def build_prompt_variables(meta: dict[str, Any]) -> dict[str, Any]:
         "materials_count": meta.get("materials_count", 0),
         "task_count": meta.get("task_count", 0),
     }
+
+
+def load_worker_prompt_body(ref: str) -> str:
+    return load_template_body(ref=ref, search_dirs=(prompts_subdir("workers"),))

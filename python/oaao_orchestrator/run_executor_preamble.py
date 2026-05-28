@@ -130,8 +130,14 @@ async def prepare_run_preamble(
 
     async def _maybe_recall_crystallized_plan(iqs_result: object, current: RunPlan) -> RunPlan:
         from oaao_orchestrator.crystallization.plan import build_plan_from_tool_chain
-        from oaao_orchestrator.crystallization.recall import recall_skill
+        from oaao_orchestrator.crystallization.recall import (
+            recall_skill,
+            should_skip_crystallized_skill_recall,
+        )
 
+        if should_skip_crystallized_skill_recall(req):
+            logger.debug("crystallized_skill_recall_skipped vault_auto_rag=%s", getattr(req, "vault_auto_rag", False))
+            return current
         if str(getattr(iqs_result, "action", "") or "") not in ("pass", "assume_defaults"):
             return current
         t_recall = time.perf_counter()
@@ -419,6 +425,18 @@ async def prepare_run_preamble(
         run_ctx_extra["mm_edit"] = dict(req.mm_edit)
     if run_principal is not None:
         run_ctx_extra["run_principal"] = run_principal
+    if isinstance(getattr(req, "corpus_style", None), dict):
+        run_ctx_extra["corpus_style"] = dict(req.corpus_style)
+    if isinstance(getattr(req, "knowledge", None), dict):
+        run_ctx_extra["knowledge"] = dict(req.knowledge)
+    run_ctx_extra["chat_request"] = req
+    ep = getattr(req, "endpoint", None)
+    if ep is not None and getattr(ep, "base_url", None):
+        run_ctx_extra["llm_cfg"] = {
+            "base_url": str(getattr(ep, "base_url", "") or ""),
+            "model": str(getattr(ep, "model", "") or ""),
+            "api_key": api_key,
+        }
     run_ctx = RunContext(
         conversation_id=req.conversation_id,
         user_id=req.user_id,

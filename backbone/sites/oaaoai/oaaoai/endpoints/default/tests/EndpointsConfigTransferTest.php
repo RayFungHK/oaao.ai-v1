@@ -12,6 +12,7 @@ final class EndpointsConfigTransferTest extends TestCase
         $pdo = new PDO('sqlite::memory:');
         $pdo->exec('CREATE TABLE oaao_endpoint (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER DEFAULT NULL,
             name TEXT NOT NULL,
             endpoint_type TEXT NOT NULL DEFAULT "chat",
             base_url TEXT,

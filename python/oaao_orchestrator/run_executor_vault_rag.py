@@ -28,8 +28,14 @@ def vault_rag_ctx_extra(
     pipeline_snap: dict[str, Any] | None,
     plan: RunPlan,
 ) -> dict[str, Any]:
+    from oaao_orchestrator.knowledge.recall import merge_knowledge_recall_from_request
+
+    profiles = merge_knowledge_recall_from_request(req)
     return {
-        "vault_retrieval_profiles": list(getattr(req, "vault_retrieval_profiles", None) or []),
+        "vault_retrieval_profiles": profiles,
+        "knowledge": getattr(req, "knowledge", None)
+        if isinstance(getattr(req, "knowledge", None), dict)
+        else None,
         "embedding": req.embedding if isinstance(getattr(req, "embedding", None), dict) else None,
         "rerank": req.rerank if isinstance(getattr(req, "rerank", None), dict) else None,
         "vault_source_refs": [

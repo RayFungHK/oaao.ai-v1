@@ -17,6 +17,7 @@ pytesseract>=0.3,<1
 Pillow>=12.2,<13
 python-docx>=1.1,<2
 openpyxl>=3.1,<4
+weasyprint>=62,<67
 python-pptx>=1.0,<2
 numpy>=1.26,<3
 boto3>=1.34,<2

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace oaaoai\endpoints;
 
+require_once __DIR__ . '/PurposePromptConfig.php';
+
 /**
  * Build orchestrator-facing LLM config arrays from purpose bindings.
  */
@@ -42,6 +44,12 @@ final class LlmOrchestratorPayload
             }
             $outKey = $key === 'max_tokens' ? 'max_output_tokens' : $key;
             $out[$outKey] = $key === 'timeout_sec' ? (float) $cfg[$key] : (int) $cfg[$key];
+        }
+
+        $meta = \is_array($bind['purpose_meta'] ?? null) ? $bind['purpose_meta'] : [];
+        $prompt = PurposePromptConfig::orchestratorPromptFromMeta($meta);
+        if ($prompt !== null) {
+            $out['prompt'] = $prompt;
         }
 
         return $out;

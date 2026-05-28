@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-generate.request.json",
+  "title": "CorpusGenerateRequest",
+  "description": "CS-1-S9 orchestrator POST /v1/corpus/generate (internal)",
+  "type": "object",
+  "required": ["brief", "style_json"],
+  "properties": {
+    "corpus_id": { "type": "integer", "minimum": 1 },
+    "brief": { "type": "string", "minLength": 1 },
+    "style_json": { "$ref": "corpus-style.json" },
+    "llm_cfg": {
+      "type": "object",
+      "properties": {
+        "base_url": { "type": "string" },
+        "model": { "type": "string" },
+        "api_key_env": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

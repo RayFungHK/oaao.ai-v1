@@ -14,6 +14,7 @@ const DOMAINS = [
     'slide_templates',
     'live_meeting',
     'mine',
+    'corpus',
 ];
 
 const CDN_PROVIDERS = ['none', 'generic', 'cloudfront', 'gcs', 'cloudflare'];

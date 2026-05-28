@@ -19,12 +19,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from oaao_orchestrator.cors_config import resolve_cors_config
 from oaao_orchestrator.log_config import configure_oaao_logging
+from oaao_orchestrator.knowledge_cron_poll import knowledge_cron_poll_loop
 from oaao_orchestrator.research_cron_poll import research_cron_poll_loop
 from oaao_orchestrator.research_fetch_poll import research_fetch_poll_loop
 from oaao_orchestrator.research_refetch_poll import research_refetch_poll_loop
 from oaao_orchestrator.routes.admin import router as _admin_router
 from oaao_orchestrator.routes.asr import router as _asr_router
 from oaao_orchestrator.routes.chat import router as _chat_router
+from oaao_orchestrator.routes.corpus import router as _corpus_router
+from oaao_orchestrator.routes.library import router as _library_router
 from oaao_orchestrator.routes.health import router as _health_router
 from oaao_orchestrator.routes.live import router as _live_router
 from oaao_orchestrator.routes.mine import router as _mine_router
@@ -38,6 +41,7 @@ from oaao_orchestrator.routes.media import router as _media_router
 from oaao_orchestrator.routes.contracts import router as _contracts_router
 from oaao_orchestrator.routes.vault import router as _vault_router
 from oaao_orchestrator.routes.storage import router as _storage_router
+from oaao_orchestrator.routes.knowledge import router as _knowledge_router
 from oaao_orchestrator.build_info import load_build_info
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
@@ -60,6 +64,7 @@ async def _lifespan(app: FastAPI):
     research_poll_task = asyncio.create_task(research_fetch_poll_loop())
     research_refetch_poll_task = asyncio.create_task(research_refetch_poll_loop())
     research_cron_task = asyncio.create_task(research_cron_poll_loop())
+    knowledge_cron_task = asyncio.create_task(knowledge_cron_poll_loop())
     await start_post_stream_pools()
     try:
         await ensure_evolution_collections()
@@ -79,6 +84,7 @@ async def _lifespan(app: FastAPI):
     research_poll_task.cancel()
     research_refetch_poll_task.cancel()
     research_cron_task.cancel()
+    knowledge_cron_task.cancel()
     try:
         await poll_task
     except asyncio.CancelledError:
@@ -93,6 +99,10 @@ async def _lifespan(app: FastAPI):
         pass
     try:
         await research_cron_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await knowledge_cron_task
     except asyncio.CancelledError:
         pass
 
@@ -160,6 +170,8 @@ app.include_router(_version_router)
 app.include_router(_admin_router)
 app.include_router(_asr_router)
 app.include_router(_chat_router)
+app.include_router(_corpus_router)
+app.include_router(_library_router)
 app.include_router(_mine_router)
 app.include_router(_research_router)
 app.include_router(_live_router)
@@ -171,5 +183,6 @@ app.include_router(_media_router)
 app.include_router(_contracts_router)
 app.include_router(_vault_router)
 app.include_router(_storage_router)
+app.include_router(_knowledge_router)
 
 

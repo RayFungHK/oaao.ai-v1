@@ -209,45 +209,79 @@ export function updateTemplateSlugThumbInEditor(editorEl, thumbUrl) {
 }
 
 /**
+ * Collapse horizontal whitespace only — preserve newlines for thread display (pre-wrap).
+ *
+ * @param {string} raw
+ */
+export function normalizeComposerPlainText(raw) {
+    return String(raw ?? '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/ *\n */g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+/**
+ * Plain text from contenteditable — {@code <br>} → {@code \\n}; block rows rely on {@code innerText} (do not append extra {@code \\n} per div or lines double).
+ *
+ * @param {HTMLElement} editorEl
+ */
+export function serializeComposerEditorPlainText(editorEl) {
+    const clone = editorEl.cloneNode(true);
+    if (!(clone instanceof HTMLElement)) {
+        return '';
+    }
+    clone.querySelectorAll(TEMPLATE_SLUG_SELECTOR).forEach((n) => n.remove());
+    clone.querySelectorAll('br').forEach((br) => {
+        br.replaceWith(document.createTextNode('\n'));
+    });
+    return normalizeComposerPlainText(clone.innerText ?? '');
+}
+
+/**
+ * @param {HTMLElement} editorEl
+ */
+function readComposerPlainText(editorEl) {
+    return serializeComposerEditorPlainText(editorEl);
+}
+
+/**
+ * @param {HTMLElement} editorEl
+ * @param {string} raw
+ */
+function writeComposerPlainText(editorEl, raw) {
+    const normalized = String(raw ?? '').replace(/\r\n?/g, '\n');
+    const lines = normalized.split('\n');
+    lines.forEach((line, index) => {
+        if (index > 0) {
+            editorEl.append(document.createElement('br'));
+        }
+        if (line) {
+            editorEl.append(document.createTextNode(line));
+        }
+    });
+}
+
+/**
  * @param {HTMLElement} editorEl
  * @returns {{ text: string, template_id: string, label: string, thumb_url: string }}
  */
 export function getChatComposerEditorPayload(editorEl) {
-    let text = '';
     let template_id = '';
     let label = '';
     let thumb_url = '';
 
-    /**
-     * @param {Node} node
-     */
-    const walk = (node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            text += String(node.textContent ?? '').replace(/\u200B/g, '');
-            return;
-        }
-        if (!(node instanceof HTMLElement)) return;
-        if (node.matches(TEMPLATE_SLUG_SELECTOR)) {
-            template_id = String(node.dataset.templateId ?? '').trim();
-            label = String(node.dataset.templateLabel ?? '').trim();
-            thumb_url = String(node.dataset.templateThumb ?? '').trim();
-            return;
-        }
-        if (node.tagName === 'BR') {
-            text += '\n';
-            return;
-        }
-        for (const child of node.childNodes) {
-            walk(child);
-        }
-    };
-
-    for (const child of editorEl.childNodes) {
-        walk(child);
+    for (const node of editorEl.querySelectorAll(TEMPLATE_SLUG_SELECTOR)) {
+        if (!(node instanceof HTMLElement)) continue;
+        template_id = String(node.dataset.templateId ?? '').trim();
+        label = String(node.dataset.templateLabel ?? '').trim();
+        thumb_url = String(node.dataset.templateThumb ?? '').trim();
+        break;
     }
 
     return {
-        text: text.replace(/\s+/g, ' ').trim(),
+        text: readComposerPlainText(editorEl),
         template_id,
         label,
         thumb_url,
@@ -263,9 +297,9 @@ export function setChatComposerEditorPlainText(editorEl, text, opts = {}) {
     const keepTemplate = opts.keepTemplate === true;
     const slug = keepTemplate ? editorEl.querySelector(TEMPLATE_SLUG_SELECTOR) : null;
     editorEl.replaceChildren();
-    const trimmed = String(text ?? '');
+    const trimmed = String(text ?? '').replace(/\r\n?/g, '\n');
     if (trimmed) {
-        editorEl.append(document.createTextNode(trimmed));
+        writeComposerPlainText(editorEl, trimmed);
     }
     if (slug) {
         if (trimmed) {
@@ -337,14 +371,22 @@ export function mountChatComposerEditor(editorEl, signal, hooks) {
     editorEl.addEventListener(
         'keydown',
         (ev) => {
-            if (ev.key === 'Enter' && !ev.shiftKey) {
+            if (ev.key !== 'Enter') {
+                return;
+            }
+            if (ev.shiftKey) {
                 ev.preventDefault();
-                const form = editorEl.closest('form');
-                const card = editorEl.closest('[data-oaao-chat="composer-card-wrap"]');
-                if (card instanceof HTMLElement && card.dataset.oaaoComposerBusy) return;
-                if (form instanceof HTMLFormElement) {
-                    form.requestSubmit();
+                if (typeof document.execCommand === 'function') {
+                    document.execCommand('insertLineBreak');
                 }
+                return;
+            }
+            ev.preventDefault();
+            const form = editorEl.closest('form');
+            const card = editorEl.closest('[data-oaao-chat="composer-card-wrap"]');
+            if (card instanceof HTMLElement && card.dataset.oaaoComposerBusy) return;
+            if (form instanceof HTMLFormElement) {
+                form.requestSubmit();
             }
         },
         { signal },

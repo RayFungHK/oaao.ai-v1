@@ -98,6 +98,14 @@ class ChatRunRequest(BaseModel):
         default=None,
         description="Resolved planning.* purpose for task planner LLM (Settings → Task planner).",
     )
+    planner_intent: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved planning.intent.* purpose for per-turn agent intent hook (command template).",
+    )
+    turn_intent: dict[str, Any] | None = Field(
+        default=None,
+        description="Runtime scores from planning.intent hook (needs_web_search, analysis) — set by orchestrator, not PHP.",
+    )
     allowed_agents: list[str] = Field(
         default_factory=list,
         description="Agent kinds permitted this run (sandbox_code, slides, …) — drives planner abilities.",
@@ -165,4 +173,21 @@ class ChatRunRequest(BaseModel):
     is_new_conversation: bool = Field(
         default=False,
         description="True when PHP just created this conversation row — enables auto-title.",
+    )
+    corpus_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional Corpus Studio profile — inject style_json into system context (CS-1-S10).",
+    )
+    corpus_style: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved corpus profile { name, description, status, style_json } from PHP send.",
+    )
+    knowledge: dict[str, Any] | None = Field(
+        default=None,
+        description="Resolved knowledge.* purposes (orientation LLM, future search plan).",
+    )
+    enable_web_search: bool = Field(
+        default=False,
+        description="Composer globe toggle — allow web_search agent for this turn when planner or guards request it.",
     )

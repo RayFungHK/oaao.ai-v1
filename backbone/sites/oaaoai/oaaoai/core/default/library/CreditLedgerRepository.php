@@ -19,6 +19,43 @@ final class CreditLedgerRepository
     public const DEFAULT_TOKENS_PER_CREDIT = 1000.0;
 
     /**
+     * Block chat send when the user has a finite balance that is depleted.
+     *
+     * {@code credit_balance = NULL} means unlimited (default) — returns null (allowed).
+     *
+     * @return string|null Error message for HTTP 402 when blocked; null when send may proceed.
+     */
+    public static function sendBlockedReason(\PDO $pdo, int $tenantId, int $userId): ?string
+    {
+        if ($tenantId < 1 || $userId < 1) {
+            return null;
+        }
+
+        AuthSchemaBridge::ensureTenantSchema($pdo);
+
+        $stmt = $pdo->prepare(
+            'SELECT credit_balance FROM oaao_user WHERE user_id = ? AND tenant_id = ? LIMIT 1',
+        );
+        $stmt->execute([$userId, $tenantId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (! \is_array($row)) {
+            return null;
+        }
+
+        $balanceRaw = $row['credit_balance'] ?? null;
+        if ($balanceRaw === null || $balanceRaw === '') {
+            return null;
+        }
+
+        $balance = (float) $balanceRaw;
+        if ($balance > 0.000_001) {
+            return null;
+        }
+
+        return 'Credits exhausted. Ask an administrator to top up your account (Settings → Users).';
+    }
+
+    /**
      * @param array<string, mixed> $runMeta
      */
     public static function debitChatCompletion(

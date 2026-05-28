@@ -95,10 +95,20 @@ return function (): void {
     $byteSize = strlen($content);
     $destAbs = null;
 
+    $source = trim((string) ($input['source'] ?? 'research'));
+    if ($source === '') {
+        $source = 'research';
+    }
     $metaRoot = [
-        'source'            => 'research',
-        'research_managed'  => true,
+        'source'           => $source,
+        'research_managed' => $source === 'research',
     ];
+    if (isset($input['web_search_asset_id']) && \is_string($input['web_search_asset_id']) && trim($input['web_search_asset_id']) !== '') {
+        $metaRoot['web_search_asset_id'] = trim($input['web_search_asset_id']);
+    }
+    if (isset($input['asset_id']) && \is_string($input['asset_id']) && trim($input['asset_id']) !== '') {
+        $metaRoot['web_search_asset_id'] = trim($input['asset_id']);
+    }
     if (isset($input['watch_id']) && is_numeric($input['watch_id']) && (int) $input['watch_id'] > 0) {
         $metaRoot['watch_id'] = (int) $input['watch_id'];
     }
@@ -189,7 +199,7 @@ return function (): void {
                     'original_name' => $filename,
                     'document_id'   => $docId,
                     'vault_id'      => $vaultId,
-                    'source'        => 'research',
+                    'source'        => $source,
                 ];
                 if ($locator !== null && $blobStore !== null) {
                     $payload = array_merge($payload, $blobStore->jobPayloadExtras($locator, $relPath, $storageRoot));

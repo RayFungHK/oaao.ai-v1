@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/knowledge-search-plan.json",
+  "title": "KnowledgeSearchPlanV1",
+  "description": "WS-1-S3 orientation-driven web search plan",
+  "type": "object",
+  "required": ["version", "method", "queries"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "method": { "type": "string", "enum": ["llm", "stub_fallback"] },
+    "queries": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["q", "provider"],
+        "properties": {
+          "q": { "type": "string", "maxLength": 500 },
+          "provider": { "type": "string", "maxLength": 32 },
+          "reason": { "type": "string", "maxLength": 200 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "orientation_snapshot": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

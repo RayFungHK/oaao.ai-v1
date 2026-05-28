@@ -258,6 +258,15 @@ async def finalize_run(
                     run_id=run_id,
                     run_failed=run_failed,
                 )
+                from oaao_orchestrator.knowledge.orientation_worker import (
+                    schedule_orientation_update,
+                )
+
+                schedule_orientation_update(
+                    req=req,
+                    messages=list(messages_for_llm or []),
+                    metrics_payload=metrics_payload,
+                )
                 if not evolution_post_stream_enabled():
                     await enqueue_post_stream_jobs_for_chat(
                         req=req, metrics_payload=metrics_payload

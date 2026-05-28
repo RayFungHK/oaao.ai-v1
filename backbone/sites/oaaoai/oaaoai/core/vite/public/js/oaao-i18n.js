@@ -26,6 +26,7 @@ const OAAO_I18N_BASE = {
         'workspace.rail_agents_title': 'Agents',
         'workspace.rail_live_meeting_title': 'Live meeting',
         'workspace.rail_research_title': 'Article Research',
+        'workspace.rail_corpus_title': 'Corpus',
         'workspace.rail_mines_title': 'Data Mining',
         'workspace.vault_menu_heading': 'Vault',
         'workspace.agents.page_title': 'Agents',
@@ -659,6 +660,12 @@ const OAAO_I18N_BASE = {
             'Knowledge-graph construction and hybrid retrieval over ArangoDB plus vectors (<code class="font-mono text-xs">graph.*</code>).',
         'settings.slot.uiqe.label': 'Input quality',
         'settings.slot.uiqe.sub': 'Pre-flight scoring (e.g. IQS / ACCS) — fast, low-cost models.',
+        'settings.slot.knowledge_orientation.label': 'Knowledge orientation',
+        'settings.slot.knowledge_orientation.sub':
+            'Workspace topic snapshot from chat (<code class="font-mono text-xs">knowledge.orientation.*</code>) — scheduled search & RAG.',
+        'settings.slot.knowledge_search_plan.label': 'Knowledge search plan',
+        'settings.slot.knowledge_search_plan.sub':
+            'Multi-query web search planner (<code class="font-mono text-xs">knowledge.search_plan.*</code>) — not raw user text.',
         'settings.slot.asr.label': 'ASR',
         'settings.slot.asr.sub':
             'Speech-to-text routing — pick a default endpoint here. Pipeline mode, chunk buffer, and Speaker settings are under Settings → ASR.',
@@ -1563,6 +1570,12 @@ const OAAO_I18N_BASE = {
             'ArangoDB 知識圖譜與向量混合檢索（<code class="font-mono text-xs">graph.*</code>）。',
         'settings.slot.uiqe.label': '輸入品質',
         'settings.slot.uiqe.sub': '前置評分（如 IQS／ACCS）— 輕量低成本模型。',
+        'settings.slot.knowledge_orientation.label': '知識取向',
+        'settings.slot.knowledge_orientation.sub':
+            '從對話維護工作區主題快照（<code class="font-mono text-xs">knowledge.orientation.*</code>）— 定時搜尋與 RAG。',
+        'settings.slot.knowledge_search_plan.label': '知識搜尋規劃',
+        'settings.slot.knowledge_search_plan.sub':
+            '多查詢網路搜尋規劃（<code class="font-mono text-xs">knowledge.search_plan.*</code>）— 非直接使用使用者原文。',
         'settings.slot.asr.label': '語音辨識',
         'settings.slot.asr.sub':
             '語音轉文字路由 — 在此選擇預設端點。管線模式、分段緩衝與 Speaker 設定請至「設定 → ASR」。',

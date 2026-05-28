@@ -404,11 +404,9 @@ return new class extends Controller {
                 'i18n_label_key'  => 'settings.planner.agent.web_search',
                 'i18n_desc_key'   => 'workspace.task.agent_desc.web_search',
                 'planner_hint'    => 'Use for time-sensitive or public-web facts not covered by vault sources. '
-                    . 'Prefer after vault_rag when both document and live web context matter.',
-                'ask_enabled'     => true,
-                'ask_hint'        => 'Set requires_ask=true when web search is supplementary. '
-                    . 'In desk/slide conversations, fork to a new chat for long web-research side quests.',
-                'ask_default_message' => 'I can search the public web for live information. Proceed?',
+                    . 'Prefer after vault_rag when both document and live web context matter. '
+                    . 'Set requires_ask=false — web search runs immediately when scheduled.',
+                'ask_enabled'     => false,
             ],
         );
         PlannerAgentRegister::add(

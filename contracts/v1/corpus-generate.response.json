@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-generate.response.json",
+  "title": "CorpusGenerateResponse",
+  "description": "Orchestrator generate preview result",
+  "type": "object",
+  "required": ["ok"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "error": { "type": "string" },
+    "detail": { "type": "string" },
+    "markdown": { "type": "string" },
+    "brief": { "type": "string" },
+    "similarity": {
+      "type": "object",
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "structure_similarity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "text_similarity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "layout_match": { "type": "number", "minimum": 0, "maximum": 1 },
+        "meets_target": { "type": "boolean" },
+        "target_score": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "structure_blueprint": { "type": "object" }
+  },
+  "additionalProperties": true
+}

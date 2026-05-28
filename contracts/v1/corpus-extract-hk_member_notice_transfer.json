@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-extract-hk_member_notice_transfer.json",
+  "title": "CorpusExtractHkMemberNoticeTransfer",
+  "description": "CS-1-S16 — structured fields for HK exchange-style membership transfer table notices",
+  "type": "object",
+  "properties": {
+    "notice_header": {
+      "type": "object",
+      "properties": {
+        "file_ref": { "type": "string", "maxLength": 64 },
+        "notice_date": { "type": "string", "maxLength": 64 },
+        "salutation": { "type": "string", "maxLength": 120 },
+        "notice_title": { "type": "string", "maxLength": 120 },
+        "intro_paragraph": { "type": "string", "maxLength": 4000 }
+      },
+      "additionalProperties": false
+    },
+    "table_rows": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "maxLength": 16 },
+          "before": { "type": "string", "maxLength": 500 },
+          "after": { "type": "string", "maxLength": 500 },
+          "introducer": { "type": "string", "maxLength": 200 },
+          "date": { "type": "string", "maxLength": 64 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

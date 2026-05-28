@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-schema-registry.json",
+  "title": "CorpusSchemaRegistryV1",
+  "description": "CS-1-S16 — document_type → extraction contract",
+  "version": 1,
+  "types": [
+    {
+      "id": "hk_member_notice_transfer",
+      "label": "HK member transfer table notice",
+      "description": "Letterhead + numbered table rows (membership transfer).",
+      "extract_schema": "corpus-extract-hk_member_notice_transfer.json",
+      "layout_hint": "table_notice"
+    },
+    {
+      "id": "hk_member_registry_blocks",
+      "label": "HK member registry blocks",
+      "description": "Repeating 【第 N 號行員】 field blocks.",
+      "extract_schema": "corpus-extract-unknown.json",
+      "layout_hint": "member_blocks"
+    },
+    {
+      "id": "general_prose",
+      "label": "General prose",
+      "description": "Narrative document without repeating registry blocks.",
+      "extract_schema": "corpus-extract-unknown.json",
+      "layout_hint": "prose"
+    },
+    {
+      "id": "contract",
+      "label": "Contract (placeholder)",
+      "description": "Reserved for CS-1-S17 contract schema.",
+      "extract_schema": "corpus-extract-unknown.json",
+      "layout_hint": "generic"
+    },
+    {
+      "id": "invoice",
+      "label": "Invoice (placeholder)",
+      "description": "Reserved for CS-1-S17 invoice schema.",
+      "extract_schema": "corpus-extract-unknown.json",
+      "layout_hint": "generic"
+    },
+    {
+      "id": "unknown",
+      "label": "Unknown",
+      "description": "Classifier could not map to a supported schema.",
+      "extract_schema": "corpus-extract-unknown.json",
+      "layout_hint": "generic"
+    }
+  ]
+}

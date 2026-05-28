@@ -18,6 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-calc \
         libreoffice-core \
         poppler-utils \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libffi-dev \
+        shared-mime-info \
+        fonts-noto-cjk \
     && mkdir -p /var/oaao/font-cache \
     && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*

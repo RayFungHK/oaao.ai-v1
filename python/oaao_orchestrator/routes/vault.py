@@ -56,6 +56,8 @@ class VaultRagExploreRequest(BaseModel):
     rerank: dict[str, Any] | None = None
     vault_rag: dict[str, Any] | None = None
     vault_scope_documents: dict[str, list[int]] | None = None
+    knowledge: dict[str, Any] | None = None
+    tenant_id: int | None = Field(default=None, ge=1)
     graph_limit: int = Field(default=36, ge=4, le=80)
 
 
@@ -77,9 +79,17 @@ async def vault_rag_explore(
             continue
         scope[vid] = [int(x) for x in v if str(x).isdigit()][:48]
 
+    from oaao_orchestrator.knowledge.recall import merge_knowledge_recall_profiles
+
+    profiles = merge_knowledge_recall_profiles(
+        body.vault_retrieval_profiles,
+        knowledge=body.knowledge,
+        tenant_id=body.tenant_id,
+    )
+
     data = await explore_vault_rag(
         query=body.query.strip(),
-        vault_retrieval_profiles=body.vault_retrieval_profiles,
+        vault_retrieval_profiles=profiles,
         embedding=body.embedding,
         rerank=body.rerank,
         vault_rag=body.vault_rag,

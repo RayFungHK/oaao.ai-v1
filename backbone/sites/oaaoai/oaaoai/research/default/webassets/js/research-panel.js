@@ -1093,403 +1093,74 @@ function openResearchBatchDiscoverDialog(DialogMod, sources) {
     });
 }
 
-function researchVaultApiBase() {
-    const prefix = mountPrefix();
-    const base = `${prefix}/vault/api`.replace(/\/{2,}/g, '/');
-    return base.endsWith('/') ? base : `${base}/`;
-}
-
-/** @returns {Promise<{ tree: unknown[] }>} */
-async function fetchResearchVaultTreeJson() {
-    let cachePath = '/webassets/core/default/js/vault-tree-cache.js';
-    const prefix = mountPrefix();
-    if (prefix && prefix !== '/') {
-        cachePath = `${prefix.replace(/\/+$/, '')}${cachePath}`.replace(/\/{2,}/g, '/');
-    }
-    const cache = await import(/* webpackIgnore: true */ cachePath);
-    const buildUrl = () => `${researchVaultApiBase()}vault_tree?scope=all`;
-    const j = await cache.fetchVaultTreeCached('all', buildUrl, {});
-    const tree = j && typeof j === 'object' && Array.isArray(/** @type {Record<string, unknown>} */ (j).tree)
-        ? /** @type {Record<string, unknown>} */ (j).tree
-        : j?.data && typeof j.data === 'object' && Array.isArray(/** @type {Record<string, unknown>} */ (j.data).tree)
-          ? /** @type {Record<string, unknown>} */ (j.data).tree
-          : [];
-
-    return { tree };
-}
-
 /**
  * @typedef {{ rowKey: string, kind: 'vault' | 'folder', id: number, vault_id: number, name: string, breadcrumb: string, parent_container_id: number | null }} ResearchVaultPathRow
  */
 
-/**
- * @param {unknown[]} tree
- * @returns {ResearchVaultPathRow[]}
- */
-function flattenVaultPathsForResearchPicker(tree) {
-    /** @type {ResearchVaultPathRow[]} */
-    const out = [];
+const RESEARCH_VAULT_PICKER_OPTS = {
+    allowVault: true,
+    allowFolder: true,
+    allowDocument: false,
+};
 
-    /**
-     * @param {unknown[]} children
-     * @param {number} vaultId
-     * @param {string} pathPrefix
-     */
-    function walkChildren(children, vaultId, pathPrefix) {
-        if (!Array.isArray(children)) return;
-        for (const raw of children) {
-            if (!raw || typeof raw !== 'object') continue;
-            const node = /** @type {Record<string, unknown>} */ (raw);
-            if (String(node.kind ?? '') !== 'container') continue;
-            const cid = Number(node.id);
-            if (!Number.isFinite(cid) || cid < 1) continue;
-            const nm = typeof node.name === 'string' ? node.name : `Folder ${cid}`;
-            const crumb = `${pathPrefix} › ${nm}`;
-            out.push({
-                rowKey: `folder:${cid}`,
-                kind: 'folder',
-                id: cid,
-                vault_id: vaultId,
-                name: nm,
-                breadcrumb: crumb,
-                parent_container_id: cid,
-            });
-            walkChildren(Array.isArray(node.children) ? node.children : [], vaultId, crumb);
-        }
+async function loadResearchVaultPickerModule() {
+    const prefix = mountPrefix();
+    let path = '/webassets/core/default/js/oaao-vault-source-picker.js';
+    if (prefix && prefix !== '/') {
+        path = `${prefix.replace(/\/+$/, '')}${path}`.replace(/\/{2,}/g, '/');
     }
-
-    for (const raw of tree) {
-        if (!raw || typeof raw !== 'object') continue;
-        const node = /** @type {Record<string, unknown>} */ (raw);
-        if (String(node.kind ?? '') !== 'vault') continue;
-        const vid = Number(node.id);
-        if (!Number.isFinite(vid) || vid < 1) continue;
-        const vname = typeof node.name === 'string' ? node.name : `Vault ${vid}`;
-        out.push({
-            rowKey: `vault:${vid}`,
-            kind: 'vault',
-            id: vid,
-            vault_id: vid,
-            name: vname,
-            breadcrumb: vname,
-            parent_container_id: null,
-        });
-        walkChildren(Array.isArray(node.children) ? node.children : [], vid, vname);
-    }
-
-    return out;
+    return import(/* webpackIgnore: true */ path);
 }
 
 /**
- * @param {unknown[]} tree
- * @returns {Map<string, ResearchVaultPathRow>}
- */
-function buildResearchVaultRowMap(tree) {
-    const rows = flattenVaultPathsForResearchPicker(tree);
-    return new Map(rows.map((r) => [r.rowKey, r]));
-}
-
-/**
- * @param {Record<string, unknown>} node
- * @returns {Record<string, unknown>[]}
- */
-function researchVaultFolderChildren(node) {
-    const kids = Array.isArray(node.children) ? node.children : [];
-    return kids.filter((c) => c && typeof c === 'object' && String(/** @type {Record<string, unknown>} */ (c).kind ?? '') === 'container');
-}
-
-/**
- * @param {string} rowKey
- * @param {unknown[]} tree
- * @returns {Set<string>}
- */
-function researchVaultExpandKeysForRow(rowKey, tree) {
-    /** @type {Set<string>} */
-    const keys = new Set();
-    if (!rowKey) return keys;
-
-    if (rowKey.startsWith('vault:')) {
-        keys.add(rowKey);
-        return keys;
-    }
-
-    const folderId = Number(rowKey.replace(/^folder:/, ''));
-    if (!Number.isFinite(folderId) || folderId < 1) return keys;
-
-    /**
-     * @param {unknown[]} children
-     * @param {number} vaultId
-     * @param {string} pathPrefix
-     * @returns {boolean}
-     */
-    function walkFolders(children, vaultId, pathPrefix) {
-        if (!Array.isArray(children)) return false;
-        for (const raw of children) {
-            if (!raw || typeof raw !== 'object') continue;
-            const node = /** @type {Record<string, unknown>} */ (raw);
-            if (String(node.kind ?? '') !== 'container') continue;
-            const cid = Number(node.id);
-            if (!Number.isFinite(cid) || cid < 1) continue;
-            const nm = typeof node.name === 'string' ? node.name : `Folder ${cid}`;
-            const crumb = `${pathPrefix} › ${nm}`;
-            if (cid === folderId) {
-                keys.add(`vault:${vaultId}`);
-                keys.add(`folder:${cid}`);
-                return true;
-            }
-            if (walkFolders(researchVaultFolderChildren(node), vaultId, crumb)) {
-                keys.add(`folder:${cid}`);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    for (const raw of tree) {
-        if (!raw || typeof raw !== 'object') continue;
-        const node = /** @type {Record<string, unknown>} */ (raw);
-        if (String(node.kind ?? '') !== 'vault') continue;
-        const vid = Number(node.id);
-        if (!Number.isFinite(vid) || vid < 1) continue;
-        const vname = typeof node.name === 'string' ? node.name : `Vault ${vid}`;
-        if (walkFolders(researchVaultFolderChildren(node), vid, vname)) break;
-    }
-
-    return keys;
-}
-
-/**
- * @typedef {{ rowKey: string, kind: 'vault' | 'folder', depth: number, name: string, breadcrumb: string, hasChildren: boolean }} ResearchVaultTreeVisibleRow
- */
-
-/**
- * @param {unknown[]} tree
- * @param {Set<string>} expandedKeys
- * @param {string} filter
- * @returns {ResearchVaultTreeVisibleRow[]}
- */
-function researchVaultVisibleTreeRows(tree, expandedKeys, filter) {
-    /** @type {ResearchVaultTreeVisibleRow[]} */
-    const out = [];
-    const q = filter.trim().toLowerCase();
-
-    /**
-     * @param {Record<string, unknown>} folderNode
-     * @param {number} vaultId
-     * @param {number} depth
-     * @param {string} breadcrumb
-     */
-    function walkFolder(folderNode, vaultId, depth, pathPrefix) {
-        const cid = Number(folderNode.id);
-        if (!Number.isFinite(cid) || cid < 1) return;
-        const nm = typeof folderNode.name === 'string' ? folderNode.name : `Folder ${cid}`;
-        const breadcrumb = pathPrefix ? `${pathPrefix} › ${nm}` : nm;
-        const rowKey = `folder:${cid}`;
-        const kids = researchVaultFolderChildren(folderNode);
-        const hay = `${nm} ${breadcrumb} folder`.toLowerCase();
-        const match = q === '' || hay.includes(q);
-        if (match) {
-            out.push({
-                rowKey,
-                kind: 'folder',
-                depth,
-                name: nm,
-                breadcrumb,
-                hasChildren: kids.length > 0,
-            });
-        }
-        const showKids = q !== '' || expandedKeys.has(rowKey);
-        if (showKids) {
-            for (const raw of kids) {
-                if (!raw || typeof raw !== 'object') continue;
-                walkFolder(/** @type {Record<string, unknown>} */ (raw), vaultId, depth + 1, breadcrumb);
-            }
-        }
-    }
-
-    for (const raw of tree) {
-        if (!raw || typeof raw !== 'object') continue;
-        const node = /** @type {Record<string, unknown>} */ (raw);
-        if (String(node.kind ?? '') !== 'vault') continue;
-        const vid = Number(node.id);
-        if (!Number.isFinite(vid) || vid < 1) continue;
-        const vname = typeof node.name === 'string' ? node.name : `Vault ${vid}`;
-        const rowKey = `vault:${vid}`;
-        const kids = researchVaultFolderChildren(node);
-        const hay = `${vname} vault`.toLowerCase();
-        const match = q === '' || hay.includes(q);
-        if (match) {
-            out.push({
-                rowKey,
-                kind: 'vault',
-                depth: 0,
-                name: vname,
-                breadcrumb: vname,
-                hasChildren: kids.length > 0,
-            });
-        }
-        const showKids = q !== '' || expandedKeys.has(rowKey);
-        if (showKids) {
-            for (const child of kids) {
-                if (!child || typeof child !== 'object') continue;
-                walkFolder(/** @type {Record<string, unknown>} */ (child), vid, 1, vname);
-            }
-        }
-    }
-
-    return out;
-}
-
-/**
- * @param {ResearchVaultPathRow[]} rows
- * @param {Record<string, unknown> | null | undefined} watch
+ * @param {import('../../../../core/default/webassets/js/oaao-vault-source-picker.js').OaaoVaultPickerSelection | null} picked
  * @returns {ResearchVaultPathRow | null}
  */
-function findVaultPathRowForWatch(rows, watch) {
+function researchPathRowFromPickerSelection(picked) {
+    if (!picked || (picked.kind !== 'vault' && picked.kind !== 'folder')) return null;
+    if (picked.kind === 'vault') {
+        return {
+            rowKey: `vault:${picked.vault_id}`,
+            kind: 'vault',
+            id: picked.vault_id,
+            vault_id: picked.vault_id,
+            name: picked.name,
+            breadcrumb: picked.breadcrumb,
+            parent_container_id: null,
+        };
+    }
+    const cid = Number(picked.container_id);
+    if (!Number.isFinite(cid) || cid < 1) return null;
+    return {
+        rowKey: `folder:${cid}`,
+        kind: 'folder',
+        id: cid,
+        vault_id: picked.vault_id,
+        name: picked.name,
+        breadcrumb: picked.breadcrumb,
+        parent_container_id: cid,
+    };
+}
+
+/**
+ * @param {unknown[]} tree
+ * @param {Record<string, unknown> | null | undefined} watch
+ * @param {{ buildOaaoVaultPickerRowMap: (tree: unknown[], opts?: object) => Map<string, object> }} pickerMod
+ * @returns {ResearchVaultPathRow | null}
+ */
+function findVaultPathRowForWatch(tree, watch, pickerMod) {
+    const map = pickerMod.buildOaaoVaultPickerRowMap(tree, RESEARCH_VAULT_PICKER_OPTS);
     const containerId = watch?.container_id != null ? Number(watch.container_id) : 0;
     if (Number.isFinite(containerId) && containerId > 0) {
-        const folder = rows.find((r) => r.kind === 'folder' && r.id === containerId);
-        if (folder) return folder;
+        const folder = map.get(`folder:${containerId}`);
+        if (folder) return researchPathRowFromPickerSelection(/** @type {Parameters<typeof researchPathRowFromPickerSelection>[0]} */ (folder));
     }
     const vaultId = Number(watch?.vault_id ?? 0);
     if (Number.isFinite(vaultId) && vaultId > 0) {
-        return rows.find((r) => r.kind === 'vault' && r.id === vaultId) ?? null;
+        const vault = map.get(`vault:${vaultId}`);
+        if (vault) return researchPathRowFromPickerSelection(/** @type {Parameters<typeof researchPathRowFromPickerSelection>[0]} */ (vault));
     }
     return null;
-}
-
-/**
- * @param {typeof DialogCtor} DialogMod
- * @param {unknown[]} tree
- * @param {string | null} initialRowKey
- * @returns {Promise<ResearchVaultPathRow | null>}
- */
-async function openResearchVaultPathPickerDialog(DialogMod, tree, initialRowKey) {
-    if (!DialogMod || typeof DialogMod.open !== 'function') return null;
-
-    const rowByKey = buildResearchVaultRowMap(tree);
-    /** @type {Set<string>} */
-    const expandedKeys = researchVaultExpandKeysForRow(initialRowKey ?? '', tree);
-    let selectedKey = initialRowKey;
-
-    const body = document.createElement('div');
-    body.className = 'flex flex-col gap-2 min-h-0 max-h-[min(420px,calc(100vh-10rem))]';
-    body.dataset.oaaoResearchVaultPicker = '1';
-
-    const hint = document.createElement('p');
-    hint.className = 'text-xs fg-[var(--grid-ink-muted)] m-0 shrink-0';
-    hint.textContent = 'Expand a vault or folder, click a row to select, then confirm.';
-    body.append(hint);
-
-    const search = document.createElement('input');
-    search.type = 'search';
-    search.className = RESEARCH_INPUT_CLASS;
-    search.placeholder = 'Filter by name…';
-    body.append(search);
-
-    const treeHost = document.createElement('div');
-    treeHost.className =
-        'oaao-research-vault-tree min-h-[220px] flex-1 min-w-0 overflow-y-auto border border-solid border-[var(--grid-line)] rounded-lg bg-[var(--grid-panel-bright)]';
-    body.append(treeHost);
-
-    /** @param {string} filter */
-    function paintTree(filter = '') {
-        treeHost.replaceChildren();
-        const rows = researchVaultVisibleTreeRows(tree, expandedKeys, filter);
-        if (!rows.length) {
-            const empty = document.createElement('p');
-            empty.className = 'text-xs fg-[var(--grid-ink-muted)] m-0 p-3';
-            empty.textContent = filter.trim() ? 'No matching vaults or folders.' : 'No vaults available.';
-            treeHost.append(empty);
-            return;
-        }
-
-        for (const row of rows) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'oaao-research-vault-tree-row';
-            btn.dataset.rowKey = row.rowKey;
-            btn.style.paddingLeft = `${0.5 + row.depth * 1.125}rem`;
-            if (selectedKey === row.rowKey) btn.classList.add('is-active');
-
-            const toggle = document.createElement('span');
-            toggle.className = 'oaao-research-vault-tree-toggle';
-            toggle.setAttribute('aria-hidden', 'true');
-            if (!row.hasChildren) {
-                toggle.classList.add('is-leaf');
-                toggle.textContent = '·';
-            } else {
-                toggle.textContent = expandedKeys.has(row.rowKey) ? '▾' : '▸';
-            }
-
-            const label = document.createElement('span');
-            label.className = 'oaao-research-vault-tree-label';
-            label.textContent = row.name;
-            label.title = row.breadcrumb;
-
-            const type = document.createElement('span');
-            type.className = 'oaao-research-vault-tree-type';
-            type.textContent = row.kind === 'vault' ? 'Vault' : 'Folder';
-
-            btn.append(toggle, label, type);
-
-            toggle.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                if (!row.hasChildren) return;
-                if (expandedKeys.has(row.rowKey)) expandedKeys.delete(row.rowKey);
-                else expandedKeys.add(row.rowKey);
-                paintTree(search.value);
-            });
-
-            btn.addEventListener('click', () => {
-                selectedKey = row.rowKey;
-                if (row.hasChildren && !expandedKeys.has(row.rowKey)) {
-                    expandedKeys.add(row.rowKey);
-                }
-                paintTree(search.value);
-            });
-
-            treeHost.append(btn);
-        }
-    }
-
-    return new Promise((resolve) => {
-        let settled = false;
-        /** @param {ResearchVaultPathRow | null} row */
-        const finish = (row) => {
-            if (settled) return;
-            settled = true;
-            resolve(row);
-        };
-
-        DialogMod.open({
-            title: 'Path of Vault',
-            content: body,
-            size: 'md',
-            onClose: () => finish(null),
-            onOpen: () => paintTree(''),
-            buttons: [
-                {
-                    text: 'Cancel',
-                    color: 'muted',
-                    action: async () => {
-                        finish(null);
-                        return true;
-                    },
-                },
-                {
-                    text: 'Select',
-                    color: 'accent',
-                    action: async () => {
-                        finish(selectedKey ? rowByKey.get(selectedKey) ?? null : null);
-                        return true;
-                    },
-                },
-            ],
-        });
-
-        search.addEventListener('input', () => paintTree(search.value));
-    });
 }
 
 const RESEARCH_INPUT_CLASS =
@@ -2647,10 +2318,9 @@ async function mountResearchPanel(host, opts = {}) {
             ? 'Research folder path (managed here — not deletable from Vault).'
             : 'Pick a vault or parent folder, then name the Research folder to create on save.';
 
-        /** @type {ResearchVaultPathRow[]} */
-        let vaultPathRows = [];
         /** @type {unknown[]} */
         let vaultTree = [];
+        let vaultPickerHasRows = false;
         /** @type {ResearchVaultPathRow | null} */
         let selectedPathRow = null;
 
@@ -2673,12 +2343,13 @@ async function mountResearchPanel(host, opts = {}) {
 
         void (async () => {
             try {
-                const { tree } = await fetchResearchVaultTreeJson();
-                vaultTree = tree;
-                vaultPathRows = flattenVaultPathsForResearchPicker(tree);
-                const initial = findVaultPathRowForWatch(vaultPathRows, watch);
+                const picker = await loadResearchVaultPickerModule();
+                vaultTree = await picker.fetchOaaoVaultTreeForPicker(mountPrefix(), 'all');
+                vaultPickerHasRows =
+                    picker.buildOaaoVaultPickerRowMap(vaultTree, RESEARCH_VAULT_PICKER_OPTS).size > 0;
+                const initial = findVaultPathRowForWatch(vaultTree, watch, picker);
                 if (initial) paintVaultPathSelection(initial);
-                else if (!isEdit && vaultPathRows.length === 0) {
+                else if (!isEdit && !vaultPickerHasRows) {
                     pathDisplay.textContent = 'No vaults available for your account.';
                     browseBtn.disabled = true;
                 }
@@ -2692,12 +2363,16 @@ async function mountResearchPanel(host, opts = {}) {
         browseBtn.addEventListener('click', () => {
             void (async () => {
                 if (browseBtn.disabled || vaultTree.length === 0) return;
-                const picked = await openResearchVaultPathPickerDialog(
-                    DialogMod,
-                    vaultTree,
-                    selectedPathRow?.rowKey ?? null,
-                );
-                if (picked) paintVaultPathSelection(picked);
+                const picker = await loadResearchVaultPickerModule();
+                const picked = await picker.openOaaoVaultSourcePickerDialog(DialogMod, vaultTree, {
+                    title: 'Path of Vault',
+                    hint: 'Expand a vault or folder, click a row to select, then confirm.',
+                    confirmLabel: 'Select',
+                    initialRowKey: selectedPathRow?.rowKey ?? null,
+                    ...RESEARCH_VAULT_PICKER_OPTS,
+                });
+                const row = researchPathRowFromPickerSelection(picked);
+                if (row) paintVaultPathSelection(row);
             })();
         });
 

@@ -51,6 +51,13 @@
                             aria-label="Slide templates">
                             <span data-oaao-rui-icon="square-dashed-kanban" data-oaao-rui-icon-size="18" data-oaao-rui-icon-class="oaao-rail-svg w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" class="inline-flex items-center justify-center shrink-0" aria-hidden="true"></span>
                         </button>
+                        <button type="button" id="workspace-rail-corpus"
+                            class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
+                            title="Corpus"
+                            aria-label="Corpus">
+                            <!-- Lucide BookMarked — also embedded in {@see oaao-rui-icons.js} for {@code data-oaao-rui-icon}. -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M10 2v10l3-3 3 3V2"/></svg>
+                        </button>
                         <button type="button" id="workspace-rail-live-meeting"
                             class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
                             title="Live meeting"

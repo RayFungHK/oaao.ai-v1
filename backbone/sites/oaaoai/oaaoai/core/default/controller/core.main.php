@@ -66,6 +66,18 @@ return function (): void {
                 'sort'            => 20,
                 'panel_js_module' => '/webassets/platform/default/js/platform-usage-panel.js',
             ],
+            [
+                'section_id'      => 'platform-knowledge',
+                'label'           => 'Knowledge',
+                'title'           => 'Platform evolution',
+                'sub'             => 'Auto web search, topic scoring, and oaao-level RAG (not tenant-facing).',
+                'icon'            => 'globe',
+                'sort'            => 30,
+                'panel_js_module' => '/webassets/core/default/js/oaao-knowledge-settings-panel.js',
+                'label_key'       => 'settings.nav.platform_knowledge.label',
+                'title_key'       => 'settings.nav.platform_knowledge.title',
+                'sub_key'         => 'settings.nav.platform_knowledge.sub',
+            ],
         ];
         $settingsSections = $platformNavSections;
     }
@@ -268,7 +280,7 @@ return function (): void {
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
      *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
-    $oaaoShellEsmRev = '20260527-live-asr-polish-v87';
+    $oaaoShellEsmRev = '20260528-chat-user-msg-newlines-v120';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)

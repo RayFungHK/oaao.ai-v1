@@ -26,6 +26,7 @@ const OAAO_I18N_BASE = {
         'workspace.rail_agents_title': 'Agents',
         'workspace.rail_live_meeting_title': 'Live meeting',
         'workspace.rail_research_title': 'Article Research',
+        'workspace.rail_corpus_title': 'Corpus',
         'workspace.rail_mines_title': 'Data Mining',
         'workspace.vault_menu_heading': 'Vault',
         'workspace.agents.page_title': 'Agents',
@@ -666,6 +667,56 @@ const OAAO_I18N_BASE = {
             'Knowledge-graph construction and hybrid retrieval over ArangoDB plus vectors (<code class="font-mono text-xs">graph.*</code>).',
         'settings.slot.uiqe.label': 'Input quality',
         'settings.slot.uiqe.sub': 'Pre-flight scoring (e.g. IQS / ACCS) — fast, low-cost models.',
+        'settings.slot.knowledge_orientation.label': 'Knowledge orientation',
+        'settings.slot.knowledge_orientation.sub':
+            'Workspace topic snapshot from chat (<code class="font-mono text-xs">knowledge.orientation.*</code>) — scheduled search & RAG.',
+        'settings.slot.knowledge_search_plan.label': 'Knowledge search plan',
+        'settings.slot.knowledge_search_plan.sub':
+            'Multi-query web search planner (<code class="font-mono text-xs">knowledge.search_plan.*</code>) — not raw user text.',
+        'settings.slot.knowledge_platform.label': 'Knowledge platform',
+        'settings.slot.knowledge_platform.sub':
+            'Scheduled refresh interval &amp; opt-out — Settings → Knowledge panel (<code class="font-mono text-xs">knowledge.platform.*</code>).',
+        'settings.slot.knowledge_classify.label': 'Knowledge classify',
+        'settings.slot.knowledge_classify.sub':
+            'Re-tag bucket captures (<code class="font-mono text-xs">knowledge.classify.*</code>).',
+        'settings.slot.knowledge_distill.label': 'Knowledge distill',
+        'settings.slot.knowledge_distill.sub':
+            'Distill snippets for RAG / training (<code class="font-mono text-xs">knowledge.distill.*</code>).',
+        'settings.nav.platform_knowledge.label': 'Knowledge',
+        'settings.nav.platform_knowledge.title': 'Platform evolution',
+        'settings.nav.platform_knowledge.sub':
+            'Auto web search, topic scoring, and oaao-level RAG (platform host only).',
+        'settings.nav.knowledge.label': 'Knowledge',
+        'settings.nav.knowledge.title': 'Knowledge buckets',
+        'settings.nav.knowledge.sub':
+            'Scheduled web refresh into platform/tenant buckets; opt-out topics; RAG vault merge.',
+        'settings.knowledge.loading': 'Loading Knowledge settings…',
+        'settings.knowledge.load_failed': 'Failed to load Knowledge settings.',
+        'settings.knowledge.intro':
+            'oaao.ai platform self-evolution: auto web search is gated by cross-tenant topic importance and lifecycle. Not visible to tenant admins.',
+        'settings.knowledge.scheduled_enabled': 'Enable scheduled refresh',
+        'settings.knowledge.interval_hours': 'Refresh interval (hours)',
+        'settings.knowledge.classify_after': 'Classify & distill after capture',
+        'settings.knowledge.merge_recall': 'Merge Knowledge vault into RAG by default',
+        'settings.knowledge.do_not_search': 'Do not search (one topic per line)',
+        'settings.knowledge.save': 'Save',
+        'settings.knowledge.run_now': 'Run refresh now',
+        'settings.knowledge.saving': 'Saving…',
+        'settings.knowledge.saved': 'Saved.',
+        'settings.knowledge.save_failed': 'Save failed.',
+        'settings.knowledge.running': 'Running refresh…',
+        'settings.knowledge.run_done': 'Refresh finished ({count} scope(s)).',
+        'settings.knowledge.run_failed': 'Refresh failed.',
+        'settings.knowledge.cron_hint':
+            'Orchestrator polls POST /endpoints/api/knowledge_cron_run when OAAO_VAULT_JOB_POLL_BASE_URL is set (see docker/env).',
+        'settings.knowledge.vault_section': 'Knowledge vault targets',
+        'settings.knowledge.tenant_vault_id': 'Tenant Knowledge vault ID',
+        'settings.knowledge.platform_vault_id': 'Platform Knowledge vault ID (optional)',
+        'settings.knowledge.refresh_user_id': 'Service user ID (Vault ingest)',
+        'settings.knowledge.vault_ph': 'Vault row id from Vault module',
+        'settings.knowledge.refresh_user_ph': 'e.g. automation / admin user',
+        'settings.knowledge.vault_hint':
+            'Create a tenant-scoped or global Vault, paste its id here. Platform admin will auto-provision (roadmap).',
         'settings.slot.asr.label': 'ASR',
         'settings.slot.asr.sub':
             'Speech-to-text routing — pick a default endpoint here. Pipeline mode, chunk buffer, and Speaker settings are under Settings → ASR.',
@@ -899,6 +950,10 @@ const OAAO_I18N_BASE = {
         'preferences.dashboard.credits_balance': 'Credits',
         'preferences.dashboard.credits_used_30d': 'Credits used (30d)',
         'preferences.dashboard.unlimited': 'Unlimited',
+        'settings.users.credits_col': 'Credits',
+        'settings.users.credit_balance': 'Credit balance',
+        'settings.users.credit_balance_hint': 'Leave empty for unlimited. 0 blocks new chat sends.',
+        'chat.send.credits_exhausted': 'Credits exhausted. Ask an administrator to top up your account.',
         'preferences.dashboard.hint':
             'Credits are computed from token usage, endpoint tokens-per-credit, purpose multiplier, and chat profile multiplier.',
         'preferences.dashboard.usage_breakdown': 'Usage breakdown',
@@ -996,6 +1051,7 @@ const OAAO_I18N_BASE = {
         'workspace.rail_rag_explore_title': 'RAG 探索',
         'workspace.rail_agents_title': 'Agent',
         'workspace.rail_live_meeting_title': '即時會議',
+        'workspace.rail_corpus_title': '語料風格',
         'workspace.vault_menu_heading': '文件庫',
         'workspace.agents.page_title': 'Agent',
         'workspace.agents.page_intro':
@@ -1594,6 +1650,56 @@ const OAAO_I18N_BASE = {
             'ArangoDB 知識圖譜與向量混合檢索（<code class="font-mono text-xs">graph.*</code>）。',
         'settings.slot.uiqe.label': '輸入品質',
         'settings.slot.uiqe.sub': '前置評分（如 IQS／ACCS）— 輕量低成本模型。',
+        'settings.slot.knowledge_orientation.label': '知識取向',
+        'settings.slot.knowledge_orientation.sub':
+            '從對話維護工作區主題快照（<code class="font-mono text-xs">knowledge.orientation.*</code>）— 定時搜尋與 RAG。',
+        'settings.slot.knowledge_search_plan.label': '知識搜尋規劃',
+        'settings.slot.knowledge_search_plan.sub':
+            '多查詢網路搜尋規劃（<code class="font-mono text-xs">knowledge.search_plan.*</code>）— 非直接使用使用者原文。',
+        'settings.slot.knowledge_platform.label': '知識平台',
+        'settings.slot.knowledge_platform.sub':
+            '定時更新間隔與 opt-out — 見「設定 → Knowledge」（<code class="font-mono text-xs">knowledge.platform.*</code>）。',
+        'settings.slot.knowledge_classify.label': '知識分類',
+        'settings.slot.knowledge_classify.sub':
+            'Bucket 再分類（<code class="font-mono text-xs">knowledge.classify.*</code>）。',
+        'settings.slot.knowledge_distill.label': '知識精華',
+        'settings.slot.knowledge_distill.sub':
+            '摘要精華供 RAG／訓練（<code class="font-mono text-xs">knowledge.distill.*</code>）。',
+        'settings.nav.platform_knowledge.label': '知識',
+        'settings.nav.platform_knowledge.title': '平台演化',
+        'settings.nav.platform_knowledge.sub':
+            '自動網搜、話題評分與全站 RAG（僅 platform 主機）。',
+        'settings.nav.knowledge.label': '知識',
+        'settings.nav.knowledge.title': 'Knowledge buckets',
+        'settings.nav.knowledge.sub':
+            '定時 web 擷取寫入 platform/tenant bucket；opt-out 主題；合併 Knowledge vault 至 RAG。',
+        'settings.knowledge.loading': '正在載入 Knowledge 設定…',
+        'settings.knowledge.load_failed': '無法載入 Knowledge 設定。',
+        'settings.knowledge.intro':
+            'oaao.ai 平台自我演化：依跨租戶話題重要分數與生命週期決定是否自動網搜。租戶管理員不可見此面板。',
+        'settings.knowledge.scheduled_enabled': '啟用定時更新',
+        'settings.knowledge.interval_hours': '更新間隔（小時）',
+        'settings.knowledge.classify_after': '擷取後自動分類與精華',
+        'settings.knowledge.merge_recall': '預設將 Knowledge vault 併入 RAG',
+        'settings.knowledge.do_not_search': '禁止搜尋（每行一個主題）',
+        'settings.knowledge.save': '儲存',
+        'settings.knowledge.run_now': '立即執行更新',
+        'settings.knowledge.saving': '儲存中…',
+        'settings.knowledge.saved': '已儲存。',
+        'settings.knowledge.save_failed': '儲存失敗。',
+        'settings.knowledge.running': '正在執行更新…',
+        'settings.knowledge.run_done': '更新完成（{count} 個 scope）。',
+        'settings.knowledge.run_failed': '更新失敗。',
+        'settings.knowledge.cron_hint':
+            '當設定 OAAO_VAULT_JOB_POLL_BASE_URL 時，orchestrator 會輪詢 POST /endpoints/api/knowledge_cron_run（見 docker/env）。',
+        'settings.knowledge.vault_section': 'Knowledge 目標 Vault',
+        'settings.knowledge.tenant_vault_id': '租戶 Knowledge vault ID',
+        'settings.knowledge.platform_vault_id': '平台 Knowledge vault ID（可選）',
+        'settings.knowledge.refresh_user_id': '服務帳號 user ID（寫入 Vault）',
+        'settings.knowledge.vault_ph': 'Vault 模組中的 vault id',
+        'settings.knowledge.refresh_user_ph': '例如自動化／管理員帳號',
+        'settings.knowledge.vault_hint':
+            '在 Vault 建立租戶級或 global 庫後貼上 id；平台管理後台將可自動建立（roadmap）。',
         'settings.slot.asr.label': '語音辨識',
         'settings.slot.asr.sub':
             '語音轉文字路由 — 在此選擇預設端點。管線模式、分段緩衝與 Speaker 設定請至「設定 → ASR」。',
@@ -1820,6 +1926,10 @@ const OAAO_I18N_BASE = {
         'preferences.dashboard.credits_balance': 'Credits',
         'preferences.dashboard.credits_used_30d': '已用 credits（30 天）',
         'preferences.dashboard.unlimited': '無上限',
+        'settings.users.credits_col': 'Credits',
+        'settings.users.credit_balance': 'Credit 餘額',
+        'settings.users.credit_balance_hint': '留空表示無上限；設為 0 將無法再發送聊天。',
+        'chat.send.credits_exhausted': 'Credits 已用完，請聯絡管理員加值。',
         'preferences.dashboard.hint':
             'Credits 依 token 用量、endpoint 的 tokens-per-credit、purpose 倍率與 chat profile 倍率計算。',
         'preferences.dashboard.usage_breakdown': '用量明細',

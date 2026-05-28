@@ -12,6 +12,7 @@ from oaao_orchestrator.vault_graph_rag import (
     _query_is_general_knowledge,
     build_pipeline_snapshot_for_rag,
     is_vault_rescan_query,
+    retrieval_confidence_sufficient,
     retrieval_query_from_messages,
 )
 
@@ -52,6 +53,50 @@ def test_passage_relevant_strict_blocks_spurious_handbook_hit() -> None:
     passage = "TRADING RULES OF THE MARKET\nOpening and closing of the Market"
     assert _passage_relevant_to_query(query, passage) is False
     assert _passage_relevant_to_query(query, passage, strict=True) is False
+
+
+def test_retrieval_confidence_rejects_weak_top_hit() -> None:
+    picks = [
+        _PassagePick(
+            passage="a",
+            vault_id=1,
+            document_id=1,
+            file_name="a.pdf",
+            segment_type="text",
+            score=0.40,
+        ),
+        _PassagePick(
+            passage="b",
+            vault_id=1,
+            document_id=2,
+            file_name="b.pdf",
+            segment_type="text",
+            score=0.38,
+        ),
+    ]
+    assert retrieval_confidence_sufficient(picks, min_score=0.38) is False
+
+
+def test_retrieval_confidence_accepts_clear_top_hit() -> None:
+    picks = [
+        _PassagePick(
+            passage="a",
+            vault_id=1,
+            document_id=1,
+            file_name="a.pdf",
+            segment_type="text",
+            score=0.72,
+        ),
+        _PassagePick(
+            passage="b",
+            vault_id=1,
+            document_id=2,
+            file_name="b.pdf",
+            segment_type="text",
+            score=0.41,
+        ),
+    ]
+    assert retrieval_confidence_sufficient(picks, min_score=0.38) is True
 
 
 def test_vault_rescan_reuses_prior_user_turn() -> None:

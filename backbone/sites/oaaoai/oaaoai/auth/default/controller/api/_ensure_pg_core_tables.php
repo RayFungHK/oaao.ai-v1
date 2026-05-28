@@ -68,6 +68,24 @@ function oaao_auth_ensure_pg_extension_schemas(\PDO $pdo): void
         oaao_auth_ensure_mine_schema($pdo);
     } catch (\Throwable) {
     }
+
+    try {
+        require_once __DIR__ . '/_ensure_user_invitation_schema.php';
+        oaao_auth_ensure_user_invitation_schema($pdo);
+    } catch (\Throwable) {
+    }
+
+    try {
+        require_once __DIR__ . '/_ensure_corpus_schema.php';
+        oaao_auth_ensure_corpus_schema($pdo);
+    } catch (\Throwable) {
+    }
+
+    try {
+        require_once __DIR__ . '/_ensure_library_schema.php';
+        oaao_auth_ensure_library_schema($pdo);
+    } catch (\Throwable) {
+    }
 }
 
 function oaao_auth_ensure_pg_storage_schema(\PDO $pdo): void

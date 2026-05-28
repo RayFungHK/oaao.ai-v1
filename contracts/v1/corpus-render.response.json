@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oaao.ai/schemas/v1/corpus-render.response.json",
+  "title": "CorpusRenderResponse",
+  "description": "CS-1-S13 render result (inline or poll via GET /v1/corpus/jobs/{id})",
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["running", "done", "failed"] },
+    "job_id": { "type": "string" },
+    "format": { "type": "string", "enum": ["html", "pdf"] },
+    "corpus_id": { "type": ["integer", "string", "null"] },
+    "html": { "type": "string", "description": "Full HTML document when format=html" },
+    "html_template": { "$ref": "corpus-html-template.json" },
+    "parameters": { "type": "object" },
+    "error": { "type": "string" },
+    "detail": { "type": "string" },
+    "pdf_url": { "type": "string", "description": "Future: agent_materials download URL" },
+    "pdf_bytes_b64": { "type": "string", "description": "Future: inline PDF payload" }
+  },
+  "additionalProperties": true
+}

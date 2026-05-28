@@ -21,6 +21,8 @@ final class StorageDomain
 
     public const AGENT_MATERIALS = 'agent_materials';
 
+    public const CORPUS = 'corpus';
+
     /** @return list<string> */
     public static function all(): array
     {
@@ -32,6 +34,7 @@ final class StorageDomain
             self::LIVE_MEETING,
             self::MINE,
             self::AGENT_MATERIALS,
+            self::CORPUS,
         ];
     }
 
@@ -50,6 +53,7 @@ final class StorageDomain
             self::LIVE_MEETING => self::envRoot('OAAO_LIVE_MEETING_ROOT', self::authDataRoot() . '/live-meeting'),
             self::MINE => self::envRoot('OAAO_MINE_DATA_ROOT', '/var/www/html/storage/mine'),
             self::AGENT_MATERIALS => self::envRoot('OAAO_AGENT_MATERIAL_ROOT', self::authDataRoot() . '/agent-materials'),
+            self::CORPUS => self::envRoot('OAAO_CORPUS_STORAGE', '/var/www/html/storage/corpus'),
             default => self::envRoot('OAAO_VAULT_STORAGE', '/var/www/html/storage/vault'),
         };
     }
