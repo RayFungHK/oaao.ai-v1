@@ -58,6 +58,12 @@
                             <!-- Lucide BookMarked — also embedded in {@see oaao-rui-icons.js} for {@code data-oaao-rui-icon}. -->
                             <svg xmlns="http://www.w3.org/2000/svg" class="oaao-rail-svg rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M10 2v10l3-3 3 3V2"/></svg>
                         </button>
+                        <button type="button" id="workspace-rail-library"
+                            class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
+                            title="Library"
+                            aria-label="Library">
+                            <span data-oaao-rui-icon="file-text" data-oaao-rui-icon-size="18" data-oaao-rui-icon-class="oaao-rail-svg w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" class="inline-flex items-center justify-center shrink-0" aria-hidden="true"></span>
+                        </button>
                         <button type="button" id="workspace-rail-live-meeting"
                             class="oaao-rail-pin-btn shrink-0 flex items-center justify-center fg-[var(--grid-caption)] opacity-90 hover:bg-[var(--grid-line)]/35 hover:opacity-100 bg-transparent border-none cursor-pointer font-inherit select-none hidden"
                             title="Live meeting"
@@ -172,6 +178,22 @@
                                     data-i18n="workspace.vault_sidebar_vaults_heading">Your vaults</p>
                                 <div id="workspace-vault-list" class="flex flex-col gap-0.5 min-w-0" role="list"></div>
                             </div>
+                        </section>
+                        <section id="workspace-library-sidebar-section" class="flex flex-col flex-1 min-h-0 overflow-hidden hidden" aria-label="Library">
+                            <p class="workspace-chat-sidebar-label shrink-0 px-md pt-md pb-1 text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold"
+                                data-i18n="workspace.library_sidebar_heading">Library</p>
+                            <div class="shrink-0 px-md pb-2 flex flex-col gap-1.5">
+                                <button type="button" id="workspace-library-new-doc"
+                                    class="w-full inline-flex items-center justify-center gap-2 rounded-[10px] h-9 px-3 text-[0.8125rem] fw-semibold fg-[var(--grid-ink)] bg-[var(--grid-paper)] border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25">
+                                    <span data-i18n="workspace.library_new_doc">New document</span>
+                                </button>
+                                <button type="button" id="workspace-library-import-text"
+                                    class="w-full inline-flex items-center justify-center gap-2 rounded-[10px] h-9 px-3 text-[0.8125rem] fw-medium fg-[var(--grid-ink-muted)] bg-transparent border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/20">
+                                    <span data-i18n="workspace.library_import_text">Import text</span>
+                                </button>
+                            </div>
+                            <div id="workspace-library-doc-list" role="list"
+                                class="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] px-sm pb-md flex flex-col gap-0.5"></div>
                         </section>
                         <section id="workspace-rag-explore-sidebar-section" class="flex flex-col flex-1 min-h-0 overflow-hidden hidden" aria-label="RAG Explore">
                             <p class="workspace-chat-sidebar-label shrink-0 px-md pt-md pb-1 text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold"

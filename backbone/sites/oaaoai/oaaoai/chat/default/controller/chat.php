@@ -860,6 +860,8 @@ return new class extends Controller {
                 'POST conversation_archive'  => 'conversation_archive',
                 'POST conversation_delete'   => 'conversation_delete',
                 'POST conversation_fork'     => 'conversation_fork',
+                'POST conversation_compact'  => 'conversation_compact',
+                'GET context_usage'          => 'context_usage',
                 'POST conversation_mode'     => 'conversation_mode',
                 'POST conversation_share'    => 'conversation_share',
                 'POST message_feedback'      => 'message_feedback',

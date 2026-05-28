@@ -52,6 +52,7 @@ final class ChatHistorySettings
     {
         $pageSize = self::DEFAULT_PAGE_SIZE;
         $promptLimit = self::promptMessageLimit();
+        $autoCompactPct = ChatContextUsage::DEFAULT_AUTO_COMPACT_THRESHOLD_PCT;
 
         if ($tenantId === null || $tenantId < 1) {
             require_once dirname(__DIR__, 3) . '/core/default/library/TenantContext.php';
@@ -61,8 +62,9 @@ final class ChatHistorySettings
 
         if ($tenantId < 1) {
             return [
-                'history_page_size'      => $pageSize,
-                'prompt_message_limit'   => $promptLimit,
+                'history_page_size'            => $pageSize,
+                'prompt_message_limit'         => $promptLimit,
+                'auto_compact_threshold_pct'     => $autoCompactPct,
             ];
         }
 
@@ -70,8 +72,9 @@ final class ChatHistorySettings
         try {
             if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
                 return [
-                    'history_page_size'      => $pageSize,
-                    'prompt_message_limit'   => $promptLimit,
+                    'history_page_size'            => $pageSize,
+                    'prompt_message_limit'         => $promptLimit,
+                    'auto_compact_threshold_pct'     => $autoCompactPct,
                 ];
             }
 
@@ -80,15 +83,17 @@ final class ChatHistorySettings
             $raw = $stmt->fetchColumn();
         } catch (\PDOException) {
             return [
-                'history_page_size'      => $pageSize,
-                'prompt_message_limit'   => $promptLimit,
+                'history_page_size'            => $pageSize,
+                'prompt_message_limit'         => $promptLimit,
+                'auto_compact_threshold_pct'     => $autoCompactPct,
             ];
         }
 
         if (! \is_string($raw) || trim($raw) === '') {
             return [
-                'history_page_size'      => $pageSize,
-                'prompt_message_limit'   => $promptLimit,
+                'history_page_size'            => $pageSize,
+                'prompt_message_limit'         => $promptLimit,
+                'auto_compact_threshold_pct'     => $autoCompactPct,
             ];
         }
 
@@ -96,15 +101,17 @@ final class ChatHistorySettings
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return [
-                'history_page_size'      => $pageSize,
-                'prompt_message_limit'   => $promptLimit,
+                'history_page_size'            => $pageSize,
+                'prompt_message_limit'         => $promptLimit,
+                'auto_compact_threshold_pct'     => $autoCompactPct,
             ];
         }
 
         if (! \is_array($decoded)) {
             return [
-                'history_page_size'      => $pageSize,
-                'prompt_message_limit'   => $promptLimit,
+                'history_page_size'            => $pageSize,
+                'prompt_message_limit'         => $promptLimit,
+                'auto_compact_threshold_pct'     => $autoCompactPct,
             ];
         }
 
@@ -116,11 +123,15 @@ final class ChatHistorySettings
             if (isset($chat['prompt_message_limit'])) {
                 $promptLimit = self::clampPromptMessageLimit((int) $chat['prompt_message_limit']);
             }
+            if (isset($chat['auto_compact_threshold_pct'])) {
+                $autoCompactPct = max(50, min(98, (int) $chat['auto_compact_threshold_pct']));
+            }
         }
 
         return [
-            'history_page_size'      => $pageSize,
-            'prompt_message_limit'   => $promptLimit,
+            'history_page_size'            => $pageSize,
+            'prompt_message_limit'         => $promptLimit,
+            'auto_compact_threshold_pct'   => $autoCompactPct,
         ];
     }
 
@@ -213,23 +224,29 @@ final class ChatHistorySettings
         }
         $lim = max(1, min(self::MAX_PROMPT_MESSAGE_LIMIT, $lim));
 
+        require_once __DIR__ . '/ChatContextUsage.php';
+
         $histRaw = $splitDb->prepare()
-            ->select('role, content')
+            ->select('role, content, meta_json')
             ->from('message')
             ->where('conversation_id=?')
             ->assign(['conversation_id' => $conversationId])
             ->order('-id')
-            ->limit($lim)
+            ->limit($lim * 2)
             ->query()
             ->fetchAll();
 
-        /** @var list<array{role: string, content: string}> $rowsDesc */
+        /** @var list<array{role: string, content: string, meta_json?: string|null}> $rowsDesc */
         $rowsDesc = \is_array($histRaw) ? $histRaw : [];
         $rowsDesc = \array_reverse($rowsDesc);
 
         $messages = [];
         foreach ($rowsDesc as $r) {
             if (! \is_array($r)) {
+                continue;
+            }
+            $metaJson = isset($r['meta_json']) ? (string) $r['meta_json'] : null;
+            if (ChatContextUsage::messagePromptSuperseded($metaJson)) {
                 continue;
             }
             $role = strtolower(trim((string) ($r['role'] ?? '')));
@@ -241,6 +258,9 @@ final class ChatHistorySettings
                 continue;
             }
             $messages[] = ['role' => $role, 'content' => $c];
+            if (\count($messages) >= $lim) {
+                break;
+            }
         }
 
         return $messages;

@@ -38,10 +38,22 @@ if [[ "${FORCE}" == "--force" ]]; then
   BODY='{"force":true}'
 fi
 
-echo "POST ${URL}"
-curl -fsS -X POST \
+LOG_DIR="${OAAO_KNOWLEDGE_CRON_LOG_DIR:-${ROOT}/var/log}"
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/knowledge-refresh.log"
+STAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+echo "[${STAMP}] POST ${URL}" | tee -a "${LOG_FILE}"
+HTTP_CODE="$(curl -sS -w "%{http_code}" -o "${LOG_DIR}/.knowledge-cron-last.json" -X POST \
   -H "X-OAAO-Internal-Token: ${SECRET}" \
   -H "Accept: application/json" \
   -H "Content-Type: application/json" \
-  -d "${BODY}"
-echo
+  -d "${BODY}" \
+  "${URL}" || echo "000")"
+echo "[${STAMP}] HTTP ${HTTP_CODE}" | tee -a "${LOG_FILE}"
+cat "${LOG_DIR}/.knowledge-cron-last.json" | tee -a "${LOG_FILE}"
+echo "" | tee -a "${LOG_FILE}"
+
+if [[ "${HTTP_CODE}" != "200" && "${HTTP_CODE}" != "201" ]]; then
+  exit 1
+fi

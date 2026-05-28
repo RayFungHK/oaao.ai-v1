@@ -63,6 +63,7 @@ return function (): void {
     $refresh = $repo->resolveKnowledgeRefreshConfig();
 
     if (! ($refresh['scheduled_enabled'] ?? true)) {
+        error_log('[oaao knowledge_cron_run] skipped scheduled_disabled');
         echo json_encode(
             [
                 'success' => true,
@@ -116,6 +117,7 @@ return function (): void {
 
     $resp = ChatOrchestratorApi::postInternalJson('/v1/knowledge/refresh', $payload, 300);
     if ($resp === null || empty($resp['ok'])) {
+        error_log('[oaao knowledge_cron_run] orchestrator refresh failed');
         http_response_code(502);
         echo json_encode(
             [
@@ -129,6 +131,8 @@ return function (): void {
 
         return;
     }
+
+    error_log('[oaao knowledge_cron_run] ok scope=platform force=' . ($force ? '1' : '0'));
 
     echo json_encode(
         [

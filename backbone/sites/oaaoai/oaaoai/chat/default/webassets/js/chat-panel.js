@@ -1870,7 +1870,7 @@ function loadChatComposerDialogCtor() {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260528-chat-user-msg-newlines-v91';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260528-chat-context-toolbar-v94';
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -2497,6 +2497,20 @@ function toastOaao(msg, anchor = null, kind) {
     void loadOaaoToastHelper()
         .then((fire) => fire(msg, k))
         .catch(() => {});
+}
+
+/** @param {Record<string, unknown> | null | undefined} data */
+function notifyAutoCompactApplied(data) {
+    if (!data || data.auto_compact_applied !== true) return;
+    toastOaao(
+        oaaoChatT(
+            'chat.context_usage.auto_compact_applied',
+            'Older messages were summarized automatically to free context space.',
+        ),
+        null,
+        'info',
+    );
+    globalThis.__oaaoRefreshChatContextUsage?.();
 }
 
 /** @type {WeakMap<HTMLElement, { destroy: () => void }>} */
@@ -11529,6 +11543,7 @@ export async function mountShellPanel(mount) {
                 );
                 return;
             }
+            notifyAutoCompactApplied(data);
             const cid = Number(data.conversation_id);
             const nextCid = cid > 0 ? cid : activeConversationId;
             const stripOnSend = getOaaoTaskListStripHost(mount);
@@ -12465,6 +12480,11 @@ export async function mountShellPanel(mount) {
         await loadMessages(activeConversationId, scroll);
         if (next) {
             await resumeStreamIfAny(next);
+            globalThis.__oaaoStartChatContextUsagePoll?.();
+            globalThis.__oaaoRefreshChatContextUsage?.();
+        } else {
+            globalThis.__oaaoStopChatContextUsagePoll?.();
+            globalThis.__oaaoRefreshChatContextUsage?.();
         }
         syncComposerBusyForActiveView(mount);
         updateChatLayout();
@@ -13399,6 +13419,7 @@ export async function mountShellPanel(mount) {
 
                     return;
                 }
+                notifyAutoCompactApplied(data);
                 const cid = Number(data.conversation_id);
                 const prevCid = activeConversationId;
                 const nextCid = cid > 0 ? cid : prevCid;
@@ -13584,6 +13605,23 @@ export async function mountShellPanel(mount) {
         activeConversationId = null;
     }
     await openConversation(activeConversationId, { replaceUrl: true });
+    try {
+        const { mountChatContextUsage } = await import('./chat-context-usage.js');
+        mountChatContextUsage(
+            mount,
+            () => Number(activeConversationId) || 0,
+            () => getWorkspaceChatEndpointIdForSend(),
+            chatApiBase(),
+            async () => {
+                const cid = Number(activeConversationId) || 0;
+                if (cid > 0) {
+                    await openConversation(cid, { replaceUrl: true, scroll: 'auto' });
+                }
+            },
+        );
+    } catch (err) {
+        console.error('[oaao] context usage mount failed', err);
+    }
     hydrateRuiIconSlots(document.getElementById('workspace-icon-rail') ?? document);
     if (!activeConversationId) {
         void maybeReplayPipelineFixture(mount, messagesEl);

@@ -5,6 +5,9 @@ use oaaoai\chat\ChatAttachmentStorage;
 use oaaoai\chat\ChatConversationMaterial;
 use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatConversationTitle;
+use oaaoai\chat\ChatContextUsage;
+use oaaoai\chat\ChatConversationCompact;
+use oaaoai\chat\ChatTokenEstimator;
 use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatRunPrincipal;
 use oaaoai\chat\ChatTeachingIntent;
@@ -553,6 +556,7 @@ return function (): void {
         $runId = null;
         $streamToken = null;
         $assistantOut = $assistantInsertContent;
+        $autoCompactApplied = false;
 
         if ($orchReady && $binding !== null) {
             $secret = getenv('OAAO_ORCH_SHARED_SECRET');
@@ -568,6 +572,49 @@ return function (): void {
 
             /** Server-side prompt memory — never trust browser-loaded thread cache. */
             $canonPdoForPrompt = $this->oaao_chat_canonical_pdo();
+            $bindingForContext = $binding;
+            $contextLimit = ChatContextUsage::resolveContextLimitFromBinding($bindingForContext);
+            $tokenizerProfile = ChatTokenEstimator::resolveProfileFromBinding($bindingForContext);
+            $splitPdoForCtx = $splitDb->getDBAdapter();
+            $overheadTokens = ChatContextUsage::measureOverheadTokens(
+                $this,
+                $uid,
+                $wid,
+                $splitPdoForCtx instanceof \PDO ? $splitPdoForCtx : null,
+                $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
+                'default',
+                $tokenizerProfile,
+            );
+            $usageBeforeSend = ChatContextUsage::usageReport(
+                $splitDb,
+                $conversationId,
+                $contextLimit,
+                $canonPdoForPrompt instanceof \PDO
+                    ? ChatHistorySettings::resolvePromptMessageLimit($canonPdoForPrompt)
+                    : ChatHistorySettings::promptMessageLimit(),
+                $overheadTokens,
+                $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
+                $tokenizerProfile,
+            );
+            $outputReserve = ChatContextUsage::outputReserveTokens($bindingForContext, $contextLimit);
+            if (
+                ChatContextUsage::shouldAutoCompactBeforeSend(
+                    $usageBeforeSend,
+                    $contextLimit,
+                    $outputReserve,
+                    $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
+                )
+            ) {
+                ChatConversationCompact::apply(
+                    $splitDb,
+                    $conversationId,
+                    $uid,
+                    (int) ($wid ?? 0),
+                    $this,
+                );
+                $autoCompactApplied = true;
+            }
+
             $messages = ChatHistorySettings::buildPromptMessagesFromDb(
                 $splitDb,
                 $conversationId,
@@ -1013,6 +1060,9 @@ return function (): void {
         }
         if ($wid !== null && $wid > 0) {
             $responsePayload['workspace_id'] = $wid;
+        }
+        if ($autoCompactApplied) {
+            $responsePayload['auto_compact_applied'] = true;
         }
         try {
             $json = json_encode($responsePayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);

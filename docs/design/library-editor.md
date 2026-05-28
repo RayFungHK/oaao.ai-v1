@@ -41,7 +41,7 @@
 
 | Item | Pattern |
 |------|---------|
-| Layout | **Split** (list sidebar + editor main) — add `workspace/library` to `SPLIT_LAYOUT_PAGE_IDS` or rail-only full-width editor (decision: **split** for parity with chat/vault) |
+| Layout | **Split** — document list in `#workspace-library-sidebar-section`, block editor in main `#workspace-module-mount` (CS-2-S4). |
 | List | FetchTable-style list or lightweight custom (JIT tokens) |
 | Editor | Full-height panel; autosave revision deltas |
 | Chat composer | `@library` typeahead (CS-2-S10) — distinct badge from `@vault` |

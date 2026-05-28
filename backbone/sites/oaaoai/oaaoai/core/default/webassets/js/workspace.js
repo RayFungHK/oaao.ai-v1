@@ -220,7 +220,12 @@ const WORKSPACE_SCOPE_STORAGE_KEY = 'oaao.workspace.active_workspace_id';
 const WORKSPACE_SCOPE_V2_KEY = 'oaao.workspace.scope';
 
 /** Split layout — icon rail + module sidebar + main ({@code workspace/chat}, {@code workspace/vault}, {@code workspace/rag-explore}). */
-const SPLIT_LAYOUT_PAGE_IDS = new Set(['workspace/chat', 'workspace/vault', 'workspace/rag-explore']);
+const SPLIT_LAYOUT_PAGE_IDS = new Set([
+    'workspace/chat',
+    'workspace/vault',
+    'workspace/rag-explore',
+    'workspace/library',
+]);
 
 /** Gallery layout — icon rail + main; centered card column ({@code workspace/agents}, {@code workspace/templates}). */
 const GALLERY_LAYOUT_PAGE_IDS = new Set([
@@ -1329,6 +1334,7 @@ function applyWorkspaceShellLabels() {
     const ragExploreBtn = document.getElementById('workspace-rail-rag-explore');
     const agentsBtn = document.getElementById('workspace-rail-agents');
     const corpusBtn = document.getElementById('workspace-rail-corpus');
+    const libraryBtn = document.getElementById('workspace-rail-library');
     const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
     const researchBtn = document.getElementById('workspace-rail-research');
     const minesBtn = document.getElementById('workspace-rail-mines');
@@ -1337,6 +1343,7 @@ function applyWorkspaceShellLabels() {
     const ragExploreLabel = oaaoT('workspace.rail_rag_explore_title', 'RAG Explore');
     const agentsLabel = oaaoT('workspace.rail_agents_title', 'Agents');
     const corpusLabel = oaaoT('workspace.rail_corpus_title', 'Corpus');
+    const libraryLabel = oaaoT('workspace.rail_library_title', 'Library');
     const liveMeetingLabel = oaaoT('workspace.rail_live_meeting_title', 'Live meeting');
     const researchLabel = oaaoT('workspace.rail_research_title', 'Article Research');
     const minesLabel = oaaoT('workspace.rail_mines_title', 'Data Mining');
@@ -1352,6 +1359,8 @@ function applyWorkspaceShellLabels() {
     agentsBtn?.setAttribute('aria-label', agentsLabel);
     corpusBtn?.setAttribute('title', corpusLabel);
     corpusBtn?.setAttribute('aria-label', corpusLabel);
+    libraryBtn?.setAttribute('title', libraryLabel);
+    libraryBtn?.setAttribute('aria-label', libraryLabel);
     liveMeetingBtn?.setAttribute('title', liveMeetingLabel);
     liveMeetingBtn?.setAttribute('aria-label', liveMeetingLabel);
     researchBtn?.setAttribute('title', researchLabel);
@@ -1450,6 +1459,12 @@ export function initWorkspaceShell() {
                 void navigateFn('workspace/corpus');
             });
         }
+        const libraryBtn = document.getElementById('workspace-rail-library');
+        if (libraryBtn && spaPages().some((p) => p.page_id === 'workspace/library')) {
+            libraryBtn.addEventListener('click', () => {
+                void navigateFn('workspace/library');
+            });
+        }
         const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
         if (liveMeetingBtn && spaPages().some((p) => p.page_id === 'workspace/live-meeting')) {
             liveMeetingBtn.addEventListener('click', () => {
@@ -1515,15 +1530,20 @@ export function initWorkspaceShell() {
     function syncWorkspaceModuleSidebar(activePageId) {
         const chatSection = document.getElementById('workspace-chat-sidebar-section');
         const vaultSection = document.getElementById('workspace-vault-sidebar-section');
+        const librarySection = document.getElementById('workspace-library-sidebar-section');
         const ragExploreSection = document.getElementById('workspace-rag-explore-sidebar-section');
         const hasChat = spaPages().some((p) => p.page_id === 'workspace/chat');
         const hasVault = spaPages().some((p) => p.page_id === 'workspace/vault');
+        const hasLibrary = spaPages().some((p) => p.page_id === 'workspace/library');
         const hasRagExplore = spaPages().some((p) => p.page_id === 'workspace/rag-explore');
         if (chatSection) {
             chatSection.classList.toggle('hidden', !hasChat || activePageId !== 'workspace/chat');
         }
         if (vaultSection) {
             vaultSection.classList.toggle('hidden', !hasVault || activePageId !== 'workspace/vault');
+        }
+        if (librarySection) {
+            librarySection.classList.toggle('hidden', !hasLibrary || activePageId !== 'workspace/library');
         }
         if (ragExploreSection) {
             ragExploreSection.classList.toggle('hidden', !hasRagExplore || activePageId !== 'workspace/rag-explore');
@@ -1542,6 +1562,7 @@ export function initWorkspaceShell() {
         const agentsBtn = document.getElementById('workspace-rail-agents');
         const templatesBtn = document.getElementById('workspace-rail-templates');
         const corpusBtn = document.getElementById('workspace-rail-corpus');
+        const libraryBtn = document.getElementById('workspace-rail-library');
         const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
         const researchBtn = document.getElementById('workspace-rail-research');
         const minesBtn = document.getElementById('workspace-rail-mines');
@@ -1550,6 +1571,7 @@ export function initWorkspaceShell() {
         const hasAgents = spaPages().some((p) => p.page_id === 'workspace/agents');
         const hasTemplates = spaPages().some((p) => p.page_id === 'workspace/templates');
         const hasCorpus = spaPages().some((p) => p.page_id === 'workspace/corpus');
+        const hasLibrary = spaPages().some((p) => p.page_id === 'workspace/library');
         const hasLiveMeeting = spaPages().some((p) => p.page_id === 'workspace/live-meeting');
         const hasResearch = spaPages().some((p) => p.page_id === 'workspace/research');
         const hasMines = spaPages().some((p) => p.page_id === 'workspace/mines');
@@ -1558,6 +1580,7 @@ export function initWorkspaceShell() {
         agentsBtn?.classList.toggle('hidden', !hasAgents);
         templatesBtn?.classList.toggle('hidden', !hasTemplates);
         corpusBtn?.classList.toggle('hidden', !hasCorpus);
+        libraryBtn?.classList.toggle('hidden', !hasLibrary);
         liveMeetingBtn?.classList.toggle('hidden', !hasLiveMeeting);
         researchBtn?.classList.toggle('hidden', !hasResearch);
         minesBtn?.classList.toggle('hidden', !hasMines);
@@ -1571,6 +1594,7 @@ export function initWorkspaceShell() {
         const agentsBtn = document.getElementById('workspace-rail-agents');
         const templatesBtn = document.getElementById('workspace-rail-templates');
         const corpusBtn = document.getElementById('workspace-rail-corpus');
+        const libraryBtn = document.getElementById('workspace-rail-library');
         const liveMeetingBtn = document.getElementById('workspace-rail-live-meeting');
         const researchBtn = document.getElementById('workspace-rail-research');
         const minesBtn = document.getElementById('workspace-rail-mines');
@@ -1580,6 +1604,7 @@ export function initWorkspaceShell() {
         const agentsActive = activePageId === 'workspace/agents';
         const templatesActive = activePageId === 'workspace/templates';
         const corpusActive = activePageId === 'workspace/corpus';
+        const libraryActive = activePageId === 'workspace/library';
         const liveMeetingActive = activePageId === 'workspace/live-meeting';
         const researchActive = activePageId === 'workspace/research';
         const minesActive = activePageId === 'workspace/mines';
@@ -1597,6 +1622,11 @@ export function initWorkspaceShell() {
             corpusBtn.classList.toggle('oaao-rail-btn-active', corpusActive);
             if (corpusActive) corpusBtn.setAttribute('aria-current', 'page');
             else corpusBtn.removeAttribute('aria-current');
+        }
+        if (libraryBtn && !libraryBtn.classList.contains('hidden')) {
+            libraryBtn.classList.toggle('oaao-rail-btn-active', libraryActive);
+            if (libraryActive) libraryBtn.setAttribute('aria-current', 'page');
+            else libraryBtn.removeAttribute('aria-current');
         }
         if (vaultBtn && !vaultBtn.classList.contains('hidden')) {
             vaultBtn.classList.toggle('oaao-rail-btn-active', vaultActive);
@@ -1663,6 +1693,7 @@ export function initWorkspaceShell() {
             'workspace/agents',
             'workspace/templates',
             'workspace/corpus',
+            'workspace/library',
             'workspace/live-meeting',
             'workspace/research',
             'workspace/mines',

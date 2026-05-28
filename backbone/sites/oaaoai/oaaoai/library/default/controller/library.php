@@ -6,7 +6,7 @@ use Razy\Agent;
 use Razy\Controller;
 
 /**
- * Library — workspace/library gallery shell (CS-2-S1 skeleton).
+ * Library — workspace/library split shell (CS-2-S4 list + block editor).
  */
 return new class extends Controller {
     public function __onInit(Agent $agent): bool
@@ -28,8 +28,11 @@ return new class extends Controller {
         $agent->addRoute('GET /library/workspace-panel', 'panel/workspace_panel');
         $agent->addLazyRoute([
             'api' => [
-                'GET library_documents_list' => 'library_documents_list',
-                'POST library_document_convert' => 'library_document_convert',
+                'GET library_documents_list'   => 'library_documents_list',
+                'GET library_document_get'     => 'library_document_get',
+                'POST library_document_create'   => 'library_document_create',
+                'POST library_revision_save'   => 'library_revision_save',
+                'POST library_document_convert'  => 'library_document_convert',
             ],
         ]);
 
