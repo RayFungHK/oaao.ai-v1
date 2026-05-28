@@ -5,6 +5,8 @@ declare(strict_types=1);
 use oaaoai\chat\ChatContextUsage;
 use oaaoai\chat\ChatConversationCompact;
 use oaaoai\chat\ChatHistorySettings;
+use oaaoai\chat\ChatOrchestratorBootstrap;
+use oaaoai\chat\ChatTokenEstimator;
 
 /**
  * POST /chat/api/conversation_compact — in-thread CIT/CMT; supersede older turns, keep tail.
@@ -77,7 +79,7 @@ return function (): void {
             return;
         }
 
-        $canonPdo = $this->getDB();
+        $canonPdo = $this->oaao_chat_canonical_pdo();
         $promptLimit = $canonPdo instanceof \PDO
             ? ChatHistorySettings::resolvePromptMessageLimit($canonPdo)
             : ChatHistorySettings::promptMessageLimit();
@@ -86,7 +88,6 @@ return function (): void {
         $tokenizerProfile = null;
         $chatEndpointId = (int) ($input['chat_endpoint_id'] ?? 0);
         if ($chatEndpointId > 0 && $canonPdo instanceof \PDO) {
-            require_once __DIR__ . '/../../library/ChatOrchestratorBootstrap.php';
             $canonDb = $this->api('auth')?->getDB();
             if ($canonDb instanceof \Razy\Database) {
                 $binding = \oaaoai\chat\ChatOrchestratorBootstrap::resolveBindingForProfile($canonDb, $chatEndpointId);

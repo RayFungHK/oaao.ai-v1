@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace oaaoai\chat;
 
+use Oaaoai\Core\OaaoRepoPaths;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\FeatureRegistryBootstrap;
 use oaaoai\endpoints\ToolServerRegister;
@@ -161,16 +162,6 @@ final class ChatContextUsage
         ?string $plannerModeId = 'default',
         ?string $tokenizerProfile = null,
     ): array {
-        $moduleRoot = dirname(__DIR__, 3);
-        require_once $moduleRoot . '/endpoints/default/library/FeatureRegistryBootstrap.php';
-        require_once $moduleRoot . '/endpoints/default/library/ToolServerRegister.php';
-        require_once $moduleRoot . '/endpoints/default/library/ChatAllowedAgentsPurposeConfig.php';
-        require_once __DIR__ . '/SkillsManifestStorage.php';
-        require_once __DIR__ . '/CrystallizedSkillsStorage.php';
-        require_once __DIR__ . '/PlannerAgentRegister.php';
-        require_once __DIR__ . '/MicroSkillCatalog.php';
-        require_once __DIR__ . '/ChatTokenEstimator.php';
-
         try {
             FeatureRegistryBootstrap::collect($controller);
         } catch (\Throwable) {
@@ -178,7 +169,7 @@ final class ChatContextUsage
         }
 
         $system = 0;
-        $repoRoot = dirname(__DIR__, 7);
+        $repoRoot = OaaoRepoPaths::root();
         $paths = [
             $repoRoot . '/docker/polish-templates/turn_agent_intent.md',
             $repoRoot . '/python/materials/prompts/planning/turn_agent_intent.md',
@@ -193,7 +184,6 @@ final class ChatContextUsage
             $system = 400;
         }
 
-        require_once $moduleRoot . '/user/default/library/UserPersonalization.php';
         if ($canonPdo instanceof \PDO && $userId > 0) {
             try {
                 $pers = UserPersonalization::forOrchestratorPayload(

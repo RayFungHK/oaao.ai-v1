@@ -8,14 +8,10 @@ use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatOrchestratorBootstrap;
 use oaaoai\chat\ChatTokenEstimator;
 
-require_once __DIR__ . '/../../library/ChatContextUsage.php';
-require_once __DIR__ . '/../../library/ChatConversationScope.php';
-require_once __DIR__ . '/../../library/ChatHistorySettings.php';
-require_once __DIR__ . '/../../library/ChatOrchestratorBootstrap.php';
-require_once __DIR__ . '/../../library/ChatTokenEstimator.php';
-
 /**
  * GET /chat/api/context_usage?conversation_id=
+ *
+ * Library classes autoload via Razy ModuleScanner ({@see oaaoai/chat/default/library/*.php}) — no manual require_once.
  */
 return function (): void {
     header('Content-Type: application/json; charset=UTF-8');

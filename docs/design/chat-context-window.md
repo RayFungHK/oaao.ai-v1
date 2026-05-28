@@ -18,6 +18,12 @@
 | GET | `/chat/api/context_usage?conversation_id=&chat_endpoint_id=` | Estimates usage vs model cap |
 | POST | `/chat/api/conversation_compact` | In-thread compaction |
 
+## Module autoload (Razy)
+
+- FQCN `oaaoai\chat\ChatContextUsage` → `oaaoai/chat/default/library/ChatContextUsage.php` via **ModuleScanner** (module must be **Loaded**; declare cross-module deps in `package.php` `require`, e.g. `oaaoai/endpoints`).
+- API closures (`controller/api/*.php`): use `use oaaoai\chat\…` only — **do not** `require_once` library files.
+- `dirname(__DIR__, N)` from `controller/api/` (N≈4 to `oaaoai/`) **≠** from `library/` (N≈3 to `oaaoai/`, N≈7 to repo root). Repo assets: `Oaaoai\Core\OaaoRepoPaths::root()` or `OAAO_REPO_ROOT`.
+
 ## Shipped (v1.2)
 
 - **Auto-compact before `send`** when projected usage ≥ threshold (`limits_json.chat.auto_compact_threshold_pct` or `OAAO_CHAT_AUTO_COMPACT_THRESHOLD_PCT`, default 82%), using endpoint `max_model_len` + output `max_tokens` reserve.

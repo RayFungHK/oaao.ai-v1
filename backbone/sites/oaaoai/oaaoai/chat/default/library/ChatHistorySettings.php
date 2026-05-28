@@ -224,8 +224,6 @@ final class ChatHistorySettings
         }
         $lim = max(1, min(self::MAX_PROMPT_MESSAGE_LIMIT, $lim));
 
-        require_once __DIR__ . '/ChatContextUsage.php';
-
         $histRaw = $splitDb->prepare()
             ->select('role, content, meta_json')
             ->from('message')
