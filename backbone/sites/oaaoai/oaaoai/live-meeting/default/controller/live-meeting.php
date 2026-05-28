@@ -70,7 +70,26 @@ return new class extends Controller {
                     'shell_js_module' => '/webassets/live-meeting/default/js/live-meeting-panel.js',
                 ],
             );
+
+            $prefJs = '/webassets/live-meeting/default/js/asr-user-preferences-panel.js';
+            $coreApi->registerPreferencesSection(
+                'pref-asr',
+                'Speech',
+                'Speech & ASR',
+                'Voice input polish and related ASR preferences.',
+                'mic',
+                [
+                    'sort'            => 15,
+                    'levels'          => ['personal'],
+                    'panel_js_module' => $prefJs,
+                    'label_key'       => 'preferences.nav.asr.label',
+                    'title_key'       => 'preferences.nav.asr.title',
+                    'sub_key'         => 'preferences.nav.asr.sub',
+                ],
+            );
         }
+
+        $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
 
         $agent->addRoute('GET /live-meeting/workspace-panel', 'panel/workspace_panel');
 

@@ -27,6 +27,8 @@
 | 能力 | Platform / Workspace 入口 | 說明 |
 |------|---------------------------|------|
 | **Release Notes & News** | Platform CMS + workspace **What's New** | Platform 發布 changelog / news / blog；**跨 tenant** 推播 notification；使用者依 **version / build_id** 篩選瀏覽 |
+| **User Invitation** | Platform / Tenant Settings → Users | Admin **Send invitation**（取代直接建 user）；受邀者 **Registration page** 自設 name/password；**Forgot password** 自助重設 |
+| **Chat Personalization** | Chat composer **Advanced** + Settings **Preferences** | 手動調 **model params**（temp、top-k 等）；**Auto-Tuning** 問卷/性格包 → 標籤 + params；**Thumbs** 閉環優化 |
 
 **已具備基礎（本 backlog 假設可用）：** per-tenant object storage、Vault RAG、MicroSkill、crystallization、slide PPTX export、`AgentMaterialStorage`、workspace notification bell + dropdown panel 模式、**`OaaoBuildInfo`**（`VERSION` + `build_info.json`）、**`oaaoai/platform`** control plane（tenant registry）、tenant-scoped **`notifications_send`**（單 tenant 廣播）。
 
@@ -99,7 +101,7 @@ flowchart TB
 
 ---
 
-## 2. Epic 清單（6 Content Studio + 1 Platform + 1 收尾）
+## 2. Epic 清單（6 Content Studio + 3 Platform + 1 收尾）
 
 | Epic ID | 名稱 | Priority | 建議 Sprint | Depends On |
 |---------|------|----------|-------------|------------|
@@ -110,6 +112,8 @@ flowchart TB
 | **EPIC-CS-5** | Calendar Agent（workspace/calendar） | P1 | CS-W7 – CS-W10 | Chat stream ✅ · Notifications ✅ |
 | **EPIC-CS-6** | Todo Agent（header todos + thread resolve） | P1 | CS-W8 – CS-W10 | Chat stream ✅ · Notifications panel 模式 ✅ |
 | **EPIC-PLAT-1** | Release Notes & Product News（Platform CMS） | P1 | CS-W8 – CS-W11 | Platform host ✅ · Notifications ✅ · OaaoBuildInfo ✅ |
+| **EPIC-PLAT-2** | User Invitation & Self-Registration | P0 | CS-W1 – CS-W3 | SMTP / mail ✅ · Auth ✅ |
+| **EPIC-UX-1** | Chat Model Params & Auto-Tuning | P1 | CS-W4 – CS-W12 | Chat run ✅ · `preferences_json` ✅ |
 | **EPIC-CS-P** | Platform 收尾（非功能） | P2 | 穿插 | OAAO 90D 剩餘項 |
 
 ---
@@ -332,7 +336,118 @@ flowchart TB
 
 ---
 
-## 10. EPIC-CS-P — Platform 收尾（可穿插）
+## 10. EPIC-PLAT-2 — User Invitation & Self-Registration
+
+### 10.1 產品規格
+
+- **取代 admin「直接建立使用者」：** Tenant admin / platform operator 改為 **Send invitation** — 輸入 email（+ 可選 role/workspace）→ 系統寄出 **一次性 invitation link**。
+- **受邀者流程：** 點擊 link → **Registration page**（token 驗證）→ 自行設定 **display name** + **password** → 帳號 `active`。
+- **Invitation 實體：** `oaao_user_invitation` — email、token_hash、tenant_id、role、invited_by、status（`pending` / `accepted` / `expired` / `revoked`）、`expires_at`。
+- **Forgot password：** Login 頁 **Forgot password** → 輸入 email → 寄 reset link → **Reset password page**（token 驗證）→ 設定新密碼；與 invitation token **分表/分 kind**，共用 mail 基礎設施。
+- **安全（硬性）：** token 單次使用、TTL（建議 72h invite / 1h reset）、rate limit、**不回傳 email 是否存在**（防 enumeration）、密碼強度 policy 對齊現有 auth。
+- **Admin UX：** Settings → Users 列表顯示 **Pending invitations**；可 resend / revoke；已接受者顯示一般 user row。
+
+### 10.2 Stories
+
+| Story ID | Summary | Priority | Owner | Acceptance Criteria（摘要） |
+|----------|---------|----------|-------|---------------------------|
+| **PLAT-2-S1** | Invitation + password-reset token schema | P0 | php-lead | 表 `oaao_user_invitation`；reset token 欄位或 `oaao_password_reset`；migration |
+| **PLAT-2-S2** | Send invitation API（取代 create-user） | P0 | php-lead | `POST users_invite`；禁止 admin 直接設密碼；pending row + enqueue mail |
+| **PLAT-2-S3** | Invitation & reset email templates | P0 | php-lead | i18n EN/zh；deep link 含 signed token；SMTP 可配置 |
+| **PLAT-2-S4** | Registration page SPA | P0 | php-lead | `/register?token=` 驗證 → name + password form → 建立 user + mark invitation accepted |
+| **PLAT-2-S5** | Forgot password + reset page | P0 | php-lead | Request reset API + `/reset-password?token=`；舊 session 可選 invalidate |
+| **PLAT-2-S6** | Admin invite management UI | P1 | php-lead | Pending list、resend、revoke；create-user 入口改為 Invite |
+| **PLAT-2-S7** | Security tests + rate limits | P0 | qa-lead | 過期/已用 token 拒絕；enumeration 防護；CI 覆蓋 happy path |
+
+**DoD（Epic）：** Admin 只能邀請；受邀者自行註冊；忘記密碼可自助重設；無 admin 代設密碼路徑。
+
+---
+
+## 11. EPIC-UX-1 — Chat Model Params & Auto-Tuning
+
+### 11.1 產品規格
+
+三層能力：**手動 Advanced 參數** → **問卷/性格包 Auto-Tuning（三階段）** → **對話回饋閉環**。底層對齊 OpenWebUI 風格 **per-user Model Params**，並在 orchestrator `ChatRun` 合併。
+
+#### A. Composer Advanced（手動）
+
+- Chat **user input** 區可展開 **Advanced（adv）** 面板：細調 `temperature`、`top_p`、`top_k`、`presence_penalty`、`frequency_penalty`、`max_tokens`（及 tenant 允許的擴充欄位）。
+- 預設讀取 **user 全域 preferences**；可 **僅本次對話 / 僅本 thread** override（v1 至少支援 user 全域 + thread-local）。
+- UI 顯示目前生效值；Reset to defaults。
+
+#### B. Auto-Tuning — 第一階段：偏好標籤與 Prompt 注入（最快 ROI）
+
+- **首次登入**（或 invitation 完成後）可選 **Preference questionnaire**（10–30 題）— **可 Skip**。
+- 問卷答案 → LLM 或規則轉 **用戶畫像標籤**（例：`#簡潔` `#幽默` `#學術傾向` `#程式碼優先`）。
+- 標籤映射為 **隱藏 System Instruction** 注入 planner/composer（使用者不可見原文，Settings 可檢視摘要）。
+- **Preferences → Re-tune** 可重跑問卷或手改標籤。
+
+#### C. Auto-Tuning — 第二階段：動態參數對映
+
+- 問卷維度 → **Model Params 映射表**（小步調整，避免一次跳太大）：
+  - 創造力傾向 → `temperature ∈ [0.7, 1.2]`
+  - 邏輯/程式碼傾向 → `temperature ∈ [0.1, 0.3]`, `top_p = 0.9`
+  - 多樣性傾向 → `presence_penalty ∈ [0.2, 0.6]`
+- **三個預設性格包**（快速選路）：**創意家** / **嚴謹學者** / **親切助手** — 選包後問卷 **微調** 包內數值。
+- 結果寫入 `preferences_json.model_params` + `preference_tags`；與 Advanced 面板雙向同步。
+
+#### D. Auto-Tuning — 第三階段：閉環反饋（Data Flywheel）
+
+- 每則 assistant message 旁 **Thumbs up / down**。
+- **Downvote：** 記錄 context + 當前 params → **微調**（例：降 `temperature` 0.1，有上下界）。
+- **Auto-optimizer：** 廉價 LLM（GPT-4o-mini / 本地 Llama）擔任 **裁判** — 分析不滿意對話，輸出結構化建議（例：「Temperature 過高導致幻覺，建議 -0.1」）→ 可 **自動套用** 或 **Settings 待確認**（v1 建議待確認 + audit log）。
+
+```mermaid
+flowchart LR
+  subgraph onboard [Onboarding]
+    Q[Questionnaire 10-30Q]
+    Packs[3 Personality Packs]
+    Q --> Tags[Profile Tags]
+    Packs --> Params[Model Params]
+    Tags --> SysPrompt[Hidden System Instruction]
+  end
+
+  subgraph runtime [Chat Runtime]
+    Adv[Composer Advanced Panel]
+    Adv --> Merge[ChatRun param merge]
+    Params --> Merge
+    SysPrompt --> Planner[Planner system inject]
+    Merge --> LLM[LLM call]
+  end
+
+  subgraph feedback [Phase 3 Flywheel]
+    Thumb[Thumbs up/down]
+    Judge[Cheap LLM Judge]
+    Thumb --> Adjust[Micro param adjust]
+    Judge --> Adjust
+    Adjust --> Params
+  end
+```
+
+### 11.2 Stories
+
+| Story ID | Summary | Priority | Owner | Acceptance Criteria（摘要） |
+|----------|---------|----------|-------|---------------------------|
+| **UX-1-S1** | Per-user `model_params` schema + API | P1 | php-lead | `preferences_json.model_params` v1 schema；GET/POST user preferences |
+| **UX-1-S2** | Composer Advanced panel UI | P1 | php-lead | adv 展開；temp/top_p/top_k/presence/frequency/max_tokens；Reset |
+| **UX-1-S3** | ChatRun contract — merge user params | P1 | python-lead | send.php + orchestrator 合併 params；thread override 可選 |
+| **UX-1-S4** | First-login preference questionnaire | P1 | php-lead | 10–30 題；Skip；完成後存 raw answers |
+| **UX-1-S5** | Phase 1 — tags → hidden system instruction | P1 | python-lead | 標籤生成 + 映射表；planner 注入；Settings 可見摘要 |
+| **UX-1-S6** | Preferences Re-tune entry | P1 | php-lead | Settings 重跑問卷或編輯標籤 |
+| **UX-1-S7** | Phase 2 — three personality packs | P1 | php-lead | 創意家/嚴謹學者/親切助手 preset；一鍵選取 |
+| **UX-1-S8** | Phase 2 — survey-to-params mapping engine | P1 | python-lead | 映射表可配置；輸出 bounded params；寫入 preferences |
+| **UX-1-S9** | Phase 3 — message thumbs up/down UI | P2 | php-lead | 每則 assistant message 評價；持久化 feedback row |
+| **UX-1-S10** | Phase 3 — downvote micro-adjustment | P2 | python-lead | downvote 觸發 bounded delta；audit log |
+| **UX-1-S11** | Phase 3 — LLM judge auto-optimizer | P2 | python-lead | 廉價 model 分析不滿對話 → 結構化建議；可選 auto-apply |
+| **UX-1-S12** | Tests + mapping config docs | P1 | qa-lead | params 合併契約測試；問卷→標籤→params 集成測試 |
+
+**DoD（Epic）：** 使用者可手動 adv 調參；首次登入可選問卷/性格包並注入 system + params；Preferences 可 Re-tune；Phase 3 評價可驅動參數優化（至少待確認模式）。
+
+**Depends On：** EPIC-PLAT-2（首次登入時機）；EPIC-UX-1-S2/S3 為 Phase 2/3 前置。
+
+---
+
+## 12. EPIC-CS-P — Platform 收尾（可穿插）
 
 | Story ID | Summary | Priority | 來源 |
 |----------|---------|----------|------|
@@ -343,26 +458,26 @@ flowchart TB
 
 ---
 
-## 11. 建議 Sprint 排程（Content Studio + Platform）
+## 13. 建議 Sprint 排程（Content Studio + Platform）
 
 | Sprint | 週次 | 焦點 |
 |--------|------|------|
-| **CS-W1** | 1 | CS-1-S1…S5（Corpus page + schema + sources） |
-| **CS-W2** | 2 | CS-1-S6…S8（Analyze + learn + detail UI） |
-| **CS-W3** | 3 | CS-2-S1…S3（Library module + convert） |
-| **CS-W4** | 4 | CS-1-S9…S11 + CS-4-S1…S3（Corpus preview + skill classifier 開工） |
-| **CS-W5** | 5 | CS-2-S4…S6（Block Editor + Corpus in editor） |
-| **CS-W6** | 6 | CS-2-S7…S9（Soft-RAG + Chat contract + Finalize） |
+| **CS-W1** | 1 | CS-1-S1…S5 + **PLAT-2-S1…S3**（Corpus page + invite schema/mail） |
+| **CS-W2** | 2 | CS-1-S6…S8 + **PLAT-2-S4…S5**（Analyze + learn + registration/reset pages） |
+| **CS-W3** | 3 | CS-2-S1…S3 + **PLAT-2-S6…S7**（Library module + invite admin UI + security tests） |
+| **CS-W4** | 4 | CS-1-S9…S11 + CS-4-S1…S3 + **UX-1-S1…S3**（Corpus preview + skill classifier + adv params） |
+| **CS-W5** | 5 | CS-2-S4…S6 + **UX-1-S4…S5**（Block Editor + preference questionnaire + tags） |
+| **CS-W6** | 6 | CS-2-S7…S9 + **UX-1-S6…S8**（Soft-RAG + Re-tune + personality packs + param mapping） |
 | **CS-W7** | 7 | CS-2-S10…S11 + CS-4-S4…S6 + **CS-5-S1…S3**（Composer @library + Skill dialog + Calendar shell） |
 | **CS-W8** | 8 | CS-3-S1…S3 + CS-4-S7…S9 + **CS-5-S4…S6** + **CS-6-S1…S2**（Office docx/pdf + Calendar extract/chip + Todo panel） |
 | **CS-W9** | 9 | CS-3-S4…S8 + **CS-5-S7…S9** + **CS-6-S3…S6**（Office buffer + Calendar provenance + Todo extract/thread） |
 | **CS-W10** | 10 | **CS-6-S7…S9** hardening（Resolve flow + tests）；CS-5-S8 reminder 若排入 |
 | **CS-W11** | 11 | **PLAT-1-S1…S6**（Release schema + CMS + fan-out + What's New shell） |
-| **CS-W12** | 12 | **PLAT-1-S7…S10**（notification deep link + build filter + tests/docs） |
+| **CS-W12** | 12 | **PLAT-1-S7…S10** + **UX-1-S9…S12**（release deep link + feedback flywheel + tests） |
 
 ---
 
-## 12. 依賴與風險
+## 14. 依賴與風險
 
 | 風險 | 緩解 |
 |------|------|
@@ -377,18 +492,23 @@ flowchart TB
 | 跨 tenant fan-out 量級 | PLAT-1-S4 批次 + 續跑 cursor；monitor queue depth；大 tenant 可 async 分片 |
 | Release post 與實際 deploy 不一致 | publish 強制寫入 `OaaoBuildInfo` snapshot；What's New 顯示 version/build 標籤 |
 | Tenant admin broadcast 混淆 | 文件 + `kind` 區分：`release`（platform）vs `news`（tenant admin） |
+| Invitation token 洩漏 | 短 TTL + HTTPS only + single-use；revoke API |
+| 問卷 Skip 後無個人化 | Phase 1 標籤可後補；性格包三選一降低門檻 |
+| Auto-tuning 與手動 adv 衝突 | UX-1-S3 明確 merge 優先序：thread > user global > pack default |
+| 回饋循環過度調參 | bounded delta + 每日調整上限；Phase 3 v1 待確認模式 |
+| LLM judge 成本 | 僅 downvote 觸發；batch + 廉價 model；可 tenant 關閉 |
 
 ---
 
-## 13. Jira / Linear 匯入
+## 15. Jira / Linear 匯入
 
 1. 匯入 [OAAO_Content_Studio_Jira_Import.csv](./OAAO_Content_Studio_Jira_Import.csv)（欄位對照見 [OAAO_90D_Jira_Import_Guide.md](./OAAO_90D_Jira_Import_Guide.md)）。
-2. Milestone：`Content-Studio-2026`（CS-1…6）· **`Platform-2026`**（PLAT-1）
-3. Labels 建議：`content-studio` `corpus` `library` `editor` `office-agent` `skills` `calendar-agent` `todo-agent` `productivity` **`platform`** **`release-notes`** **`changelog`**.
+2. Milestone：`Content-Studio-2026`（CS-1…6）· **`Platform-2026`**（PLAT-1、**PLAT-2**）· **`Personalization-2026`**（UX-1）
+3. Labels 建議：`content-studio` `corpus` `library` `editor` `office-agent` `skills` `calendar-agent` `todo-agent` `productivity` **`platform`** **`release-notes`** **`changelog`** **`identity`** **`invitation`** **`auth`** **`personalization`** **`auto-tuning`** **`model-params`**.
 
 ---
 
-## 14. 相關文件更新（實作後）
+## 16. 相關文件更新（實作後）
 
 - [MIGRATION_LEGACY_OAAO.md](./MIGRATION_LEGACY_OAAO.md) — §3 Corpus/Library 對標表
 - [Manus_Gap_Analysis.md](./Manus_Gap_Analysis.md) — 檔案系統 write 軸（Library finalize 部分緩解）

@@ -348,6 +348,79 @@ async function openEndpointEditor(host, row) {
         typeSel.addEventListener('change', () => syncEndpointBaseUrlFieldForAsrLive(form));
     }
 
+    const fetchBtn = wrap.querySelector('[data-act="ep-fetch-model-info"]');
+    const probeMsg = wrap.querySelector('[data-oaao-ep-model-probe-msg]');
+    if (fetchBtn instanceof HTMLButtonElement) {
+        fetchBtn.addEventListener('click', async () => {
+            const fd = new FormData(form);
+            const baseUrl = String(fd.get('base_url') || '').trim();
+            const model = String(fd.get('model') || '').trim();
+            const apiKeyRef = String(fd.get('api_key_ref') || '').trim();
+            const cfgEl = form.elements.namedItem('config_json');
+            if (!baseUrl || !model) {
+                if (probeMsg instanceof HTMLElement) {
+                    probeMsg.textContent = oaaoT('settings.ep.form.fetch_model_info_need_url');
+                }
+                return;
+            }
+            fetchBtn.disabled = true;
+            if (probeMsg instanceof HTMLElement) {
+                probeMsg.textContent = oaaoT('settings.ep.form.fetch_model_info_loading');
+            }
+            try {
+                const { res, data } = await endpointsFetchJson(endpointsApiUrl('model_probe'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: baseUrl, model, api_key_ref: apiKeyRef }),
+                });
+                if (!res.ok || !data?.success) {
+                    const msg =
+                        typeof data?.message === 'string'
+                            ? data.message
+                            : oaaoT('settings.ep.form.fetch_model_info_fail', '', { status: String(res.status) });
+                    if (probeMsg instanceof HTMLElement) probeMsg.textContent = msg;
+                    return;
+                }
+                const patch = data?.data?.config_json_patch;
+                if (!(cfgEl instanceof HTMLTextAreaElement) || !patch || typeof patch !== 'object') {
+                    if (probeMsg instanceof HTMLElement) {
+                        probeMsg.textContent = oaaoT('settings.ep.form.fetch_model_info_fail', '', { status: '0' });
+                    }
+                    return;
+                }
+                let merged = {};
+                const existing = String(cfgEl.value || '').trim();
+                if (existing) {
+                    try {
+                        const parsed = JSON.parse(existing);
+                        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                            merged = parsed;
+                        }
+                    } catch {
+                        /* replace invalid JSON */
+                    }
+                }
+                merged = { ...merged, ...patch };
+                cfgEl.value = JSON.stringify(merged, null, 2);
+                const ml = data?.data?.max_model_len;
+                const out = data?.data?.suggested_max_output_tokens;
+                if (probeMsg instanceof HTMLElement) {
+                    probeMsg.textContent = oaaoT('settings.ep.form.fetch_model_info_ok', '', {
+                        max: String(ml ?? '?'),
+                        out: String(out ?? '?'),
+                    });
+                }
+            } catch (e) {
+                if (probeMsg instanceof HTMLElement) {
+                    probeMsg.textContent =
+                        e instanceof Error ? e.message : oaaoT('settings.ep.form.fetch_model_info_fail', '', { status: '0' });
+                }
+            } finally {
+                fetchBtn.disabled = false;
+            }
+        });
+    }
+
     const dlg = new Dialog({
         title: row ? oaaoT('settings.endpoints.dialog.edit_title') : oaaoT('settings.endpoints.dialog.add_title'),
         content: wrap,

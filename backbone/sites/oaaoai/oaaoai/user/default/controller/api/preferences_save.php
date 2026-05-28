@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\user\UserDisplayPreferences;
+
 /**
  * POST /user/api/preferences_save — body JSON { locale? }
  */
@@ -66,6 +68,8 @@ return function (): void {
         $prefs['locale'] = $locale;
     }
 
+    $display = UserDisplayPreferences::fromPreferences($prefs);
+
     $json = json_encode($prefs, JSON_UNESCAPED_UNICODE);
     $pdo->prepare(
         'UPDATE oaao_user SET preferences_json = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
@@ -73,6 +77,9 @@ return function (): void {
 
     echo json_encode([
         'success' => true,
-        'data'    => ['locale' => $prefs['locale'] ?? 'en', 'preferences' => $prefs],
+        'data'    => [
+            'locale'      => $display['locale'],
+            'preferences' => $prefs,
+        ],
     ]);
 };

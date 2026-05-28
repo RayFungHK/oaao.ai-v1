@@ -29,11 +29,21 @@ final class LlmOrchestratorPayload
             $apiKeyEnv = $chatApi->inferOrchestratorApiKeyEnv($pref);
         }
 
-        return [
+        $out = [
             'purpose_key' => (string) ($bind['purpose_key'] ?? ''),
             'base_url'    => $bu,
             'model'       => $model,
             'api_key_env' => $apiKeyEnv,
         ];
+        $cfg = \is_array($bind['endpoint_config'] ?? null) ? $bind['endpoint_config'] : [];
+        foreach (['max_model_len', 'max_output_tokens', 'max_tokens', 'timeout_sec'] as $key) {
+            if (! isset($cfg[$key]) || ! is_numeric($cfg[$key])) {
+                continue;
+            }
+            $outKey = $key === 'max_tokens' ? 'max_output_tokens' : $key;
+            $out[$outKey] = $key === 'timeout_sec' ? (float) $cfg[$key] : (int) $cfg[$key];
+        }
+
+        return $out;
     }
 }

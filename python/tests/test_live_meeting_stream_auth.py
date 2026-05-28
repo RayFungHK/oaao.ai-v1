@@ -83,8 +83,8 @@ async def test_stop_session_evicts_token(hub, monkeypatch):
     token = urls["stream_token"]
     assert hub.validate_stream_token(session.session_id, token)
 
-    ok = await hub.stop_session(session.session_id, keep_audio=False)
-    assert ok is True
+    result = await hub.stop_session(session.session_id, keep_audio=False)
+    assert result.get("ok") is True
     assert hub.validate_stream_token(session.session_id, token) is False
 
 

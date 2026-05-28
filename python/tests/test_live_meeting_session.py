@@ -14,7 +14,8 @@ async def test_live_meeting_session_dirs(tmp_path: Path, monkeypatch) -> None:
     assert session.session_dir.is_dir()
     assert session.audio_dir.is_dir()
     assert session.meta_path.is_file()
-    assert await stop_session(session.session_id, keep_audio=False)
+    result = await stop_session(session.session_id, keep_audio=True)
+    assert result.get("ok") is True
     loaded = LiveMeetingSession.load(session.session_id, root=tmp_path)
     assert loaded is not None
     assert loaded.status == "stopped"

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\user\UserDisplayPreferences;
+
 /**
  * GET /user/api/profile — authenticated user fields + locale + credit balance.
  */
@@ -63,6 +65,8 @@ return function (): void {
         $locale = trim($prefs['locale']);
     }
 
+    $display = UserDisplayPreferences::fromPreferences($prefs);
+
     echo json_encode([
         'success' => true,
         'data'    => [
@@ -71,7 +75,7 @@ return function (): void {
             'email'           => $user->email ?? '',
             'display_name'    => $user->display_name ?? '',
             'role'            => $user->role ?? '',
-            'locale'          => $locale,
+            'locale'          => $display['locale'],
             'credit_balance'  => $creditBalance,
             'credits_unlimited' => $creditBalance === null,
             'preferences'     => $prefs,

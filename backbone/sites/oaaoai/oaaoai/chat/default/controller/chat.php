@@ -8,6 +8,7 @@ use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\PlannerAgentRegister;
 use oaaoai\vault\VaultQdrantCollectionResolver;
 use oaaoai\vault\VaultRetrievalProfiles;
+use oaaoai\user\UserDisplayPreferences;
 use Razy\Database;
 use Razy\Agent;
 use Razy\Controller;
@@ -616,6 +617,55 @@ return new class extends Controller {
     }
 
     /**
+     * User Preferences → display locale and voice polish style.
+     *
+     * @return array{locale: string, polish_style: string}
+     */
+    private function userDisplayPreferences(int $uid): array
+    {
+        if ($uid < 1) {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database) {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+        $pdo = $db->getDBAdapter();
+        if (! $pdo instanceof \PDO) {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+        $stmt = $pdo->prepare('SELECT preferences_json FROM oaao_user WHERE user_id = ? LIMIT 1');
+        $stmt->execute([$uid]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (! \is_array($row)) {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+        $rawPrefs = $row['preferences_json'] ?? '';
+        if (! \is_string($rawPrefs) || trim($rawPrefs) === '') {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+        try {
+            $decoded = json_decode($rawPrefs, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+        if (! \is_array($decoded)) {
+            return UserDisplayPreferences::fromPreferences([]);
+        }
+
+        return UserDisplayPreferences::fromPreferences($decoded);
+    }
+
+    /**
+     * User Preferences → Personalization display locale (e.g. en, zh-Hant).
+     */
+    private function userDisplayLocale(int $uid): string
+    {
+        return $this->userDisplayPreferences($uid)['locale'];
+    }
+
+    /**
      * ASR, embedding, vault RAG config, glossary, retrieval profiles for live meeting session_start.
      *
      * @return array<string, mixed>
@@ -645,6 +695,10 @@ return new class extends Controller {
             if ($rag !== []) {
                 $extras['vault_rag'] = $rag;
             }
+            $polish = $endpoints->resolveOrchestratorPolishPayload();
+            if ($polish !== null) {
+                $extras['polish'] = $polish;
+            }
         }
         if ($workspaceId > 0) {
             $vault = $this->api('vault');
@@ -658,6 +712,13 @@ return new class extends Controller {
         $profiles = $this->vaultRetrievalProfilesForUserWorkspace($uid, $workspaceId > 0 ? $workspaceId : null);
         if ($profiles !== []) {
             $extras['vault_retrieval_profiles'] = $profiles;
+        }
+        $displayPrefs = $this->userDisplayPreferences($uid);
+        if ($displayPrefs['locale'] !== '') {
+            $extras['locale'] = $displayPrefs['locale'];
+        }
+        if (! empty($extras['polish']) && \is_array($extras['polish'])) {
+            $extras['polish_style'] = $displayPrefs['polish_style'];
         }
 
         return $extras;

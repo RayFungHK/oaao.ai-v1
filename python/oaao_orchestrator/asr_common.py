@@ -7,16 +7,86 @@ import base64
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from oaao_orchestrator.llm_model_info import fetch_openai_compat_model_limits
+from oaao_orchestrator.polish_prompt import render_polish_user_message
+from oaao_orchestrator.quick_punctuate import load_quick_punctuate_rules, quick_punctuate_transcript
 from oaao_orchestrator.subprocess_pool import run_exec
 from oaao_orchestrator.vault_graph_rag import ensure_url_scheme
 
 logger = logging.getLogger(__name__)
+
+# Fun-ASR-Nano emits inline control tokens: <|yue|>, <|NEUTRAL|>, <|Speech|>, <|woitn|>, …
+_FUNASR_CONTROL_TOKEN_RE = re.compile(r"<\|[^|>]*\|>")
+_FUNASR_LANG_TAG_RE = re.compile(r"<\|(zh|yue|ko|en|ja|nospeech)\|>", re.IGNORECASE)
+
+
+def sanitize_asr_transcript_text(text: str) -> str:
+    """Strip Fun-ASR-Nano language/emotion/modality control tokens from transcript text."""
+    if not text:
+        return text
+    return _FUNASR_CONTROL_TOKEN_RE.sub("", text).strip()
+
+
+def normalize_funasr_stream_language(language: str) -> str:
+    """Normalize admin/user ASR language to FunASR Nano start payload (docs: ``yue`` for Cantonese)."""
+    raw = (language or "").strip()
+    if not raw:
+        return "yue"
+    key = raw.lower().replace("_", "-")
+    aliases: dict[str, str] = {
+        "yue": "yue",
+        "cantonese": "yue",
+        "粤语": "yue",
+        "廣東話": "yue",
+        "广东话": "yue",
+        "zh-hk": "yue",
+        "zh-hant": "yue",
+        "zh": "auto",
+        "中文": "auto",
+        "zh-cn": "auto",
+        "zh-hans": "auto",
+        "mandarin": "auto",
+        "普通话": "auto",
+        "普通話": "auto",
+        "en": "en",
+        "english": "en",
+        "英文": "en",
+        "ja": "ja",
+        "日语": "ja",
+        "日文": "ja",
+        "ko": "ko",
+        "韩语": "ko",
+        "韩文": "ko",
+        "auto": "auto",
+    }
+    if key in aliases:
+        return aliases[key]
+    base = key.split("-", 1)[0]
+    return aliases.get(base, raw)
+
+
+def funasr_raw_lang_tag(raw: str) -> str:
+    m = _FUNASR_LANG_TAG_RE.search(raw or "")
+    return m.group(1).lower() if m else ""
+
+
+def should_discard_funasr_stream_emit(raw: str, cleaned: str, *, is_final: bool) -> bool:
+    """Drop SenseVoice partial hallucinations (e.g. <|ko|>그 on quiet Cantonese audio)."""
+    if not cleaned:
+        return True
+    if is_final:
+        return False
+    lang = funasr_raw_lang_tag(raw)
+    if lang in ("nospeech", "ko") and len(cleaned) <= 4:
+        return True
+    return False
 
 
 def _env(name: str, default: str = "") -> str:
@@ -127,13 +197,15 @@ def _extract_json_transcribe_text(body: Any) -> str | None:
     for key in ("text", "transcript", "result", "output"):
         raw = body.get(key)
         if isinstance(raw, str) and raw.strip():
-            return raw.strip()
+            cleaned = sanitize_asr_transcript_text(raw.strip())
+            return cleaned or None
     data = body.get("data")
     if isinstance(data, dict):
         for key in ("text", "transcript"):
             raw = data.get(key)
             if isinstance(raw, str) and raw.strip():
-                return raw.strip()
+                cleaned = sanitize_asr_transcript_text(raw.strip())
+                return cleaned or None
     return None
 
 
@@ -751,6 +823,400 @@ async def polish_transcript(
     glossary: dict[str, Any] | None = None,
 ) -> tuple[str | None, str | None]:
     """LLM polish pass for ASR output. Returns (polished, error)."""
+    return await _polish_transcript_llm(
+        client,
+        raw_text=raw_text,
+        polish_cfg=polish_cfg,
+        glossary=glossary,
+        system_extra="",
+        user_sections=None,
+    )
+
+
+async def polish_transcript_with_live_refs(
+    client: httpx.AsyncClient,
+    *,
+    asr_text: str,
+    live_chunks: list[str],
+    polish_cfg: dict[str, Any],
+    glossary: dict[str, Any] | None = None,
+    batch_chunks: list[str] | None = None,
+) -> tuple[str | None, str | None]:
+    """
+    Reconcile batch ASR (~5 s segments) with live streaming chunks, then polish.
+
+    When ``asr_text`` is empty, falls back to polishing merged live chunks only.
+    """
+    asr = (asr_text or "").strip()
+    live = [str(c).strip() for c in live_chunks if c and str(c).strip()]
+    batch = [str(c).strip() for c in (batch_chunks or []) if c and str(c).strip()]
+    try:
+        max_live = max(4, min(int(_env("OAAO_LIVE_POLISH_MAX_LIVE_CHUNKS", "12")), 64))
+    except ValueError:
+        max_live = 12
+    if len(live) > max_live:
+        live = live[-max_live:]
+    if not batch and asr:
+        batch = [asr]
+    if not asr and batch:
+        asr = _join_batch_segment_texts(batch)
+    if not asr and not live:
+        return None, "empty_transcript"
+    if not asr:
+        merged = max(live, key=len)
+        return await polish_transcript(
+            client, raw_text=merged, polish_cfg=polish_cfg, glossary=glossary
+        )
+    merged = merge_asr_transcripts_for_polish(
+        asr_text=asr,
+        batch_chunks=batch,
+        live_chunks=live,
+    )
+    return await polish_transcript(
+        client,
+        raw_text=merged,
+        polish_cfg=polish_cfg,
+        glossary=glossary,
+    )
+
+
+def _join_batch_segment_texts(parts: list[str]) -> str:
+    cleaned = [p.strip() for p in parts if p and str(p).strip()]
+    return " ".join(cleaned).strip()
+
+
+def _normalize_asr_compare(text: str) -> str:
+    return re.sub(r"\s+", "", (text or "").lower())
+
+
+def merge_asr_transcripts_for_polish(
+    *,
+    asr_text: str,
+    batch_chunks: list[str] | None = None,
+    live_chunks: list[str] | None = None,
+) -> str:
+    """
+    Merge batch (~5 s) and live streaming ASR into one transcript before LLM polish.
+
+    Prefer the longest coherent source; live often extends batch with tail content.
+    """
+    batch = [str(c).strip() for c in (batch_chunks or []) if c and str(c).strip()]
+    live = [str(c).strip() for c in (live_chunks or []) if c and str(c).strip()]
+    asr = (asr_text or "").strip()
+    if not asr and batch:
+        asr = _join_batch_segment_texts(batch)
+    if not live:
+        return asr
+    if not asr:
+        return max(live, key=len)
+
+    live_longest = max(live, key=len)
+    live_joined = " ".join(live)
+    candidates = [asr, live_longest, live_joined]
+    best = max(candidates, key=len)
+
+    norm_asr = _normalize_asr_compare(asr)
+    norm_live = _normalize_asr_compare(live_longest)
+    if len(live_longest) >= len(asr) and norm_live.startswith(norm_asr[: min(len(norm_asr), 24)]):
+        return live_longest
+    if len(live_longest) > len(asr) and len(live_longest) >= int(len(asr) * 0.85):
+        return live_longest
+    return best
+
+
+POLISH_STYLES = ("professional", "natural", "concise")
+DEFAULT_POLISH_STYLE = "natural"
+
+
+def normalize_polish_style(style: str | None) -> str:
+    raw = (style or DEFAULT_POLISH_STYLE).strip().lower()
+    if raw in POLISH_STYLES:
+        return raw
+    return DEFAULT_POLISH_STYLE
+
+
+def _polish_style_word(style: str | None) -> str:
+    s = normalize_polish_style(style)
+    if s == "professional":
+        return "formal"
+    if s == "concise":
+        return "concise"
+    return "natural"
+
+
+def normalize_polish_locale(language: str) -> str:
+    """Canonical polish locale tag (zh-Hant / zh-Hans / en / passthrough)."""
+    raw = (language or "en").strip().lower().replace("_", "-")
+    if raw in ("zh-tw", "zh-hk", "zh-hant"):
+        return "zh-Hant"
+    if raw in ("zh-cn", "zh-hans") or raw == "zh":
+        return "zh-Hans"
+    if raw.startswith("en"):
+        return "en"
+    return (language or "en").strip()
+
+
+def polish_locale_label(language: str) -> str:
+    return normalize_polish_locale(language) if language else "en"
+
+
+def build_polish_user_task(locale: str, polish_style: str | None = None) -> str:
+    """Render template prompt without transcript (inspection / tests)."""
+    return render_polish_user_message(
+        locale=polish_locale_label(locale) if locale else "the user's display language",
+        style=_polish_style_word(polish_style),
+        raw="",
+    )
+
+
+def build_polish_user_content(
+    *,
+    raw: str,
+    locale: str,
+    polish_style: str | None,
+    gloss_blob: str = "",
+    template_ref: str = "",
+) -> str:
+    """Assemble user message from markdown template prompt + transcript."""
+    style_word = _polish_style_word(polish_style)
+    loc = polish_locale_label(locale) if locale else "the user's display language"
+    msg = render_polish_user_message(
+        locale=loc,
+        style=style_word,
+        raw=raw,
+        template_ref=template_ref,
+    )
+    if gloss_blob:
+        msg += f"\n\nGlossary JSON:\n{gloss_blob}"
+    return msg
+
+
+def extract_polish_llm_content(text: str) -> str:
+    """Keep one paragraph when the model returns headings or multiple versions."""
+    t = (text or "").strip()
+    if not t:
+        return t
+    skip = re.compile(
+        r"^(#{1,3}\s|版本\s*\d|Version\s*\d|\*\*|【|---|"
+        r"[【\[]?(专业|專業|自然|简洁|簡潔|Recommended|推薦))",
+        re.IGNORECASE,
+    )
+    body: list[str] = []
+    for ln in t.splitlines():
+        line = ln.strip()
+        if not line or skip.match(line):
+            continue
+        body.append(line)
+    if not body:
+        return t
+    if len(body) == 1:
+        return body[0]
+    if all(len(x) <= 120 for x in body):
+        return "".join(body)
+    return " ".join(body)
+
+
+def build_polish_system_prompt(
+    *,
+    locale: str = "",
+    system_extra: str = "",
+) -> str:
+    """No system prompt — the user-message one-liner carries everything the LLM needs.
+
+    Matches the user's proven minimal direct-chat prompt that produces excellent output.
+    """
+    return (system_extra or "").strip()
+
+
+def _polish_llm_timeout_sec(polish_cfg: dict[str, Any]) -> float:
+    raw = polish_cfg.get("timeout_sec")
+    if raw is not None:
+        try:
+            return max(1.0, min(float(raw), 30.0))
+        except (TypeError, ValueError):
+            pass
+    return max(1.0, min(float(_env("OAAO_LIVE_POLISH_LLM_TIMEOUT_SEC", "12")), 30.0))
+
+
+def _default_polish_output_cap() -> int:
+    try:
+        return max(64, min(int(_env("OAAO_LIVE_POLISH_MAX_OUTPUT_TOKENS", "256")), 512))
+    except ValueError:
+        return 256
+
+
+def _polish_output_hard_cap() -> int:
+    """Voice ASR polish — Gemma/vLLM hosts hang on large max_tokens (512+)."""
+    return _default_polish_output_cap()
+
+
+def estimate_text_tokens(text: str) -> int:
+    """Conservative token estimate for CJK-heavy ASR transcripts."""
+    if not text:
+        return 0
+    return max(1, (len(text) + 1) // 2)
+
+
+def _trim_polish_user_content(user_content: str, *, max_chars: int) -> str:
+    """Truncate from the head if oversized, preserving the trailing transcript."""
+    if len(user_content) <= max_chars:
+        return user_content
+    return user_content[-max_chars:]
+
+
+async def _resolve_polish_context_len(
+    client: httpx.AsyncClient,
+    polish_cfg: dict[str, Any],
+    *,
+    base_url: str,
+    model: str,
+    api_key: str | None,
+) -> int:
+    raw = polish_cfg.get("max_model_len")
+    if raw is not None:
+        try:
+            return max(256, min(int(raw), 131072))
+        except (TypeError, ValueError):
+            pass
+    skip_probe = _env("OAAO_LIVE_POLISH_SKIP_MODEL_PROBE", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if skip_probe:
+        try:
+            return max(256, min(int(_env("OAAO_LIVE_POLISH_DEFAULT_CONTEXT_LEN", "8192")), 131072))
+        except ValueError:
+            return 8192
+    limits = await fetch_openai_compat_model_limits(
+        client,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+    ml = limits.get("max_model_len")
+    if ml is not None:
+        try:
+            return max(256, min(int(ml), 131072))
+        except (TypeError, ValueError):
+            pass
+    try:
+        return max(256, min(int(_env("OAAO_LIVE_POLISH_DEFAULT_CONTEXT_LEN", "8192")), 131072))
+    except ValueError:
+        return 8192
+
+
+def _resolve_polish_max_output_tokens(
+    raw_len: int,
+    polish_cfg: dict[str, Any],
+    *,
+    prompt_tokens: int = 0,
+    context_len: int | None = None,
+) -> int:
+    """Cap polish completion tokens — respect host context window and configured caps."""
+    desired: int | None = None
+    for key in ("max_output_tokens", "max_tokens"):
+        raw_cfg = polish_cfg.get(key)
+        if raw_cfg is not None:
+            try:
+                desired = max(16, min(int(raw_cfg), 8192))
+                break
+            except (TypeError, ValueError):
+                break
+    if desired is None:
+        hard_cap = _polish_output_hard_cap()
+        desired = min(max(raw_len + 96, 128), hard_cap)
+
+    desired = min(desired, _polish_output_hard_cap())
+
+    if context_len is not None and context_len > 0:
+        margin = 48
+        budget = context_len - prompt_tokens - margin
+        if budget < 64:
+            budget = 64
+        desired = min(desired, budget)
+    return max(16, desired)
+
+
+def _polish_http_error(status: int, raw: str) -> str:
+    snippet = ""
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            err = data.get("error")
+            if isinstance(err, dict):
+                snippet = str(err.get("message") or "").strip()[:160]
+            elif isinstance(err, str):
+                snippet = err.strip()[:160]
+    except (json.JSONDecodeError, TypeError):
+        snippet = raw.strip().replace("\n", " ")[:160]
+    if snippet:
+        return f"polish_http_{status}:{snippet}"
+    return f"polish_http_{status}"
+
+
+async def _post_polish_chat_completion(
+    client: httpx.AsyncClient,
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout_sec: float,
+) -> httpx.Response:
+    """POST chat/completions; on max_tokens 400, retry once with a smaller cap."""
+    hard_cap = _polish_output_hard_cap()
+    base_cap = body.get("max_tokens")
+    if isinstance(base_cap, int) and base_cap > 0:
+        first = min(base_cap, hard_cap)
+        caps = [first]
+        if first > 128:
+            caps.append(128)
+    else:
+        caps = [hard_cap, 128]
+
+    last: httpx.Response | None = None
+    seen: set[int] = set()
+    read_timeout = max(5.0, float(timeout_sec))
+    httpx_timeout = httpx.Timeout(connect=min(3.0, read_timeout), read=read_timeout, write=10.0, pool=5.0)
+    for cap in caps:
+        if cap in seen:
+            continue
+        seen.add(cap)
+        attempt = dict(body)
+        attempt["max_tokens"] = cap
+        last = await client.post(
+            url,
+            headers=headers,
+            json=attempt,
+            timeout=httpx_timeout,
+        )
+        if last.status_code < 400:
+            return last
+        if last.status_code == 400 and (
+            "max_tokens" in last.text.lower() or "context length" in last.text.lower()
+        ):
+            continue
+        break
+    assert last is not None
+    return last
+
+
+async def _polish_transcript_llm(
+    client: httpx.AsyncClient,
+    *,
+    raw_text: str,
+    polish_cfg: dict[str, Any],
+    glossary: dict[str, Any] | None = None,
+    system_extra: str = "",
+    user_sections: list[str] | None = None,  # kept for backward compat; ignored
+) -> tuple[str | None, str | None]:
+    """Shared LLM polish call. Returns (polished, error).
+
+    Mirrors the user's proven minimal direct-chat prompt:
+    user message = `<one-line task>: "<raw>"`. No system prompt, no extra knobs.
+    """
+    del user_sections  # legacy parameter — merged transcript is already provided as raw_text
     raw = (raw_text or "").strip()
     if not raw:
         return None, "empty_transcript"
@@ -759,7 +1225,7 @@ async def polish_transcript(
     url_direct = str(polish_cfg.get("url") or "").strip()
     model = str(polish_cfg.get("model") or "").strip()
     if not model or (not url_direct and not bu):
-        return raw, None
+        return quick_punctuate_transcript(raw), "polish_not_configured"
 
     api_key = _resolve_secret(
         polish_cfg.get("api_key_env") if isinstance(polish_cfg.get("api_key_env"), str) else None
@@ -769,6 +1235,11 @@ async def polish_transcript(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    locale = str(polish_cfg.get("locale") or polish_cfg.get("display_locale") or "").strip()
+    polish_style = normalize_polish_style(
+        str(polish_cfg.get("polish_style") or DEFAULT_POLISH_STYLE)
+    )
+
     gloss_blob = ""
     if glossary:
         try:
@@ -776,29 +1247,55 @@ async def polish_transcript(
         except (TypeError, ValueError):
             gloss_blob = ""
 
-    system = (
-        "You polish speech-to-text transcripts. Fix punctuation and spacing; apply glossary terms "
-        "when the audio likely meant them. Do not add facts or change meaning. Return only the polished text."
+    system = build_polish_system_prompt(locale=locale, system_extra=system_extra)
+    user_content = build_polish_user_content(
+        raw=raw,
+        locale=locale,
+        polish_style=polish_style,
+        gloss_blob=gloss_blob,
     )
-    user_parts = [f"Transcript:\n{raw}"]
-    if gloss_blob:
-        user_parts.append(f"Glossary JSON:\n{gloss_blob}")
 
+    timeout_sec = _polish_llm_timeout_sec(polish_cfg)
+    context_len = await _resolve_polish_context_len(
+        client,
+        polish_cfg,
+        base_url=bu,
+        model=model,
+        api_key=api_key,
+    )
+    min_output = 128
+    margin = 48
+    max_user_tokens = context_len - estimate_text_tokens(system) - min_output - margin
+    max_user_chars = max(256, max_user_tokens * 2)
+    user_content = _trim_polish_user_content(user_content, max_chars=max_user_chars)
+    prompt_tokens = estimate_text_tokens(system) + estimate_text_tokens(user_content)
+    max_out = _resolve_polish_max_output_tokens(
+        max(len(raw), len(user_content)),
+        polish_cfg,
+        prompt_tokens=prompt_tokens,
+        context_len=context_len,
+    )
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user_content})
     body = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": "\n\n".join(user_parts)},
-        ],
+        "messages": messages,
         "temperature": 0.2,
         "stream": False,
+        "max_tokens": max_out,
     }
     try:
-        r = await client.post(
-            url, headers=headers, json=body, timeout=httpx.Timeout(120.0, connect=15.0)
+        r = await _post_polish_chat_completion(
+            client,
+            url=url,
+            headers=headers,
+            body=body,
+            timeout_sec=timeout_sec,
         )
         if r.status_code >= 400:
-            return raw, f"polish_http_{r.status_code}"
+            return quick_punctuate_transcript(raw), _polish_http_error(r.status_code, r.text)
         data = r.json()
         choices = data.get("choices") if isinstance(data, dict) else None
         if isinstance(choices, list) and choices:
@@ -806,10 +1303,12 @@ async def polish_transcript(
             if isinstance(msg, dict):
                 c = msg.get("content")
                 if isinstance(c, str) and c.strip():
-                    return c.strip(), None
-        return raw, None
+                    return extract_polish_llm_content(c.strip()), None
+        return quick_punctuate_transcript(raw), "polish_empty_response"
+    except httpx.TimeoutException:
+        return quick_punctuate_transcript(raw), "polish_timeout"
     except Exception as e:  # noqa: BLE001
-        return raw, str(e)[:200]
+        return quick_punctuate_transcript(raw), str(e)[:200]
 
 
 async def run_asr_pipeline_on_file(

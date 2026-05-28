@@ -109,6 +109,27 @@ async def test_funasr_nano_ws_handle_message_emits() -> None:
 
 
 @pytest.mark.asyncio
+async def test_funasr_nano_ws_drops_ko_partial_hallucination() -> None:
+    emitted: list[tuple[str, bool]] = []
+
+    async def on_emit(text: str, is_final: bool) -> None:
+        emitted.append((text, is_final))
+
+    bridge = FunasrNanoWsStreamBridge(
+        session_id="t",
+        asr_cfg={"funasr_stream_url": "wss://example.test/ws", "model": "m"},
+        on_emit=on_emit,
+    )
+    await bridge._handle_message(
+        {"event": "partial", "text": "<|ko|><|NEUTRAL|><|Speech|><|woitn|>그"}
+    )
+    await bridge._handle_message(
+        {"event": "partial", "text": "<|yue|><|NEUTRAL|>我想知道"}
+    )
+    assert emitted == [("我想知道", False)]
+
+
+@pytest.mark.asyncio
 async def test_funasr_runtime_handle_message_emits() -> None:
     emitted: list[tuple[str, bool]] = []
 

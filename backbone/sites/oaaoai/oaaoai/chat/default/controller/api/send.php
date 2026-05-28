@@ -889,8 +889,11 @@ return function (): void {
             }
 
             require_once dirname(__DIR__, 4) . '/user/default/library/UserPersonalization.php';
+            $canonPdoForPersonalization = $this->oaao_chat_canonical_pdo();
             $payload['user_personalization'] = UserPersonalization::forOrchestratorPayload(
-                UserPersonalization::loadForUser($pdo, $uid),
+                $canonPdoForPersonalization instanceof \PDO
+                    ? UserPersonalization::loadForUser($canonPdoForPersonalization, $uid)
+                    : UserPersonalization::defaults(),
             );
 
             $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;

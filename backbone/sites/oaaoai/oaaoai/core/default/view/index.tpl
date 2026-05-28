@@ -90,6 +90,7 @@
     <script type="application/json" id="oaao-chat-pipeline-registry">{$chat_pipeline_registry_json}</script>
     <script type="application/json" id="oaao-planner-agent-registry">{$planner_agent_registry_json}</script>
     <script type="application/json" id="oaao-vault-document-hook-registry">{$vault_document_hook_registry_json}</script>
+    <script type="application/json" id="oaao-asr-user-preference-registry">{$asr_user_preference_registry_json}</script>
     <!-- ES module specifiers {@code @oaao/*}, {@code razyui} — paths prefixed like {@see shell-registry-url.js} -->
     <script type="importmap">
 {$oaao_importmap_json}

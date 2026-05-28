@@ -45,6 +45,15 @@ return function (): void {
 
     $orchPayload = array_merge($orchPayload, $chatApi->buildLiveMeetingOrchestratorExtras($uid, $wid));
 
+    $clientLocale = trim((string) ($input['locale'] ?? ''));
+    if (
+        (! isset($orchPayload['locale']) || trim((string) $orchPayload['locale']) === '')
+        && $clientLocale !== ''
+        && \in_array($clientLocale, ['en', 'zh-Hant'], true)
+    ) {
+        $orchPayload['locale'] = $clientLocale;
+    }
+
     if ($wid > 0 && ! $chatApi->userHasWorkspaceAccess($uid, $wid)) {
         http_response_code(403);
         echo json_encode([
@@ -74,6 +83,10 @@ return function (): void {
         ], JSON_UNESCAPED_UNICODE);
 
         return;
+    }
+
+    if (! \array_key_exists('polish_configured', $orch)) {
+        $orch['polish_configured'] = ! empty($orchPayload['polish']) && \is_array($orchPayload['polish']);
     }
 
     try {

@@ -486,6 +486,24 @@ return new class extends Controller {
             ],
         );
 
+        $asrPrefJs = '/webassets/live-meeting/default/js/asr-user-preferences-panel.js';
+
+        PreferencesRegister::add(
+            'pref-asr',
+            'Speech',
+            'Speech & ASR',
+            'Voice input polish and related ASR preferences.',
+            'mic',
+            [
+                'sort'            => 8,
+                'levels'          => ['personal'],
+                'panel_js_module' => $asrPrefJs,
+                'label_key'       => 'preferences.nav.asr.label',
+                'title_key'       => 'preferences.nav.asr.title',
+                'sub_key'         => 'preferences.nav.asr.sub',
+            ],
+        );
+
         PreferencesRegister::add(
             'pref-personal',
             'Settings',

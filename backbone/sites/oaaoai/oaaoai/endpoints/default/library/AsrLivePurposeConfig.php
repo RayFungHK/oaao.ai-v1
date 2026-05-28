@@ -24,8 +24,8 @@ final class AsrLivePurposeConfig
         return [
             'provider'            => 'funasr_nano',
             'mode'                => 'streaming',
-            'language'            => '中文',
-            'preferred_language'  => '中文',
+            'language'            => 'yue',
+            'preferred_language'  => 'yue',
             'itn'                 => true,
             'input_fallback'      => true,
         ];

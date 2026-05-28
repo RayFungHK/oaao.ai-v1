@@ -1,13 +1,12 @@
 """
-Live meeting ASR — streaming bridge (primary) and segment-batch fallback.
+Live meeting ASR — dual path: streaming (UX) + segment batch (accuracy).
 
 Product tiers (``asr.live.*`` / ``asr.*``):
 
-1. **Primary — duplex WS streaming** (``asr.live``): driver from ``stream_protocol`` + WS URL
-   (``dashscope``, ``funasr_nano_ws``, ``funasr_runtime``, …) — not tied to batch provider.
-2. **Fallback — closed PCM segments** (~5 s): batch ``asr.*`` slot via ``transcribe_audio_auto``
-   (``openai_compat`` multipart or ``json_transcribe`` POST /transcribe).
-3. **Last resort — retry** ``asr_fallback`` when primary segment path errors.
+1. **Live — duplex WS streaming** (``asr.live``): partial/final for immediate composer UX.
+2. **Batch — closed PCM segments** (~5 s, ``asr.*``): ``transcribe_audio_auto`` on each
+   ``seg_*.pcm``; runs **in parallel** with live streaming when both are configured.
+3. **Retry** ``asr_fallback`` when primary batch segment path errors.
 """
 
 from __future__ import annotations
@@ -104,7 +103,7 @@ def segment_transcribe_asr_cfg(
 
 
 def use_live_streaming_bridge(asr_cfg: dict[str, Any] | None) -> bool:
-    """True when live partial/final should come from a WS bridge (segment batch skipped)."""
+    """True when live partial/final should come from a WS bridge (parallel to segment batch)."""
     return use_dashscope_realtime_stream(asr_cfg) or use_remote_pcm_stream_bridge(asr_cfg)
 
 

@@ -73,12 +73,47 @@ function float32ToPcm16(floats) {
 }
 
 /**
+ * @param {ArrayBuffer[]} pcmChunks
+ * @param {number} [sampleRate]
+ * @returns {Blob}
+ */
+function pcm16ChunksToWavBlob(pcmChunks, sampleRate = TARGET_SAMPLE_RATE) {
+    const parts = pcmChunks.filter((c) => c && c.byteLength > 0);
+    const dataBytes = parts.reduce((n, c) => n + c.byteLength, 0);
+    const buf = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buf);
+    const writeStr = (offset, str) => {
+        for (let i = 0; i < str.length; i += 1) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataBytes, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataBytes, true);
+    const out = new Uint8Array(buf);
+    let offset = 44;
+    for (const chunk of parts) {
+        out.set(new Uint8Array(chunk), offset);
+        offset += chunk.byteLength;
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+}
+
+/**
  * @param {string} wsUrl ws:// or wss:// orchestrator audio endpoint
- * @param {{ signal?: AbortSignal, deviceId?: string, onState?: (state: string) => void, onError?: (message: string) => void, onLevel?: (level: number) => void, onDevice?: (info: { deviceId: string, label: string }) => void, authToken?: string }} [opts]
- * @returns {Promise<{ stop: () => void, ws: WebSocket, deviceId: string, deviceLabel: string, requestBubble: () => void, bubbleLookup: (opts: { text: string, bubble_id?: string }) => void }>}
+ * @param {{ signal?: AbortSignal, deviceId?: string, onState?: (state: string) => void, onError?: (message: string) => void, onLevel?: (level: number) => void, onDevice?: (info: { deviceId: string, label: string }) => void, authToken?: string, recordLocal?: boolean }} [opts]
+ * @returns {Promise<{ stop: () => void, ws: WebSocket, deviceId: string, deviceLabel: string, requestBubble: () => void, bubbleLookup: (opts: { text: string, bubble_id?: string }) => void, getRecordingWavBlob: () => Blob | null, getRecordingSeconds: () => number }>}
  */
 export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
-    const { signal, deviceId, onState, onError, onLevel, onDevice, authToken } = opts;
+    const { signal, deviceId, onState, onError, onLevel, onDevice, authToken, recordLocal = false } = opts;
     let url = String(wsUrl || '').trim();
     if (!url) {
         throw new Error('ws_audio_url required');
@@ -179,6 +214,10 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         onDevice({ deviceId: activeDeviceId, label: activeDeviceLabel });
     }
 
+    /** @type {ArrayBuffer[]} */
+    const localPcmChunks = [];
+    let localPcmBytes = 0;
+
     const ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
     if (ctx.state === 'suspended') {
         await ctx.resume();
@@ -187,8 +226,13 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     processor.onaudioprocess = (ev) => {
         const input = ev.inputBuffer.getChannelData(0);
+        const pcm = float32ToPcm16(input);
         if (ws.readyState === WebSocket.OPEN) {
-            ws.send(float32ToPcm16(input));
+            ws.send(pcm);
+        }
+        if (recordLocal) {
+            localPcmChunks.push(pcm.slice(0));
+            localPcmBytes += pcm.byteLength;
         }
         if (typeof onLevel === 'function') {
             let sum = 0;
@@ -273,5 +317,7 @@ export async function startLiveMeetingPcmUplink(wsUrl, opts = {}) {
         deviceLabel: activeDeviceLabel,
         requestBubble,
         bubbleLookup,
+        getRecordingWavBlob: () => (localPcmChunks.length ? pcm16ChunksToWavBlob(localPcmChunks) : null),
+        getRecordingSeconds: () => localPcmBytes / (TARGET_SAMPLE_RATE * 2),
     };
 }

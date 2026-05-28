@@ -1,8 +1,10 @@
 # W8-S3 / W13 - sample orchestrator queue metrics (+ optional Redis XLEN/XPENDING).
 #
 # Usage:
+#   cd oaao.ai-v1
 #   .\scripts\redis_canary_monitor.ps1
 #   .\scripts\redis_canary_monitor.ps1 -IntervalSeconds 900 -DurationSeconds 86400
+#   .\scripts\start_redis_canary_monitor.ps1   # new window, 24h default
 #   .\scripts\redis_canary_monitor.ps1 -IntervalSeconds 5 -DurationSeconds 1800 -CsvPath loadtest\2026-05-27\queue-depth.csv
 param(
     [int]$IntervalSeconds = 900,

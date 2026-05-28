@@ -26,6 +26,25 @@ return function (): void {
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
     $sessionId = trim((string) ($input['session_id'] ?? ''));
     $keepAudio = ! empty($input['keep_audio']);
+    $clientLiveText = trim((string) ($input['client_live_text'] ?? ''));
+    $clientLiveChunks = [];
+    if (! empty($input['client_live_chunks']) && \is_array($input['client_live_chunks'])) {
+        foreach ($input['client_live_chunks'] as $chunk) {
+            $line = trim((string) $chunk);
+            if ($line !== '') {
+                $clientLiveChunks[] = $line;
+            }
+        }
+    }
+    $clientBatchChunks = [];
+    if (! empty($input['client_batch_chunks']) && \is_array($input['client_batch_chunks'])) {
+        foreach ($input['client_batch_chunks'] as $chunk) {
+            $line = trim((string) $chunk);
+            if ($line !== '') {
+                $clientBatchChunks[] = $line;
+            }
+        }
+    }
 
     if ($sessionId === '') {
         http_response_code(400);
@@ -34,7 +53,14 @@ return function (): void {
         return;
     }
 
-    $resp = LiveMeetingOrchestrator::sessionStop($chatApi, $sessionId, $keepAudio);
+    $resp = LiveMeetingOrchestrator::sessionStop(
+        $chatApi,
+        $sessionId,
+        $keepAudio,
+        $clientLiveText,
+        $clientLiveChunks !== [] ? $clientLiveChunks : null,
+        $clientBatchChunks !== [] ? $clientBatchChunks : null,
+    );
     if ($resp === null || empty($resp['ok'])) {
         http_response_code(502);
         echo json_encode(['success' => false, 'message' => 'Orchestrator could not stop session'], JSON_UNESCAPED_UNICODE);

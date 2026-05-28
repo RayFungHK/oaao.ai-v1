@@ -6,6 +6,7 @@ require_once dirname(__DIR__, 2) . '/library/PurposeAllocationRegister.php';
 require_once dirname(__DIR__, 2) . '/library/MediaCapabilityRegister.php';
 require_once dirname(__DIR__, 2) . '/library/MmPythonModuleRegister.php';
 
+use oaaoai\endpoints\AsrUserPreferenceRegister;
 use oaaoai\endpoints\MediaCapabilityRegister;
 use oaaoai\endpoints\MmPythonModuleRegister;
 use oaaoai\endpoints\PurposeAllocationRegister;
@@ -176,6 +177,21 @@ return function (array $payload): void {
             ],
         ],
     );
+
+    AsrUserPreferenceRegister::addField('polish_style', [
+        'pref_key'    => 'polish_style',
+        'type'        => 'select',
+        'default'     => 'natural',
+        'sort'        => 10,
+        'module_code' => 'oaaoai/endpoints',
+        'label_key'   => 'preferences.asr.polish_style',
+        'desc_key'    => 'preferences.asr.polish_style_desc',
+        'options'     => [
+            ['value' => 'professional', 'label_key' => 'preferences.asr.polish_style.professional'],
+            ['value' => 'natural', 'label_key' => 'preferences.asr.polish_style.natural'],
+            ['value' => 'concise', 'label_key' => 'preferences.asr.polish_style.concise'],
+        ],
+    ]);
 
     $this->trigger('planner_agent.register')->resolve([
         'agent_kind'  => 'mm_understand',

@@ -32,6 +32,8 @@ return new class extends Controller {
                 'POST profile_save'     => 'profile_save',
                 'POST password_change'  => 'password_change',
                 'POST preferences_save' => 'preferences_save',
+                'GET asr_preferences'     => 'asr_preferences',
+                'POST asr_preferences'    => 'asr_preferences',
                 'GET personalization'         => 'personalization',
                 'POST personalization_save'   => 'personalization_save',
                 'GET notifications_list'        => 'notifications_list',

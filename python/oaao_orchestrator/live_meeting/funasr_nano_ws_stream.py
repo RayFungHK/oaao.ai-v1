@@ -18,6 +18,11 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from oaao_orchestrator.asr_common import (
+    normalize_funasr_stream_language,
+    sanitize_asr_transcript_text,
+    should_discard_funasr_stream_emit,
+)
 from oaao_orchestrator.live_meeting.stream_bridge import EmitCallback, resolve_live_stream_ws_url
 
 logger = logging.getLogger(__name__)
@@ -77,7 +82,9 @@ class FunasrNanoWsStreamBridge:
         self._on_fatal = on_fatal
         self._ws_url = resolve_live_stream_ws_url(asr_cfg)
         self._model = str(asr_cfg.get("model") or "").strip()
-        self._language = str(asr_cfg.get("language") or "中文").strip() or "中文"
+        self._language = normalize_funasr_stream_language(
+            str(asr_cfg.get("language") or asr_cfg.get("preferred_language") or "")
+        )
         self._itn = bool(asr_cfg.get("itn", asr_cfg.get("enable_itn", True)))
         self._mode = str(
             asr_cfg.get("stream_mode") or asr_cfg.get("funasr_stream_mode") or "2pass"
@@ -105,10 +112,11 @@ class FunasrNanoWsStreamBridge:
         self._send_task = asyncio.create_task(self._send_loop())
         self._started = True
         logger.info(
-            "live_meeting funasr_nano_ws_started id=%s url=%s model=%s",
+            "live_meeting funasr_nano_ws_started id=%s url=%s model=%s language=%s",
             self.session_id,
             self._ws_url[:80],
             self._model or "(default)",
+            self._language,
         )
 
     async def push_pcm(self, chunk: bytes) -> None:
@@ -211,13 +219,17 @@ class FunasrNanoWsStreamBridge:
             await self._fatal(fatal)
             return
         if text and is_final is not None:
+            raw = text
+            cleaned = sanitize_asr_transcript_text(raw)
+            if should_discard_funasr_stream_emit(raw, cleaned, is_final=is_final):
+                return
             logger.info(
                 "live_meeting funasr_nano_ws_emit id=%s final=%s text=%s",
                 self.session_id,
                 is_final,
-                text[:80],
+                cleaned[:80],
             )
-            await self.on_emit(text, is_final)
+            await self.on_emit(cleaned, is_final)
 
     async def _fatal(self, reason: str) -> None:
         logger.warning(

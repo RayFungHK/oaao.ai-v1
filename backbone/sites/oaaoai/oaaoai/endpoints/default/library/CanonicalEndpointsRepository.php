@@ -921,7 +921,25 @@ final class CanonicalEndpointsRepository
     }
 
     /**
-     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null
+     * @return array<string, mixed>
+     */
+    public static function decodeEndpointConfigJson(array $endpoint): array
+    {
+        $raw = trim((string) ($endpoint['config_json'] ?? ''));
+        if ($raw === '') {
+            return [];
+        }
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+
+            return \is_array($decoded) ? $decoded : [];
+        } catch (\JsonException) {
+            return [];
+        }
+    }
+
+    /**
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>, endpoint_config: array<string, mixed>}|null
      */
     private function resolveVaultPurposeBinding(string $prefix, string $primaryKey, string $exactKey): ?array
     {
@@ -998,11 +1016,12 @@ final class CanonicalEndpointsRepository
         }
 
         return [
-            'purpose_key'  => $picked['purpose_key'],
-            'base_url'     => $bu,
-            'model'        => $model,
-            'api_key_ref'  => $ref,
-            'purpose_meta' => AsrPurposeConfig::decodePurposeMeta($picked['meta_json'] ?? null),
+            'purpose_key'      => $picked['purpose_key'],
+            'base_url'         => $bu,
+            'model'            => $model,
+            'api_key_ref'      => $ref,
+            'purpose_meta'     => AsrPurposeConfig::decodePurposeMeta($picked['meta_json'] ?? null),
+            'endpoint_config'  => self::decodeEndpointConfigJson($endpoint),
         ];
     }
 

@@ -30,12 +30,48 @@ final class LiveMeetingOrchestrator
     /**
      * @return array<string, mixed>|null
      */
-    public static function sessionStop(object $chatApi, string $sessionId, bool $keepAudio): ?array
-    {
-        return $chatApi->postOrchestratorInternalJson('/v1/live/session_stop', [
+    public static function sessionStop(
+        object $chatApi,
+        string $sessionId,
+        bool $keepAudio,
+        ?string $clientLiveText = null,
+        ?array $clientLiveChunks = null,
+        ?array $clientBatchChunks = null,
+    ): ?array {
+        $payload = [
             'session_id' => $sessionId,
             'keep_audio' => $keepAudio,
-        ], 30);
+        ];
+        $clientLiveText = trim((string) ($clientLiveText ?? ''));
+        if ($clientLiveText !== '') {
+            $payload['client_live_text'] = $clientLiveText;
+        }
+        $liveChunks = [];
+        if (\is_array($clientLiveChunks)) {
+            foreach ($clientLiveChunks as $chunk) {
+                $line = trim((string) $chunk);
+                if ($line !== '') {
+                    $liveChunks[] = $line;
+                }
+            }
+        }
+        if ($liveChunks !== []) {
+            $payload['client_live_chunks'] = $liveChunks;
+        }
+        $batchChunks = [];
+        if (\is_array($clientBatchChunks)) {
+            foreach ($clientBatchChunks as $chunk) {
+                $line = trim((string) $chunk);
+                if ($line !== '') {
+                    $batchChunks[] = $line;
+                }
+            }
+        }
+        if ($batchChunks !== []) {
+            $payload['client_batch_chunks'] = $batchChunks;
+        }
+
+        return $chatApi->postOrchestratorInternalJson('/v1/live/session_stop', $payload, 120);
     }
 
     public static function publicStreamBase(): string

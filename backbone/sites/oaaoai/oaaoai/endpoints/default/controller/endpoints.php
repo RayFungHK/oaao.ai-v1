@@ -9,15 +9,18 @@ require_once __DIR__ . '/../library/AsrPurposeConfig.php';
 require_once __DIR__ . '/../library/AsrLivePurposeConfig.php';
 require_once __DIR__ . '/../library/UiqePurposeConfig.php';
 require_once __DIR__ . '/../library/MmPurposeConfig.php';
+require_once __DIR__ . '/../library/LlmOrchestratorPayload.php';
 
 use oaaoai\endpoints\AsrLivePurposeConfig;
 use oaaoai\endpoints\AsrPurposeConfig;
 use oaaoai\endpoints\CanonicalEndpointsRepository;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\FeatureRegistryBootstrap;
+use oaaoai\endpoints\LlmOrchestratorPayload;
 use oaaoai\endpoints\PurposeAllocationRegister;
 use oaaoai\endpoints\UiqePurposeConfig;
 use oaaoai\endpoints\MmPurposeConfig;
+use oaaoai\endpoints\AsrUserPreferenceRegister;
 use oaaoai\endpoints\MediaCapabilityRegister;
 use oaaoai\endpoints\MmPythonModuleRegister;
 use Razy\Database;
@@ -358,6 +361,30 @@ return new class extends Controller {
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public function getAsrUserPreferenceRegistry(): array
+    {
+        $this->ensureFeatureRegistries();
+
+        return AsrUserPreferenceRegister::allSorted();
+    }
+
+    /**
+     * Whether a {@code polish.*} purpose row with a default endpoint is configured.
+     */
+    public function isPolishPurposeConfigured(): bool
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return false;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+
+        return $repo->resolvePolishBinding() !== null;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function resolveOrchestratorPolishPayload(): ?array
@@ -371,17 +398,9 @@ return new class extends Controller {
         if ($polishBind === null) {
             return null;
         }
-        $pref = trim((string) ($polishBind['api_key_ref'] ?? ''));
         $chat = $this->api('chat');
 
-        return [
-            'purpose_key' => $polishBind['purpose_key'],
-            'base_url'    => $polishBind['base_url'],
-            'model'       => $polishBind['model'],
-            'api_key_env' => ($pref !== '' && $chat)
-                ? $chat->inferOrchestratorApiKeyEnv($pref)
-                : null,
-        ];
+        return LlmOrchestratorPayload::fromBinding($polishBind, $chat);
     }
 
     /**
@@ -461,12 +480,15 @@ return new class extends Controller {
             'resolveOrchestratorMmEditPayload'         => 'resolveOrchestratorMmEditPayload',
             'getMediaCapabilityRegistry'            => 'getMediaCapabilityRegistry',
             'getMmPythonModuleRegistry'             => 'getMmPythonModuleRegistry',
+            'getAsrUserPreferenceRegistry'          => 'getAsrUserPreferenceRegistry',
+            'isPolishPurposeConfigured'             => 'isPolishPurposeConfigured',
         ]);
 
         $purposeAllocationListener = 'event/purpose_allocation_register_listener';
         $chatPipelineListener = 'event/chat_pipeline_register_listener';
         $plannerAgentListener = 'event/planner_agent_register_listener';
         $mmPythonModuleListener = 'event/mm_python_module_register_listener';
+        $asrUserPreferenceListener = 'event/asr_user_preference_register_listener';
         $microSkillProviderListener = 'event/micro_skill_provider_register_listener';
         $vaultDocumentHookListener = 'event/vault_document_hook_register_listener';
         $toolServerListener = 'event/tool_server_register_listener';
@@ -504,6 +526,10 @@ return new class extends Controller {
             'oaaoai/rag:mm_python_module.register'       => $mmPythonModuleListener,
             'oaaoai/vault:mm_python_module.register'     => $mmPythonModuleListener,
             'oaaoai/endpoints:mm_python_module.register' => $mmPythonModuleListener,
+            'oaaoai/live-meeting:asr_user_preference.register' => $asrUserPreferenceListener,
+            'oaaoai/chat:asr_user_preference.register'       => $asrUserPreferenceListener,
+            'oaaoai/rag:asr_user_preference.register'        => $asrUserPreferenceListener,
+            'oaaoai/endpoints:asr_user_preference.register'  => $asrUserPreferenceListener,
         ]);
 
         // Settings nav rows for endpoints / purposes: {@code panel_js_module} is {@code /webassets/core/default/js/oaao-endpoints-settings-panel.js} (registered in {@code oaaoai/core}) so {@code index.tpl} embeds {@code oaao-settings-registry} before SPA bootstrap.
@@ -525,6 +551,7 @@ return new class extends Controller {
                 'GET credit_factors'    => 'credit_factors',
                 'POST funasr_ensure'      => 'funasr_ensure',
                 'POST funasr_nano_ensure' => 'funasr_nano_ensure',
+                'POST model_probe'        => 'model_probe',
             ],
         ]);
 
@@ -554,6 +581,8 @@ return new class extends Controller {
             'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload',
             'resolveOrchestratorPlannerPayload',
+            'getAsrUserPreferenceRegistry',
+            'isPolishPurposeConfigured',
         ], true);
     }
 };

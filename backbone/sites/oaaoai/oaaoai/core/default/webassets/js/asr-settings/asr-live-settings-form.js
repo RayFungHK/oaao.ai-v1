@@ -74,7 +74,7 @@ export function fillAsrLiveSettingsForm(form, metaJson) {
     const meta = decodeMeta(metaJson);
     const langEl = form.elements.namedItem('asr_live_language');
     if (langEl instanceof HTMLInputElement) {
-        langEl.value = String(meta.language ?? meta.preferred_language ?? '中文');
+        langEl.value = String(meta.language ?? meta.preferred_language ?? 'yue');
     }
     const itnEl = form.elements.namedItem('asr_live_itn');
     if (itnEl instanceof HTMLInputElement) {

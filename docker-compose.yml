@@ -183,6 +183,7 @@ services:
       OAAO_QUEUE_REDIS_URL: ${OAAO_QUEUE_REDIS_URL:-}
       OAAO_VAULT_INGEST_SSE_POLL_SEC: ${OAAO_VAULT_INGEST_SSE_POLL_SEC:-2.5}
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+      OAAO_POLISH_TEMPLATES_DIR: ${OAAO_POLISH_TEMPLATES_DIR:-/app/config/polish-templates}
       OAAO_MINE_DATA_ROOT: ${OAAO_MINE_DATA_ROOT:-/var/www/html/storage/mine}
     healthcheck:
       test:
@@ -208,6 +209,8 @@ services:
       - ${OAAO_COMPOSE_PROJECT_DIR:-.}:/compose:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${OAAO_LIVE_MEETING_HOST_PATH:-./docker/data/live-meeting}:${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
+      # ASR polish template prompts — edit .md on host, no orchestrator rebuild.
+      - ${OAAO_POLISH_TEMPLATES_PATH:-./docker/polish-templates}:${OAAO_POLISH_TEMPLATES_DIR:-/app/config/polish-templates}:ro
 
   # Optional: vector DB + graph DB for RAG / GraphRAG (`docker compose --profile vectors up`).
   # ── Persist on the host: both use bind-mount paths (`OAAO_*_DATA_PATH`), same pattern as Postgres + vault blobs.

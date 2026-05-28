@@ -209,6 +209,26 @@ return function (): void {
         $vault_document_hook_registry_json = '[]';
     }
 
+    $asrUserPreferenceRegistry = [];
+    if (! $isPlatformShell) {
+        try {
+            $epApi = $this->api('endpoints');
+            if ($epApi && method_exists($epApi, 'getAsrUserPreferenceRegistry')) {
+                $asrUserPreferenceRegistry = $epApi->getAsrUserPreferenceRegistry();
+            }
+        } catch (\Throwable) {
+            $asrUserPreferenceRegistry = [];
+        }
+    }
+    try {
+        $asr_user_preference_registry_json = json_encode(
+            $asrUserPreferenceRegistry,
+            JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR | JSON_HEX_TAG
+        );
+    } catch (\JsonException) {
+        $asr_user_preference_registry_json = '[]';
+    }
+
     $source = $this->loadTemplate('index');
 
     $envHub = getenv('OAAO_SIDECAR_PORT');
@@ -248,7 +268,7 @@ return function (): void {
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
      *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
-    $oaaoShellEsmRev = '20260526-vault-panel-padding-v47';
+    $oaaoShellEsmRev = '20260527-live-asr-polish-v87';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)
@@ -518,6 +538,7 @@ return function (): void {
         'chat_pipeline_registry_json'   => $chat_pipeline_registry_json,
         'planner_agent_registry_json'   => $planner_agent_registry_json,
         'vault_document_hook_registry_json' => $vault_document_hook_registry_json,
+        'asr_user_preference_registry_json' => $asr_user_preference_registry_json,
         'feature_scopes_json'    => $feature_scopes_json,
         'oaao_admin_settings'    => $oaaoAdminSettings,
         'oaao_platform_host'     => $isPlatformShell ? '1' : '0',

@@ -37,15 +37,21 @@ class LiveSessionStartRequest(BaseModel):
     retention_mode: str = "disk_ttl"
     asr: dict[str, Any] | None = None
     asr_fallback: dict[str, Any] | None = None
+    polish: dict[str, Any] | None = None
     glossary: dict[str, Any] | None = None
     vault_retrieval_profiles: list[dict[str, Any]] | None = None
     embedding: dict[str, Any] | None = None
     vault_rag: dict[str, Any] | None = None
+    locale: str | None = None
+    polish_style: str | None = None
 
 
 class LiveSessionStopRequest(BaseModel):
     session_id: str
     keep_audio: bool = False
+    client_live_text: str | None = None
+    client_live_chunks: list[str] | None = None
+    client_batch_chunks: list[str] | None = None
 
 
 def _orchestrator_public_base() -> str:
@@ -71,12 +77,15 @@ async def live_session_start(
         public_base=_orchestrator_public_base(),
         asr_cfg=req.asr if isinstance(req.asr, dict) else None,
         asr_fallback_cfg=req.asr_fallback if isinstance(req.asr_fallback, dict) else None,
+        polish_cfg=req.polish if isinstance(req.polish, dict) else None,
         glossary=req.glossary if isinstance(req.glossary, dict) else None,
         vault_retrieval_profiles=req.vault_retrieval_profiles
         if isinstance(req.vault_retrieval_profiles, list)
         else None,
         embedding=req.embedding if isinstance(req.embedding, dict) else None,
         vault_rag_config=req.vault_rag if isinstance(req.vault_rag, dict) else None,
+        locale=str(req.locale or "").strip() or None,
+        polish_style=str(req.polish_style or "").strip() or None,
     )
     return {"ok": True, "data": data}
 
@@ -91,9 +100,26 @@ async def live_session_stop(
     sid = (req.session_id or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="session_id required")
-    if not await stop_session(sid, keep_audio=bool(req.keep_audio)):
+    result = await stop_session(
+        sid,
+        keep_audio=bool(req.keep_audio),
+        client_live_text=(req.client_live_text or "").strip() or None,
+        client_live_chunks=[
+            str(c).strip()
+            for c in (req.client_live_chunks or [])
+            if c and str(c).strip()
+        ]
+        or None,
+        client_batch_chunks=[
+            str(c).strip()
+            for c in (req.client_batch_chunks or [])
+            if c and str(c).strip()
+        ]
+        or None,
+    )
+    if not result.get("ok"):
         raise HTTPException(status_code=404, detail="unknown_session")
-    return {"ok": True, "session_id": sid, "keep_audio": bool(req.keep_audio)}
+    return {"ok": True, "data": result}
 
 
 @router.websocket("/{session_id}/audio")

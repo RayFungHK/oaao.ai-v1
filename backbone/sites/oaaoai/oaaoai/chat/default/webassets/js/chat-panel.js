@@ -1865,7 +1865,7 @@ function loadChatComposerDialogCtor() {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260526-paste-image-lance-gradio-v46';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260527-live-asr-polish-v86';
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -2435,7 +2435,27 @@ button[data-oaao-chat='send'][data-oaao-composer-sending='1']::after{content:'';
 .oaao-app .oaao-chat-composer-toolbar-hint:not(.hidden){display:inline-block}
 .oaao-app .oaao-composer-voice-btn{position:relative;overflow:hidden}
 .oaao-app .oaao-composer-voice-level{position:absolute;left:0;right:0;bottom:0;height:0%;background:#22c55e;opacity:.45;pointer-events:none;border-radius:inherit;transition:height 50ms linear;z-index:0}
+.oaao-app .oaao-composer-voice-btn.is-polishing{color:#ca8a04;border-color:rgba(202,138,4,.45);background-color:rgba(202,138,4,.12);cursor:wait;animation:oaao-composer-voice-polish-pulse 1.2s ease-in-out infinite}
+@keyframes oaao-composer-voice-polish-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .oaao-app .oaao-composer-voice-btn>svg{position:relative;z-index:1}
+.oaao-app .oaao-composer-voice-stats-layer{position:absolute;top:.625rem;right:.625rem;z-index:30;pointer-events:auto;transform:none}
+.oaao-app [data-oaao-chat='composer-card-wrap'][data-oaao-voice-stats-active='1']{position:relative}
+.oaao-app .oaao-composer-voice-stats-btn{display:inline-flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;padding:0;border:1px solid color-mix(in srgb,var(--grid-line,rgba(0,0,0,.12)) 70%,transparent);border-radius:999px;background:var(--grid-surface,#fff);color:var(--grid-ink-muted,#666);cursor:help;box-shadow:0 2px 10px rgba(0,0,0,.14);pointer-events:auto;transition:background-color .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease}
+.oaao-app .oaao-composer-voice-stats-btn:hover,.oaao-app .oaao-composer-voice-stats-btn:focus-visible{color:var(--grid-ink,#111);border-color:color-mix(in srgb,var(--grid-ink,#111) 22%,transparent);background:var(--grid-panel,#fafafa);box-shadow:0 4px 14px rgba(0,0,0,.16);outline:none}
+.oaao-app .oaao-composer-voice-stats-btn[data-polish-phase='llm']{color:#16a34a;border-color:rgba(22,163,74,.45);background:color-mix(in srgb,#16a34a 10%,#fff)}
+.oaao-app .oaao-composer-voice-stats-btn[data-polish-phase='quick']{color:#ca8a04;border-color:rgba(202,138,4,.45);background:color-mix(in srgb,#ca8a04 10%,#fff)}
+.oaao-app .oaao-composer-voice-stats-btn svg{width:.92rem;height:.92rem}
+.oaao-app .oaao-composer-voice-stats-popover{position:fixed;z-index:10050;min-width:14rem;max-width:min(22rem,92vw);padding:.5rem .625rem;border-radius:8px;border:1px solid var(--grid-line,rgba(0,0,0,.12));background:var(--grid-surface,#fff);color:var(--grid-ink,#111);font-size:.75rem;line-height:1.45;box-shadow:0 8px 24px rgba(0,0,0,.12);white-space:pre-wrap;pointer-events:auto}
+.oaao-app .oaao-composer-voice-stats-popover::before{content:'';position:absolute;top:-10px;left:0;right:0;height:10px}
+.oaao-app .oaao-composer-voice-stats-download{margin-top:.45rem;padding:.25rem .45rem;border:1px solid var(--grid-line,rgba(0,0,0,.12));border-radius:6px;background:transparent;color:var(--grid-ink,#111);font:inherit;font-size:.75rem;cursor:pointer}
+.oaao-app [data-oaao-chat='composer-input-shell'][data-oaao-voice-polish-lock='1']{position:relative}
+.oaao-app .oaao-composer-voice-polish-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.55rem;background:color-mix(in srgb,var(--grid-surface,#fff) 88%,transparent);backdrop-filter:blur(2px);color:var(--grid-ink-muted,#666);font-size:.8125rem;font-weight:600;letter-spacing:.01em;z-index:2;pointer-events:none;border-radius:inherit}
+.oaao-app .oaao-composer-voice-polish-overlay[data-phase='polishing']{color:#a16207}
+.oaao-app .oaao-composer-voice-polish-overlay[data-phase='finishing']{color:#64748b}
+.oaao-app .oaao-composer-voice-polish-spinner{width:1.125rem;height:1.125rem;border:2px solid color-mix(in srgb,currentColor 28%,transparent);border-top-color:currentColor;border-radius:50%;animation:oaao-composer-voice-polish-spin .75s linear infinite}
+.oaao-app .oaao-composer-voice-polish-overlay[data-phase='finishing'] .oaao-composer-voice-polish-spinner{width:.875rem;height:.875rem;border-width:1.5px;opacity:.85}
+.oaao-app .oaao-composer-voice-polish-label{line-height:1.35;text-align:center;padding:0 .75rem}
+@keyframes oaao-composer-voice-polish-spin{to{transform:rotate(360deg)}}
 `;
     document.head.append(style);
 }
@@ -11227,6 +11247,7 @@ export async function mountShellPanel(mount) {
             appendChatComposerEditorText(inputEl, text);
         },
         toast: composerToast,
+        setComposerToolbarHint: setChatComposerToolbarHint,
     });
 
     if (isChatComposerEditorEl(inputEl)) {
