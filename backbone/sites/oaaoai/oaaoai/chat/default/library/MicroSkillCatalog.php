@@ -23,11 +23,19 @@ final class MicroSkillCatalog
         ?object $slideDesignerApi,
         int $limit = 24,
     ): array {
-        if ($slideDesignerApi === null) {
+        if ($slideDesignerApi === null || ! method_exists($slideDesignerApi, 'listBoundTemplateSkillsForPlanner')) {
             return [];
         }
 
-        return $slideDesignerApi->listBoundTemplateSkillsForPlanner($limit);
+        try {
+            $rows = $slideDesignerApi->listBoundTemplateSkillsForPlanner($limit);
+
+            return \is_array($rows) ? $rows : [];
+        } catch (\Throwable $e) {
+            error_log('[oaao MicroSkillCatalog] boundSkillsFromTemplates: ' . $e->getMessage());
+
+            return [];
+        }
     }
 
     /**

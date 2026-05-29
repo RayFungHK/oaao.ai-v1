@@ -2,6 +2,8 @@
 
 namespace Module\oaao\slide_designer;
 
+require_once dirname(__DIR__) . '/library/_bootstrap.php';
+
 use Razy\Agent;
 use Razy\Controller;
 use oaaoai\slide_designer\SlideOrchestrator;
@@ -58,6 +60,19 @@ return new class extends Controller {
         }
 
         return [$user, $pdo];
+    }
+
+    /** Current session user for cross-module API hooks (no JSON headers / echo). */
+    protected function oaao_slide_current_user(): ?object
+    {
+        $auth = $this->api('auth');
+        if (! $auth) {
+            return null;
+        }
+        $user = $auth->getUser();
+        $uid = (int) ($user->user_id ?? 0);
+
+        return $uid >= 1 ? $user : null;
     }
 
     public function __onInit(Agent $agent): bool
@@ -139,7 +154,7 @@ return new class extends Controller {
      */
     public function resolvePublishedTemplate(string $templateId): ?array
     {
-        [$user, ] = $this->oaao_slide_require_user();
+        $user = $this->oaao_slide_current_user();
         if (! $user) {
             return null;
         }
@@ -182,7 +197,7 @@ return new class extends Controller {
      */
     public function resolvePublishedTemplateSkill(string $templateId): ?array
     {
-        [$user, ] = $this->oaao_slide_require_user();
+        $user = $this->oaao_slide_current_user();
         if (! $user) {
             return null;
         }
@@ -222,7 +237,7 @@ return new class extends Controller {
      */
     public function listBoundTemplateSkillsForPlanner(int $limit = 16): array
     {
-        [$user, ] = $this->oaao_slide_require_user();
+        $user = $this->oaao_slide_current_user();
         if (! $user) {
             return [];
         }
