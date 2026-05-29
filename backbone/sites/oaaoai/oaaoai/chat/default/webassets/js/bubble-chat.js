@@ -29,6 +29,21 @@ const BUBBLE_ASSIST_BUBBLE =
 
 /** @type {Array<{ kind: string, payload: Record<string, unknown> }>} */
 let pendingProductivityEvents = [];
+/** Set when SSE / run end hints calendar or todo chips for the current turn. */
+let expectProductivityAfterTurn = false;
+
+/** @type {Promise<{ calMod: typeof import('./conversation-calendar-suggest.js'), todoMod: typeof import('./conversation-todo-suggest.js') }> | null} */
+let productivityModsPromise = null;
+
+function loadProductivityMods() {
+    if (!productivityModsPromise) {
+        productivityModsPromise = Promise.all([
+            import('./conversation-calendar-suggest.js'),
+            import('./conversation-todo-suggest.js'),
+        ]).then(([calMod, todoMod]) => ({ calMod, todoMod }));
+    }
+    return productivityModsPromise;
+}
 
 /** @type {import('../../../core/default/razyui/component/Dialog.js').default | null} */
 let activeDialog = null;
@@ -169,23 +184,35 @@ function isBubbleSessionExpired() {
 /**
  * @param {Record<string, unknown>} payload
  */
+function markExpectProductivityAfterTurn() {
+    expectProductivityAfterTurn = true;
+}
+
 function queueProductivityFromRunMeta(payload) {
     if (!payload || typeof payload !== 'object') return;
+    let queued = false;
     const cal = payload.calendar_event_suggested;
     if (cal && typeof cal === 'object') {
         queueProductivityEvent('calendar', /** @type {Record<string, unknown>} */ (cal));
+        queued = true;
     }
     const todo = payload.todo_item_suggested;
     if (todo && typeof todo === 'object') {
         queueProductivityEvent('todo', /** @type {Record<string, unknown>} */ (todo));
+        queued = true;
     }
     const todos = payload.todo_items_suggested;
     if (Array.isArray(todos) && todos.length >= 2) {
         queueProductivityEvent('todos', { items: todos });
+        queued = true;
     }
     const resolve = payload.todo_resolve_suggested;
     if (resolve && typeof resolve === 'object') {
         queueProductivityEvent('todo_resolve', /** @type {Record<string, unknown>} */ (resolve));
+        queued = true;
+    }
+    if (queued) {
+        markExpectProductivityAfterTurn();
     }
 }
 
@@ -232,11 +259,40 @@ function streamEnvelopeText(data) {
 
 function clearPendingProductivity() {
     pendingProductivityEvents = [];
+    expectProductivityAfterTurn = false;
 }
 
 function queueProductivityEvent(kind, payload) {
     if (!payload || typeof payload !== 'object') return;
     pendingProductivityEvents.push({ kind, payload: /** @type {Record<string, unknown>} */ (payload) });
+    markExpectProductivityAfterTurn();
+}
+
+/**
+ * @param {HTMLElement} chatMount
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {Array<{ kind: string, payload: Record<string, unknown> }>} events
+ */
+async function dispatchProductivityEvents(chatMount, conversationId, messageId, events) {
+    const cid = Math.floor(Number(conversationId));
+    const mid = Math.floor(Number(messageId));
+    if (cid < 1 || mid < 1 || !(chatMount instanceof HTMLElement) || events.length < 1) return;
+
+    const scopeFields = () => workspaceScopeFields();
+    const { calMod, todoMod } = await loadProductivityMods();
+
+    for (const ev of events) {
+        if (ev.kind === 'calendar') {
+            calMod.handleCalendarEventSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
+        } else if (ev.kind === 'todo') {
+            todoMod.handleTodoItemSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
+        } else if (ev.kind === 'todos') {
+            todoMod.handleTodoItemsSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
+        } else if (ev.kind === 'todo_resolve') {
+            todoMod.handleTodoResolveSuggestedStream(chatMount, cid, mid, ev.payload);
+        }
+    }
 }
 
 /**
@@ -251,6 +307,7 @@ function appendAssistantBubble(host, content, messageId = 0, opts = {}) {
     wrap.className = `flex flex-col items-stretch gap-2 max-w-[92%] ${BUBBLE_MSG_GAP} oaao-chat-assistant-row`;
     const bubble = document.createElement('div');
     bubble.className = BUBBLE_ASSIST_BUBBLE;
+    bubble.dataset.oaaoMsgRole = 'assistant';
     if (messageId > 0) bubble.dataset.oaaoMsgId = String(messageId);
     if (opts.streaming) bubble.dataset.oaaoBubbleAssistant = '1';
     bubble.textContent = content;
@@ -279,28 +336,27 @@ function appendUserBubble(host, content) {
  * @param {number} messageId
  */
 async function applyBubbleProductivityChips(chatMount, conversationId, messageId) {
-    const cid = Math.floor(Number(conversationId));
-    const mid = Math.floor(Number(messageId));
-    if (cid < 1 || mid < 1 || !(chatMount instanceof HTMLElement)) return;
-
-    const scopeFields = () => workspaceScopeFields();
-    const [calMod, todoMod] = await Promise.all([
-        import('./conversation-calendar-suggest.js'),
-        import('./conversation-todo-suggest.js'),
-    ]);
-
-    for (const ev of pendingProductivityEvents) {
-        if (ev.kind === 'calendar') {
-            calMod.handleCalendarEventSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
-        } else if (ev.kind === 'todo') {
-            todoMod.handleTodoItemSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
-        } else if (ev.kind === 'todos') {
-            todoMod.handleTodoItemsSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
-        } else if (ev.kind === 'todo_resolve') {
-            todoMod.handleTodoResolveSuggestedStream(chatMount, cid, mid, ev.payload);
-        }
-    }
+    if (pendingProductivityEvents.length < 1) return;
+    const events = pendingProductivityEvents.slice();
+    await dispatchProductivityEvents(chatMount, conversationId, messageId, events);
     clearPendingProductivity();
+}
+
+/**
+ * Live SSE productivity chips — same as main chat thread (before reload).
+ *
+ * @param {HTMLElement} chatMount
+ * @param {number} conversationId
+ * @param {number} messageId
+ */
+async function applyBubbleProductivityChipsLive(chatMount, conversationId, messageId) {
+    if (pendingProductivityEvents.length < 1) return;
+    await dispatchProductivityEvents(
+        chatMount,
+        conversationId,
+        messageId,
+        pendingProductivityEvents.slice(),
+    );
 }
 
 /**
@@ -311,10 +367,7 @@ async function applyBubbleProductivityChips(chatMount, conversationId, messageId
 async function hydrateProductivityFromMessageMeta(chatMount, conversationId, rows) {
     const cid = Math.floor(Number(conversationId));
     if (cid < 1) return;
-    const [calMod, todoMod] = await Promise.all([
-        import('./conversation-calendar-suggest.js'),
-        import('./conversation-todo-suggest.js'),
-    ]);
+    const { calMod, todoMod } = await loadProductivityMods();
     const scopeFields = () => workspaceScopeFields();
 
     for (const row of rows) {
@@ -352,7 +405,31 @@ async function hydrateProductivityFromMessageMeta(chatMount, conversationId, row
                 scopeFields,
             );
         }
+        if (m.todo_resolve_suggested && typeof m.todo_resolve_suggested === 'object') {
+            todoMod.renderTodoResolveChip(
+                chatMount,
+                cid,
+                mid,
+                /** @type {Record<string, unknown>} */ (m.todo_resolve_suggested),
+            );
+        }
     }
+}
+
+/** @param {Array<Record<string, unknown>>} rows */
+function messageRowsHaveProductivityMeta(rows) {
+    return rows.some((row) => {
+        if (String(row?.role || '').toLowerCase() !== 'assistant') return false;
+        const meta = row.meta;
+        if (!meta || typeof meta !== 'object') return false;
+        const m = /** @type {Record<string, unknown>} */ (meta);
+        return Boolean(
+            m.calendar_event_suggested ||
+                m.todo_item_suggested ||
+                m.todo_resolve_suggested ||
+                (Array.isArray(m.todo_items_suggested) && m.todo_items_suggested.length >= 2),
+        );
+    });
 }
 
 async function dismissBubbleConversation(conversationId) {
@@ -382,11 +459,13 @@ function renderMessages(host, rows) {
     for (const row of rows) {
         const role = String(row?.role || '').toLowerCase();
         const content = String(row?.content || '').trim();
-        if (!content) continue;
         const mid = Math.floor(Number(row.id ?? row.message_id ?? 0));
         if (role === 'user') {
+            if (!content) continue;
             appendUserBubble(host, content);
-        } else {
+        } else if (role === 'assistant') {
+            // Keep assistant anchor for productivity chips even before orchestrator persist lands.
+            if (!content && mid < 1) continue;
             appendAssistantBubble(host, content, mid);
         }
     }
@@ -414,21 +493,92 @@ function appendAssistantDelta(msgsHost, text, assistantMsgId = null) {
 /**
  * @param {string} streamUrl
  * @param {string} runId
- * @param {HTMLElement} msgsHost
- * @param {number | null} assistantMsgId
+ * @param {{
+ *   chatMount: HTMLElement,
+ *   msgsHost: HTMLElement,
+ *   getConversationId: () => number,
+ *   getAssistantMessageId: () => number,
+ * }} opts
  */
-async function consumeBubbleStream(streamUrl, runId, msgsHost, assistantMsgId) {
+async function consumeBubbleStream(streamUrl, runId, opts) {
+    const { chatMount, msgsHost, getConversationId, getAssistantMessageId } = opts;
     streamAbort?.abort();
     streamAbort = new AbortController();
     const { signal } = streamAbort;
 
     const resolved = await resolveOrchestratorPublicUrl(streamUrl);
-    const u = new URL(resolved, window.location.href);
-    u.searchParams.set('run_id', runId);
+    const baseUrl = new URL(resolved, window.location.href);
+    baseUrl.searchParams.set('run_id', runId);
+    const sameOrigin = baseUrl.origin === window.location.origin;
 
-    const res = await fetch(u.href, {
+    let lastStreamSeq = 0;
+    let sawRunEnd = false;
+
+    const maybeApplyLiveProductivity = () => {
+        const cid = getConversationId();
+        const mid = getAssistantMessageId();
+        if (cid < 1 || mid < 1) return;
+        void applyBubbleProductivityChipsLive(chatMount, cid, mid);
+    };
+
+    /** @param {ReadableStreamDefaultReader<Uint8Array>} reader */
+    const readStream = async (reader) => {
+        await readOaaoSseStream(
+            reader,
+            ({ seq, data }) => {
+                if (Number.isFinite(seq) && seq > 0) {
+                    lastStreamSeq = Math.max(lastStreamSeq, seq);
+                }
+                if (!data || typeof data !== 'object') return;
+                const envelope = /** @type {Record<string, unknown>} */ (data);
+                const phase = String(envelope.phase || '').toLowerCase();
+                const kind = String(envelope.kind || '').toLowerCase();
+                const text = streamEnvelopeText(envelope);
+                const payload = envelope.payload;
+                const assistantMsgId = getAssistantMessageId();
+
+                if (phase === 'llm' && kind === 'delta' && text) {
+                    appendAssistantDelta(
+                        msgsHost,
+                        text,
+                        assistantMsgId > 0 ? assistantMsgId : null,
+                    );
+                    return;
+                }
+
+                if (phase === 'system' && kind === 'end') {
+                    sawRunEnd = true;
+                    if (payload && typeof payload === 'object') {
+                        queueProductivityFromRunMeta(/** @type {Record<string, unknown>} */ (payload));
+                        maybeApplyLiveProductivity();
+                    }
+                    return;
+                }
+
+                if (phase !== 'system' || kind !== 'status' || !text) return;
+                if (!payload || typeof payload !== 'object') return;
+
+                if (text === 'calendar_event_suggested') {
+                    queueProductivityEvent('calendar', /** @type {Record<string, unknown>} */ (payload));
+                    maybeApplyLiveProductivity();
+                } else if (text === 'todo_item_suggested') {
+                    queueProductivityEvent('todo', /** @type {Record<string, unknown>} */ (payload));
+                    maybeApplyLiveProductivity();
+                } else if (text === 'todo_items_suggested') {
+                    queueProductivityEvent('todos', /** @type {Record<string, unknown>} */ (payload));
+                    maybeApplyLiveProductivity();
+                } else if (text === 'todo_resolve_suggested') {
+                    queueProductivityEvent('todo_resolve', /** @type {Record<string, unknown>} */ (payload));
+                    maybeApplyLiveProductivity();
+                }
+            },
+            signal,
+        );
+    };
+
+    const res = await fetch(baseUrl.href, {
         method: 'GET',
-        credentials: u.origin === window.location.origin ? 'include' : 'omit',
+        credentials: sameOrigin ? 'include' : 'omit',
         headers: { Accept: 'text/event-stream' },
         signal,
     });
@@ -436,42 +586,27 @@ async function consumeBubbleStream(streamUrl, runId, msgsHost, assistantMsgId) {
         throw new Error(`Stream HTTP ${res.status}`);
     }
 
-    const reader = res.body.getReader();
-    await readOaaoSseStream(
-        reader,
-        ({ data }) => {
-            if (!data || typeof data !== 'object') return;
-            const envelope = /** @type {Record<string, unknown>} */ (data);
-            const phase = String(envelope.phase || '').toLowerCase();
-            const kind = String(envelope.kind || '').toLowerCase();
-            const text = streamEnvelopeText(envelope);
-            const payload = envelope.payload;
+    await readStream(res.body.getReader());
 
-            if (phase === 'llm' && kind === 'delta' && text) {
-                appendAssistantDelta(msgsHost, text, assistantMsgId);
-                return;
+    if (!sawRunEnd && !signal.aborted && lastStreamSeq > 0) {
+        const tailUrl = new URL(baseUrl.href);
+        tailUrl.searchParams.set('since_seq', String(lastStreamSeq));
+        try {
+            const tailRes = await fetch(tailUrl.href, {
+                method: 'GET',
+                credentials: sameOrigin ? 'include' : 'omit',
+                headers: { Accept: 'text/event-stream' },
+                signal,
+            });
+            if (tailRes.ok && tailRes.body) {
+                await readStream(tailRes.body.getReader());
             }
-
-            if (phase === 'system' && kind === 'end' && payload && typeof payload === 'object') {
-                queueProductivityFromRunMeta(/** @type {Record<string, unknown>} */ (payload));
-                return;
+        } catch (tailErr) {
+            if (/** @type {{ name?: string }} */ (tailErr)?.name !== 'AbortError') {
+                console.warn('[bubble-chat] stream tail resume failed', tailErr);
             }
-
-            if (phase !== 'system' || kind !== 'status' || !text) return;
-            if (!payload || typeof payload !== 'object') return;
-
-            if (text === 'calendar_event_suggested') {
-                queueProductivityEvent('calendar', /** @type {Record<string, unknown>} */ (payload));
-            } else if (text === 'todo_item_suggested') {
-                queueProductivityEvent('todo', /** @type {Record<string, unknown>} */ (payload));
-            } else if (text === 'todo_items_suggested') {
-                queueProductivityEvent('todos', /** @type {Record<string, unknown>} */ (payload));
-            } else if (text === 'todo_resolve_suggested') {
-                queueProductivityEvent('todo_resolve', /** @type {Record<string, unknown>} */ (payload));
-            }
-        },
-        signal,
-    );
+        }
+    }
 }
 
 async function loadDialogCtor() {
@@ -618,24 +753,24 @@ export async function openBubbleChat() {
     };
 
     /** @param {number} [attempts] */
-    const reloadMessagesAfterTurn = async (attempts = 3) => {
+    const reloadMessagesAfterTurn = async (attempts = 8) => {
         let rows = await reloadMessages();
+        const shouldWaitForProductivity =
+            expectProductivityAfterTurn || pendingProductivityEvents.length > 0;
+        if (!shouldWaitForProductivity) {
+            return rows;
+        }
         for (let i = 1; i < attempts; i += 1) {
-            const hasProdMeta = rows.some((row) => {
+            const hasProdMeta = messageRowsHaveProductivityMeta(rows);
+            const hasAssistantAnchor = rows.some((row) => {
                 if (String(row?.role || '').toLowerCase() !== 'assistant') return false;
-                const meta = row.meta;
-                if (!meta || typeof meta !== 'object') return false;
-                const m = /** @type {Record<string, unknown>} */ (meta);
-                return Boolean(
-                    m.calendar_event_suggested ||
-                        m.todo_item_suggested ||
-                        (Array.isArray(m.todo_items_suggested) && m.todo_items_suggested.length >= 2),
-                );
+                const mid = Math.floor(Number(row.id ?? row.message_id ?? 0));
+                return mid > 0;
             });
-            if (hasProdMeta || pendingProductivityEvents.length < 1) {
+            if (hasAssistantAnchor && (hasProdMeta || pendingProductivityEvents.length > 0)) {
                 break;
             }
-            await new Promise((r) => setTimeout(r, 350 * i));
+            await new Promise((r) => setTimeout(r, 400 * i));
             rows = await reloadMessages();
         }
         return rows;
@@ -797,17 +932,13 @@ export async function openBubbleChat() {
 
                 if (streamUrl && runId) {
                     setStatus(oaaoT('bubble_chat.status_streaming', 'Thinking…'));
-                    await consumeBubbleStream(
-                        streamUrl,
-                        runId,
+                    await consumeBubbleStream(streamUrl, runId, {
+                        chatMount,
                         msgsHost,
-                        assistantMid > 0 ? assistantMid : null,
-                    );
+                        getConversationId: () => conversationId,
+                        getAssistantMessageId: () => assistantMid,
+                    });
                 }
-
-                msgsHost.querySelectorAll('[data-oaao-bubble-assistant="1"]').forEach((el) => {
-                    el.closest('.oaao-chat-assistant-row')?.remove();
-                });
 
                 const rows = await reloadMessagesAfterTurn();
                 if (assistantMid < 1 && rows.length > 0) {
@@ -821,6 +952,9 @@ export async function openBubbleChat() {
                 if (assistantMid > 0) {
                     await applyBubbleProductivityChips(chatMount, conversationId, assistantMid);
                 }
+                msgsHost.querySelectorAll('[data-oaao-bubble-assistant="1"]').forEach((el) => {
+                    el.closest('.oaao-chat-assistant-row')?.remove();
+                });
                 await refreshContextUsageRing(conversationId, composerMount);
                 setStatus('');
             } catch (err) {

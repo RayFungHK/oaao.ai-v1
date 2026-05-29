@@ -215,6 +215,7 @@ return new class extends Controller {
         }
 
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
+        $agent->listen('oaaoai/chat:chat.send.prepare', 'event/chat_send_prepare');
 
         $agent->addRoute('GET /vault/workspace-panel', 'panel/workspace_vault_panel');
 

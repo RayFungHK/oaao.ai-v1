@@ -69,3 +69,14 @@ def test_send_uses_endpoints_api() -> None:
     )
     assert "resolveOrchestratorVaultRagConfig" in text
     assert "CanonicalEndpointsRepository" not in text
+
+
+def test_chat_send_pipeline_library_exists() -> None:
+    send = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(
+        encoding="utf-8",
+    )
+    assert "ChatSendPipeline" in send
+    assert "ChatSendPhase::PREPARE" in send
+    for name in ("ChatSendContext.php", "ChatSendPipeline.php", "ChatSendPhase.php"):
+        assert (OAao / "chat" / "default" / "library" / name).is_file()
+    assert (OAao / "vault" / "default" / "library" / "VaultSendScope.php").is_file()

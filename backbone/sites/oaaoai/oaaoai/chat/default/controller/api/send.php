@@ -13,6 +13,10 @@ use oaaoai\chat\ChatTokenEstimator;
 use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatRunPrincipal;
+use oaaoai\chat\ChatSendAbort;
+use oaaoai\chat\ChatSendContext;
+use oaaoai\chat\ChatSendPhase;
+use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatTeachingIntent;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\MicroSkillCatalog;
@@ -127,93 +131,30 @@ return function (): void {
     $chatEndpointRaw = $input['chat_endpoint_id'] ?? null;
     $chatEndpointId = ($chatEndpointRaw === null || $chatEndpointRaw === '') ? 0 : (int) $chatEndpointRaw;
 
-    /** @var list<int> $vaultSourceIds */
-    $vaultSourceIds = [];
-    /** @var list<array{kind: string, id: int, vault_id: int, name: string}> $vaultSourceRefs */
-    $vaultSourceRefs = [];
+    $sendCtx = new ChatSendContext(
+        userId: $uid,
+        workspaceId: $wid,
+        input: $input,
+        chatEndpointId: $chatEndpointId,
+        isBubbleChat: $isBubbleChat,
+        appendAssistantTurn: $appendAssistantTurn,
+        conversationId: $conversationId,
+    );
 
-    $refsRaw = $input['vault_source_refs'] ?? null;
-    if (\is_array($refsRaw)) {
-        foreach ($refsRaw as $item) {
-            if (! \is_array($item)) {
-                continue;
-            }
-            $kind = strtolower(trim((string) ($item['kind'] ?? '')));
-            $rid = \is_int($item['id'] ?? null) ? (int) $item['id'] : (int) ($item['id'] ?? 0);
-            $vaultRowId = \is_int($item['vault_id'] ?? null) ? (int) $item['vault_id'] : (int) ($item['vault_id'] ?? 0);
-            if ($kind === 'vault') {
-                $vaultRowId = $rid;
-            }
-            if (! \in_array($kind, ['vault', 'folder', 'document'], true) || $rid < 1 || $vaultRowId < 1) {
-                continue;
-            }
-            $nm = substr(trim((string) ($item['name'] ?? '')), 0, 512);
-            $vaultSourceRefs[] = ['kind' => $kind, 'id' => $rid, 'vault_id' => $vaultRowId, 'name' => $nm];
-            if (\count($vaultSourceRefs) >= 24) {
-                break;
-            }
-        }
+    try {
+        (new ChatSendPipeline($this))->run(ChatSendPhase::PREPARE, $sendCtx);
+    } catch (ChatSendAbort $abort) {
+        http_response_code($abort->httpStatus);
+        echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
+
+        return;
     }
 
-    if ($vaultSourceRefs !== []) {
-        $vaultSourceIds = [];
-        $seenVault = [];
-        foreach ($vaultSourceRefs as $ref) {
-            $v = (int) ($ref['vault_id'] ?? 0);
-            if ($v < 1 || isset($seenVault[$v])) {
-                continue;
-            }
-            $seenVault[$v] = true;
-            $vaultSourceIds[] = $v;
-        }
-        sort($vaultSourceIds);
-    } else {
-        $vaultRaw = $input['vault_source_ids'] ?? null;
-        if (\is_array($vaultRaw)) {
-            foreach ($vaultRaw as $v) {
-                $vid = \is_int($v) ? $v : (int) $v;
-                if ($vid > 0) {
-                    $vaultSourceIds[] = $vid;
-                }
-                if (\count($vaultSourceIds) >= 24) {
-                    break;
-                }
-            }
-            $vaultSourceIds = array_values(array_unique($vaultSourceIds, SORT_NUMERIC));
-        }
-    }
-
-    $vaultAutoRag = false;
-    $varRaw = $input['vault_auto_rag'] ?? null;
-    if ($varRaw === true || $varRaw === 1 || $varRaw === '1') {
-        $vaultAutoRag = true;
-    } elseif (\is_string($varRaw) && strtolower(trim($varRaw)) === 'true') {
-        $vaultAutoRag = true;
-    }
-
-    $enableWebSearch = false;
-    $webRaw = $input['enable_web_search'] ?? null;
-    if ($webRaw === true || $webRaw === 1 || $webRaw === '1') {
-        $enableWebSearch = true;
-    } elseif (\is_string($webRaw) && strtolower(trim($webRaw)) === 'true') {
-        $enableWebSearch = true;
-    }
-
-    /** @var list<int> $attachmentIds */
-    $attachmentIds = [];
-    $attRaw = $input['attachment_ids'] ?? null;
-    if (\is_array($attRaw)) {
-        foreach ($attRaw as $a) {
-            $aid = \is_int($a) ? $a : (int) $a;
-            if ($aid > 0) {
-                $attachmentIds[] = $aid;
-            }
-            if (\count($attachmentIds) >= 8) {
-                break;
-            }
-        }
-        $attachmentIds = array_values(array_unique($attachmentIds, SORT_NUMERIC));
-    }
+    $vaultSourceIds = $sendCtx->vaultSourceIds;
+    $vaultSourceRefs = $sendCtx->vaultSourceRefs;
+    $vaultAutoRag = $sendCtx->vaultAutoRag;
+    $enableWebSearch = $sendCtx->enableWebSearch;
+    $attachmentIds = $sendCtx->attachmentIds;
 
     $slideTemplateId = trim((string) ($input['slide_template_id'] ?? ''));
 
