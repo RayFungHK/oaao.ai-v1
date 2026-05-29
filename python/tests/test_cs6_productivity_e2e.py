@@ -11,7 +11,12 @@ def test_todo_candidate_emits_actionable_title() -> None:
             "content": "I will draft the report. You should email finance by end of week.",
         },
     ]
-    cand = classify_todo_item_candidate(messages, locale="en")
+    assistant_text = messages[-1]["content"]
+    cand = classify_todo_item_candidate(
+        conversation_id=1,
+        messages=messages,
+        assistant_text=assistant_text,
+    )
     assert cand is not None
-    assert float(cand.get("confidence", 0)) > 0
-    assert str(cand.get("title", "")).strip() != ""
+    assert cand.confidence > 0
+    assert cand.title.strip() != ""

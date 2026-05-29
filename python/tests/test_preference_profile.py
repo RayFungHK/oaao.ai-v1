@@ -32,6 +32,6 @@ def test_planner_append_from_personalization() -> None:
             "preference_tags": ["#concise"],
         },
     )
-    assert "Chat style profile" in block
+    assert "User chat style profile" in block
     assert "concise" in block
 

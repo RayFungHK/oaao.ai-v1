@@ -121,6 +121,9 @@ services:
       OAAO_LIVE_MEETING_ROOT: ${OAAO_LIVE_MEETING_ROOT:-/var/www/html/sites/oaaoai/oaaoai/data/live-meeting}
       OAAO_BENCH_PROBE: ${OAAO_BENCH_PROBE:-}
       OAAO_SEARXNG_URL: ${OAAO_SEARXNG_URL:-http://searxng:8080}
+      # Tenant invitation + password reset (PHP mail()). Off by default — API returns register_url when unset.
+      OAAO_MAIL_ENABLED: ${OAAO_MAIL_ENABLED:-0}
+      OAAO_MAIL_FROM: ${OAAO_MAIL_FROM:-noreply@oaao.local}
     volumes:
       # First: full host tree (`sites/`, `.htaccess`, Razy.phar). Later lines overlay config, adjunct DB, vault.
       # Image-only mode: comment this line out and rely on Dockerfile COPY after `docker compose build web`.

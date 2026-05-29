@@ -708,12 +708,22 @@ function buildInvitationsTable(invitations, ctx, reload) {
         if (actions instanceof HTMLElement && iid > 0) {
             const resendBtn = tableActionBtn('Resend');
             resendBtn.addEventListener('click', () => {
-                void fetch('/user/api/users_invite_resend', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ invitation_id: iid }),
-                }).then(() => reload());
+                void (async () => {
+                    try {
+                        const res = await fetch('/user/api/users_invite_resend', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ invitation_id: iid }),
+                        });
+                        const json = await res.json().catch(() => ({}));
+                        if (json?.success && !json?.mail_sent && json?.register_url) {
+                            openInviteRegisterLinkDialog(String(json.register_url), String(inv.email || ''));
+                        }
+                    } finally {
+                        await reload();
+                    }
+                })();
             });
             const revokeBtn = tableActionBtn('Revoke');
             revokeBtn.addEventListener('click', () => {
@@ -804,6 +814,9 @@ async function openInviteDialog(groups, ctx, reload) {
                             status.textContent = json?.message || `Invite failed (${res.status})`;
                             return false;
                         }
+                        if (!json?.mail_sent && json?.register_url) {
+                            openInviteRegisterLinkDialog(String(json.register_url), String(body.email || ''));
+                        }
                         await reload();
                         return true;
                     } catch {
@@ -820,6 +833,62 @@ async function openInviteDialog(groups, ctx, reload) {
             const emailInput = form.querySelector('[name="email"]');
             if (emailInput instanceof HTMLInputElement) emailInput.focus();
         },
+    });
+}
+
+/**
+ * Dev / no-SMTP: API returns register_url when OAAO_MAIL_ENABLED is off.
+ *
+ * @param {string} registerUrl
+ * @param {string} [email]
+ */
+function openInviteRegisterLinkDialog(registerUrl, email = '') {
+    const wrap = document.createElement('div');
+    wrap.className = 'flex flex-col gap-3 min-w-0';
+    const hintEl = document.createElement('p');
+    hintEl.className = 'text-sm fg-[var(--grid-ink-muted)] m-0';
+    hintEl.textContent = oaaoT(
+        'access.invite.no_mail_hint',
+        'Email delivery is off. Copy this registration link and send it to the invitee.',
+    );
+    if (email) {
+        const em = document.createElement('p');
+        em.className = 'text-sm fg-[var(--grid-ink)] m-0';
+        em.textContent = email;
+        wrap.append(em);
+    }
+    wrap.append(hintEl);
+    const code = document.createElement('code');
+    code.className =
+        'block text-[0.72rem] fg-[var(--grid-ink-muted)] whitespace-pre-wrap break-all bg-[var(--grid-panel)] rounded-[8px] px-2 py-2 border-[1px] border-solid border-[var(--grid-line)]';
+    code.textContent = registerUrl;
+    wrap.append(code);
+
+    new Dialog({
+        id: 'oaao-access-invite-link',
+        title: oaaoT('access.invite.link_dialog_title', 'Share invitation link'),
+        content: wrap,
+        size: 'md',
+        closable: true,
+        buttons: [
+            {
+                text: oaaoT('access.invite.copy_link', 'Copy invite link'),
+                color: 'accent',
+                action: async () => {
+                    try {
+                        await navigator.clipboard.writeText(registerUrl);
+                        hintEl.textContent = oaaoT('access.invite.link_copied', 'Link copied.');
+                    } catch {
+                        hintEl.textContent = oaaoT(
+                            'access.invite.copy_failed',
+                            'Could not copy — select the URL manually.',
+                        );
+                    }
+                    return false;
+                },
+            },
+            { text: 'Close', color: 'muted', role: 'cancel' },
+        ],
     });
 }
 

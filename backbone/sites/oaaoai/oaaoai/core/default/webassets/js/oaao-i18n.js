@@ -57,6 +57,12 @@ const OAAO_I18N_BASE = {
         'productivity.common.add': 'Add',
 
         'auth.forgot_password': 'Forgot password?',
+        'access.invite.no_mail_hint':
+            'Email delivery is off. Copy this registration link and send it to the invitee.',
+        'access.invite.copy_link': 'Copy invite link',
+        'access.invite.link_copied': 'Link copied.',
+        'access.invite.copy_failed': 'Could not copy — select the URL manually.',
+        'access.invite.link_dialog_title': 'Share invitation link',
         'auth.invite_required':
             'Public signup is disabled. Ask your administrator for an invitation link.',
         'auth.register.title': 'Complete registration',
@@ -1210,6 +1216,11 @@ const OAAO_I18N_BASE = {
         'productivity.common.add': '加入',
 
         'auth.forgot_password': '忘記密碼？',
+        'access.invite.no_mail_hint': '郵件未啟用，請複製以下註冊連結並傳給受邀者。',
+        'access.invite.copy_link': '複製邀請連結',
+        'access.invite.link_copied': '已複製連結。',
+        'access.invite.copy_failed': '無法複製，請手動選取網址。',
+        'access.invite.link_dialog_title': '分享邀請連結',
         'auth.invite_required': '已關閉公開註冊，請向管理員索取邀請連結。',
         'auth.register.title': '完成註冊',
         'auth.register.checking': '正在驗證邀請連結…',
