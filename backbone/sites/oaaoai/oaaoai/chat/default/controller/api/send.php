@@ -3,7 +3,6 @@
 use oaaoai\chat\ChatAccsReflection;
 use oaaoai\chat\ChatAttachmentStorage;
 use oaaoai\chat\ChatBubbleConversation;
-use oaaoai\chat\ChatConversationMaterial;
 use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatContextUsage;
 use oaaoai\chat\ChatConversationCompact;
@@ -732,15 +731,35 @@ return function (): void {
             }
 
             $slideDesignerApi = $this->api('slide_designer');
-            $slideExtras = [];
-            if (! $bubbleThread && $hasPublishedSlideTemplate) {
-                $slideExtras['template_id'] = $slideTemplateId;
-                $slideExtras['start_new_deck'] = true;
-            }
-            $slideDesignerPayload = ($slideDesignerApi ?? null)
-                ? $slideDesignerApi->orchestratorSlideDesignerBase($slideExtras)
-                : ['storage_root' => ''];
             $splitPdo = $splitDb->getDBAdapter();
+            $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
+            $reuseGroundingMid = (int) ($input['reuse_grounding_message_id'] ?? 0);
+            $canonPdoGround = null;
+            $tenantIdGround = 0;
+            if ($canonDb instanceof \Razy\Database) {
+                $canonPdoGround = $canonDb->getDBAdapter();
+                if ($canonPdoGround instanceof \PDO) {
+                    $tenantIdGround = isset($user->tenant_id) ? (int) ($user->tenant_id ?? 0) : 0;
+                    if ($tenantIdGround < 1) {
+                        $coreApiGround = $this->api('core');
+                        $tenantIdGround = $coreApiGround
+                            ? $coreApiGround->bootstrapTenantContext($canonPdoGround)
+                            : 0;
+                    }
+                }
+            }
+            if ($splitPdo instanceof \PDO) {
+                $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                    'stage'                => ChatSendOrchestratorStage::SLIDE,
+                    'split_pdo'            => $splitPdo,
+                    'conversation_id'      => (int) $conversationId,
+                    'bubble_thread'        => $bubbleThread,
+                    'active_material_id'   => $activeMaterialId,
+                    'reuse_grounding_mid'  => $reuseGroundingMid,
+                    'canonical_pdo_ground' => $canonPdoGround,
+                    'tenant_id_ground'     => $tenantIdGround,
+                ]);
+            }
             if ($splitPdo instanceof \PDO) {
                 $payload['skills_catalog'] = MicroSkillCatalog::forPlanner(
                     $splitPdo,
@@ -753,68 +772,10 @@ return function (): void {
                     $slideDesignerApi,
                 );
             }
-            $endpointsApi = $this->api('endpoints');
             if ($endpointsApi && method_exists($endpointsApi, 'getToolServerRegistry')) {
                 $payload['tool_servers'] = $endpointsApi->getToolServerRegistry();
             }
             $payload['hot_plug_skills'] = SkillsManifestStorage::enabledForPurpose('chat');
-            $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
-            if ($splitPdo instanceof \PDO && $conversationId > 0 && ! $bubbleThread) {
-                if ($activeMaterialId !== '') {
-                    $slideDesignerPayload['active_material_id'] = $activeMaterialId;
-                    $resolved = ChatConversationMaterial::resolveSlideProjectMaterial(
-                        $splitPdo,
-                        $conversationId,
-                        $uid,
-                        $activeMaterialId,
-                        $slideDesignerApi,
-                    );
-                    if ($resolved !== null) {
-                        $slideDesignerPayload['resume_project_id'] = $resolved['project_id'];
-                        unset($slideDesignerPayload['start_new_deck']);
-                    }
-                }
-
-                $payload['conversation_materials'] = ChatConversationMaterial::catalogForPlanner(
-                    $splitPdo,
-                    $conversationId,
-                    $uid,
-                    16,
-                    $slideDesignerApi,
-                );
-                $reuseGroundingMid = (int) ($input['reuse_grounding_message_id'] ?? 0);
-                $canonPdoGround = null;
-                $tenantIdGround = 0;
-                if ($canonDb instanceof \Razy\Database) {
-                    $canonPdoGround = $canonDb->getDBAdapter();
-                    if ($canonPdoGround instanceof \PDO) {
-                        $tenantIdGround = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
-                        if ($tenantIdGround < 1) {
-                            $coreApiGround = $this->api('core');
-                            $tenantIdGround = $coreApiGround
-                                ? $coreApiGround->bootstrapTenantContext($canonPdoGround)
-                                : 0;
-                        }
-                    }
-                }
-                $grounding = ChatConversationMaterial::groundingContextForOrchestrator(
-                    $splitPdo,
-                    $conversationId,
-                    $uid,
-                    $activeMaterialId !== '' ? $activeMaterialId : null,
-                    $reuseGroundingMid,
-                    $slideDesignerApi,
-                    $canonPdoGround instanceof \PDO ? $canonPdoGround : null,
-                    $tenantIdGround,
-                );
-                if ($grounding !== []) {
-                    $payload['conversation_material_grounding'] = $grounding;
-                }
-                if ($reuseGroundingMid > 0) {
-                    $payload['reuse_grounding_message_id'] = $reuseGroundingMid;
-                }
-            }
-            $payload['slide_designer'] = $slideDesignerPayload;
 
             if ($canonDb instanceof \Razy\Database) {
                 $canonPdo = $canonDb->getDBAdapter();

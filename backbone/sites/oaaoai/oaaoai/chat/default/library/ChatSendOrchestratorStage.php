@@ -12,4 +12,6 @@ final class ChatSendOrchestratorStage
     public const PAYLOAD = 'payload';
 
     public const AGENTS = 'agents';
+
+    public const SLIDE = 'slide';
 }
