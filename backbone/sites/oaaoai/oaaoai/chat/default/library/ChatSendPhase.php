@@ -27,6 +27,8 @@ final class ChatSendPhase
 
     public const RUN_START = 'run_start';
 
+    public const RUN_START = 'run_start';
+
     public const RESPOND = 'respond';
 
     /** @var list<string> */
@@ -37,6 +39,7 @@ final class ChatSendPhase
         self::PERSIST,
         self::CONVERSATION_SETTLE,
         self::ORCHESTRATOR_READY,
+        self::RUN_START,
         self::RUN_START,
         self::RESPOND,
     ];

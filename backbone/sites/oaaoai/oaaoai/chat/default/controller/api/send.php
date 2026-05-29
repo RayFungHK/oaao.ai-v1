@@ -9,7 +9,6 @@ use oaaoai\chat\ChatConversationCompact;
 use oaaoai\chat\ChatTokenEstimator;
 use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatInferenceControl;
-use oaaoai\chat\ChatRunPrincipal;
 use oaaoai\chat\ChatSendAbort;
 use oaaoai\chat\ChatSendContext;
 use oaaoai\chat\ChatSendConversationSettle;
@@ -17,15 +16,8 @@ use oaaoai\chat\ChatSendOrchestratorStage;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatTeachingIntent;
-use oaaoai\chat\MicroSkillCatalog;
-use oaaoai\chat\SkillsManifestStorage;
-use oaaoai\corpus\CorpusStyleResolver;
 use oaaoai\endpoints\ChatInferencePurposeConfig;
-use oaaoai\endpoints\MmModuleSettings;
-use oaaoai\user\UserDisplayPreferences;
 use oaaoai\user\UserModelParams;
-use oaaoai\user\UserPersonalization;
-use oaaoai\user\UserPreferenceProfile;
 
 /**
  * POST /chat/api/send — append user message + assistant row; when orchestrator + binding exist, start Python stream run.
@@ -59,32 +51,9 @@ return function (): void {
 
     $authApi = $this->api('auth');
     $canonDbEarly = $authApi ? $authApi->getDB() : null;
-    $canonPdoEarly = $canonDbEarly instanceof \Razy\Database ? $canonDbEarly->getDBAdapter() : null;
-    if ($canonPdoEarly instanceof \PDO) {
-        require_once dirname(__DIR__, 4) . '/core/default/library/CreditLedgerRepository.php';
-        $coreEarly = $this->api('core');
-        $tenantIdEarly = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
-        if ($tenantIdEarly < 1 && $coreEarly) {
-            $tenantIdEarly = $coreEarly->bootstrapTenantContext($canonPdoEarly);
-        }
-        $creditBlock = \Oaaoai\Core\CreditLedgerRepository::sendBlockedReason($canonPdoEarly, $tenantIdEarly, $uid);
-        if ($creditBlock !== null) {
-            http_response_code(402);
-            echo json_encode([
-                'success' => false,
-                'message' => $creditBlock,
-                'code'    => 'credits_exhausted',
-            ], JSON_UNESCAPED_UNICODE);
-
-            return;
-        }
-    }
 
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
     $wid = $this->oaao_chat_resolve_workspace_id($input);
-    if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
-        return;
-    }
 
     $content = trim((string) ($input['content'] ?? ''));
     $continueAssistantId = (int) ($input['continue_assistant_message_id'] ?? 0);
@@ -140,6 +109,12 @@ return function (): void {
     $sendPipeline = new ChatSendPipeline($this);
 
     try {
+        $sendPipeline->run(ChatSendPhase::GATE, $sendCtx, [
+            'user'         => $user,
+            'auth_api'     => $authApi,
+            'core_api'     => $this->api('core'),
+            'canonical_db' => $canonDbEarly,
+        ]);
         $sendPipeline->run(ChatSendPhase::PREPARE, $sendCtx);
     } catch (ChatSendAbort $abort) {
         http_response_code($abort->httpStatus);
@@ -246,6 +221,10 @@ return function (): void {
 
     try {
         $pdo->beginTransaction();
+        $sendPipeline->run(ChatSendPhase::PERSIST, $sendCtx, [
+            'split_db' => $splitDb,
+            'pdo'      => $pdo,
+        ]);
 
         $conversationCreated = false;
         if ($conversationId !== null && $conversationId > 0) {
@@ -711,25 +690,6 @@ return function (): void {
                 'bubble_thread'  => $bubbleThread,
             ]);
 
-            if ($vaultSourceIds !== []) {
-                $payload['vault_source_ids'] = $vaultSourceIds;
-            }
-            if ($vaultSourceRefs !== []) {
-                $payload['vault_source_refs'] = $vaultSourceRefs;
-            }
-            $payload['vault_auto_rag'] = $vaultAutoRag;
-            if ($wid !== null) {
-                $payload['workspace_id'] = $wid;
-            }
-            if ($conversationCreated && ! $bubbleThread) {
-                $payload['is_new_conversation'] = true;
-            }
-
-            if ($bubbleThread) {
-                $payload['conversation_kind'] = ChatBubbleConversation::KIND;
-                $payload['skip_persistent_agent_hooks'] = true;
-            }
-
             $slideDesignerApi = $this->api('slide_designer');
             $splitPdo = $splitDb->getDBAdapter();
             $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
@@ -750,6 +710,19 @@ return function (): void {
             }
             if ($splitPdo instanceof \PDO) {
                 $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                    'stage'                => ChatSendOrchestratorStage::CORE,
+                    'split_db'             => $splitDb,
+                    'conversation_id'      => (int) $conversationId,
+                    'bubble_thread'        => $bubbleThread,
+                    'conversation_created' => $conversationCreated,
+                    'user'                 => $user,
+                    'auth_api'             => $authApi,
+                    'endpoints_api'        => $endpointsApi,
+                    'slide_designer_api'   => $slideDesignerApi,
+                    'canonical_db'         => $canonDb,
+                    'attachment_ids'       => $attachmentIds,
+                ]);
+                $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
                     'stage'                => ChatSendOrchestratorStage::SLIDE,
                     'split_pdo'            => $splitPdo,
                     'conversation_id'      => (int) $conversationId,
@@ -759,92 +732,6 @@ return function (): void {
                     'canonical_pdo_ground' => $canonPdoGround,
                     'tenant_id_ground'     => $tenantIdGround,
                 ]);
-            }
-            if ($splitPdo instanceof \PDO) {
-                $payload['skills_catalog'] = MicroSkillCatalog::forPlanner(
-                    $splitPdo,
-                    $user,
-                    $authApi,
-                    $uid,
-                    $wid,
-                    (! $bubbleThread && $hasPublishedSlideTemplate) ? $slideTemplateId : null,
-                    $this,
-                    $slideDesignerApi,
-                );
-            }
-            if ($endpointsApi && method_exists($endpointsApi, 'getToolServerRegistry')) {
-                $payload['tool_servers'] = $endpointsApi->getToolServerRegistry();
-            }
-            $payload['hot_plug_skills'] = SkillsManifestStorage::enabledForPurpose('chat');
-
-            if ($canonDb instanceof \Razy\Database) {
-                $canonPdo = $canonDb->getDBAdapter();
-                if ($canonPdo instanceof \PDO) {
-                    $userTenantId = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
-                    if ($userTenantId > 0) {
-                        $payload['tenant_id'] = $userTenantId;
-                    } else {
-                        $coreApi = $this->api('core');
-                        $ctxTid = $coreApi
-                            ? $coreApi->bootstrapTenantContext($canonPdo)
-                            : 0;
-                        if ($ctxTid > 0) {
-                            $payload['tenant_id'] = $ctxTid;
-                        }
-                    }
-                }
-            }
-
-            if ($attachmentIds !== []) {
-                ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
-                $canonPdoForAtt = $this->oaao_chat_canonical_pdo();
-                $tenantIdForAtt = 0;
-                if ($canonPdoForAtt instanceof \PDO) {
-                    $coreApiAtt = $this->api('core');
-                    $tenantIdForAtt = $coreApiAtt ? $coreApiAtt->bootstrapTenantContext($canonPdoForAtt) : 0;
-                }
-                /** @var list<array<string, mixed>> $chatAttachments */
-                $chatAttachments = [];
-                foreach ($attachmentIds as $aid) {
-                    $ar = $splitDb->prepare()
-                        ->select('id, conversation_id, file_name, mime_type, storage_path, storage_locator_json, byte_size')
-                        ->from('conversation_attachment')
-                        ->where('id=?,conversation_id=?,user_id=?')
-                        ->assign(['id' => $aid, 'conversation_id' => $conversationId, 'user_id' => $uid])
-                        ->limit(1)
-                        ->query()
-                        ->fetch();
-                    if (! \is_array($ar)) {
-                        continue;
-                    }
-                    $rel = trim((string) ($ar['storage_path'] ?? ''));
-                    if ($rel === '') {
-                        continue;
-                    }
-                    $locatorJson = isset($ar['storage_locator_json']) ? (string) $ar['storage_locator_json'] : null;
-                    $relKey = ChatAttachmentStorage::relativeKey((int) $conversationId, $uid, $rel, false);
-                    $abs = ChatAttachmentStorage::conversationDir((int) $conversationId) . '/' . $rel;
-                    if ($tenantIdForAtt > 0 && $canonPdoForAtt instanceof \PDO && $locatorJson !== null && trim($locatorJson) !== '') {
-                        try {
-                            $blob = ChatAttachmentStorage::blobStorage($canonPdoForAtt, $tenantIdForAtt);
-                            $abs = $blob->resolveAbsolutePath($locatorJson, $relKey, ChatAttachmentStorage::root());
-                        } catch (\Throwable) {
-                        }
-                    }
-                    $chatAttachments[] = [
-                        'id'            => (int) ($ar['id'] ?? 0),
-                        'file_name'     => (string) ($ar['file_name'] ?? ''),
-                        'mime_type'     => (string) ($ar['mime_type'] ?? ''),
-                        'absolute_path' => $abs,
-                        'byte_size'     => (int) ($ar['byte_size'] ?? 0),
-                        'storage_locator' => $locatorJson !== null && trim($locatorJson) !== ''
-                            ? json_decode($locatorJson, true)
-                            : null,
-                    ];
-                }
-                if ($chatAttachments !== []) {
-                    $payload['chat_attachments'] = $chatAttachments;
-                }
             }
 
             if ($canonDb instanceof \Razy\Database) {
@@ -856,126 +743,32 @@ return function (): void {
                     'stage'          => ChatSendOrchestratorStage::PAYLOAD,
                     'canonical_db'   => $canonDb,
                 ]);
-                $payload = array_merge($payload, $sendCtx->mergedPayloadFragments());
+                $payload = array_merge($payload, $sendCtx->drainPayloadFragments());
             }
 
-            if ($inferenceApplied !== []) {
-                $payload['model_params'] = $inferenceApplied;
-                if (isset($inferenceApplied['temperature'])) {
-                    $payload['temperature'] = (float) $inferenceApplied['temperature'];
-                }
-                if (isset($inferenceApplied['max_tokens'])) {
-                    $payload['max_tokens'] = (int) $inferenceApplied['max_tokens'];
-                }
-            }
-            if (($inferenceSnapshot['mode'] ?? '') === ChatInferenceControl::MODE_AUTO_TUNE) {
-                $payload['inference_mode'] = ChatInferenceControl::MODE_AUTO_TUNE;
-                $payload['inference_baseline'] = $inferenceApplied;
-            } elseif (($inferenceSnapshot['mode'] ?? '') === ChatInferenceControl::MODE_MANUAL) {
-                $payload['inference_mode'] = ChatInferenceControl::MODE_MANUAL;
-            }
             $canonPdoForPersonalization = $this->oaao_chat_canonical_pdo();
-            if ($canonPdoForPersonalization instanceof \PDO) {
-                require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_todo_schema.php';
-                oaao_auth_ensure_todo_schema($canonPdoForPersonalization);
-                $tenantForTodos = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : (int) ($user->tenant_id ?? 0);
-                $stTodos = $canonPdoForPersonalization->prepare(
-                    'SELECT todo_id, title FROM oaao_todo_item
-                     WHERE tenant_id = ? AND user_id = ? AND status = ? AND conversation_id = ?
-                     ORDER BY updated_at DESC LIMIT 20',
-                );
-                $stTodos->execute([$tenantForTodos, $uid, 'open', $conversationId]);
-                $openTodos = [];
-                while ($row = $stTodos->fetch(\PDO::FETCH_ASSOC)) {
-                    if (! \is_array($row)) {
-                        continue;
-                    }
-                    $openTodos[] = [
-                        'todo_id' => (int) ($row['todo_id'] ?? 0),
-                        'title'   => (string) ($row['title'] ?? ''),
-                    ];
-                }
-                if ($openTodos !== []) {
-                    $payload['open_todo_items'] = $openTodos;
-                }
-            }
-            $persPayload = UserPersonalization::forOrchestratorPayload(
-                $canonPdoForPersonalization instanceof \PDO
-                    ? UserPersonalization::loadForUser($canonPdoForPersonalization, $uid)
-                    : UserPersonalization::defaults(),
-            );
-            if ($canonPdoForPersonalization instanceof \PDO) {
-                $stmtPrefs = $canonPdoForPersonalization->prepare(
-                    'SELECT preferences_json FROM oaao_user WHERE user_id = ? LIMIT 1',
-                );
-                $stmtPrefs->execute([$uid]);
-                $rawPrefs = $stmtPrefs->fetchColumn();
-                if (\is_string($rawPrefs) && $rawPrefs !== '') {
-                    try {
-                        $decodedPrefs = json_decode($rawPrefs, true, 512, JSON_THROW_ON_ERROR);
-                        if (\is_array($decodedPrefs)) {
-                            $persPayload = array_merge(
-                                $persPayload,
-                                UserPreferenceProfile::forOrchestratorPayload($decodedPrefs),
-                            );
-                        }
-                    } catch (\JsonException) {
-                        /* keep profile block empty */
-                    }
-                }
-            }
-            $payload['user_personalization'] = $persPayload;
-            $payload['display_locale'] = $canonPdoForPersonalization instanceof \PDO
-                ? UserDisplayPreferences::localeForUser($canonPdoForPersonalization, $uid)
-                : UserDisplayPreferences::DEFAULT_LOCALE;
+            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                'stage'                 => ChatSendOrchestratorStage::PERSONALIZE,
+                'user'                  => $user,
+                'canonical_pdo'         => $canonPdoForPersonalization,
+                'conversation_id'       => (int) $conversationId,
+                'orchestrator_payload'  => $payload,
+            ]);
+            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                'stage'                 => ChatSendOrchestratorStage::FINALIZE,
+                'user'                  => $user,
+                'canonical_db'          => $canonDb,
+                'conversation_id'       => (int) $conversationId,
+                'assistant_message_id'  => (int) $asstMsgId,
+                'continue_assistant_id' => $continueAssistantId,
+                'orchestrator_payload'  => $payload,
+            ]);
+            $payload = array_merge($payload, $sendCtx->drainPayloadFragments());
 
-            $corpusIdRaw = $input['corpus_id'] ?? null;
-            $corpusIdSend = ($corpusIdRaw === null || $corpusIdRaw === '') ? 0 : (int) $corpusIdRaw;
-            if ($corpusIdSend > 0 && $canonDb instanceof \Razy\Database) {
-                $tenantForCorpus = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
-                if ($tenantForCorpus < 1) {
-                    $tenantForCorpus = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
-                }
-                $corpusStyle = CorpusStyleResolver::forChatRun(
-                    $canonDb,
-                    $corpusIdSend,
-                    max(1, $tenantForCorpus),
-                    $uid,
-                    $wid,
-                );
-                if ($corpusStyle !== null) {
-                    $payload['corpus_id'] = $corpusIdSend;
-                    $payload['corpus_style'] = $corpusStyle;
-                }
-            }
-
-            $libraryDocIds = [];
-            $libRaw = $input['library_doc_ids'] ?? $input['attached_library_doc_ids'] ?? null;
-            if (\is_array($libRaw)) {
-                foreach ($libRaw as $lid) {
-                    $n = (int) $lid;
-                    if ($n > 0) {
-                        $libraryDocIds[$n] = $n;
-                    }
-                }
-            }
-            if ($libraryDocIds !== []) {
-                $payload['library_doc_ids'] = array_values($libraryDocIds);
-            }
-
-            if ($appendAssistantTurn) {
-                $payload['append_assistant_content'] = true;
-                $payload['continue_assistant_message_id'] = $continueAssistantId;
-            }
-
-            $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
-            $payload['run_principal'] = ChatRunPrincipal::issue(
-                $uid,
-                $conversationId,
-                $asstMsgId,
-                $wid,
-                $tenantForPrincipal > 0 ? $tenantForPrincipal : null,
-            );
+            $sendPipeline->run(ChatSendPhase::RUN_START, $sendCtx, [
+                'orchestrator_payload' => $payload,
+                'started'              => null,
+            ]);
 
             $started = $this->startOrchestratorChatRun($payload);
 

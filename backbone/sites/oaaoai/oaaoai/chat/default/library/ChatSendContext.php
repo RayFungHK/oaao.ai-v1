@@ -142,6 +142,17 @@ final class ChatSendContext
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function drainPayloadFragments(): array
+    {
+        $out = $this->mergedPayloadFragments();
+        $this->payloadFragments = [];
+
+        return $out;
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     public function abort(int $httpStatus, array $payload): never

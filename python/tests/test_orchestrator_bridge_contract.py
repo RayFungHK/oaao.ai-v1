@@ -94,7 +94,14 @@ def test_chat_send_pipeline_library_exists() -> None:
     assert "ChatSendOrchestratorStage::PAYLOAD" in send_text
     assert "ChatSendPhase::CONVERSATION_SETTLE" in send_text
     assert "ChatSendOrchestratorStage::AGENTS" in send_text
+    assert "ChatSendPhase::GATE" in send_text
+    assert "ChatSendOrchestratorStage::CORE" in send_text
     assert "ChatSendOrchestratorStage::SLIDE" in send_text
+    assert "ChatSendOrchestratorStage::PERSONALIZE" in send_text
+    assert "ChatSendPhase::RUN_START" in send_text
+    assert "UserPersonalization" not in send_text
     assert "ChatConversationMaterial" not in send_text
+    assert (OAao / "chat" / "default" / "library" / "ChatSendGate.php").is_file()
     assert (OAao / "slide-designer" / "default" / "library" / "SlideSendOrchestratorPayload.php").is_file()
+    assert (OAao / "user" / "default" / "library" / "UserSendOrchestratorPayload.php").is_file()
     assert "MmModuleSettings.php" not in send_text

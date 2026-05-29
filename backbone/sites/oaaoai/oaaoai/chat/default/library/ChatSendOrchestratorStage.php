@@ -14,4 +14,10 @@ final class ChatSendOrchestratorStage
     public const AGENTS = 'agents';
 
     public const SLIDE = 'slide';
+
+    public const CORE = 'core';
+
+    public const PERSONALIZE = 'personalize';
+
+    public const FINALIZE = 'finalize';
 }

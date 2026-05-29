@@ -101,11 +101,12 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 
 1. **Done:** `prepare` — vault scope, web search, attachments, slide template.
 2. **Done:** `scope` — vault auto-expand after message content known.
-3. **Partial:** `orchestrator_ready` — bind + agents + endpoints/vault payload (slide/materials still in `send.php`).
+3. **Done:** `gate` — credit block, workspace gate (`ChatSendGate`).
 4. **Done:** `conversation_settle` — title, inference snapshot, user meta (+ slide-designer template meta).
-5. **Next:** `gate` — credit block, workspace gate.
-6. **Partial:** `orchestrator_ready` — slide `SLIDE` stage shipped; skills_catalog / personalization still in `send.php`.
-7. **Next:** `gate` — credit block, workspace gate.
+5. **Done:** `orchestrator_ready` — bind, agents, CORE, SLIDE, PAYLOAD (endpoints/vault), PERSONALIZE (user), FINALIZE (inference/corpus/library/run_principal).
+6. **Boundary only:** `persist` — hook at TX start; SQLite body still in `send.php` (`ChatSendPersist` placeholder).
+7. **Boundary only:** `run_start` — hook before POST; `startOrchestratorChatRun` still in `send.php` (`ChatSendRunStarter` placeholder).
+8. **Next:** extract full `persist` TX + `run_start` POST into libraries.
 
 Modules to migrate (non-exhaustive):
 
