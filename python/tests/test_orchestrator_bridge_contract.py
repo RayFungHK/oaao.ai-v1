@@ -92,13 +92,15 @@ def test_chat_send_pipeline_library_exists() -> None:
     send_text = send
     assert "ChatSendPhase::SCOPE" in send_text
     assert "ChatSendOrchestratorStage::PAYLOAD" in send_text
-    assert "ChatSendPhase::CONVERSATION_SETTLE" in send_text
+    persist_lib = (OAao / "chat" / "default" / "library" / "ChatSendPersist.php").read_text(encoding="utf-8")
+    assert "ChatSendPhase::CONVERSATION_SETTLE" in persist_lib
     assert "ChatSendOrchestratorStage::AGENTS" in send_text
     assert "ChatSendPhase::GATE" in send_text
     assert "ChatSendOrchestratorStage::CORE" in send_text
     assert "ChatSendOrchestratorStage::SLIDE" in send_text
     assert "ChatSendOrchestratorStage::PERSONALIZE" in send_text
     assert "ChatSendPhase::RUN_START" in send_text
+    assert "ChatSendPersist::execute" in send_text
     assert "UserPersonalization" not in send_text
     assert "ChatConversationMaterial" not in send_text
     assert (OAao / "chat" / "default" / "library" / "ChatSendGate.php").is_file()

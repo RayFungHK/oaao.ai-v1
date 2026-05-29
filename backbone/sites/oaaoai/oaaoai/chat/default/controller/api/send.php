@@ -1,9 +1,6 @@
 <?php
 
 use oaaoai\chat\ChatAccsReflection;
-use oaaoai\chat\ChatAttachmentStorage;
-use oaaoai\chat\ChatBubbleConversation;
-use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatContextUsage;
 use oaaoai\chat\ChatConversationCompact;
 use oaaoai\chat\ChatTokenEstimator;
@@ -11,12 +8,11 @@ use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatSendAbort;
 use oaaoai\chat\ChatSendContext;
-use oaaoai\chat\ChatSendConversationSettle;
 use oaaoai\chat\ChatSendOrchestratorStage;
+use oaaoai\chat\ChatSendPersist;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatTeachingIntent;
-use oaaoai\endpoints\ChatInferencePurposeConfig;
 use oaaoai\user\UserModelParams;
 
 /**
@@ -214,300 +210,44 @@ return function (): void {
 
     $orchReady = $sendCtx->orchReady;
     $assistantInsertContent = $orchReady ? '' : $assistantStub;
-    $conversationModeId = 'default';
-    $plannerModeId = 'default';
-    /** @var array<string, mixed>|null $paramsDec */
-    $paramsDec = null;
 
     try {
-        $pdo->beginTransaction();
-        $sendPipeline->run(ChatSendPhase::PERSIST, $sendCtx, [
-            'split_db' => $splitDb,
-            'pdo'      => $pdo,
-        ]);
+        $persist = ChatSendPersist::execute(
+            pipeline: $sendPipeline,
+            ctx: $sendCtx,
+            chatController: $this,
+            splitDb: $splitDb,
+            pdo: $pdo,
+            canonDb: $canonDb instanceof \Razy\Database ? $canonDb : null,
+            uid: $uid,
+            wid: $wid,
+            isBubbleChat: $isBubbleChat,
+            bubbleThread: $bubbleThread,
+            conversationId: $conversationId,
+            content: $content,
+            appendAssistantTurn: $appendAssistantTurn,
+            continueAssistantId: $continueAssistantId,
+            inputPlannerMode: $inputPlannerMode,
+            inputInferenceMode: $inputInferenceMode,
+            inputModelParamsNorm: $inputModelParamsNorm,
+            chatEndpointId: $chatEndpointId,
+            orchReady: $orchReady,
+            assistantInsertContent: $assistantInsertContent,
+            attachmentIds: $attachmentIds,
+            hasPublishedSlideTemplate: $hasPublishedSlideTemplate,
+            slideTemplateLabel: $slideTemplateLabel,
+        );
 
-        $conversationCreated = false;
-        if ($conversationId !== null && $conversationId > 0) {
-            $own = ChatConversationScope::findForUser($splitDb, $uid, (int) $conversationId, $wid, 'id, params_json');
-            if ($own === null) {
-                $pdo->rollBack();
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Conversation not found']);
-
-                return;
-            }
-            if (ChatBubbleConversation::isBubbleRow($own)) {
-                $bubbleThread = true;
-                if (ChatBubbleConversation::isExpiredParams(ChatBubbleConversation::paramsFromRow($own))) {
-                    $pdo->rollBack();
-                    try {
-                        $splitDb->delete('message', ['conversation_id' => (int) $conversationId])->query();
-                        $splitDb->delete('conversation', ['id' => (int) $conversationId, 'user_id' => $uid])->query();
-                    } catch (\Throwable) {
-                    }
-                    http_response_code(410);
-                    echo json_encode(['success' => false, 'message' => 'Bubble chat expired', 'code' => 'bubble_expired']);
-
-                    return;
-                }
-                ChatBubbleConversation::touchExpiry($splitDb, (int) $conversationId, $uid);
-            }
-            $paramsRaw = trim((string) ($own['params_json'] ?? ''));
-            if ($paramsRaw !== '') {
-                try {
-                    $paramsDec = json_decode($paramsRaw, true, 512, JSON_THROW_ON_ERROR);
-                    if (\is_array($paramsDec)) {
-                        if (strtolower(trim((string) ($paramsDec['mode'] ?? ''))) === 'desk') {
-                            $conversationModeId = 'desk';
-                        }
-                        $pm = strtolower(trim((string) ($paramsDec['planner_mode_id'] ?? '')));
-                        if (\in_array($pm, ['default', 'tot', 'ddtree'], true)) {
-                            $plannerModeId = $pm;
-                        }
-                    } else {
-                        $paramsDec = null;
-                    }
-                } catch (\JsonException) {
-                    $paramsDec = null;
-                }
-            }
-            if ($inputPlannerMode !== '') {
-                $plannerModeId = $inputPlannerMode;
-            }
-        } else {
-            $title = $isBubbleChat ? 'Bubble' : 'New chat';
-            if (! $isBubbleChat && $hasPublishedSlideTemplate && $slideTemplateLabel !== '') {
-                $title = mb_substr($slideTemplateLabel, 0, 80);
-            }
-            $nowConv = date('Y-m-d H:i:s');
-            $insertCols = ['user_id', 'workspace_id', 'title', 'created_at', 'updated_at'];
-            $insertAssign = [
-                'user_id'       => $uid,
-                'workspace_id'  => $wid,
-                'title'         => $title,
-                'created_at'    => $nowConv,
-                'updated_at'    => $nowConv,
-            ];
-            if ($isBubbleChat) {
-                $insertCols[] = 'params_json';
-                $insertAssign['params_json'] = \oaaoai\chat\ChatBubbleConversation::initialParamsJson();
-            }
-            $splitDb->insert('conversation', $insertCols)
-                ->assign($insertAssign)
-                ->query();
-            $conversationId = (int) $splitDb->lastID();
-            $conversationCreated = true;
-            if ($conversationId < 1) {
-                $pdo->rollBack();
-                http_response_code(500);
-                echo json_encode(['success' => false, 'message' => 'Could not create conversation']);
-
-                return;
-            }
-            if ($inputPlannerMode !== '') {
-                $plannerModeId = $inputPlannerMode;
-            }
-        }
-
-        if ($conversationId > 0 && $inputPlannerMode !== '' && $inputPlannerMode !== 'default') {
-            $params = [];
-            $paramsRow = $splitDb->prepare()
-                ->select('params_json')
-                ->from('conversation')
-                ->where('id=?,user_id=?')
-                ->assign(['id' => $conversationId, 'user_id' => $uid])
-                ->limit(1)
-                ->query()
-                ->fetch();
-            if (\is_array($paramsRow)) {
-                $paramsRawPersist = trim((string) ($paramsRow['params_json'] ?? ''));
-                if ($paramsRawPersist !== '') {
-                    try {
-                        $paramsDecPersist = json_decode($paramsRawPersist, true, 512, JSON_THROW_ON_ERROR);
-                        if (\is_array($paramsDecPersist)) {
-                            $params = $paramsDecPersist;
-                        }
-                    } catch (\JsonException) {
-                    }
-                }
-            }
-            if ($conversationModeId === 'desk') {
-                $params['mode'] = 'desk';
-            }
-            $params['planner_mode_id'] = $plannerModeId;
-            $splitDb->update('conversation', ['params_json', 'updated_at'])
-                ->where('id=?,user_id=?')
-                ->assign([
-                    'params_json'  => json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                    'id'           => $conversationId,
-                    'user_id'      => $uid,
-                ])
-                ->query();
-        }
-
-        if ($conversationId > 0 && $conversationCreated && $inputInferenceMode !== '') {
-            $paramsInf = [];
-            $paramsRowInf = $splitDb->prepare()
-                ->select('params_json')
-                ->from('conversation')
-                ->where('id=?,user_id=?')
-                ->assign(['id' => $conversationId, 'user_id' => $uid])
-                ->limit(1)
-                ->query()
-                ->fetch();
-            if (\is_array($paramsRowInf)) {
-                $paramsRawInf = trim((string) ($paramsRowInf['params_json'] ?? ''));
-                if ($paramsRawInf !== '') {
-                    try {
-                        $decodedInf = json_decode($paramsRawInf, true, 512, JSON_THROW_ON_ERROR);
-                        if (\is_array($decodedInf)) {
-                            $paramsInf = $decodedInf;
-                        }
-                    } catch (\JsonException) {
-                    }
-                }
-            }
-            $infPatch = ['mode' => $inputInferenceMode];
-            if ($inputInferenceMode === ChatInferenceControl::MODE_MANUAL && $inputModelParamsNorm !== null) {
-                $infPatch['model_params'] = $inputModelParamsNorm;
-            }
-            if (
-                $inputInferenceMode === ChatInferenceControl::MODE_AUTO_TUNE
-                && ChatInferenceControl::modeFromConversation($paramsInf) !== ChatInferenceControl::MODE_AUTO_TUNE
-            ) {
-                $purposeMpSeed = [];
-                if ($canonDb instanceof \Razy\Database) {
-                    $purposeMpSeed = ChatInferencePurposeConfig::resolveDefaultsForChatEndpoint(
-                        $canonDb,
-                        $chatEndpointId > 0 ? $chatEndpointId : 0,
-                    );
-                }
-                $userMpSeed = [];
-                $canonPdoSeed = $this->oaao_chat_canonical_pdo();
-                if ($canonPdoSeed instanceof \PDO) {
-                    $userMpSeed = UserModelParams::activeOverrides(
-                        UserModelParams::loadForUser($canonPdoSeed, $uid),
-                    );
-                }
-                $infPatch['auto_state'] = ChatInferenceControl::initialAutoState($purposeMpSeed, $userMpSeed);
-            }
-            $paramsInf = ChatInferenceControl::mergeIntoParams($paramsInf, $infPatch);
-            $splitDb->update('conversation', ['params_json', 'updated_at'])
-                ->where('id=?,user_id=?')
-                ->assign([
-                    'params_json'  => json_encode($paramsInf, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                    'id'           => $conversationId,
-                    'user_id'      => $uid,
-                ])
-                ->query();
-            $paramsDec = $paramsInf;
-        }
-
-        $nowMsg = date('Y-m-d H:i:s');
-        $userMeta = null;
-        /** @var list<array<string, mixed>> $attRows */
-        $attRows = [];
-        if ($attachmentIds !== []) {
-            require_once __DIR__ . '/_ensure_conversation_attachment_schema.php';
-            oaao_chat_ensure_conversation_attachment_schema($pdo);
-            ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
-            $attRows = ChatAttachmentStorage::loadRowsForIds($splitDb, (int) $conversationId, $uid, $attachmentIds);
-        }
-
-        $conversationTitleOut = null;
-        /** @var array<string, int|float> $inferenceApplied */
-        $inferenceApplied = [];
-        /** @var array<string, mixed> $inferenceSnapshot */
-        $inferenceSnapshot = $sendCtx->inferenceSnapshot;
-
-        try {
-            $sendPipeline->run(ChatSendPhase::CONVERSATION_SETTLE, $sendCtx, [
-                'split_db'              => $splitDb,
-                'conversation_id'       => (int) $conversationId,
-                'canonical_db'          => $canonDb,
-                'canonical_pdo'         => $this->oaao_chat_canonical_pdo(),
-                'attachment_rows'       => $attRows,
-                'now_msg'               => $nowMsg,
-                'params_dec'            => $paramsDec,
-                'continue_assistant_id' => $continueAssistantId,
-            ]);
-        } catch (ChatSendAbort $abort) {
-            $pdo->rollBack();
-            http_response_code($abort->httpStatus);
-            echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
-
-            return;
-        }
-
-        $conversationTitleOut = $sendCtx->conversationTitleOut;
-        $inferenceApplied = $sendCtx->inferenceApplied;
-        $inferenceSnapshot = $sendCtx->inferenceSnapshot;
-        $userMeta = ChatSendConversationSettle::encodeUserMeta($sendCtx->userMetaArr);
-        $userCols = ['conversation_id', 'role', 'content', 'created_at'];
-        $userAssign = [
-            'conversation_id' => $conversationId,
-            'role'              => 'user',
-            'content'           => $content,
-            'created_at'        => $nowMsg,
-        ];
-        if ($userMeta !== null) {
-            $userCols[] = 'meta_json';
-            $userAssign['meta_json'] = $userMeta;
-        }
-        $splitDb->insert('message', $userCols)->assign($userAssign)->query();
-        $userMsgId = (int) $splitDb->lastID();
-
-        $asstMetaJson = ChatSendConversationSettle::encodeAssistantInferenceMeta($inferenceSnapshot);
-        if ($appendAssistantTurn) {
-            $asstExisting = $splitDb->prepare()
-                ->select('id, content')
-                ->from('message')
-                ->where('id=?,conversation_id=?,role=?')
-                ->assign([
-                    'id'              => $continueAssistantId,
-                    'conversation_id' => $conversationId,
-                    'role'            => 'assistant',
-                ])
-                ->limit(1)
-                ->query()
-                ->fetch();
-            if (! \is_array($asstExisting) || ! isset($asstExisting['id'])) {
-                $pdo->rollBack();
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'Assistant message not found']);
-
-                return;
-            }
-            $asstMsgId = $continueAssistantId;
-            $assistantInsertContent = (string) ($asstExisting['content'] ?? '');
-            $assistantOut = $assistantInsertContent;
-        } else {
-            $asstCols = ['conversation_id', 'role', 'content', 'created_at'];
-            $asstAssign = [
-                'conversation_id' => $conversationId,
-                'role'              => 'assistant',
-                'content'           => $assistantInsertContent,
-                'created_at'        => $nowMsg,
-            ];
-            if ($asstMetaJson !== null) {
-                $asstCols[] = 'meta_json';
-                $asstAssign['meta_json'] = $asstMetaJson;
-            }
-            $splitDb->insert('message', $asstCols)->assign($asstAssign)->query();
-            $asstMsgId = (int) $splitDb->lastID();
-        }
-
-        $splitDb->update('conversation', ['updated_at'])
-            ->where('id=?')
-            ->assign([
-                'updated_at' => date('Y-m-d H:i:s'),
-                'id'         => $conversationId,
-            ])
-            ->query();
-
-        $pdo->commit();
+        $conversationId = $persist->conversationId;
+        $conversationCreated = $persist->conversationCreated;
+        $bubbleThread = $persist->bubbleThread;
+        $conversationModeId = $persist->conversationModeId;
+        $plannerModeId = $persist->plannerModeId;
+        $userMsgId = $persist->userMsgId;
+        $asstMsgId = $persist->asstMsgId;
+        $assistantInsertContent = $persist->assistantInsertContent;
+        $conversationTitleOut = $persist->conversationTitleOut;
+        $inferenceSnapshot = $persist->inferenceSnapshot;
 
         $streamUrl = null;
         $runId = null;
@@ -825,6 +565,11 @@ return function (): void {
             return;
         }
         echo $json;
+    } catch (ChatSendAbort $abort) {
+        http_response_code($abort->httpStatus);
+        echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
+
+        return;
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();

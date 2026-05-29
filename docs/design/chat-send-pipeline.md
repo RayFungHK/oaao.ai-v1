@@ -40,7 +40,7 @@ Compare with existing **registry** pattern (`planner_agent.register`, `chat_pipe
 | `gate` | `chat.send.gate` | chat (stub) | Credits, workspace scope — still inline in `send.php` |
 | **`prepare`** | **`chat.send.prepare`** | **chat + vault + slide-designer** | **Shipped:** composer flags, vault refs, attachments, slide template |
 | **`scope`** | **`chat.send.scope`** | **chat** | **Shipped:** auto-RAG / teaching-intent vault expansion |
-| `persist` | `chat.send.persist` | chat | Adjunct SQLite TX — chat-only tables |
+| `persist` | `chat.send.persist` | chat | **Shipped:** `ChatSendPersist::execute()` — adjunct SQLite TX |
 | **`conversation_settle`** | **`chat.send.conversation_settle`** | **chat + slide-designer** | **Shipped:** provisional title, inference meta, user message meta |
 | **`orchestrator_ready`** | **`chat.send.orchestrator_ready`** | **chat + endpoints + vault + slide-designer** | **Partial:** `bind`, `agents`, `slide`, `payload` stages |
 | `run_start` | `chat.send.run_start` | chat | POST `/v1/runs/chat`, stream URL |
@@ -57,6 +57,7 @@ Phases run in order when using `ChatSendPipeline::runMany()`. Migration is **inc
 | `ChatSendPhase` | Phase name constants + `eventName()` |
 | `ChatSendContext` | Request state; modules mutate fields or `moduleData('vault')` |
 | `ChatSendPipeline` | Fires `chat.send.*` on `oaaoai/chat` |
+| `ChatSendPersist` | Adjunct SQLite TX (`execute()` + `ChatSendPersistResult`) |
 | `ChatSendAbort` | Early JSON exit (HTTP status + payload) |
 | `ChatSendComposer` | Chat-owned input parsing (web search, attachments) |
 
@@ -104,9 +105,9 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 3. **Done:** `gate` — credit block, workspace gate (`ChatSendGate`).
 4. **Done:** `conversation_settle` — title, inference snapshot, user meta (+ slide-designer template meta).
 5. **Done:** `orchestrator_ready` — bind, agents, CORE, SLIDE, PAYLOAD (endpoints/vault), PERSONALIZE (user), FINALIZE (inference/corpus/library/run_principal).
-6. **Boundary only:** `persist` — hook at TX start; SQLite body still in `send.php` (`ChatSendPersist` placeholder).
+6. **Done:** `persist` — `ChatSendPersist::execute()` (conversation + messages TX).
 7. **Boundary only:** `run_start` — hook before POST; `startOrchestratorChatRun` still in `send.php` (`ChatSendRunStarter` placeholder).
-8. **Next:** extract full `persist` TX + `run_start` POST into libraries.
+8. **Next:** extract `run_start` POST + optional `respond` phase.
 
 Modules to migrate (non-exhaustive):
 
