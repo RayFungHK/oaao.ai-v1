@@ -86,6 +86,9 @@ final class ChatSendContext
         'source'         => 'endpoint_defaults',
     ];
 
+    /** @var array<string, mixed> Browser JSON envelope — set before {@code chat.send.respond}. */
+    public array $responsePayload = [];
+
     /**
      * @param array<string, mixed> $input
      */

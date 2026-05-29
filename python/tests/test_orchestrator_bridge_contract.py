@@ -108,6 +108,7 @@ def test_chat_send_pipeline_library_exists() -> None:
     assert "ChatSendPhase::RUN_START" in run_lib
     assert "ChatSendPersist::execute" in send_text
     assert "ChatSendRunStarter::start" in send_text
+    assert "ChatSendResponder::emit" in send_text
     assert "startOrchestratorChatRun" not in send_text
     assert "UserPersonalization" not in send_text
     assert "ChatConversationMaterial" not in send_text

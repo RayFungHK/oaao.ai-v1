@@ -45,7 +45,7 @@ Compare with existing **registry** pattern (`planner_agent.register`, `chat_pipe
 | **`conversation_settle`** | **`chat.send.conversation_settle`** | **chat + slide-designer** | **Shipped:** provisional title, inference meta, user message meta |
 | **`orchestrator_ready`** | **`chat.send.orchestrator_ready`** | **chat + endpoints + vault + slide-designer** | **Partial:** `bind`, `agents`, `slide`, `payload` stages |
 | `run_start` | `chat.send.run_start` | chat | **Shipped:** `ChatSendRunStarter::start()` — compact, payload, POST run |
-| `respond` | `chat.send.respond` | chat | JSON envelope to browser |
+| `respond` | `chat.send.respond` | chat | **Shipped:** `ChatSendResponder::emit()` — JSON envelope to browser |
 
 Phases run in order when using `ChatSendPipeline::runMany()`. Migration is **incremental** — wire one phase at a time in `send.php`.
 
@@ -60,6 +60,7 @@ Phases run in order when using `ChatSendPipeline::runMany()`. Migration is **inc
 | `ChatSendPipeline` | Fires `chat.send.*` on `oaaoai/chat` |
 | `ChatSendPersist` | Adjunct SQLite TX (`execute()` + `ChatSendPersistResult`) |
 | `ChatSendRunStarter` | Post-persist orchestrator run (`start()` + `ChatSendRunResult`) |
+| `ChatSendResponder` | Browser JSON envelope (`emit()` + `ChatSendRespondInput`) |
 | `ChatSendAbort` | Early JSON exit (HTTP status + payload) |
 | `ChatSendComposer` | Chat-owned input parsing (web search, attachments) |
 
@@ -109,7 +110,7 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 5. **Done:** `orchestrator_ready` — bind, agents, CORE, SLIDE, PAYLOAD (endpoints/vault), PERSONALIZE (user), FINALIZE (inference/corpus/library/run_principal).
 6. **Done:** `persist` — `ChatSendPersist::execute()` (conversation + messages TX).
 7. **Done:** `run_start` — `ChatSendRunStarter::start()` (compact, payload stages, POST run).
-8. **Next:** `respond` phase — JSON envelope assembly.
+8. **Done:** `respond` — `ChatSendResponder::emit()` (JSON envelope + hook).
 9. **Done:** `message` — template slug + composer text via `chat.send.message`.
 
 Modules to migrate (non-exhaustive):

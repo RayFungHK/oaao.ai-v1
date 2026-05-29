@@ -7,6 +7,8 @@ use oaaoai\chat\ChatSendOrchestratorStage;
 use oaaoai\chat\ChatSendPersist;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
+use oaaoai\chat\ChatSendRespondInput;
+use oaaoai\chat\ChatSendResponder;
 use oaaoai\chat\ChatSendRunStarter;
 use oaaoai\user\UserModelParams;
 
@@ -240,44 +242,20 @@ return function (): void {
             assistantOut: $assistantInsertContent,
         );
 
-        $streamUrl = $run->streamUrl;
-        $runId = $run->runId;
-        $streamToken = $run->streamToken;
-        $assistantOut = $run->assistantOut;
-        $autoCompactApplied = $run->autoCompactApplied;
-
-        $responsePayload = [
-            'success'               => true,
-            'conversation_id'       => $conversationId,
-            'user_message_id'       => $userMsgId,
-            'assistant_message_id'  => $asstMsgId,
-            'assistant_content'     => $assistantOut,
-            'stream_url'            => $streamUrl,
-            'run_id'                => $runId,
-            'stream_token'          => $streamToken,
-            'orchestrator_persist'  => $orchReady && $runId !== null,
-        ];
-        if (\is_string($conversationTitleOut) && $conversationTitleOut !== '') {
-            $responsePayload['conversation_title'] = $conversationTitleOut;
-        }
-        if ($wid !== null && $wid > 0) {
-            $responsePayload['workspace_id'] = $wid;
-        }
-        if ($autoCompactApplied) {
-            $responsePayload['auto_compact_applied'] = true;
-        }
-        if ($inferenceSnapshot !== []) {
-            $responsePayload['inference'] = $inferenceSnapshot;
-        }
-        try {
-            $json = json_encode($responsePayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Send failed — response could not be encoded']);
-
-            return;
-        }
-        echo $json;
+        ChatSendResponder::emit($sendPipeline, $sendCtx, new ChatSendRespondInput(
+            conversationId: (int) $conversationId,
+            userMsgId: $userMsgId,
+            asstMsgId: $asstMsgId,
+            assistantOut: $run->assistantOut,
+            streamUrl: $run->streamUrl,
+            runId: $run->runId,
+            streamToken: $run->streamToken,
+            orchReady: $orchReady,
+            workspaceId: $wid,
+            conversationTitleOut: $conversationTitleOut,
+            autoCompactApplied: $run->autoCompactApplied,
+            inferenceSnapshot: $inferenceSnapshot,
+        ));
     } catch (ChatSendAbort $abort) {
         http_response_code($abort->httpStatus);
         echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);

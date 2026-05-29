@@ -817,6 +817,7 @@ return new class extends Controller {
         $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_finalize');
         $agent->listen('oaaoai/chat:chat.send.persist', 'event/chat_send_persist');
         $agent->listen('oaaoai/chat:chat.send.run_start', 'event/chat_send_run_start');
+        $agent->listen('oaaoai/chat:chat.send.respond', 'event/chat_send_respond');
 
         $agent->addAPICommand([
             'getChatPipelineRegistry'              => 'getChatPipelineRegistry',
