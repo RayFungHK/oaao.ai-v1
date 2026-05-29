@@ -71,6 +71,15 @@ def test_markdown_to_xlsx_bytes_smoke():
     assert raw[:2] == b"PK"
 
 
+def test_calendar_rejects_vault_meta_assistant_turn():
+    cand = classify_calendar_event_candidate(
+        conversation_id=1,
+        messages=[{"role": "user", "content": "Meet tomorrow at 3pm about W2 data in Urayasu."}],
+        assistant_text="This turn scoped or ran a knowledge-base (Vault) search.",
+    )
+    assert cand is None
+
+
 def test_classify_todo_item_candidate_action():
     cand = classify_todo_item_candidate(
         conversation_id=5,

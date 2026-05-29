@@ -11,6 +11,18 @@ function pt(key, fallback) {
     return oaaoT(key, fallback);
 }
 
+/**
+ * @param {Record<string, unknown>} payload
+ * @param {string} fallback
+ */
+function chipLabelText(payload, fallback) {
+    const t = String(payload.title || '').trim();
+    if (!t || /knowledge-base|vault search|scoped or ran|pipeline task/i.test(t)) {
+        return fallback;
+    }
+    return t.length > 80 ? `${t.slice(0, 80)}…` : t;
+}
+
 /** @type {Set<string>} */
 const todoSuggestionDismissed = new Set();
 
@@ -161,7 +173,8 @@ export function renderTodoSuggestChip(mount, conversationId, messageId, payload,
 
     const label = document.createElement('span');
     label.className = 'flex-1 min-w-0 text-[0.8125rem] fg-[var(--grid-ink)] truncate';
-    label.textContent = String(payload.title || pt('productivity.todo.add_prompt', 'Add to todos?'));
+    label.textContent = chipLabelText(payload, pt('productivity.todo.add_prompt', 'Add to todos?'));
+    label.title = String(payload.title || '');
 
     const addBtn = document.createElement('button');
     addBtn.type = 'button';

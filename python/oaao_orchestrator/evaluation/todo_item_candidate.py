@@ -6,6 +6,16 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+_META_ASSISTANT_MARKERS = (
+    "knowledge-base",
+    "vault search",
+    "scoped or ran",
+    "tool run",
+    "rag ",
+    "event-stream",
+    "pipeline task",
+)
+
 _TODO_MARKERS = (
     "todo",
     "to-do",
@@ -88,6 +98,23 @@ def _todo_title_duplicates_open(title: str, open_todo_items: list[dict[str, Any]
     return False
 
 
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    for msg in reversed(messages[-6:]):
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
+
+
+def _is_tool_meta_turn(assistant_text: str) -> bool:
+    lower = assistant_text.strip().lower()
+    if len(lower) < 8:
+        return True
+    return any(m in lower for m in _META_ASSISTANT_MARKERS)
+
+
 def classify_todo_item_candidate(
     *,
     conversation_id: int,
@@ -97,16 +124,12 @@ def classify_todo_item_candidate(
     open_todo_items: list[dict[str, Any]] | None = None,
 ) -> TodoItemCandidate | None:
     """Lightweight post-stream classifier — no extra LLM in v1."""
-    combined = (assistant_text or "").strip()
-    for msg in reversed(messages[-6:]):
-        if not isinstance(msg, dict):
-            continue
-        role = msg.get("role")
-        content = msg.get("content")
-        if isinstance(content, str) and content.strip():
-            combined = f"{content.strip()}\n{combined}"
-        if role == "user" and isinstance(content, str) and len(content.strip()) > 40:
-            break
+    assistant = (assistant_text or "").strip()
+    if _is_tool_meta_turn(assistant):
+        return None
+
+    user_tail = _last_user_text(messages)
+    combined = f"{user_tail}\n{assistant}".strip() if user_tail else assistant
 
     if len(combined) < 24:
         return None
@@ -117,7 +140,15 @@ def classify_todo_item_candidate(
     if not tasks and marker_hits < 1:
         return None
 
-    title = tasks[0] if tasks else combined.split("\n", 1)[0][:120].strip()
+    if tasks:
+        title = tasks[0]
+    else:
+        title = ""
+        for line in combined.splitlines():
+            ln = line.strip()
+            if len(ln) >= 6:
+                title = ln[:120]
+                break
     if len(title) < 6:
         return None
 

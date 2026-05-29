@@ -2264,7 +2264,7 @@ async function confirmDeleteChatDialog(opts = {}) {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260529-productivity-dialog-v130';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260529-productivity-classifier-v131';
 
 /** @type {Promise<Record<string, unknown>> | null} */
 let chatContextUsageModPromise = null;

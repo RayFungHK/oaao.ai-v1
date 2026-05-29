@@ -15,8 +15,19 @@ _TIME_AMPM = re.compile(
     re.IGNORECASE,
 )
 _LOCATION = re.compile(
-    r"(?:location|venue|at|@|地點|地点|場地|场地)[：:\s]+([^\n,.;]{3,80})",
+    r"(?:location|venue|\bat\b|@|地點|地点|場地|场地)[：:\s]+([^\n,.;]{3,80})",
     re.IGNORECASE,
+)
+_META_ASSISTANT_MARKERS = (
+    "knowledge-base",
+    "vault search",
+    "scoped or ran",
+    "tool run",
+    "rag ",
+    "event-stream",
+    "pipeline task",
+    "checklist item",
+    "micro-skill",
 )
 _SCHEDULE_MARKERS = (
     "meeting",
@@ -66,17 +77,30 @@ class CalendarEventCandidate:
         }
 
 
-def _combined_text(messages: list[dict[str, Any]], assistant_text: str) -> str:
-    parts: list[str] = []
-    for msg in messages[-8:]:
-        if not isinstance(msg, dict):
+def _is_tool_meta_turn(assistant_text: str) -> bool:
+    lower = assistant_text.strip().lower()
+    if len(lower) < 8:
+        return True
+    return any(m in lower for m in _META_ASSISTANT_MARKERS)
+
+
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    for msg in reversed(messages[-8:]):
+        if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         content = msg.get("content")
         if isinstance(content, str) and content.strip():
-            parts.append(content.strip())
-    if assistant_text.strip():
-        parts.append(assistant_text.strip())
-    return "\n".join(parts)
+            return content.strip()
+    return ""
+
+
+def _schedule_context(messages: list[dict[str, Any]], assistant_text: str) -> str:
+    """Date/time signals from latest user + current assistant only (not full thread history)."""
+    user_tail = _last_user_text(messages)
+    assistant = assistant_text.strip()
+    if user_tail and assistant:
+        return f"{user_tail}\n{assistant}"
+    return assistant or user_tail
 
 
 def _parse_date(text: str) -> datetime | None:
@@ -128,10 +152,16 @@ def classify_calendar_event_candidate(
     min_confidence: float = 0.62,
 ) -> CalendarEventCandidate | None:
     """Lightweight post-stream classifier — no extra LLM call in v1."""
-    blob = _combined_text(messages, assistant_text)
+    assistant = (assistant_text or "").strip()
+    if len(assistant) < 12 or _is_tool_meta_turn(assistant):
+        return None
+
+    blob = _schedule_context(messages, assistant)
     lower = blob.lower()
+    lower_a = assistant.lower()
     marker_hits = sum(1 for m in _SCHEDULE_MARKERS if m in lower)
-    if marker_hits < 1:
+    marker_in_turn = sum(1 for m in _SCHEDULE_MARKERS if m in lower_a)
+    if marker_hits < 1 or marker_in_turn < 1:
         return None
 
     day = _parse_date(blob)
@@ -161,8 +191,8 @@ def classify_calendar_event_candidate(
     if confidence < min_confidence:
         return None
 
-    title = _title_from_text(blob)
-    notes = assistant_text.strip()[:400]
+    title = _title_from_text(assistant)
+    notes = assistant[:400]
 
     return CalendarEventCandidate(
         title=title,
