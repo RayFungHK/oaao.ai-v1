@@ -7,6 +7,7 @@ declare(strict_types=1);
  */
 require_once __DIR__ . '/SlideProjectStorage.php';
 require_once __DIR__ . '/SlideProjectRegistry.php';
+require_once __DIR__ . '/SlideProjectMaterial.php';
 require_once __DIR__ . '/SlideCanvas.php';
 
 require_once __DIR__ . '/SlideTemplateStoragePaths.php';

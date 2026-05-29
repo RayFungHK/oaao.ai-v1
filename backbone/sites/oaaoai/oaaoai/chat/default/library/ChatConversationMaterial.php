@@ -450,11 +450,19 @@ final class ChatConversationMaterial
         int $limit = 12,
         ?object $slideApi = null,
     ): array {
-        if ($slideApi === null) {
+        if ($slideApi === null || ! method_exists($slideApi, 'listSlidePlannerRowsForConversation')) {
             return [];
         }
 
-        return $slideApi->listSlidePlannerRowsForConversation($pdo, $conversationId, $userId, $limit);
+        try {
+            $rows = $slideApi->listSlidePlannerRowsForConversation($pdo, $conversationId, $userId, $limit);
+
+            return \is_array($rows) ? $rows : [];
+        } catch (\Throwable $e) {
+            error_log('[oaao ChatConversationMaterial] listSlideProjectsForConversation: ' . $e->getMessage());
+
+            return [];
+        }
     }
 
     /**
