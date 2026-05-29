@@ -136,32 +136,36 @@ return function (): void {
 
         /** @var list<array<string, mixed>> $invitations */
         $invitations = [];
-        $nowIso = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
-        $invTid = $tid > 0 ? $tid : 1;
-        $invRows = $db->prepare()
-            ->select('invitation_id, email, role, status, expires_at, created_at, invited_by_user_id, permission_group_id')
-            ->from('user_invitation')
-            ->where('tenant_id=:tid, status=:st, expires_at>:ts')
-            ->assign(['tid' => $invTid, 'st' => 'pending', 'ts' => $nowIso])
-            ->order('created_at DESC')
-            ->query()
-            ->fetchAll();
-        if (\is_array($invRows)) {
-            foreach ($invRows as $invRow) {
-                if (! \is_array($invRow)) {
-                    continue;
+        try {
+            $nowIso = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+            $invTid = $tid > 0 ? $tid : 1;
+            $invRows = $db->prepare()
+                ->select('invitation_id, email, role, status, expires_at, created_at, invited_by_user_id, permission_group_id')
+                ->from('user_invitation')
+                ->where('tenant_id=:tid, status=:st, expires_at>:ts')
+                ->assign(['tid' => $invTid, 'st' => 'pending', 'ts' => $nowIso])
+                ->order('<created_at')
+                ->query()
+                ->fetchAll();
+            if (\is_array($invRows)) {
+                foreach ($invRows as $invRow) {
+                    if (! \is_array($invRow)) {
+                        continue;
+                    }
+                    $invitations[] = [
+                        'invitation_id'       => (int) ($invRow['invitation_id'] ?? 0),
+                        'email'               => (string) ($invRow['email'] ?? ''),
+                        'role'                => (string) ($invRow['role'] ?? 'user'),
+                        'status'              => (string) ($invRow['status'] ?? ''),
+                        'expires_at'          => (string) ($invRow['expires_at'] ?? ''),
+                        'created_at'          => (string) ($invRow['created_at'] ?? ''),
+                        'invited_by_user_id'  => (int) ($invRow['invited_by_user_id'] ?? 0),
+                        'permission_group_id' => isset($invRow['permission_group_id']) ? (int) $invRow['permission_group_id'] : null,
+                    ];
                 }
-                $invitations[] = [
-                    'invitation_id'       => (int) ($invRow['invitation_id'] ?? 0),
-                    'email'               => (string) ($invRow['email'] ?? ''),
-                    'role'                => (string) ($invRow['role'] ?? 'user'),
-                    'status'              => (string) ($invRow['status'] ?? ''),
-                    'expires_at'          => (string) ($invRow['expires_at'] ?? ''),
-                    'created_at'          => (string) ($invRow['created_at'] ?? ''),
-                    'invited_by_user_id'  => (int) ($invRow['invited_by_user_id'] ?? 0),
-                    'permission_group_id' => isset($invRow['permission_group_id']) ? (int) $invRow['permission_group_id'] : null,
-                ];
             }
+        } catch (\Throwable $invErr) {
+            error_log('oaaoai/user users_list invitations: ' . $invErr->getMessage());
         }
 
         echo json_encode([
@@ -179,6 +183,7 @@ return function (): void {
             ],
         ], JSON_UNESCAPED_UNICODE);
     } catch (\Throwable $e) {
+        error_log('oaaoai/user users_list: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Failed to load users']);
     }

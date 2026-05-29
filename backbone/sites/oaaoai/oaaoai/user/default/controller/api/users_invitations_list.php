@@ -22,7 +22,7 @@ return function (): void {
         ->from('user_invitation')
         ->where('tenant_id=:tid, status=:st, expires_at>:ts')
         ->assign(['tid' => $tid, 'st' => 'pending', 'ts' => $nowIso])
-        ->order('created_at DESC');
+        ->order('<created_at');
     $rows = $invQuery->query()->fetchAll();
 
     $items = [];
