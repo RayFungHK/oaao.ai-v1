@@ -33,6 +33,10 @@ Do not store long-form “how to answer” preferences as todos; use **UX-1** `p
 
 ## E2E checklist
 
+Automated (orchestrator unit): `test_cs4_cs5_cs3_smoke.py`, `test_cs6_productivity_e2e.py`, `test_todo_item_candidate.py` (incl. open-todo dedupe).
+
+Manual (workspace UI):
+
 - [ ] Chat produces `calendar_event_suggested` with confidence ≥ threshold → chip visible
 - [ ] Save event → appears on Calendar page with provenance `conversation_id`
 - [ ] Chat produces `todo_item_suggested` → chip → save → header badge increments

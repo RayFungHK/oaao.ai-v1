@@ -4,6 +4,8 @@
  * @module calendar-panel
  */
 
+import { oaaoT } from '../../../core/default/webassets/js/oaao-i18n.js';
+
 /** @type {'list' | 'month'} */
 let activeView = 'month';
 
@@ -269,6 +271,22 @@ function wireCalendarPanel(root) {
     const monthHost = root.querySelector('[data-oaao-calendar="month-view"]');
     const viewBtns = root.querySelectorAll('[data-oaao-calendar-view]');
     const newBtn = root.querySelector('[data-oaao-calendar="new-event"]');
+    const titleEl = root.querySelector('[data-i18n="calendar.title"]');
+    if (titleEl instanceof HTMLElement) {
+        titleEl.textContent = oaaoT('calendar.title', 'Calendar');
+    }
+    viewBtns.forEach((btn) => {
+        const v = btn.getAttribute('data-oaao-calendar-view');
+        if (v === 'list' && btn instanceof HTMLElement) {
+            btn.textContent = oaaoT('calendar.view.list', 'List');
+        }
+        if (v === 'month' && btn instanceof HTMLElement) {
+            btn.textContent = oaaoT('calendar.view.month', 'Month');
+        }
+    });
+    if (newBtn instanceof HTMLElement) {
+        newBtn.textContent = oaaoT('calendar.new_event', 'New event');
+    }
 
     function setView(view) {
         activeView = view === 'list' ? 'list' : 'month';
@@ -300,7 +318,11 @@ function wireCalendarPanel(root) {
             const start = new Date();
             start.setMinutes(0, 0, 0);
             const end = new Date(start.getTime() + 3600000);
-            await persistCalendarEvent({ title: 'New event', start, end });
+            await persistCalendarEvent({
+                title: oaaoT('calendar.new_event', 'New event'),
+                start,
+                end,
+            });
             setView('list');
         });
     }

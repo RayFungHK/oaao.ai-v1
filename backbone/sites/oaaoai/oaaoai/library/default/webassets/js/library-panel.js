@@ -398,6 +398,41 @@ async function libraryFetchJson(path, options = {}) {
 /**
  * @param {HTMLElement} listHost
  */
+/**
+ * @param {HTMLElement} editorHost
+ * @returns {HTMLElement|null}
+ */
+function listHostFromMount(_editorHost) {
+    const list = document.getElementById('workspace-library-doc-list');
+    return list instanceof HTMLElement ? list : null;
+}
+
+/**
+ * @param {number} documentId
+ * @param {HTMLElement} editorHost
+ * @param {HTMLElement|null} listHost
+ */
+async function deleteLibraryDocument(documentId, editorHost, listHost) {
+    const id = Math.floor(Number(documentId));
+    if (id < 1) return;
+    if (!window.confirm('Delete this document? This cannot be undone.')) return;
+    const { res, data } = await libraryFetchJson('library_document_delete', {
+        method: 'POST',
+        body: JSON.stringify({ document_id: id }),
+    });
+    if (!res.ok || !data?.success) {
+        void libraryToast('error', String(data?.message || 'Delete failed'));
+        return;
+    }
+    if (activeDocumentId === id) {
+        activeDocumentId = null;
+        editorState = null;
+        renderLibraryEditorEmpty(editorHost);
+    }
+    if (listHost) await refreshLibrarySidebarList(listHost);
+    void libraryToast('success', 'Document deleted');
+}
+
 async function refreshLibrarySidebarList(listHost) {
     if (!(listHost instanceof HTMLElement)) return;
     const wid = activeWorkspaceId();
@@ -543,6 +578,17 @@ async function renderLibraryEditor(editorHost) {
         }
     });
 
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = LIBRARY_BTN_GHOST;
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.title = 'Delete this library document';
+    deleteBtn.addEventListener('click', () => {
+        if (activeDocumentId) {
+            void deleteLibraryDocument(activeDocumentId, editorHost, listHostFromMount(editorHost));
+        }
+    });
+
     const finalizeBtn = document.createElement('button');
     finalizeBtn.type = 'button';
     finalizeBtn.className = LIBRARY_BTN_PRIMARY;
@@ -554,7 +600,7 @@ async function renderLibraryEditor(editorHost) {
         }
     });
 
-    actions.append(corpusChip, embedBtn, finalizeBtn);
+    actions.append(corpusChip, embedBtn, deleteBtn, finalizeBtn);
     head.append(helpBtn, actions);
 
     const body = document.createElement('div');

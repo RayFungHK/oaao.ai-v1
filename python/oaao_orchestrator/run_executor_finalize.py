@@ -231,10 +231,12 @@ async def finalize_run(
                     emit_todo_item_suggested_status,
                 )
 
+                open_todos_for_dedupe = getattr(req, "open_todo_items", None) or []
                 todo_candidate = classify_todo_item_candidate(
                     conversation_id=cid_skill,
                     messages=messages_for_llm,
                     assistant_text=persist_text,
+                    open_todo_items=open_todos_for_dedupe if isinstance(open_todos_for_dedupe, list) else [],
                 )
                 if todo_candidate is not None:
                     payload_todo = todo_candidate.to_dict()

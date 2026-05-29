@@ -10,12 +10,46 @@ const skillSuggestionByConversation = new Map();
 /** @type {Set<number>} */
 const skillSuggestionDismissed = new Set();
 
+const SKILL_DISMISS_STORAGE_KEY = 'oaao_skill_suggest_dismiss_v1';
+
+function loadPersistedSkillDismissals() {
+    try {
+        const raw = localStorage.getItem(SKILL_DISMISS_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        for (const id of parsed) {
+            const cid = Math.floor(Number(id));
+            if (cid > 0) skillSuggestionDismissed.add(cid);
+        }
+    } catch {
+        /* ignore */
+    }
+}
+
+/**
+ * @param {number} conversationId
+ */
+function persistSkillDismissal(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    if (cid < 1) return;
+    skillSuggestionDismissed.add(cid);
+    try {
+        const ids = [...skillSuggestionDismissed].filter((n) => n > 0).slice(-200);
+        localStorage.setItem(SKILL_DISMISS_STORAGE_KEY, JSON.stringify(ids));
+    } catch {
+        /* ignore */
+    }
+}
+
+loadPersistedSkillDismissals();
+
 /**
  * @param {number} conversationId
  */
 export function dismissSkillSuggestion(conversationId) {
     const cid = Math.floor(Number(conversationId));
-    if (cid > 0) skillSuggestionDismissed.add(cid);
+    if (cid > 0) persistSkillDismissal(cid);
     skillSuggestionByConversation.delete(cid);
 }
 
@@ -107,7 +141,8 @@ export async function renderSkillSuggestBanner(
         void openCreateSkillDialog(mount, cid, payload, chatApiUrl, workspaceBodyFields, variant);
     });
     dismissBtn.addEventListener('click', () => {
-        dismissSkillSuggestion(cid);
+        persistSkillDismissal(cid);
+        skillSuggestionByConversation.delete(cid);
         banner.classList.add('hidden');
         banner.replaceChildren();
         syncSkillSuggestBannerVisibility(mount);

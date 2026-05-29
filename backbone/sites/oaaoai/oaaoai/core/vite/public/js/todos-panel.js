@@ -2,6 +2,8 @@
  * CS-6-S2 — Header todos dropdown (mirrors notification-panel pattern).
  */
 
+import { oaaoT } from './oaao-i18n.js';
+
 function mountPrefix() {
     return (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
 }
@@ -51,14 +53,14 @@ function renderTodoList(panel, badge, rows) {
         'flex items-center justify-between gap-2 px-3 py-2 border-b border-solid border-[var(--grid-line)]';
     const hTitle = document.createElement('span');
     hTitle.className = 'text-[0.8125rem] fw-semibold fg-[var(--grid-ink)]';
-    hTitle.textContent = 'Todos';
+    hTitle.textContent = oaaoT('todos.panel.title', 'Todos');
     const filterSel = document.createElement('select');
     filterSel.className =
         'text-[0.75rem] rounded border border-solid border-[var(--grid-line)] px-1.5 py-0.5 bg-[var(--grid-paper)] font-inherit';
     for (const opt of [
-        ['open', 'Open'],
-        ['done', 'Done'],
-        ['all', 'All'],
+        ['open', oaaoT('todos.filter.open', 'Open')],
+        ['done', oaaoT('todos.filter.done', 'Done')],
+        ['all', oaaoT('todos.filter.all', 'All')],
     ]) {
         const o = document.createElement('option');
         o.value = opt[0];
@@ -120,7 +122,7 @@ function renderTodoList(panel, badge, rows) {
                 doneBtn.type = 'button';
                 doneBtn.className =
                     'text-[0.75rem] px-2 py-0.5 rounded border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit';
-                doneBtn.textContent = 'Done';
+                doneBtn.textContent = oaaoT('todos.action.done', 'Done');
                 const todoId = Number(row.todo_id ?? 0);
                 doneBtn.addEventListener('click', () => {
                     void fetch(todoApiUrl('todos_resolve'), {
@@ -136,7 +138,7 @@ function renderTodoList(panel, badge, rows) {
                 reopenBtn.type = 'button';
                 reopenBtn.className =
                     'text-[0.75rem] px-2 py-0.5 rounded border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit';
-                reopenBtn.textContent = 'Reopen';
+                reopenBtn.textContent = oaaoT('todos.action.reopen', 'Reopen');
                 const todoId = Number(row.todo_id ?? 0);
                 reopenBtn.addEventListener('click', () => {
                     void fetch(todoApiUrl('todos_save'), {

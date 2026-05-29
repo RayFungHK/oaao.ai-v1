@@ -72,12 +72,29 @@ def _extract_task_lines(text: str) -> list[str]:
     return lines[:3]
 
 
+def _todo_title_duplicates_open(title: str, open_todo_items: list[dict[str, Any]] | None) -> bool:
+    """CS-6-S3 — skip suggestion when a similar open todo already exists in this thread."""
+    needle = title.strip().lower()
+    if len(needle) < 4 or not open_todo_items:
+        return False
+    for row in open_todo_items:
+        if not isinstance(row, dict):
+            continue
+        existing = str(row.get("title") or "").strip().lower()
+        if len(existing) < 4:
+            continue
+        if needle == existing or needle in existing or existing in needle:
+            return True
+    return False
+
+
 def classify_todo_item_candidate(
     *,
     conversation_id: int,
     messages: list[dict[str, Any]],
     assistant_text: str,
     min_confidence: float = 0.58,
+    open_todo_items: list[dict[str, Any]] | None = None,
 ) -> TodoItemCandidate | None:
     """Lightweight post-stream classifier — no extra LLM in v1."""
     combined = (assistant_text or "").strip()
@@ -102,6 +119,9 @@ def classify_todo_item_candidate(
 
     title = tasks[0] if tasks else combined.split("\n", 1)[0][:120].strip()
     if len(title) < 6:
+        return None
+
+    if _todo_title_duplicates_open(title, open_todo_items):
         return None
 
     confidence = 0.5 + min(0.25, marker_hits * 0.06) + (0.12 if tasks else 0.0)

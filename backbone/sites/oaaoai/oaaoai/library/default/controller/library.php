@@ -32,6 +32,7 @@ return new class extends Controller {
                 'GET library_documents_search'   => 'library_documents_search',
                 'GET library_document_get'       => 'library_document_get',
                 'POST library_document_create'   => 'library_document_create',
+                'POST library_document_delete'   => 'library_document_delete',
                 'POST library_revision_save'     => 'library_revision_save',
                 'POST library_ai_transform'      => 'library_ai_transform',
                 'POST library_document_convert'        => 'library_document_convert',

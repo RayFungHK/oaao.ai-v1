@@ -21,3 +21,13 @@ def test_classify_todo_rejects_small_talk():
         assistant_text="Hello! How can I help?",
     )
     assert cand is None
+
+
+def test_classify_todo_skips_duplicate_open_item():
+    cand = classify_todo_item_candidate(
+        conversation_id=5,
+        messages=[{"role": "user", "content": "Please send the Q2 report to finance by Friday."}],
+        assistant_text="I will draft the report. You should email finance by end of week.",
+        open_todo_items=[{"todo_id": 1, "title": "Send Q2 report to finance"}],
+    )
+    assert cand is None
