@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use oaaoai\chat\ChatConversationHealth;
+use oaaoai\chat\ChatInferenceAutoTune;
 use oaaoai\chat\TurnScorerVersion;
 
 /**
@@ -224,9 +225,48 @@ return function (): void {
         return;
     }
 
+    $autoTuneAdjusted = false;
+    if ($plugin === 'accs' && $accs > 0) {
+        try {
+            $convRow = $splitDb->prepare()
+                ->select('params_json')
+                ->from('conversation')
+                ->where('id=?')
+                ->assign(['id' => $cid])
+                ->limit(1)
+                ->query()
+                ->fetch();
+            if (\is_array($convRow)) {
+                $paramsRaw = trim((string) ($convRow['params_json'] ?? ''));
+                $paramsDec = [];
+                if ($paramsRaw !== '') {
+                    $decoded = json_decode($paramsRaw, true);
+                    if (\is_array($decoded)) {
+                        $paramsDec = $decoded;
+                    }
+                }
+                $tune = ChatInferenceAutoTune::adjustAfterAccs($paramsDec, $accs, $turnIndex);
+                if ($tune['adjusted']) {
+                    $splitDb->update('conversation', ['params_json', 'updated_at'])
+                        ->where('id=?')
+                        ->assign([
+                            'params_json'  => json_encode($tune['params'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                            'updated_at'   => date('Y-m-d H:i:s'),
+                            'id'           => $cid,
+                        ])
+                        ->query();
+                    $autoTuneAdjusted = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('turn_score_upsert auto_tune: ' . $e->getMessage());
+        }
+    }
+
     echo json_encode([
-        'success'      => true,
-        'turn_index'   => $turnIndex,
-        'conversation_id' => $cid,
+        'success'              => true,
+        'turn_index'           => $turnIndex,
+        'conversation_id'      => $cid,
+        'inference_auto_tune'  => $autoTuneAdjusted,
     ], JSON_UNESCAPED_UNICODE);
 };

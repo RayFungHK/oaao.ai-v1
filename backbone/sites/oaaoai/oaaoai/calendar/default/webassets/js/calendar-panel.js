@@ -59,8 +59,10 @@ async function calendarFetchJson(path, options = {}) {
     return { res, data };
 }
 
+/** @returns {Promise<{ load: (name: string) => Promise<unknown> }>} */
 async function loadRazyui() {
-    return import(/* webpackIgnore: true */ 'razyui');
+    const mod = await import(/* webpackIgnore: true */ 'razyui');
+    return /** @type {{ load: (name: string) => Promise<unknown> }} */ (mod.default ?? mod);
 }
 
 /**
@@ -161,6 +163,20 @@ function renderListView(listHost) {
             loc.textContent = String(row.location);
             card.append(loc);
         }
+        const cid = Number(row.conversation_id ?? 0);
+        if (cid > 0) {
+            const link = document.createElement('button');
+            link.type = 'button';
+            link.className =
+                'self-start border-0 bg-transparent p-0 text-[0.75rem] fg-[var(--grid-accent)] cursor-pointer font-inherit underline';
+            link.textContent = 'Open source chat';
+            link.addEventListener('click', () => {
+                document.dispatchEvent(
+                    new CustomEvent('oaao:navigate-chat', { detail: { conversation_id: cid } }),
+                );
+            });
+            card.append(link);
+        }
         listHost.append(card);
     }
 }
@@ -179,15 +195,33 @@ async function renderMonthView(monthHost) {
     monthHost.append(loading);
 
     const events = await fetchCalendarEvents();
-    const razyui = await loadRazyui();
-    const CalendarView = await razyui.load('CalendarView');
     monthHost.replaceChildren();
+
+    let CalendarViewCtor;
+    try {
+        const razyui = await loadRazyui();
+        if (typeof razyui?.load !== 'function') {
+            throw new Error('RazyUI loader missing .load');
+        }
+        const loaded = await razyui.load('CalendarView');
+        CalendarViewCtor = loaded?.default ?? loaded;
+        if (typeof CalendarViewCtor !== 'function') {
+            throw new Error('CalendarView export invalid');
+        }
+    } catch (err) {
+        console.error('[calendar-panel] CalendarView load failed', err);
+        const fail = document.createElement('p');
+        fail.className = 'm-0 text-[0.875rem] fg-[var(--grid-caution,#b45309)]';
+        fail.textContent = 'Could not load calendar view. Hard refresh and try again.';
+        monthHost.append(fail);
+        return;
+    }
 
     const mountEl = document.createElement('div');
     mountEl.className = 'h-full min-h-[420px] w-full';
     monthHost.append(mountEl);
 
-    monthCalendar = new CalendarView(mountEl, {
+    monthCalendar = new CalendarViewCtor(mountEl, {
         view: 'month',
         events,
         crud: {

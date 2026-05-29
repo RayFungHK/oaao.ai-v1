@@ -51,6 +51,7 @@
 
 /* Block gutter — show + / drag on hover & focus */
 .oaao-library-block-editor-mount .block-wrapper {
+    position: relative;
     border-radius: 4px;
     transition: background 120ms ease;
 }
@@ -72,12 +73,98 @@
 .oaao-library-block-editor-mount .block-add-btn,
 .oaao-library-block-editor-mount .block-handle {
     opacity: 0.85;
+    touch-action: none;
+}
+
+.oaao-library-block-editor-mount .block-handle {
+    cursor: grab;
+}
+
+.oaao-library-block-editor-mount .block-handle:active,
+.oaao-library-block-editor-mount .block-handle.is-handle-active,
+.oaao-library-block-editor-mount .block-editor.is-dragging-block .block-handle {
+    cursor: grabbing;
 }
 
 .oaao-library-block-editor-mount .block-add-btn:hover,
 .oaao-library-block-editor-mount .block-handle:hover {
     opacity: 1;
     background: var(--be-bg-hover);
+}
+
+.oaao-library-block-editor-mount .block-editor.is-dragging-block {
+    user-select: none;
+}
+
+/* Drag-and-drop — BlockEditor built-in (.block-drag-indicator + class toggles); library skin only makes them visible */
+.oaao-library-block-editor-mount .block-editor {
+    position: relative;
+}
+
+.oaao-library-block-editor-mount .block-drag-indicator {
+    display: none;
+    position: absolute;
+    left: var(--be-row-indent, 50px);
+    right: 0;
+    height: 3px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 2px;
+    background: var(--be-accent);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--be-accent) 35%, transparent),
+        0 2px 8px color-mix(in srgb, var(--be-accent) 45%, transparent);
+    pointer-events: none;
+    z-index: 80;
+    opacity: 0;
+    transition: opacity 80ms ease;
+}
+
+.oaao-library-block-editor-mount .block-drag-indicator::before,
+.oaao-library-block-editor-mount .block-drag-indicator::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--be-accent);
+    border: 2px solid var(--be-bg, #fff);
+    box-shadow: 0 1px 4px rgba(15, 15, 15, 0.2);
+    transform: translateY(-50%);
+}
+
+.oaao-library-block-editor-mount .block-drag-indicator::before {
+    left: 0;
+}
+
+.oaao-library-block-editor-mount .block-drag-indicator::after {
+    right: 0;
+}
+
+.oaao-library-block-editor-mount .block-drag-indicator.is-visible {
+    display: block;
+    opacity: 1;
+}
+
+.oaao-library-block-editor-mount .block-wrapper.is-dragging {
+    opacity: 0.5;
+    background: color-mix(in srgb, var(--be-accent) 10%, var(--be-row-hover));
+    outline: 2px dashed color-mix(in srgb, var(--be-accent) 55%, transparent);
+    outline-offset: 1px;
+    box-shadow: 0 4px 16px rgba(15, 15, 15, 0.08);
+}
+
+/* Drop target: background only — insertion line is the single built-in .block-drag-indicator */
+.oaao-library-block-editor-mount .block-wrapper.is-drop-target {
+    background: color-mix(in srgb, var(--be-accent) 14%, var(--be-row-hover));
+}
+
+.oaao-library-block-editor-mount .block-editor.is-dragging-block .block-handle.is-handle-active {
+    background: color-mix(in srgb, var(--be-accent) 18%, transparent);
+    color: var(--be-accent);
+    opacity: 1;
 }
 
 /* Placeholders */
@@ -215,6 +302,10 @@
 .oaao-library-block-editor-toolbar {
     border-bottom: 1px solid var(--grid-line);
     background: var(--grid-panel-bright, var(--grid-paper));
+}
+
+.oaao-library-status-bar {
+    font-variant-numeric: tabular-nums;
 }
 
 /* Native table block (RazyUI registerBlockType) */

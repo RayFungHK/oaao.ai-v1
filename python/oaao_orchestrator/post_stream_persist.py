@@ -108,3 +108,58 @@ async def upsert_turn_score(
     except httpx.RequestError as exc:
         logger.warning("turn_score_upsert failed plugin=%s: %s", plugin_id, exc)
         return False
+
+
+async def apply_inference_turn(
+    *,
+    meta: dict[str, Any],
+    inference: dict[str, Any],
+) -> bool:
+    """Persist per-turn applied sampling (auto_tune v2) via PHP internal API."""
+    cid = str(meta.get("conversation_id") or "").strip()
+    mid = str(meta.get("assistant_message_id") or "").strip()
+    if not cid or not mid or not inference:
+        return False
+
+    url = f"{php_chat_api_base()}/inference_turn_apply"
+    assert_php_http_allowed(url, context="inference_turn_apply")
+    secret = _shared_secret()
+    body = {
+        "conversation_id": int(cid) if cid.isdigit() else cid,
+        "assistant_message_id": int(mid) if mid.isdigit() else mid,
+        "inference": inference,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+            r = await client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-OAAO-Internal-Token": secret,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                json=body,
+            )
+        if r.status_code >= 400:
+            logger.warning(
+                "inference_turn_apply HTTP %s conversation_id=%s body=%s",
+                r.status_code,
+                cid,
+                r.text[:300],
+            )
+            return False
+        payload = r.json()
+        return isinstance(payload, dict) and payload.get("success") is True
+    except httpx.RequestError as exc:
+        logger.warning("inference_turn_apply failed conversation_id=%s: %s", cid, exc)
+        return False
+
+
+def schedule_inference_turn_apply(
+    *,
+    meta: dict[str, Any],
+    inference: dict[str, Any],
+) -> None:
+    import asyncio
+
+    asyncio.create_task(apply_inference_turn(meta=meta, inference=inference))  # noqa: RUF006

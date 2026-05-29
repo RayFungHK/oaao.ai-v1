@@ -1,5 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
+use oaaoai\chat\ChatInferenceControl;
+use oaaoai\user\UserModelParams;
+
 /**
  * GET /chat/api/conversations — list conversations for the signed-in user in the active scope ({@code workspace_id} query, optional — {@code null} = personal).
  */
@@ -49,6 +54,8 @@ return function (): void {
             }
             $mode = 'default';
             $plannerModeId = 'default';
+            $inferenceMode = ChatInferenceControl::MODE_OFF;
+            $threadModelParams = [];
             $paramsRaw = $row['params_json'] ?? null;
             if (\is_string($paramsRaw) && $paramsRaw !== '') {
                 $decoded = json_decode($paramsRaw, true);
@@ -60,11 +67,20 @@ return function (): void {
                     if (\in_array($pm, ['default', 'tot', 'ddtree'], true)) {
                         $plannerModeId = $pm;
                     }
+                    $icBlock = ChatInferenceControl::blockFromConversation($decoded);
+                    $inferenceMode = $icBlock['mode'];
+                    if ($inferenceMode === ChatInferenceControl::MODE_MANUAL) {
+                        $threadModelParams = UserModelParams::activeOverrides($icBlock['model_params']);
+                    }
                 }
             }
             unset($row['params_json']);
             $row['mode'] = $mode;
             $row['planner_mode_id'] = $plannerModeId;
+            $row['inference_mode'] = $inferenceMode;
+            if ($threadModelParams !== []) {
+                $row['model_params'] = $threadModelParams;
+            }
             $conversations[] = $row;
         }
         echo json_encode([

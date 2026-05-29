@@ -66,6 +66,13 @@ class PlannerOutputDraft(BaseModel):
         default=None,
         description="Optional sidebar title for a new chat thread (planner-suggested).",
     )
+    inference_delta: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Bounded per-turn sampling nudges for auto_tune (temperature, top_p, top_k, "
+            "presence_penalty, frequency_penalty, max_tokens). Small deltas only — not full presets."
+        ),
+    )
 
 
 class ReportResultDraft(BaseModel):
@@ -881,6 +888,11 @@ def planner_output_to_run_plan(
         for x in (draft.apply_skill_ids or [])
         if isinstance(x, str) and x.strip()
     ][:12]
+    inf_delta = (
+        dict(draft.inference_delta)
+        if isinstance(draft.inference_delta, dict) and draft.inference_delta
+        else None
+    )
     return RunPlan(
         tasks=specs,
         abilities=abilities,
@@ -888,6 +900,7 @@ def planner_output_to_run_plan(
         slide_designer=slide_cfg,
         conversation_title=normalize_conversation_title(draft.conversation_title) or None,
         apply_skill_ids=apply_ids,
+        inference_delta=inf_delta,
     )
 
 

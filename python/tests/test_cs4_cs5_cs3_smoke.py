@@ -1,5 +1,6 @@
 from oaao_orchestrator.corpus.xlsx_render import markdown_to_xlsx_bytes, table_data_to_xlsx_bytes
 from oaao_orchestrator.evaluation.calendar_event_candidate import classify_calendar_event_candidate
+from oaao_orchestrator.evaluation.todo_item_candidate import classify_todo_item_candidate
 from oaao_orchestrator.evaluation.skill_upgrade import pick_skill_upgrade_candidate
 from oaao_orchestrator.micro_skills.apply import inject_applied_micro_skills
 from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskType
@@ -68,6 +69,16 @@ def test_markdown_to_xlsx_bytes_smoke():
     assert isinstance(raw, bytes)
     assert len(raw) > 100
     assert raw[:2] == b"PK"
+
+
+def test_classify_todo_item_candidate_action():
+    cand = classify_todo_item_candidate(
+        conversation_id=5,
+        messages=[{"role": "user", "content": "Track my tasks"}],
+        assistant_text="Action item: follow up with the client tomorrow.",
+    )
+    assert cand is not None
+    assert cand.conversation_id == 5
 
 
 def test_table_data_to_xlsx_bytes_smoke():

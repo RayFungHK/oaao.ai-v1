@@ -12,6 +12,7 @@ import {
     patchPurposesChatProfileDefault,
 } from '../../../../chat/default/js/chat-settings-panel.js';
 import { oaaoT } from '../oaao-i18n.js';
+import { oaaoRazyToastFire } from '../oaao-razy-toast.js';
 import { oaaoMountLoadingLogo } from '../oaao-loading-logo.js';
 import { replaceChildrenParsed, ruiBuild } from '../oaao-jit-dsl.js';
 import { endpointsApiUrl, chatApiUrl, endpointsFetchJson } from './api.js';
@@ -496,6 +497,7 @@ async function openPurposeEditorAsync(host, row, opts) {
                         if (msgEl) msgEl.textContent = e instanceof Error ? e.message : oaaoT('settings.purpose.dialog.reload_failed');
                         return false;
                     }
+                    oaaoRazyToastFire(oaaoT('settings.purpose.saved'), 'success');
                     return undefined;
                 },
             },
@@ -640,7 +642,9 @@ function bindPanelDelegation(host) {
                     await reload(host);
                 } catch (e) {
                     window.alert(e instanceof Error ? e.message : oaaoT('settings.purpose.dialog.reload_failed'));
+                    return;
                 }
+                oaaoRazyToastFire(oaaoT('settings.purpose.saved'), 'success');
             })();
             return;
         }

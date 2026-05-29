@@ -7,7 +7,7 @@
 
 ## UX
 
-- **Ring button** on the in-thread toolbar (`data-oaao-chat="context-usage-trigger"`) — Cursor-style circular gauge.
+- **Ring button** in the composer left toolbar (`data-oaao-chat="context-usage-trigger"`) — Cursor-style circular gauge; `display:none` when no conversation.
 - **Dialog** — segment bar + per-bucket token rows (system, tools, rules, skills, MCP, subagents, summarized, conversation).
 - **Compact thread (CIT/CMT)** — `POST /chat/api/conversation_compact` supersedes older turns (`meta_json.prompt_superseded`) and inserts a handoff assistant row; `buildPromptMessagesFromDb` skips superseded rows.
 
@@ -32,7 +32,7 @@ Full reference: **[razy-module-autoload.md](./razy-module-autoload.md)**.
 - **Live overhead segments** from skills manifest, micro-skills catalog, tool servers (MCP split), planner agent catalog, personalization/rules.
 - **Per-model heuristic tokenizer** (`ChatTokenEstimator`) on `context_usage` + compact paths.
 - **`auto_compact_applied`** on `POST chat/api/send` → composer toast.
-- **Usage ring** — 14px control in **composer extra toolbar** (below input card), not thread header.
+- **Usage ring** — 14px control in **composer feature toggles** (left icon row, after planner), hidden until a conversation is open; not thread header.
 
 ## Follow-ups
 

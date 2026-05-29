@@ -51,20 +51,37 @@ async function mountUsersPanel(host, ctx, page = 1) {
 
         host.append(sectionTitle('User management'));
         host.append(
-            hint('Create accounts, assign permission groups, and manage access within this tenant.'),
+            hint('Invite users by email — they set their own password on registration. Direct password creation is disabled.'),
         );
         host.append(
-            buildCreateToolbar('Create user', () => {
-                void openUserDialog(null, groups, ctx, () => mountUsersPanel(host, ctx, 1));
+            buildCreateToolbar('Send invitation', () => {
+                void openInviteDialog(groups, ctx, () => mountUsersPanel(host, ctx, 1));
             }),
         );
 
+        let invitations = [];
+        try {
+            const invRes = await fetch('/user/api/users_invitations_list', { credentials: 'same-origin' });
+            const invJson = await invRes.json();
+            if (invRes.ok && invJson?.success) {
+                invitations = Array.isArray(invJson.data?.invitations) ? invJson.data.invitations : [];
+            }
+        } catch {
+            invitations = [];
+        }
+
+        if (invitations.length > 0) {
+            host.append(sectionTitle('Pending invitations', 'mt-md'));
+            host.append(buildInvitationsTable(invitations, ctx, () => mountUsersPanel(host, ctx, pagination.page)));
+        }
+
         if (users.length === 0) {
-            host.append(hint('No users yet.', 'mt-md'));
+            host.append(hint('No active users yet.', 'mt-md'));
             host.append(buildPaginationBar(pagination, (p) => mountUsersPanel(host, ctx, p)));
             return;
         }
 
+        host.append(sectionTitle('Active users', 'mt-md'));
         host.append(buildUsersTable(users, groups, ctx, pagination, host));
         host.append(buildPaginationBar(pagination, (p) => mountUsersPanel(host, ctx, p)));
     } catch {
@@ -646,11 +663,164 @@ function readGroupForm(fd, id) {
     };
 }
 
-function sectionTitle(text) {
+function sectionTitle(text, extra = '') {
     const el = document.createElement('div');
-    el.className = 'oaao-sdlg-section-title mb-sm';
+    el.className = `oaao-sdlg-section-title mb-sm ${extra}`.trim();
     el.textContent = text;
     return el;
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} invitations
+ * @param {Record<string, unknown>} ctx
+ * @param {() => void|Promise<void>} reload
+ */
+function buildInvitationsTable(invitations, ctx, reload) {
+    const wrap = document.createElement('div');
+    wrap.className =
+        'mb-md overflow-x-auto rounded-[10px] border-[1px] border-solid border-[var(--grid-line)]';
+
+    const table = document.createElement('table');
+    table.className = 'oaao-access-table w-full text-[0.8125rem] border-collapse';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Expires</th>
+                <th class="oaao-access-table-actions"></th>
+            </tr>
+        </thead>
+        <tbody></tbody>`;
+
+    const tbody = table.querySelector('tbody');
+    if (!(tbody instanceof HTMLElement)) return wrap;
+
+    for (const inv of invitations) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${escapeHtml(String(inv.email || ''))}</td>
+            <td>${escapeHtml(String(inv.role || 'user'))}</td>
+            <td>${escapeHtml(String(inv.expires_at || '—'))}</td>
+            <td class="oaao-access-table-actions"></td>`;
+        const actions = tr.querySelector('.oaao-access-table-actions');
+        const iid = Number(inv.invitation_id ?? 0);
+        if (actions instanceof HTMLElement && iid > 0) {
+            const resendBtn = tableActionBtn('Resend');
+            resendBtn.addEventListener('click', () => {
+                void fetch('/user/api/users_invite_resend', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invitation_id: iid }),
+                }).then(() => reload());
+            });
+            const revokeBtn = tableActionBtn('Revoke');
+            revokeBtn.addEventListener('click', () => {
+                void fetch('/user/api/users_invite_revoke', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invitation_id: iid }),
+                }).then(() => reload());
+            });
+            actions.append(resendBtn, revokeBtn);
+        }
+        tbody.append(tr);
+    }
+
+    wrap.append(table);
+    return wrap;
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} groups
+ * @param {Record<string, unknown>} ctx
+ * @param {() => void|Promise<void>} reload
+ */
+async function openInviteDialog(groups, ctx, reload) {
+    const Dialog = ctx.Dialog;
+    if (typeof Dialog !== 'function') {
+        window.alert('Dialog component unavailable.');
+        return;
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = '[padding:0]';
+    const form = document.createElement('form');
+    form.className = 'flex flex-col gap-2';
+    form.innerHTML = `
+        <label class="text-xs">Email<input name="email" type="email" class="oaao-access-input" required /></label>
+        <label class="text-xs">Role<select name="role" class="oaao-access-input">
+            <option value="user" selected>user</option>
+            <option value="admin">admin</option>
+        </select></label>
+        <label class="text-xs">Permission group<select name="permission_group_id" class="oaao-access-input">
+            <option value="">— none —</option>
+            ${groups.map((g) => `<option value="${Number(g.id)}">${escapeHtml(String(g.name || ''))}</option>`).join('')}
+        </select></label>`;
+
+    const status = document.createElement('p');
+    status.className = 'text-xs fg-[var(--grid-ink-muted)] m-0 hidden';
+    status.setAttribute('role', 'status');
+    form.append(status);
+    wrap.append(form);
+
+    new Dialog({
+        id: 'oaao-access-user-invite',
+        title: 'Send invitation',
+        content: wrap,
+        size: 'md',
+        closable: true,
+        buttons: [
+            { text: 'Cancel', color: 'muted', role: 'cancel' },
+            {
+                text: 'Send invitation',
+                color: 'accent',
+                action: async () => {
+                    if (!form.reportValidity()) return false;
+                    const fd = new FormData(form);
+                    const body = {
+                        email: String(fd.get('email') || '').trim(),
+                        role: String(fd.get('role') || 'user'),
+                        permission_group_id: fd.get('permission_group_id')
+                            ? Number(fd.get('permission_group_id'))
+                            : null,
+                    };
+                    status.classList.remove('hidden', 'fg-[var(--grid-danger)]');
+                    status.classList.add('fg-[var(--grid-ink-muted)]');
+                    status.textContent = 'Sending…';
+                    try {
+                        const res = await fetch('/user/api/users_invite', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body),
+                        });
+                        const json = await res.json();
+                        if (!res.ok || !json?.success) {
+                            status.classList.remove('fg-[var(--grid-ink-muted)]');
+                            status.classList.add('fg-[var(--grid-danger)]');
+                            status.textContent = json?.message || `Invite failed (${res.status})`;
+                            return false;
+                        }
+                        await reload();
+                        return true;
+                    } catch {
+                        status.classList.remove('fg-[var(--grid-ink-muted)]');
+                        status.classList.add('fg-[var(--grid-danger)]');
+                        status.textContent = 'Invite failed.';
+                        return false;
+                    }
+                },
+            },
+        ],
+        onOpen(ctrl) {
+            ctx.JIT?.hydrate?.(/** @type {HTMLElement} */ (ctrl.body ?? wrap));
+            const emailInput = form.querySelector('[name="email"]');
+            if (emailInput instanceof HTMLInputElement) emailInput.focus();
+        },
+    });
 }
 
 function hint(text, extra = '') {

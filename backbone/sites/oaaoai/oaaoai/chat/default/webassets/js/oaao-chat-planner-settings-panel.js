@@ -28,17 +28,19 @@ function oaaoPlannerCoreImportHref(relUnderCoreDefault) {
     return pathOnly;
 }
 
-const [_mI18n, _mJit, _mApi, _mLoading] = await Promise.all([
+const [_mI18n, _mJit, _mApi, _mLoading, _mToast] = await Promise.all([
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-i18n.js')),
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-jit-dsl.js')),
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/endpoints-settings/api.js')),
     import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-loading-logo.js')),
+    import(/* webpackIgnore: true */ oaaoPlannerCoreImportHref('js/oaao-razy-toast.js')),
 ]);
 
 const { oaaoT } = _mI18n;
 const { replaceChildrenParsed, ruiBuild } = _mJit;
 const { endpointsApiUrl, endpointsFetchJson } = _mApi;
 const { oaaoMountLoadingLogo } = _mLoading;
+const { oaaoRazyToastFire } = _mToast;
 
 import {
     fillPlannerSettingsForm,
@@ -214,6 +216,7 @@ async function savePlannerSettings(form, msgEl) {
 
     state.purpose = { ...row, meta_json: metaJson };
     if (msgEl) msgEl.textContent = oaaoT('settings.planner.saved');
+    oaaoRazyToastFire(oaaoT('settings.planner.saved'), 'success');
 }
 
 export function teardownSettingsPanel() {

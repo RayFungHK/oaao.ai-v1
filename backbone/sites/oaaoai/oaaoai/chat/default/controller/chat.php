@@ -858,12 +858,14 @@ return new class extends Controller {
                 'POST assistant_internal_sync' => 'assistant_internal_sync',
                 'POST skills_usage_record'     => 'skills_usage_record',
                 'POST turn_score_upsert'       => 'turn_score_upsert',
+                'POST inference_turn_apply'    => 'inference_turn_apply',
                 'POST conversation_archive'  => 'conversation_archive',
                 'POST conversation_delete'   => 'conversation_delete',
                 'POST conversation_fork'     => 'conversation_fork',
                 'POST conversation_compact'  => 'conversation_compact',
                 'GET context_usage'          => 'context_usage',
                 'POST conversation_mode'     => 'conversation_mode',
+                'GET inference_defaults'   => 'inference_defaults',
                 'POST conversation_share'    => 'conversation_share',
                 'POST message_feedback'      => 'message_feedback',
                 'GET task_artifacts'        => 'task_artifacts',
@@ -938,6 +940,22 @@ return new class extends Controller {
                     'label_key'       => 'settings.nav.planner.label',
                     'title_key'       => 'settings.nav.planner.title',
                     'sub_key'         => 'settings.nav.planner.sub',
+                ],
+            );
+
+            $inferenceJs = '/webassets/chat/default/js/oaao-chat-inference-settings-panel.js';
+            $coreApi->registerSettingsSection(
+                'settings-chat-inference',
+                'Chat inference',
+                'Inference defaults',
+                'Temperature, top_p, penalties, and max tokens on <code class="font-mono text-xs">chat.*</code> purpose <code class="font-mono text-xs">meta_json.inference_params</code>.',
+                'sliders-horizontal',
+                [
+                    'sort'            => 29,
+                    'panel_js_module' => $inferenceJs,
+                    'label_key'       => 'settings.nav.inference.label',
+                    'title_key'       => 'settings.nav.inference.title',
+                    'sub_key'         => 'settings.nav.inference.sub',
                 ],
             );
 

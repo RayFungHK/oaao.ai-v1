@@ -73,6 +73,7 @@ return function (): void {
                 ? (int) $row['current_revision_id']
                 : (isset($row['revision_id']) ? (int) $row['revision_id'] : null),
             'blocks'      => $blocks,
+            'updated_at'  => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 };

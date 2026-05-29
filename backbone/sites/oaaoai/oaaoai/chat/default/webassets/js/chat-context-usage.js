@@ -19,6 +19,9 @@ function oaaoChatT(_key, fallback) {
 
 /** @typedef {{ key: string, label: string, tokens: number }} ContextSegment */
 
+const CONTEXT_USAGE_STYLE_ID = 'oaao-chat-context-usage-styles';
+const CONTEXT_USAGE_STYLE_REV = '20260529-ctx-ring-v9-tight';
+
 const SEGMENT_COLORS = {
     system_prompt: 'var(--grid-caption,#9ca3af)',
     tool_definitions: '#a78bfa',
@@ -62,6 +65,128 @@ async function fetchContextUsage(chatApiBase, conversationId, chatEndpointId, ge
     return j.data;
 }
 
+/** Inline CSS — {@code hidden} must not rely on Tailwind JIT for dynamically mounted nodes. */
+function ensureContextUsageStyles() {
+    if (typeof document === 'undefined') return;
+    const prev = document.getElementById(CONTEXT_USAGE_STYLE_ID);
+    if (prev?.dataset.oaaoRev === CONTEXT_USAGE_STYLE_REV) return;
+    prev?.remove();
+    const style = document.createElement('style');
+    style.id = CONTEXT_USAGE_STYLE_ID;
+    style.dataset.oaaoRev = CONTEXT_USAGE_STYLE_REV;
+    style.textContent = `
+[data-oaao-chat="composer-feature-toggles"] [data-oaao-chat="context-usage-slot"],
+[data-oaao-chat="composer-feature-toggles"] [data-oaao-chat="context-usage-trigger"],
+[data-oaao-chat="composer-feature-toggles"] .oaao-chat-context-usage-btn{display:none!important;width:0!important;min-width:0!important;max-width:0!important;margin:0!important;padding:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}
+.oaao-chat-context-usage-slot{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:0;margin:0;padding:0}
+.oaao-chat-context-usage-slot:not(.is-visible){display:none!important;width:0!important;min-width:0!important;max-width:0!important;margin:0!important;padding:0!important;overflow:hidden!important;visibility:hidden!important}
+.oaao-chat-context-usage-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;min-width:14px;min-height:14px;flex-shrink:0;margin:0;padding:0;border:0;border-radius:9999px;background:transparent;color:var(--grid-ink-muted,#6b7280);cursor:pointer;font:inherit;box-sizing:content-box}
+.oaao-chat-context-usage-btn::before{content:"";position:absolute;inset:-7px;border-radius:9999px}
+.oaao-chat-context-usage-btn .oaao-context-ring-svg{display:block;width:14px;height:14px}
+`;
+    document.head.append(style);
+}
+
+/**
+ * @param {HTMLElement | null} toolbarHost
+ * @param {HTMLElement | null} slot
+ * @param {HTMLButtonElement} btn
+ * @param {boolean} visible
+ */
+/**
+ * Remove legacy feature-toggles mounts (context usage belongs in extra toolbar).
+ *
+ * @param {HTMLElement} mount
+ */
+export function purgeComposerContextUsageOrphans(mount) {
+    const extra = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
+    mount.querySelectorAll('[data-oaao-chat="context-usage-slot"], [data-oaao-chat="context-usage-trigger"]').forEach(
+        (el) => {
+            if (extra instanceof HTMLElement && extra.contains(el)) return;
+            const slot = el.closest('[data-oaao-chat="context-usage-slot"]');
+            (slot ?? el).remove();
+        },
+    );
+    syncComposerExtraToolbarStrip(mount);
+}
+
+function setContextUsageBtnVisible(toolbarHost, slot, btn, visible) {
+    const root =
+        toolbarHost?.closest('[data-oaao-chat-mount]') ??
+        toolbarHost?.closest('.oaao-chat-root') ??
+        null;
+    if (root instanceof HTMLElement) {
+        purgeComposerContextUsageOrphans(root);
+    }
+    if (!visible) {
+        btn.hidden = true;
+        btn.setAttribute('aria-hidden', 'true');
+        btn.innerHTML = '';
+        btn.removeAttribute('title');
+        if (btn.isConnected) {
+            btn.remove();
+        }
+        if (slot?.isConnected) {
+            slot.remove();
+        }
+        if (root instanceof HTMLElement) {
+            syncComposerExtraToolbarStrip(root);
+        }
+        return;
+    }
+    btn.hidden = false;
+    btn.removeAttribute('aria-hidden');
+    slot.classList.add('is-visible');
+    if (!slot.contains(btn)) {
+        slot.append(btn);
+    }
+    if (toolbarHost && !toolbarHost.contains(slot)) {
+        toolbarHost.prepend(slot);
+    }
+    if (root instanceof HTMLElement) {
+        syncComposerExtraToolbarStrip(root);
+    }
+}
+
+/**
+ * Keep extra-toolbar strip hidden when only orphaned context-usage nodes were present.
+ *
+ * @param {HTMLElement} mount
+ */
+function syncComposerExtraToolbarStrip(mount) {
+    const wrap = mount.querySelector('[data-oaao-chat="composer-extra-toolbar-wrap"]');
+    const host = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
+    const card = mount.querySelector('[data-oaao-chat="composer-card-wrap"]');
+    if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement)) return;
+    const open = [...host.children].some((ch) => {
+        if (!(ch instanceof HTMLElement)) return false;
+        if (ch.matches('[data-oaao-chat="context-usage-slot"]')) {
+            return (
+                ch.classList.contains('is-visible') &&
+                ch.querySelector('[data-oaao-chat="context-usage-trigger"]') instanceof HTMLButtonElement
+            );
+        }
+        return !ch.hidden && !ch.classList.contains('hidden') && ch.getAttribute('aria-hidden') !== 'true';
+    });
+    wrap.classList.toggle('hidden', !open);
+    if (card instanceof HTMLElement) {
+        if (open) {
+            card.setAttribute('data-oaao-composer-toolbar', 'open');
+        } else {
+            card.removeAttribute('data-oaao-composer-toolbar');
+        }
+    }
+}
+
+/**
+ * @param {HTMLElement} mount
+ * @returns {HTMLElement | null}
+ */
+function composerExtraToolbarHost(mount) {
+    const host = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
+    return host instanceof HTMLElement ? host : null;
+}
+
 /**
  * Small ring for composer toolbar (14×14).
  *
@@ -81,25 +206,6 @@ function ringSvg(pct) {
 
 /**
  * @param {HTMLElement} mount
- */
-function syncComposerContextToolbarStrip(mount) {
-    const wrap = mount.querySelector('[data-oaao-chat="composer-extra-toolbar-wrap"]');
-    const host = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
-    const card = mount.querySelector('[data-oaao-chat="composer-card-wrap"]');
-    if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement)) return;
-    const open = host.childElementCount > 0;
-    wrap.classList.toggle('hidden', !open);
-    if (card instanceof HTMLElement) {
-        if (open) {
-            card.setAttribute('data-oaao-composer-toolbar', 'open');
-        } else {
-            card.removeAttribute('data-oaao-composer-toolbar');
-        }
-    }
-}
-
-/**
- * @param {HTMLElement} mount
  * @param {() => number} getConversationId
  * @param {() => number} getChatEndpointId
  * @param {string} chatApiBase
@@ -113,19 +219,37 @@ export function mountChatContextUsage(
     reloadThread,
     getScopeQuery,
 ) {
-    const extraHost = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
-    if (!(extraHost instanceof HTMLElement)) return;
+    const toolbarHost = composerExtraToolbarHost(mount);
+    if (!toolbarHost) return;
 
-    let btn = extraHost.querySelector('[data-oaao-chat="context-usage-trigger"]');
+    ensureContextUsageStyles();
+    purgeComposerContextUsageOrphans(mount);
+
+    toolbarHost.querySelectorAll('[data-oaao-chat="context-usage-slot"]').forEach((el) => el.remove());
+
+    const slot = document.createElement('span');
+    slot.dataset.oaaoChat = 'context-usage-slot';
+    slot.className = 'oaao-chat-context-usage-slot shrink-0';
+
+    let btn = slot.querySelector('[data-oaao-chat="context-usage-trigger"]');
     if (!(btn instanceof HTMLButtonElement)) {
         btn = document.createElement('button');
         btn.type = 'button';
         btn.dataset.oaaoChat = 'context-usage-trigger';
-        btn.className =
-            'oaao-chat-context-usage-btn hidden inline-flex items-center justify-center w-6 h-6 shrink-0 rounded-full border-0 bg-transparent fg-[var(--grid-ink-muted)] cursor-pointer font-inherit p-0 hover:bg-[var(--grid-line)]/30';
+        btn.className = 'oaao-chat-context-usage-btn hover:bg-[var(--grid-line)]/30';
         btn.setAttribute('aria-label', oaaoChatT('chat.context_usage.ring_aria', 'Context usage'));
-        extraHost.prepend(btn);
+        slot.append(btn);
     }
+
+    toolbarHost.querySelectorAll(':scope > [data-oaao-chat="context-usage-trigger"]').forEach((el) => {
+        if (el !== btn) el.remove();
+    });
+    if (slot.isConnected) {
+        slot.remove();
+    }
+
+    setContextUsageBtnVisible(toolbarHost, slot, btn, false);
+    syncComposerExtraToolbarStrip(mount);
 
     /** @type {ReturnType<typeof setInterval>|null} */
     let pollTimer = null;
@@ -133,14 +257,12 @@ export function mountChatContextUsage(
     async function refreshRing() {
         const cid = getConversationId();
         if (!Number.isFinite(cid) || cid < 1) {
-            btn.classList.add('hidden');
-            btn.setAttribute('aria-hidden', 'true');
-            syncComposerContextToolbarStrip(mount);
+            setContextUsageBtnVisible(toolbarHost, slot, btn, false);
+            syncComposerExtraToolbarStrip(mount);
             return;
         }
-        btn.classList.remove('hidden');
-        btn.removeAttribute('aria-hidden');
-        syncComposerContextToolbarStrip(mount);
+        setContextUsageBtnVisible(toolbarHost, slot, btn, true);
+        syncComposerExtraToolbarStrip(mount);
         try {
             const data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId(), getScopeQuery);
             const pct = Number(data?.percent_full ?? 0);

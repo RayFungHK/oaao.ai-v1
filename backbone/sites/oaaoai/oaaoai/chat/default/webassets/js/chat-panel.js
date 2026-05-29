@@ -38,6 +38,16 @@ import {
 import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
 import { handleSkillSuggestedStream, handleSkillUpgradeSuggestedStream } from './conversation-skill-suggest.js';
 import { handleCalendarEventSuggestedStream } from './conversation-calendar-suggest.js';
+import {
+    handleTodoItemSuggestedStream,
+    handleTodoResolveSuggestedStream,
+} from './conversation-todo-suggest.js';
+import { refreshThreadTodoStrip } from './conversation-todo-thread.js';
+import {
+    mountComposerModelParams,
+    readComposerInferenceForSend,
+    rememberInferenceLocal,
+} from './composer-model-params.js';
 
 /** Align with auth SPA paths when the app lives under a subdirectory (same cookie path as `/auth/me`). */
 function chatApiBase() {
@@ -563,6 +573,7 @@ function mountChatComposerFeatureToggles(host, signal) {
     mountChatComposerPlannerModeDropup(plannerWrap, plannerStepsBtn, signal);
 
     host.replaceChildren(webSearchBtn, plannerWrap);
+    mountComposerModelParams(host, signal);
     globalThis.JIT?.hydrate?.(host);
     syncComposerPlannerStepsVisibility(document);
 }
@@ -1444,12 +1455,41 @@ function composerSlotZoneFromRow(row) {
 }
 
 /** Syncs extra-toolbar strip + {@code data-oaao-composer-toolbar} on the card ({@see oaao-chat-shell.css}). */
+/** @param {HTMLElement} el */
+function composerExtraToolbarChildVisible(el) {
+    if (!(el instanceof HTMLElement)) return false;
+    if (el.matches('[data-oaao-chat="context-usage-slot"]')) {
+        return (
+            el.classList.contains('is-visible') &&
+            el.querySelector('[data-oaao-chat="context-usage-trigger"]') instanceof HTMLButtonElement
+        );
+    }
+    if (el.matches('[data-oaao-chat="context-usage-trigger"]')) {
+        return false;
+    }
+    if (el.hidden || el.classList.contains('hidden')) return false;
+    if (el.getAttribute('aria-hidden') === 'true') return false;
+    return true;
+}
+
+function purgeComposerContextUsageOrphans(mount) {
+    const extra = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
+    mount.querySelectorAll('[data-oaao-chat="context-usage-slot"], [data-oaao-chat="context-usage-trigger"]').forEach(
+        (el) => {
+            if (extra instanceof HTMLElement && extra.contains(el)) return;
+            const slot = el.closest('[data-oaao-chat="context-usage-slot"]');
+            (slot ?? el).remove();
+        },
+    );
+}
+
 function syncComposerExtraToolbarVisibility(mount) {
+    purgeComposerContextUsageOrphans(mount);
     const wrap = mount.querySelector('[data-oaao-chat="composer-extra-toolbar-wrap"]');
     const host = mount.querySelector('[data-oaao-chat="composer-registry-extra-toolbar"]');
     const card = mount.querySelector('[data-oaao-chat="composer-card-wrap"]');
     if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement)) return;
-    const open = host.childElementCount > 0;
+    const open = [...host.children].some((ch) => composerExtraToolbarChildVisible(ch));
     wrap.classList.toggle('hidden', !open);
     if (card instanceof HTMLElement) {
         if (open) {
@@ -2223,7 +2263,24 @@ async function confirmDeleteChatDialog(opts = {}) {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260528-composer-dialog-picker-v102';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260529-ctx-extra-toolbar-v123';
+
+/** @type {Promise<Record<string, unknown>> | null} */
+let chatContextUsageModPromise = null;
+/** @type {string | null} */
+let chatContextUsageModRev = null;
+
+function loadChatContextUsageMod() {
+    const rev = OAAO_CHAT_SHELL_ASSET_REV;
+    if (!chatContextUsageModPromise || chatContextUsageModRev !== rev) {
+        chatContextUsageModRev = rev;
+        const url = oaaoPrefixedSitePath(
+            `/webassets/chat/default/js/chat-context-usage.js?v=${encodeURIComponent(rev)}`,
+        );
+        chatContextUsageModPromise = import(/* webpackIgnore: true */ url).catch(() => ({}));
+    }
+    return chatContextUsageModPromise;
+}
 
 /**
  * @param {Record<string, unknown> | null | undefined} meta
@@ -11675,6 +11732,8 @@ export async function mountShellPanel(mount) {
         chatComposerVaultSourceRefs = refs;
         persistVaultChatSourceRefs(refs);
     };
+    purgeComposerContextUsageOrphans(mount);
+    syncComposerExtraToolbarVisibility(mount);
     mountChatComposerBuiltInVaultUi(mount, signal, onVaultSourcesChange);
 
     const onLibraryDocsChange = (docs) => {
@@ -11831,12 +11890,64 @@ export async function mountShellPanel(mount) {
      * @param {HTMLElement} el
      */
     function messagesScrollToBottom(el) {
+        if (!(el instanceof HTMLElement)) return;
         el.scrollTop = el.scrollHeight;
+        const last = messagesEl instanceof HTMLElement ? messagesEl.lastElementChild : null;
+        if (last instanceof HTMLElement) {
+            last.scrollIntoView({ block: 'end', inline: 'nearest' });
+        }
+        el.scrollTop = el.scrollHeight;
+    }
+
+    /** Composer dock overlaps {@code thread-wrap}; reserve space so “bottom” clears the input. */
+    function measureThreadComposerOverlapPx() {
+        if (!(threadWrapEl instanceof HTMLElement) || !(composerRegionEl instanceof HTMLElement)) {
+            return 0;
+        }
+        if (shouldUseChatLandingLayout()) return 0;
+        const threadBottom = threadWrapEl.getBoundingClientRect().bottom;
+        const composerTop = composerRegionEl.getBoundingClientRect().top;
+        return Math.max(0, Math.ceil(threadBottom - composerTop + 16));
+    }
+
+    /** After thread DOM + layout settle — not while the loading placeholder is shown. */
+    function scheduleMessagesScrollToBottom() {
+        requestAnimationFrame(() => {
+            syncThreadComposerReserve({ bumpBottom: true });
+            requestAnimationFrame(() => syncThreadComposerReserve({ bumpBottom: true }));
+        });
+    }
+
+    function bumpThreadToBottomAfterLoad() {
+        updateChatLayout();
+        syncThreadComposerReserve({ bumpBottom: true });
+        const el = getChatScrollEl();
+        if (el instanceof HTMLElement) {
+            messagesScrollToBottom(el);
+        }
+    }
+
+    /**
+     * @param {'auto' | 'bottom' | 'preserve'} scrollMode
+     * @param {boolean} [pinnedBefore] For {@code auto}: only scroll when already at bottom before fetch.
+     */
+    function applyMessagesScrollAfterLoad(scrollMode, pinnedBefore = false) {
+        if (scrollMode === 'preserve') return;
+        if (scrollMode === 'bottom' || (scrollMode === 'auto' && pinnedBefore)) {
+            bumpThreadToBottomAfterLoad();
+            scheduleMessagesScrollToBottom();
+            window.setTimeout(() => bumpThreadToBottomAfterLoad(), 80);
+            window.setTimeout(() => bumpThreadToBottomAfterLoad(), 240);
+        }
     }
 
     /** In-thread: scroll {@code thread-wrap}; landing: {@code messages} (no overflow). */
     function getChatScrollEl() {
-        if (activeConversationId !== null && threadWrapEl && !threadWrapEl.hidden) {
+        if (
+            activeConversationId !== null &&
+            !shouldUseChatLandingLayout() &&
+            threadWrapEl instanceof HTMLElement
+        ) {
             return threadWrapEl;
         }
         return messagesEl;
@@ -11846,10 +11957,13 @@ export async function mountShellPanel(mount) {
     bindOaaoTaskPanelChromeOnce(mount);
     mountWorkspaceAgentRail();
 
-    function syncThreadComposerReserve() {
+    /**
+     * @param {{ bumpBottom?: boolean }} [opts]
+     */
+    function syncThreadComposerReserve(opts = {}) {
+        const bumpBottom = opts.bumpBottom === true;
         if (!(chatRootEl instanceof HTMLElement)) return;
         const inThread = activeConversationId !== null;
-        chatRootEl.style.removeProperty('--oaao-thread-composer-stack');
         const scrollbarInset =
             inThread && threadWrapEl instanceof HTMLElement
                 ? Math.max(0, threadWrapEl.offsetWidth - threadWrapEl.clientWidth)
@@ -11865,8 +11979,22 @@ export async function mountShellPanel(mount) {
             }
         }
         if (!inThread) {
+            chatRootEl.style.removeProperty('--oaao-thread-composer-stack');
+            if (messagesEl instanceof HTMLElement) {
+                messagesEl.style.removeProperty('padding-bottom');
+            }
             chatRootEl.classList.remove('oaao-chat-root--task-strip-visible');
             return;
+        }
+        const reservePx = measureThreadComposerOverlapPx();
+        const reserve = `${reservePx}px`;
+        chatRootEl.style.setProperty('--oaao-thread-composer-stack', reserve);
+        if (messagesEl instanceof HTMLElement) {
+            if (reservePx > 0) {
+                messagesEl.style.paddingBottom = reserve;
+            } else {
+                messagesEl.style.removeProperty('padding-bottom');
+            }
         }
         const taskInSidePanel =
             taskListStripEl instanceof HTMLElement &&
@@ -11875,8 +12003,12 @@ export async function mountShellPanel(mount) {
             Boolean(taskListStripEl.closest('[data-oaao-chat="task-panel"]'));
         chatRootEl.classList.toggle('oaao-chat-root--task-panel-open', taskInSidePanel);
         const scrollEl = getChatScrollEl();
-        if (scrollEl instanceof HTMLElement && messagesPinnedToBottom(scrollEl)) {
-            requestAnimationFrame(() => messagesScrollToBottom(scrollEl));
+        if (scrollEl instanceof HTMLElement && (bumpBottom || messagesPinnedToBottom(scrollEl))) {
+            if (bumpBottom) {
+                messagesScrollToBottom(scrollEl);
+            } else {
+                requestAnimationFrame(() => messagesScrollToBottom(scrollEl));
+            }
         }
     }
 
@@ -12517,6 +12649,49 @@ export async function mountShellPanel(mount) {
                     if (
                         phase === 'system' &&
                         kind === 'status' &&
+                        text === 'todo_item_suggested' &&
+                        envelope.payload &&
+                        typeof envelope.payload === 'object' &&
+                        streamingMsgId &&
+                        streamingMsgId > 0
+                    ) {
+                        const todoPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        if (isStreamConversationVisible()) {
+                            handleTodoItemSuggestedStream(
+                                mount,
+                                conversationId,
+                                streamingMsgId,
+                                todoPayload,
+                                () =>
+                                    conversationId && conversationId > 0
+                                        ? chatScopeBodyFieldsForConversation(conversationId)
+                                        : workspaceChatBodyFields(),
+                            );
+                        }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
+                        text === 'todo_resolve_suggested' &&
+                        envelope.payload &&
+                        typeof envelope.payload === 'object' &&
+                        streamingMsgId &&
+                        streamingMsgId > 0
+                    ) {
+                        const resolvePayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        if (isStreamConversationVisible()) {
+                            handleTodoResolveSuggestedStream(
+                                mount,
+                                conversationId,
+                                streamingMsgId,
+                                resolvePayload,
+                            );
+                            void refreshThreadTodoStrip(mount, conversationId);
+                        }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
                         text === 'reflection_complete' &&
                         envelope.payload &&
                         typeof envelope.payload === 'object' &&
@@ -13017,13 +13192,16 @@ export async function mountShellPanel(mount) {
         const next = id != null && Number(id) > 0 ? Math.floor(Number(id)) : null;
         const unchanged = next === activeConversationId;
         activeConversationId = next;
+        globalThis.__oaaoActiveConversationId = activeConversationId;
         syncChatConversationUrl(activeConversationId, {
             replace: opts.replaceUrl === true || unchanged,
         });
         renderSidebar();
         const scroll = opts.scroll ?? (next ? 'bottom' : 'auto');
+        updateChatLayout();
         await loadMessages(activeConversationId, scroll);
         if (next) {
+            void refreshThreadTodoStrip(mount, next);
             await resumeStreamIfAny(next);
             globalThis.__oaaoStartChatContextUsagePoll?.();
             globalThis.__oaaoRefreshChatContextUsage?.();
@@ -13033,7 +13211,15 @@ export async function mountShellPanel(mount) {
         }
         syncComposerBusyForActiveView(mount);
         updateChatLayout();
+        if (scroll === 'bottom' && next) {
+            applyMessagesScrollAfterLoad('bottom');
+        }
         syncThreadToolbarStates();
+        document.dispatchEvent(
+            new CustomEvent('oaao-conversation-opened', {
+                detail: { conversation_id: activeConversationId },
+            }),
+        );
     }
 
     function renderSidebar() {
@@ -13235,6 +13421,7 @@ export async function mountShellPanel(mount) {
             }
             if (res.ok && data.success && Array.isArray(data.conversations)) {
                 cachedConversations = data.conversations;
+                globalThis.__oaaoCachedConversations = cachedConversations;
                 for (const row of cachedConversations) {
                     const id = Number(row.id);
                     if (Number.isFinite(id) && id > 0) {
@@ -13267,15 +13454,24 @@ export async function mountShellPanel(mount) {
     /**
      * @param {Array<{ id?: number, role?: string, content?: string, feedback?: string }>} rows
      * @param {'auto' | 'bottom' | 'preserve'} scrollMode
+     * @param {{ deferScroll?: boolean, pendingTasks?: Promise<unknown>[] }} [opts]
      */
-    function renderMessages(rows, scrollMode = 'auto') {
+    function renderMessages(rows, scrollMode = 'auto', opts = {}) {
+        const deferScroll = opts.deferScroll === true;
+        const pendingTasks = Array.isArray(opts.pendingTasks) ? opts.pendingTasks : null;
         const cid = activeConversationId;
         const preserveScroll = scrollMode === 'preserve';
         const scrollEl = getChatScrollEl();
         const prevHeight = preserveScroll && scrollEl instanceof HTMLElement ? scrollEl.scrollHeight : 0;
         const prevTop = preserveScroll && scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
         const pinnedBefore =
-            scrollMode === 'auto' && cid != null && cid > 0 ? messagesPinnedToBottom(scrollEl) : false;
+            !deferScroll &&
+            scrollMode === 'auto' &&
+            cid != null &&
+            cid > 0 &&
+            scrollEl instanceof HTMLElement
+                ? messagesPinnedToBottom(scrollEl)
+                : false;
         messagesEl.textContent = '';
         if (!cid || cid < 1) {
             const hint = document.createElement('p');
@@ -13549,9 +13745,14 @@ export async function mountShellPanel(mount) {
                 metaRaw && typeof metaRaw === 'object' ? /** @type {Record<string, unknown>} */ (metaRaw) : null,
             );
             if (pipeStored) {
-                void syncAssistantMessageBlocks(outer, bubble, pipeStored, cid ?? 0).then(() =>
+                const blockTask = syncAssistantMessageBlocks(outer, bubble, pipeStored, cid ?? 0).then(() =>
                     hydrateInlineCitesForBubble(bubble),
                 );
+                if (pendingTasks) {
+                    pendingTasks.push(blockTask);
+                } else {
+                    void blockTask;
+                }
             }
             if (metaRaw && typeof metaRaw === 'object') {
                 applyAssistantRunSummaryToRow(outer, /** @type {Record<string, unknown>} */ (metaRaw));
@@ -13574,8 +13775,11 @@ export async function mountShellPanel(mount) {
             outer.append(toolbar);
             messagesEl.append(outer);
         });
-        if (scrollMode === 'bottom' || (scrollMode === 'auto' && pinnedBefore)) {
-            messagesScrollToBottom(getChatScrollEl());
+        if (
+            !deferScroll &&
+            (scrollMode === 'bottom' || (scrollMode === 'auto' && pinnedBefore))
+        ) {
+            bumpThreadToBottomAfterLoad();
         } else if (preserveScroll && scrollEl instanceof HTMLElement) {
             scrollEl.scrollTop = prevTop + (scrollEl.scrollHeight - prevHeight);
         }
@@ -13636,10 +13840,12 @@ export async function mountShellPanel(mount) {
      * @param {'auto' | 'bottom' | 'preserve'} [scrollMode]
      */
     async function loadMessages(conversationId, scrollMode = 'auto') {
+        const renderPending = [];
+        const renderOpts = { deferScroll: true, pendingTasks: renderPending };
         if (!conversationId || conversationId < 1) {
             cachedMessageRows = [];
             chatComposerSlideDeckContext = null;
-            renderMessages([], scrollMode);
+            renderMessages([], scrollMode, renderOpts);
             bindOaaoTaskListStripToConversation(mount, null);
             syncChatComposerChips(mount);
             renderThreadHealthBanner(mount, null);
@@ -13647,6 +13853,11 @@ export async function mountShellPanel(mount) {
 
             return;
         }
+        const scrollElBeforeLoad = getChatScrollEl();
+        const pinnedBeforeLoad =
+            scrollMode === 'auto' &&
+            scrollElBeforeLoad instanceof HTMLElement &&
+            messagesPinnedToBottom(scrollElBeforeLoad);
         resetMessagePageState(conversationId);
         turnScoreCacheByConversation.delete(conversationId);
         forkSuggestionsCacheByConversation.delete(conversationId);
@@ -13662,7 +13873,8 @@ export async function mountShellPanel(mount) {
         const { res, data } = msgPack;
         if (!res.ok || !data.success) {
             cachedMessageRows = [];
-            renderMessages([], scrollMode);
+            renderMessages([], scrollMode, renderOpts);
+            applyMessagesScrollAfterLoad(scrollMode, pinnedBeforeLoad);
 
             return;
         }
@@ -13672,12 +13884,15 @@ export async function mountShellPanel(mount) {
             conversationId,
         );
         cachedMessageRows = rows;
-        renderMessages(rows, scrollMode);
+        renderMessages(rows, scrollMode, renderOpts);
         bindOaaoTaskListStripToConversation(mount, conversationId, rows);
         refreshChatComposerSlideDeckContext(conversationId);
         void reconcileSlideWorkerTasksForConversation(mount, conversationId);
         syncChatComposerChips(mount);
         syncComposerPlannerStepsVisibility(mount);
+        if (renderPending.length) {
+            await Promise.allSettled(renderPending);
+        }
         await reconcileInterruptedRunsAfterLoad(conversationId, rows);
         const needsScorePoll =
             !conversationHasOpenRunTasks(conversationId) &&
@@ -13708,6 +13923,7 @@ export async function mountShellPanel(mount) {
                 }
             }
         }
+        applyMessagesScrollAfterLoad(scrollMode, pinnedBeforeLoad);
     }
 
     function focusWorkspaceSidebarAfterInvite() {
@@ -13737,7 +13953,7 @@ export async function mountShellPanel(mount) {
             await resolveConversationForUrlRestore(urlCid);
             await refreshConversations(urlCid);
             if (cachedConversations.some((r) => Number(r.id) === urlCid)) {
-                await openConversation(urlCid, { replaceUrl: true, scroll: 'auto' });
+                await openConversation(urlCid, { replaceUrl: true, scroll: 'bottom' });
                 if (focusInviteSidebar) {
                     focusWorkspaceSidebarAfterInvite();
                 }
@@ -13936,19 +14152,29 @@ export async function mountShellPanel(mount) {
                 }
 
                 const plannerModeForSend = readComposerPlannerModeForSend(activeConversationId);
+                const sendCid = Number(activeConversationId) || 0;
+                const inferenceForSend = readComposerInferenceForSend(sendCid > 0 ? sendCid : null);
+                /** @type {Record<string, unknown>} */
+                const sendBody = {
+                    conversation_id: activeConversationId,
+                    content: body,
+                    chat_endpoint_id: getWorkspaceChatEndpointIdForSend(),
+                    planner_mode_id: plannerModeForSend,
+                    ...vaultSendExtra,
+                    ...(sendCid > 0
+                        ? chatScopeBodyFieldsForConversation(sendCid)
+                        : workspaceChatBodyFields()),
+                };
+                if (sendCid < 1) {
+                    sendBody.inference_mode = inferenceForSend.mode;
+                    if (inferenceForSend.mode === 'manual') {
+                        sendBody.model_params = inferenceForSend.model_params;
+                    }
+                }
                 const { res, data, raw, parseError } = await chatFetchJson(chatApiUrl('send'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        conversation_id: activeConversationId,
-                        content: body,
-                        chat_endpoint_id: getWorkspaceChatEndpointIdForSend(),
-                        planner_mode_id: plannerModeForSend,
-                        ...vaultSendExtra,
-                        ...(activeConversationId && activeConversationId > 0
-                            ? chatScopeBodyFieldsForConversation(activeConversationId)
-                            : workspaceChatBodyFields()),
-                    }),
+                    body: JSON.stringify(sendBody),
                 });
                 if (!res.ok || data.success !== true) {
                     const err = document.createElement('p');
@@ -13981,6 +14207,9 @@ export async function mountShellPanel(mount) {
                         }
                     }
                     syncChatComposerPlannerModeSelect();
+                    if (!(Number(prevCid) > 0)) {
+                        rememberInferenceLocal(nextCid, inferenceForSend);
+                    }
                 }
                 if (templateId && nextCid > 0) {
                     enterDeskModeForSlideDesigner(nextCid);
@@ -14149,8 +14378,13 @@ export async function mountShellPanel(mount) {
     }
     await openConversation(activeConversationId, { replaceUrl: true });
     try {
-        const { mountChatContextUsage } = await import('./chat-context-usage.js');
-        mountChatContextUsage(
+        const mod = await loadChatContextUsageMod();
+        purgeComposerContextUsageOrphans(mount);
+        syncComposerExtraToolbarVisibility(mount);
+        if (typeof mod.mountChatContextUsage !== 'function') {
+            throw new Error('chat_context_usage_module_missing');
+        }
+        mod.mountChatContextUsage(
             mount,
             () => Number(activeConversationId) || 0,
             () => getWorkspaceChatEndpointIdForSend(),

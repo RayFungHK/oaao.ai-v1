@@ -2,6 +2,7 @@ import razyui from 'razyui';
 import { applyLoginPreset } from './preset/login.js';
 import { applyShellComponentPresets } from './preset/shell.js';
 import oaaoPresets from './oaao-jit.js';
+import { dismissOaaoBootOverlay } from './oaao-shell-ready.js';
 import { initPlatformShell } from './platform-shell.js';
 import { initOaaoVersionBadge } from './oaao-version-badge.js';
 
@@ -20,19 +21,6 @@ function shellModuleUrl(relativePath) {
     if (v) u.searchParams.set('v', v);
 
     return u.href;
-}
-
-function dismissOaaoBootOverlay() {
-    document.body.classList.add('oaao-shell-ready');
-    const root = document.getElementById('workspace-view');
-    if (root instanceof HTMLElement) {
-        root.hidden = false;
-        root.setAttribute('razyui-cloak', 'ready');
-        root.querySelectorAll('[razyui-cloak]:not([razyui-cloak="ready"])').forEach((el) => {
-            el.setAttribute('razyui-cloak', 'ready');
-        });
-    }
-    document.dispatchEvent(new CustomEvent('oaao:shell-ready'));
 }
 
 /** @type {Promise<typeof import('./workspace.js')> | null} */
@@ -382,6 +370,7 @@ let oaaoSessionUser = null;
 function finalizeAuthenticatedSession(user, authBaseRaw) {
     syncOaaoAdminShellFlags(user);
     if (isPlatformHostShell()) {
+        dismissOaaoBootOverlay();
         initPlatformShell(user, authBaseRaw, razyui);
         return;
     }
@@ -656,6 +645,11 @@ function applySessionShellVisibility() {
         if (platformViewEl) platformViewEl.hidden = true;
         document.body.classList.remove('oaao-session-active');
     }
+}
+
+if (oaaoSessionUser && isPlatformHostShell()) {
+    applySessionShellVisibility();
+    dismissOaaoBootOverlay();
 }
 
 try {

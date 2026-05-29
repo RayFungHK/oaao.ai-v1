@@ -149,13 +149,26 @@ async function openAddToCalendarDialog(mount, conversationId, messageId, payload
                         }),
                     });
                     const data = await res.json().catch(() => null);
-                    if (!res.ok || !data?.success) return;
+                    if (!res.ok || !data?.success) return false;
                     dismissCalendarSuggestion(conversationId, messageId);
                     const chip = mount.querySelector(
                         `[data-oaao-calendar-suggest="${dismissKey(conversationId, messageId)}"]`,
                     );
+                    const chipOuter = chip?.closest('.oaao-chat-assistant-row');
                     chip?.remove();
+                    if (chipOuter instanceof HTMLElement) {
+                        const calLink = document.createElement('button');
+                        calLink.type = 'button';
+                        calLink.className =
+                            'text-[0.75rem] border-0 bg-transparent p-0 fg-[var(--grid-accent)] underline cursor-pointer font-inherit';
+                        calLink.textContent = 'View in Calendar';
+                        calLink.addEventListener('click', () => {
+                            document.dispatchEvent(new CustomEvent('oaao:navigate-calendar'));
+                        });
+                        chipOuter.append(calLink);
+                    }
                     ctrl.close();
+                    return true;
                 },
             },
         ],

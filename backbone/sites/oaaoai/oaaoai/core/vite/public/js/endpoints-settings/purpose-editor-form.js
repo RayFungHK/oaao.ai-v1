@@ -14,7 +14,7 @@ export function purposeEditorFormHtml(epOpts, opts, esc) {
     const noneOpt = esc(oaaoT('settings.endpoints.none_option'));
     const metaJsonField = hideMeta
         ? ''
-        : `<label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${esc(oaaoT('settings.pu.form.meta_json'))}</span><textarea name="meta_json" rows="3" placeholder="{}" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs"></textarea></label>`;
+        : `<label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${esc(oaaoT('settings.pu.form.meta_json'))}</span><textarea name="meta_json" rows="4" placeholder='{"inference_params":{"temperature":0.8,"top_p":0.95}}' class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs"></textarea><span class="text-[0.6875rem] fg-[var(--grid-caption)]">Chat purposes: optional inference_params preset (temp, top_p, top_k, penalties, max_tokens).</span></label>`;
 
     return `<form id="oaao-pu-dlg-form" class="grid gap-sm max-w-full">
   <input type="hidden" name="id" value="" />

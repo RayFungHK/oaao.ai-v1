@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from oaao_orchestrator.library.ai_transform import run_library_ai_transform
+from oaao_orchestrator.library.convert import convert_payload_to_blocks
 from oaao_orchestrator.library.embed import run_library_embed
 from oaao_orchestrator.library.search import run_library_search
 from oaao_orchestrator.routes._deps import require_internal_token
@@ -36,36 +37,18 @@ async def library_convert(
     req: LibraryConvertRequest,
     _: None = Depends(require_internal_token),
 ) -> dict[str, Any]:
-    """
-    Stub: accept locator/path hints; return minimal blocks + markdown mirror.
-    Full docx/pdf heuristics ship in CS-2-S3 follow-up.
-    """
+    """Text or uploaded file (absolute_path + mime_type) → blocks via vault extractors."""
     payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
     title = str(payload.get("title") or "Untitled").strip() or "Untitled"
-    text = str(payload.get("text") or payload.get("source_text") or "").strip()
-    blocks: list[dict[str, Any]] = []
-    if text:
-        for i, para in enumerate(text.split("\n\n")[:48]):
-            chunk = para.strip()
-            if not chunk:
-                continue
-            blocks.append(
-                {
-                    "id": f"b{i + 1}",
-                    "type": "paragraph",
-                    "content": chunk,
-                }
-            )
-    if not blocks:
-        blocks.append({"id": "b1", "type": "paragraph", "content": ""})
+    blocks, markdown, status = convert_payload_to_blocks(payload)
 
     return {
         "ok": True,
         "title": title,
         "blocks": blocks,
-        "markdown": text or "",
+        "markdown": markdown,
         "revision": 1,
-        "status": "stub_convert",
+        "status": status,
     }
 
 

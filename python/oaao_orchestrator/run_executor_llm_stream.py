@@ -19,6 +19,7 @@ import httpx
 
 from oaao_orchestrator.run_executor_timing import finalize_run_task_timing
 from oaao_orchestrator.run_executor_upstream import (
+    apply_model_params_from_request,
     apply_upstream_sampling,
     llm_stream_timeout,
     resolve_max_tokens,
@@ -137,6 +138,7 @@ async def handle_llm_stream_task(
     )
     if merged_tools:
         body["tools"] = merged_tools
+    apply_model_params_from_request(body, req)
     apply_upstream_sampling(body)
     if os.environ.get(
         "OAAO_CHAT_STREAM_INCLUDE_USAGE", "1"

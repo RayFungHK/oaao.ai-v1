@@ -22,7 +22,15 @@ Schema:
   "needs_web_search": false,
   "apply_skill_ids": ["skill_id from skills_catalog when a micro skill applies"],
   "suggest_skill": null | { "title": "...", "summary": "...", "preview_markdown": "..." },
-  "conversation_title": "optional short thread title (max 8 words, user's language) for a new chat; omit when unclear"
+  "conversation_title": "optional short thread title (max 8 words, user's language) for a new chat; omit when unclear",
+  "inference_delta": null | {
+    "temperature": 0.0,
+    "top_p": 0.0,
+    "top_k": 0,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "max_tokens": 0
+  }
 }
 
 Allowed agents (when to use type=agent — pick agent_kind from the list above):
@@ -74,3 +82,8 @@ Rules:
   use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI).
 - conversation_title: when the turn starts a new thread, suggest a concise sidebar title (max 8 words, user's language).
   Omit or null when the topic is unclear — the chat model will title the thread later.
+- inference_delta: optional **small** adjustments to LLM sampling for this turn only (not full presets).
+  Use only when the user message clearly needs a different style: e.g. creative/brainstorm → temperature +0.06..+0.08;
+  precise extraction/translation/json → temperature -0.04..-0.06, top_p -0.03..-0.05; long report → max_tokens +256..+384.
+  Omit keys you do not need. Keep every value within ±0.12 for temperature, ±0.08 for top_p, ±24 for top_k,
+  ±0.15 for penalties, ±512 for max_tokens. Omit inference_delta entirely for routine turns.

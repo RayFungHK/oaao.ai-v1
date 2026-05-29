@@ -31,6 +31,7 @@ return [
             'oaaoai/corpus'        => 'default',
             'oaaoai/library'       => 'default',
             'oaaoai/calendar'      => 'default',
+            'oaaoai/todo'          => 'default',
             'oaaoai/mine'          => 'default',
         ],
     ],

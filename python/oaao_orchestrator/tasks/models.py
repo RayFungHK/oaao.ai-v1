@@ -255,6 +255,10 @@ class RunPlan(BaseModel):
         default_factory=list,
         description="Micro skill ids applied this turn (CS-4-S7 usage tracking).",
     )
+    inference_delta: dict[str, Any] | None = Field(
+        default=None,
+        description="Bounded auto_tune sampling deltas from planner (UX-1 v2).",
+    )
 
     def task_list_payload(self, *, allowed_agents: list[str] | None = None) -> dict[str, Any]:
         from oaao_orchestrator.tasks.stream_emit import resolve_run_task_agent_kind

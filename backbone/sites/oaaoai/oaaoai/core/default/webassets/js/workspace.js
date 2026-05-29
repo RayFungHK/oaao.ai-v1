@@ -12,6 +12,8 @@ import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-u
 import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 import { openWorkspaceSettingsDialog } from './settings-dialog.js';
 import { wireWorkspaceNotifications } from './notification-panel.js';
+import { wireWorkspaceTodos } from './todos-panel.js';
+import { openWhatsNewDialog } from './whats-new-dialog.js';
 
 /**
  * @param {string} value
@@ -1381,6 +1383,13 @@ export function initWorkspaceShell() {
 
     applyWorkspaceShellLabels();
 
+    if (!document.body.dataset.oaaoLocaleChangedBound) {
+        document.body.dataset.oaaoLocaleChangedBound = '1';
+        document.addEventListener('oaao-locale-changed', () => {
+            applyWorkspaceShellLabels();
+        });
+    }
+
     syncWorkspaceScopeFromUrlOrStorage(root);
     wireWorkspaceScopeQuickPersonal(root);
     void primeWorkspaceScopeFromServer(root);
@@ -1521,16 +1530,44 @@ export function initWorkspaceShell() {
 
     function wireUserHeaderMenu() {
         const pref = document.getElementById('workspace-menu-preferences');
-        if (!pref || pref.dataset.oaaoUserMenuBound === '1') return;
-        pref.dataset.oaaoUserMenuBound = '1';
-        pref.addEventListener('click', () => {
-            void openWorkspacePreferencesDialog(razyui).catch((err) => {
-                console.error('[oaao] preferences dialog failed', err);
+        if (pref && pref.dataset.oaaoUserMenuBound !== '1') {
+            pref.dataset.oaaoUserMenuBound = '1';
+            pref.addEventListener('click', () => {
+                void openWorkspacePreferencesDialog(razyui).catch((err) => {
+                    console.error('[oaao] preferences dialog failed', err);
+                });
+                pref.blur();
+                document.getElementById('workspace-user-menu-trigger')?.blur();
+                drawerCtl?.closeIfMobile();
             });
-            pref.blur();
-            document.getElementById('workspace-user-menu-trigger')?.blur();
-            drawerCtl?.closeIfMobile();
-        });
+        }
+
+        const whatsNew = document.getElementById('workspace-menu-whats-new');
+        if (whatsNew && whatsNew.dataset.oaaoUserMenuBound !== '1') {
+            whatsNew.dataset.oaaoUserMenuBound = '1';
+            whatsNew.addEventListener('click', () => {
+                void openWhatsNewDialog().catch((err) => {
+                    console.error('[oaao] whats new dialog failed', err);
+                });
+                whatsNew.blur();
+                document.getElementById('workspace-user-menu-trigger')?.blur();
+                drawerCtl?.closeIfMobile();
+            });
+        }
+
+        const buildLine = document.getElementById('workspace-menu-build-line');
+        if (buildLine && buildLine.dataset.oaaoUserMenuBound !== '1') {
+            buildLine.dataset.oaaoUserMenuBound = '1';
+            buildLine.addEventListener('click', () => {
+                const since = (document.body?.dataset?.oaaoBuildId ?? '').trim();
+                void openWhatsNewDialog({ sinceBuild: since }).catch((err) => {
+                    console.error('[oaao] whats new dialog failed', err);
+                });
+                buildLine.blur();
+                document.getElementById('workspace-user-menu-trigger')?.blur();
+                drawerCtl?.closeIfMobile();
+            });
+        }
     }
 
     /** Chat vs Vault middle sidebar — keyed off active SPA route; workspace picker stays in {@code #workspace-scope-section}. */
@@ -1967,6 +2004,28 @@ export function initWorkspaceShell() {
     wireUserHeaderMenu();
 
     wireWorkspaceNotifications();
+    wireWorkspaceTodos();
+
+    if (!document.body.dataset.oaaoNavigateCalendarBound) {
+        document.body.dataset.oaaoNavigateCalendarBound = '1';
+        document.addEventListener('oaao:navigate-calendar', () => {
+            void navigate('workspace/calendar');
+        });
+    }
+
+    if (!document.body.dataset.oaaoNavigateChatBound) {
+        document.body.dataset.oaaoNavigateChatBound = '1';
+        document.addEventListener('oaao:navigate-chat', (ev) => {
+            const cid = Math.floor(Number(/** @type {CustomEvent} */ (ev).detail?.conversation_id ?? 0));
+            if (cid < 1) return;
+            const u = new URL(window.location.href);
+            u.searchParams.set('conversation_id', String(cid));
+            const qs = u.searchParams.toString();
+            const next = `${u.pathname}${qs ? `?${qs}` : ''}${u.hash}`;
+            window.history.pushState(window.history.state ?? {}, '', next);
+            void navigate('workspace/chat');
+        });
+    }
 
     wireRoutingPurposeSelector();
 

@@ -67,11 +67,23 @@ function renderNotificationList(panel, badge, rows) {
         meta.textContent = String(row.kind || 'system');
         item.append(meta);
         const nid = Number(row.notification_id ?? 0);
-        if (Number.isFinite(nid) && nid > 0 && !row.read) {
-            item.addEventListener('click', () => {
-                void markNotificationsRead([nid]).then(() => refreshNotifications(panel, badge));
+        const kind = String(row.kind || 'system');
+        item.addEventListener('click', () => {
+            const mark = Number.isFinite(nid) && nid > 0 && !row.read
+                ? markNotificationsRead([nid]).then(() => refreshNotifications(panel, badge))
+                : Promise.resolve();
+            void mark.then(async () => {
+                if (kind === 'release') {
+                    try {
+                        const mod = await import('./whats-new-dialog.js');
+                        const since = (document.body?.dataset?.oaaoBuildId ?? '').trim();
+                        await mod.openWhatsNewDialog({ sinceBuild: since });
+                    } catch (err) {
+                        console.error('[oaao] release whats-new failed', err);
+                    }
+                }
             });
-        }
+        });
         panel.append(item);
     }
 }

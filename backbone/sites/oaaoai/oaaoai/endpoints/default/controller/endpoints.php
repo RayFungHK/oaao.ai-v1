@@ -85,13 +85,36 @@ return new class extends Controller {
     }
 
     /**
-     * Knowledge plane control — platform host + platform operator only (not tenant admin).
+     * Knowledge plane control — platform host + {@code platform_admin} only (not tenant {@code admin}).
      */
     protected function oaao_endpoints_require_platform_knowledge_admin(): ?\Razy\Database
     {
-        $db = $this->oaao_endpoints_require_admin();
-        if (! $db) {
+        header('Content-Type: application/json; charset=UTF-8');
+
+        $auth = $this->api('auth');
+        if (! $auth) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Authentication unavailable']);
+
             return null;
+        }
+
+        $auth->restrict(true);
+
+        $db = $auth->getDB();
+        if (! $db || ! $db->getDBAdapter() instanceof \PDO) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Database unavailable']);
+
+            return null;
+        }
+
+        $pdo = $db->getDBAdapter();
+        if ($pdo instanceof \PDO && $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
+            $core = $this->api('core');
+            if ($core) {
+                $core->bootstrapTenantContext($pdo);
+            }
         }
 
         $core = $this->api('core');
@@ -105,9 +128,8 @@ return new class extends Controller {
             return null;
         }
 
-        $auth = $this->api('auth');
-        $user = $auth ? $auth->getUser() : null;
-        $UserModel = $auth ? $auth->loadModel('User') : null;
+        $user = $auth->getUser();
+        $UserModel = $auth->loadModel('User');
         if (! $UserModel || ! $UserModel::isPlatformOperator($user)) {
             http_response_code(403);
             echo json_encode(

@@ -58,6 +58,18 @@ return function (): void {
                 'panel_js_module' => '/webassets/platform/default/js/platform-tenants-panel.js',
             ],
             [
+                'section_id'      => 'platform-release-notes',
+                'label'           => 'Release notes',
+                'title'           => "What's New & changelog",
+                'sub'             => 'Publish release posts for all tenants (workspace notification + What\'s New dialog).',
+                'icon'            => 'newspaper',
+                'sort'            => 15,
+                'panel_js_module' => '/webassets/platform/default/js/platform-release-notes-panel.js',
+                'label_key'       => 'settings.nav.platform_release_notes.label',
+                'title_key'       => 'settings.nav.platform_release_notes.title',
+                'sub_key'         => 'settings.nav.platform_release_notes.sub',
+            ],
+            [
                 'section_id'      => 'platform-usage',
                 'label'           => 'Usage',
                 'title'           => 'Cross-tenant usage',
@@ -89,6 +101,7 @@ return function (): void {
      */
     $oaaoAdminSettings = '0';
     $oaaoSessionActiveClass = '';
+    $oaaoUiLang = 'en';
     try {
         $authApi = $this->api('auth');
         // Emitter proxies commands via {@code __call}; {@see method_exists()} is not reliable on {@code $authApi}.
@@ -104,11 +117,23 @@ return function (): void {
                         $oaaoAdminSettings = '1';
                     }
                 }
+                try {
+                    require_once dirname(__DIR__, 3) . '/user/default/library/UserDisplayPreferences.php';
+                    $canonPdo = $authApi->getDB()?->getDBAdapter();
+                    $uid = (int) ($sessionUser->user_id ?? 0);
+                    if ($canonPdo instanceof \PDO && $uid > 0) {
+                        $loc = \oaaoai\user\UserDisplayPreferences::localeForUser($canonPdo, $uid);
+                        $oaaoUiLang = \in_array($loc, ['en', 'zh-Hant'], true) ? $loc : 'en';
+                    }
+                } catch (\Throwable) {
+                    $oaaoUiLang = 'en';
+                }
             }
         }
     } catch (\Throwable) {
         $oaaoAdminSettings = '0';
         $oaaoSessionActiveClass = '';
+        $oaaoUiLang = 'en';
     }
 
     try {
@@ -280,7 +305,7 @@ return function (): void {
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
      *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
-    $oaaoShellEsmRev = '20260529-library-shell-js-v113';
+    $oaaoShellEsmRev = '20260529-ctx-extra-toolbar-v123';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)
@@ -555,6 +580,7 @@ return function (): void {
         'oaao_admin_settings'    => $oaaoAdminSettings,
         'oaao_platform_host'     => $isPlatformShell ? '1' : '0',
         'oaao_session_active_class' => $oaaoSessionActiveClass,
+        'oaao_ui_lang'                => htmlspecialchars($oaaoUiLang, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         'oaao_mount_prefix'       => htmlspecialchars($oaaoMountPrefix, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         'oaao_core_webassets_root' => $oaao_core_webassets_root,
         'oaao_orchestrator_stream_proxy' => $oaao_orchestrator_stream_proxy,

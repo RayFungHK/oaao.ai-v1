@@ -39,6 +39,42 @@ def resolve_max_tokens(req: Any) -> int | None:
         return None
 
 
+def apply_model_params_from_request(body: dict[str, Any], req: Any) -> None:
+    """Merge UX-1 model_params from PHP onto upstream chat/completions body."""
+    raw = getattr(req, "model_params", None)
+    if not isinstance(raw, dict) or not raw:
+        return
+    if "temperature" in raw:
+        try:
+            body["temperature"] = max(0.0, min(2.0, float(raw["temperature"])))
+        except (TypeError, ValueError):
+            pass
+    if "max_tokens" in raw:
+        try:
+            mt = int(raw["max_tokens"])
+            if mt > 0:
+                body["max_tokens"] = min(mt, 128_000)
+        except (TypeError, ValueError):
+            pass
+    for key, lo, hi in (
+        ("top_p", 0.0, 1.0),
+        ("frequency_penalty", -2.0, 2.0),
+        ("presence_penalty", -2.0, 2.0),
+    ):
+        if key not in raw:
+            continue
+        try:
+            body[key] = max(lo, min(hi, float(raw[key])))
+        except (TypeError, ValueError):
+            continue
+    top_k = raw.get("top_k")
+    if top_k is not None:
+        try:
+            body["top_k"] = max(1, min(200, int(top_k)))
+        except (TypeError, ValueError):
+            pass
+
+
 def apply_upstream_sampling(body: dict[str, Any]) -> None:
     """Optional OpenAI/vLLM sampling overrides from env vars.
 

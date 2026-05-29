@@ -4,6 +4,7 @@
  */
 
 import { oaaoT } from '@oaao/core-js/oaao-i18n.js';
+import { oaaoRazyToastFire } from '@oaao/core-js/oaao-razy-toast.js';
 import { oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
 import { replaceChildrenParsed, ruiBuild } from '@oaao/core-js/oaao-jit-dsl.js';
 import { endpointsApiUrl, endpointsFetchJson } from '@oaao/core-js/endpoints-settings/api.js';
@@ -206,6 +207,7 @@ async function saveAsrSettings(form, msgEl) {
 
     state.purpose = { ...row, meta_json: metaJson };
     if (msgEl) msgEl.textContent = oaaoT('settings.asr.saved');
+    oaaoRazyToastFire(oaaoT('settings.asr.saved'), 'success');
 }
 
 /**
@@ -255,6 +257,7 @@ async function saveAsrLiveSettings(form, msgEl) {
 
     state.livePurpose = { ...row, meta_json: metaJson };
     if (msgEl) msgEl.textContent = oaaoT('settings.asr_live.saved');
+    oaaoRazyToastFire(oaaoT('settings.asr_live.saved'), 'success');
 }
 
 export function teardownSettingsPanel() {

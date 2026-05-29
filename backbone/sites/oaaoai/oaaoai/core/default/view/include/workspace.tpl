@@ -198,6 +198,11 @@
                                     class="oaao-library-sidebar-btn-secondary">
                                     <span data-i18n="workspace.library_import_text">Import text</span>
                                 </button>
+                                <button type="button" id="workspace-library-import-file-btn"
+                                    class="oaao-library-sidebar-btn-secondary">
+                                    <span data-i18n="workspace.library_import_file">Import file</span>
+                                </button>
+                                <input type="file" id="workspace-library-import-file" class="hidden" accept=".pdf,.doc,.docx,.txt,.md,.html,.htm" />
                             </div>
                             <div id="workspace-library-doc-list" role="list"
                                 class="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] px-sm pb-md flex flex-col gap-0.5 items-stretch justify-start [&>*]:flex-none [&>*]:min-h-0 [&>*]:max-h-none [&>*]:shrink-0 [&>*]:self-stretch"></div>
@@ -273,6 +278,23 @@
                             </svg>
                             <span data-i18n="workspace.service_ok">All systems operational</span>
                         </span>
+                        <div class="oaao-header-alerts-tray flex items-center gap-1 shrink-0" role="group" aria-label="Alerts">
+                        <div class="oaao-todos-menu oaao-notifications-menu relative inline-flex items-center">
+                            <button type="button" id="workspace-todos-trigger"
+                                class="relative inline-flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer font-inherit fg-[var(--grid-caption)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
+                                aria-expanded="false"
+                                aria-haspopup="true"
+                                aria-controls="workspace-todos-panel"
+                                aria-label="Todos"
+                                title="Todos">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                                <span id="workspace-todos-badge"
+                                    class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-[var(--grid-accent)] fg-white text-[0.625rem] fw-semibold leading-4 text-center pointer-events-none"></span>
+                            </button>
+                            <div id="workspace-todos-anchor" class="oaao-notifications-anchor hidden" hidden>
+                                <div id="workspace-todos-panel" role="menu" class="oaao-notifications-panel"></div>
+                            </div>
+                        </div>
                         <div class="oaao-notifications-menu relative inline-flex items-center">
                             <button type="button" id="workspace-notifications-trigger"
                                 class="relative inline-flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer font-inherit fg-[var(--grid-caption)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
@@ -288,6 +310,7 @@
                             <div id="workspace-notifications-anchor" class="oaao-notifications-anchor hidden" hidden>
                                 <div id="workspace-notifications-panel" role="menu" class="oaao-notifications-panel"></div>
                             </div>
+                        </div>
                         </div>
                         <!-- Account menu: hand-rolled panel + JIT today; prefer {@code rui-dropdown} / {@see Dropdown.js} + {@code registerElement} when init wiring lands — practice RazyUI, avoid parallel menu semantics. Keep {@code #workspace-user-label} for preferences greeting ({@see preferences-dialog.js}). -->
                         <div class="oaao-user-menu relative inline-flex items-center">
@@ -311,12 +334,17 @@
                                     class="w-full text-left px-3 py-2 text-[0.8125rem] fg-[var(--grid-ink)] bg-transparent border-none cursor-pointer font-inherit hover:bg-[var(--grid-line)]/35">
                                     <span data-i18n="workspace.menu_preferences">Preferences</span>
                                 </button>
+                                <button type="button" role="menuitem" id="workspace-menu-whats-new"
+                                    class="w-full text-left px-3 py-2 text-[0.8125rem] fg-[var(--grid-ink)] bg-transparent border-none cursor-pointer font-inherit hover:bg-[var(--grid-line)]/35">
+                                    <span>What's New</span>
+                                </button>
                                 <button type="button" role="menuitem" id="workspace-logout"
                                     class="w-full text-left px-3 py-2 text-[0.8125rem] fg-[var(--grid-accent)] bg-transparent border-none cursor-pointer font-inherit hover:bg-[var(--grid-line)]/35">
                                     <span data-i18n="workspace.sign_out">Sign out</span>
                                 </button>
-                                <p class="oaao-build-info-line px-3 py-2 mb-0 mt-0 text-[0.6875rem] font-mono fg-[var(--grid-caption)] border-t-[1px] border-solid border-[var(--grid-line)] truncate"
-                                    role="status" aria-live="polite"></p>
+                                <button type="button" id="workspace-menu-build-line"
+                                    class="oaao-build-info-line w-full text-left px-3 py-2 mb-0 mt-0 text-[0.6875rem] font-mono fg-[var(--grid-caption)] border-t-[1px] border-solid border-[var(--grid-line)] truncate bg-transparent border-x-0 border-b-0 cursor-pointer font-inherit hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
+                                    role="status" aria-live="polite" title="View release notes"></button>
                             </div>
                         </div>
                     </div>

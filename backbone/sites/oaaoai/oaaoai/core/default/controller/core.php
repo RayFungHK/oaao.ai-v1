@@ -486,6 +486,22 @@ return new class extends Controller {
             ],
         );
 
+        PreferencesRegister::add(
+            'pref-model-tuning',
+            'Model tuning',
+            'Model tuning survey',
+            'Personality packs and a short questionnaire that tune default chat parameters.',
+            'gauge',
+            [
+                'sort'            => 6,
+                'levels'          => ['personal'],
+                'panel_js_module' => '/webassets/core/default/js/oaao-personalization-survey-panel.js',
+                'label_key'       => 'preferences.nav.model_tuning.label',
+                'title_key'       => 'preferences.nav.model_tuning.title',
+                'sub_key'         => 'preferences.nav.model_tuning.sub',
+            ],
+        );
+
         $asrPrefJs = '/webassets/live-meeting/default/js/asr-user-preferences-panel.js';
 
         PreferencesRegister::add(

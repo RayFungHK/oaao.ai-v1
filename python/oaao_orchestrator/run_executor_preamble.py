@@ -355,6 +355,26 @@ async def prepare_run_preamble(
             )
         )
 
+    from oaao_orchestrator.inference_tune import apply_turn_inference_sampling
+    from oaao_orchestrator.planner_llm import _last_user_message
+    from oaao_orchestrator.post_stream_persist import schedule_inference_turn_apply
+    from oaao_orchestrator.post_stream_pool import build_post_stream_plugin_ctx_meta
+
+    user_msg_infer = _last_user_message(messages_for_llm)
+    inf_snap = apply_turn_inference_sampling(req, plan, user_message=user_msg_infer)
+    if inf_snap:
+        iqs_snap["inference"] = inf_snap
+        await run.append(
+            StreamEnvelope(
+                phase=PHASE_SYSTEM,
+                kind=KIND_STATUS,
+                text="inference_applied",
+                payload=inf_snap,
+            )
+        )
+        meta_infer = build_post_stream_plugin_ctx_meta(req, {})
+        schedule_inference_turn_apply(meta=meta_infer, inference=inf_snap)
+
     task_queue: list[RunTaskSpec] = list(plan.tasks)
     report_after_ids = set(plan.report_after_task_ids)
     pipeline_timing["thinking_ms"] = _elapsed_ms_since(t_start)

@@ -4,6 +4,7 @@
  */
 
 import { oaaoT } from './oaao-i18n.js';
+import { oaaoRazyToastFire } from './oaao-razy-toast.js';
 import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 import { replaceChildrenParsed, ruiBuild } from './oaao-jit-dsl.js';
 import { endpointsApiUrl, endpointsFetchJson } from './endpoints-settings/api.js';
@@ -178,6 +179,7 @@ async function saveRagSettings(form, msgEl) {
 
     state.purpose = { ...row, meta_json: metaJson };
     if (msgEl) msgEl.textContent = oaaoT('settings.rag.saved');
+    oaaoRazyToastFire(oaaoT('settings.rag.saved'), 'success');
 }
 
 export function teardownSettingsPanel() {

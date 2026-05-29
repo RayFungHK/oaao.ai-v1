@@ -84,13 +84,31 @@ return new class extends Controller {
             ],
         );
 
+        SettingsRegister::add(
+            'settings-platform-release-notes',
+            'Release notes',
+            'Product changelog',
+            'Publish release posts and notify all tenants (platform host only).',
+            'newspaper',
+            [
+                'sort'            => 6,
+                'panel_js_module' => '/webassets/platform/default/js/platform-release-notes-panel.js',
+                'label_key'       => 'settings.nav.platform_release_notes.label',
+                'title_key'       => 'settings.nav.platform_release_notes.title',
+                'sub_key'         => 'settings.nav.platform_release_notes.sub',
+            ],
+        );
+
         $agent->addLazyRoute([
             'api' => [
-                'GET tenants_list'      => 'tenants_list',
-                'POST tenants_save'     => 'tenants_save',
-                'POST tenants_hosts_add' => 'tenants_hosts_add',
-                'POST qdrant_migrate'   => 'qdrant_migrate',
-                'GET usage_summary'     => 'usage_summary',
+                'GET tenants_list'           => 'tenants_list',
+                'POST tenants_save'          => 'tenants_save',
+                'POST tenants_hosts_add'     => 'tenants_hosts_add',
+                'POST qdrant_migrate'        => 'qdrant_migrate',
+                'GET usage_summary'          => 'usage_summary',
+                'GET release_posts_list'     => 'release_posts_list',
+                'POST release_posts_save'    => 'release_posts_save',
+                'POST release_posts_publish' => 'release_posts_publish',
             ],
         ]);
 

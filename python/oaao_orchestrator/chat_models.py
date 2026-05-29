@@ -154,6 +154,22 @@ class ChatRunRequest(BaseModel):
         default=None,
         description="HMAC-signed run identity from PHP send — validates user/conversation/message for the whole run.",
     )
+    model_params: dict[str, Any] | None = Field(
+        default=None,
+        description="UX-1 — user overrides: temperature, top_p, top_k, presence_penalty, frequency_penalty, max_tokens.",
+    )
+    inference_mode: str | None = Field(
+        default=None,
+        description="off | manual | auto_tune — thread inference control from PHP send.",
+    )
+    inference_baseline: dict[str, Any] | None = Field(
+        default=None,
+        description="Purpose + user baseline for auto_tune before planner delta merge.",
+    )
+    open_todo_items: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="CS-6-S7 — open todos for this conversation (todo_id, title) for completion checker.",
+    )
     user_personalization: dict[str, Any] | None = Field(
         default=None,
         description="User profile, knowledge, timezone, and region from Preferences → Personalization.",

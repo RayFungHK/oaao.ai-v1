@@ -139,6 +139,22 @@ const oaaoPresets = {
         'hover:bg-[var(--grid-line)]/20 transition-colors',
     ].join(' '),
 
+    'oaao-library-toolbar-btn-primary': [
+        'rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium shrink-0',
+        'border border-solid border-[var(--grid-accent)] bg-[var(--grid-accent)]',
+        'cursor-pointer font-inherit fg-white',
+        'hover:opacity-90 transition-opacity',
+    ].join(' '),
+
+    'oaao-library-toolbar-corpus-group': [
+        'inline-flex items-center gap-2 shrink-0 h-9 px-2.5',
+        'rounded-[8px] border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)]',
+    ].join(' '),
+
+    'oaao-library-toolbar-divider': [
+        'w-px h-6 shrink-0 bg-[var(--grid-line)] self-center',
+    ].join(' '),
+
     /** Library corpus picker + native selects. */
     'oaao-library-select': [
         'rounded-[6px] h-8 px-2 text-[0.8125rem] font-inherit max-w-[11rem]',

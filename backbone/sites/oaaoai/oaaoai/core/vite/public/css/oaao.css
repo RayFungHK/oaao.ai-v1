@@ -1752,6 +1752,12 @@ button.oaao-vault-menu-active {
     pointer-events: auto;
 }
 
+.oaao-app .oaao-header-alerts-tray {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
 .oaao-app .oaao-notifications-menu {
     position: relative;
     display: inline-flex;

@@ -10,15 +10,19 @@ use oaaoai\chat\ChatContextUsage;
 use oaaoai\chat\ChatConversationCompact;
 use oaaoai\chat\ChatTokenEstimator;
 use oaaoai\chat\ChatHistorySettings;
+use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatRunPrincipal;
 use oaaoai\chat\ChatTeachingIntent;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\MicroSkillCatalog;
 use oaaoai\chat\PlannerAgentRegister;
 use oaaoai\chat\SkillsManifestStorage;
+use oaaoai\corpus\CorpusStyleResolver;
 use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
+use oaaoai\endpoints\ChatInferencePurposeConfig;
 use oaaoai\endpoints\MmModuleSettings;
 use oaaoai\user\UserDisplayPreferences;
+use oaaoai\user\UserModelParams;
 use oaaoai\user\UserPersonalization;
 
 /**
@@ -88,6 +92,16 @@ return function (): void {
         if (\in_array($pmIn, ['default', 'tot', 'ddtree'], true)) {
             $inputPlannerMode = $pmIn;
         }
+    }
+
+    $inputInferenceMode = '';
+    if (isset($input['inference_mode'])) {
+        $inputInferenceMode = ChatInferenceControl::normalizeMode((string) $input['inference_mode']);
+    }
+    /** @var array<string, int|float|null>|null $inputModelParamsNorm */
+    $inputModelParamsNorm = null;
+    if (\array_key_exists('model_params', $input) && \is_array($input['model_params'])) {
+        $inputModelParamsNorm = UserModelParams::normalize($input['model_params']);
     }
 
     $chatEndpointRaw = $input['chat_endpoint_id'] ?? null;
@@ -370,6 +384,8 @@ return function (): void {
     $assistantInsertContent = $orchReady ? '' : $assistantStub;
     $conversationModeId = 'default';
     $plannerModeId = 'default';
+    /** @var array<string, mixed>|null $paramsDec */
+    $paramsDec = null;
 
     try {
         $pdo->beginTransaction();
@@ -396,8 +412,11 @@ return function (): void {
                         if (\in_array($pm, ['default', 'tot', 'ddtree'], true)) {
                             $plannerModeId = $pm;
                         }
+                    } else {
+                        $paramsDec = null;
                     }
                 } catch (\JsonException) {
+                    $paramsDec = null;
                 }
             }
             if ($inputPlannerMode !== '') {
@@ -469,6 +488,65 @@ return function (): void {
                 ->query();
         }
 
+        if ($conversationId > 0 && $conversationCreated && $inputInferenceMode !== '') {
+            $paramsInf = [];
+            $paramsRowInf = $splitDb->prepare()
+                ->select('params_json')
+                ->from('conversation')
+                ->where('id=?,user_id=?')
+                ->assign(['id' => $conversationId, 'user_id' => $uid])
+                ->limit(1)
+                ->query()
+                ->fetch();
+            if (\is_array($paramsRowInf)) {
+                $paramsRawInf = trim((string) ($paramsRowInf['params_json'] ?? ''));
+                if ($paramsRawInf !== '') {
+                    try {
+                        $decodedInf = json_decode($paramsRawInf, true, 512, JSON_THROW_ON_ERROR);
+                        if (\is_array($decodedInf)) {
+                            $paramsInf = $decodedInf;
+                        }
+                    } catch (\JsonException) {
+                    }
+                }
+            }
+            $infPatch = ['mode' => $inputInferenceMode];
+            if ($inputInferenceMode === ChatInferenceControl::MODE_MANUAL && $inputModelParamsNorm !== null) {
+                $infPatch['model_params'] = $inputModelParamsNorm;
+            }
+            if (
+                $inputInferenceMode === ChatInferenceControl::MODE_AUTO_TUNE
+                && ChatInferenceControl::modeFromConversation($paramsInf) !== ChatInferenceControl::MODE_AUTO_TUNE
+            ) {
+                $purposeMpSeed = [];
+                if ($canonDb instanceof \Razy\Database) {
+                    $purposeMpSeed = ChatInferencePurposeConfig::resolveDefaultsForChatEndpoint(
+                        $canonDb,
+                        $chatEndpointId > 0 ? $chatEndpointId : 0,
+                    );
+                }
+                $userMpSeed = [];
+                $canonPdoSeed = $this->oaao_chat_canonical_pdo();
+                if ($canonPdoSeed instanceof \PDO) {
+                    $userMpSeed = UserModelParams::activeOverrides(
+                        UserModelParams::loadForUser($canonPdoSeed, $uid),
+                    );
+                }
+                $infPatch['auto_state'] = ChatInferenceControl::initialAutoState($purposeMpSeed, $userMpSeed);
+            }
+            $paramsInf = ChatInferenceControl::mergeIntoParams($paramsInf, $infPatch);
+            $splitDb->update('conversation', ['params_json', 'updated_at'])
+                ->where('id=?,user_id=?')
+                ->assign([
+                    'params_json'  => json_encode($paramsInf, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                    'id'           => $conversationId,
+                    'user_id'      => $uid,
+                ])
+                ->query();
+            $paramsDec = $paramsInf;
+        }
+
         $nowMsg = date('Y-m-d H:i:s');
         $userMeta = null;
         /** @var array<string, mixed> $userMetaArr */
@@ -513,6 +591,35 @@ return function (): void {
             $userMetaArr['slide_template_label'] = $slideTemplateLabel;
             $userMetaArr['slide_template_ui'] = true;
         }
+        /** @var array<string, int|float> $inferenceApplied */
+        $inferenceApplied = [];
+        /** @var array<string, mixed> $inferenceSnapshot */
+        $inferenceSnapshot = [
+            'mode'             => ChatInferenceControl::MODE_OFF,
+            'params_applied' => [],
+            'source'           => 'endpoint_defaults',
+        ];
+        if ($canonDb instanceof \Razy\Database) {
+            $purposeMpPre = ChatInferencePurposeConfig::resolveDefaultsForChatEndpoint(
+                $canonDb,
+                $chatEndpointId > 0 ? $chatEndpointId : 0,
+            );
+            $userMpPre = [];
+            $canonPdoPre = $this->oaao_chat_canonical_pdo();
+            if ($canonPdoPre instanceof \PDO) {
+                $userMpPre = UserModelParams::activeOverrides(
+                    UserModelParams::loadForUser($canonPdoPre, $uid),
+                );
+            }
+            $resolvedPre = ChatInferenceControl::resolveForSend(
+                isset($paramsDec) && \is_array($paramsDec) ? $paramsDec : null,
+                $purposeMpPre,
+                $userMpPre,
+            );
+            $inferenceSnapshot = $resolvedPre['snapshot'];
+            $inferenceApplied = $resolvedPre['params'];
+        }
+        $userMetaArr['inference'] = $inferenceSnapshot;
         if ($userMetaArr !== []) {
             try {
                 $userMeta = json_encode($userMetaArr, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -534,14 +641,29 @@ return function (): void {
         $splitDb->insert('message', $userCols)->assign($userAssign)->query();
         $userMsgId = (int) $splitDb->lastID();
 
-        $splitDb->insert('message', ['conversation_id', 'role', 'content', 'created_at'])
-            ->assign([
-                'conversation_id' => $conversationId,
-                'role'              => 'assistant',
-                'content'           => $assistantInsertContent,
-                'created_at'        => $nowMsg,
-            ])
-            ->query();
+        $asstMetaJson = null;
+        if ($inferenceSnapshot !== []) {
+            try {
+                $asstMetaJson = json_encode(
+                    ['inference' => $inferenceSnapshot],
+                    JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+                );
+            } catch (\JsonException) {
+                $asstMetaJson = null;
+            }
+        }
+        $asstCols = ['conversation_id', 'role', 'content', 'created_at'];
+        $asstAssign = [
+            'conversation_id' => $conversationId,
+            'role'              => 'assistant',
+            'content'           => $assistantInsertContent,
+            'created_at'        => $nowMsg,
+        ];
+        if ($asstMetaJson !== null) {
+            $asstCols[] = 'meta_json';
+            $asstAssign['meta_json'] = $asstMetaJson;
+        }
+        $splitDb->insert('message', $asstCols)->assign($asstAssign)->query();
         $asstMsgId = (int) $splitDb->lastID();
 
         $splitDb->update('conversation', ['updated_at'])
@@ -1006,8 +1128,46 @@ return function (): void {
                 }
             }
 
-            require_once dirname(__DIR__, 4) . '/user/default/library/UserPersonalization.php';
+            if ($inferenceApplied !== []) {
+                $payload['model_params'] = $inferenceApplied;
+                if (isset($inferenceApplied['temperature'])) {
+                    $payload['temperature'] = (float) $inferenceApplied['temperature'];
+                }
+                if (isset($inferenceApplied['max_tokens'])) {
+                    $payload['max_tokens'] = (int) $inferenceApplied['max_tokens'];
+                }
+            }
+            if (($inferenceSnapshot['mode'] ?? '') === ChatInferenceControl::MODE_AUTO_TUNE) {
+                $payload['inference_mode'] = ChatInferenceControl::MODE_AUTO_TUNE;
+                $payload['inference_baseline'] = $inferenceApplied;
+            } elseif (($inferenceSnapshot['mode'] ?? '') === ChatInferenceControl::MODE_MANUAL) {
+                $payload['inference_mode'] = ChatInferenceControl::MODE_MANUAL;
+            }
             $canonPdoForPersonalization = $this->oaao_chat_canonical_pdo();
+            if ($canonPdoForPersonalization instanceof \PDO) {
+                require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_todo_schema.php';
+                oaao_auth_ensure_todo_schema($canonPdoForPersonalization);
+                $tenantForTodos = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : (int) ($user->tenant_id ?? 0);
+                $stTodos = $canonPdoForPersonalization->prepare(
+                    'SELECT todo_id, title FROM oaao_todo_item
+                     WHERE tenant_id = ? AND user_id = ? AND status = ? AND conversation_id = ?
+                     ORDER BY updated_at DESC LIMIT 20',
+                );
+                $stTodos->execute([$tenantForTodos, $uid, 'open', $conversationId]);
+                $openTodos = [];
+                while ($row = $stTodos->fetch(\PDO::FETCH_ASSOC)) {
+                    if (! \is_array($row)) {
+                        continue;
+                    }
+                    $openTodos[] = [
+                        'todo_id' => (int) ($row['todo_id'] ?? 0),
+                        'title'   => (string) ($row['title'] ?? ''),
+                    ];
+                }
+                if ($openTodos !== []) {
+                    $payload['open_todo_items'] = $openTodos;
+                }
+            }
             $payload['user_personalization'] = UserPersonalization::forOrchestratorPayload(
                 $canonPdoForPersonalization instanceof \PDO
                     ? UserPersonalization::loadForUser($canonPdoForPersonalization, $uid)
@@ -1020,12 +1180,11 @@ return function (): void {
             $corpusIdRaw = $input['corpus_id'] ?? null;
             $corpusIdSend = ($corpusIdRaw === null || $corpusIdRaw === '') ? 0 : (int) $corpusIdRaw;
             if ($corpusIdSend > 0 && $canonDb instanceof \Razy\Database) {
-                require_once dirname(__DIR__, 4) . '/corpus/default/library/CorpusStyleResolver.php';
                 $tenantForCorpus = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;
                 if ($tenantForCorpus < 1) {
                     $tenantForCorpus = isset($user->tenant_id) ? (int) $user->tenant_id : 0;
                 }
-                $corpusStyle = \oaaoai\corpus\CorpusStyleResolver::forChatRun(
+                $corpusStyle = CorpusStyleResolver::forChatRun(
                     $canonDb,
                     $corpusIdSend,
                     max(1, $tenantForCorpus),
@@ -1103,6 +1262,9 @@ return function (): void {
         }
         if ($autoCompactApplied) {
             $responsePayload['auto_compact_applied'] = true;
+        }
+        if ($inferenceSnapshot !== []) {
+            $responsePayload['inference'] = $inferenceSnapshot;
         }
         try {
             $json = json_encode($responsePayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);

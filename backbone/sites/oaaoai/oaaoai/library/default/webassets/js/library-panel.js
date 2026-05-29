@@ -5,6 +5,40 @@
  */
 
 import { fromLibraryBlocks, toLibraryBlocks } from './library-block-adapter.js';
+import { openLibraryEditorHelpDialog } from './library-editor-help.js';
+import { installLibraryBlockEditorInteraction } from './library-block-editor-interaction.js';
+
+const LIBRARY_HELP_ICON_SVG =
+    '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>';
+
+/**
+ * Lucide circle-help — local embed avoids cross-module import fetch failures.
+ *
+ * @param {HTMLElement} host
+ * @param {{ size?: number }} [opts]
+ */
+function mountLibraryHelpIcon(host, opts = {}) {
+    const size = opts.size ?? 16;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.setAttribute('width', String(size));
+    svg.setAttribute('height', String(size));
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.className.baseVal = 'rz-icon block shrink-0 pointer-events-none';
+    svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = LIBRARY_HELP_ICON_SVG;
+    host.replaceChildren(svg);
+}
+
+const LIBRARY_BTN_GHOST =
+    'inline-flex items-center justify-center rounded-[8px] h-9 px-3 text-[0.8125rem] shrink-0 border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit fg-[var(--grid-ink)] hover:bg-[var(--grid-line)]/25 transition-colors';
+const LIBRARY_BTN_PRIMARY =
+    'inline-flex items-center justify-center rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium shrink-0 border border-solid border-[var(--grid-accent)] bg-[var(--grid-accent)] cursor-pointer font-inherit fg-white hover:opacity-90 transition-opacity';
 
 /** @type {number|null} */
 let activeDocumentId = null;
@@ -26,6 +60,124 @@ let cachedCorpusProfiles = [];
 
 let saveTimer = null;
 let editorStylesInjected = false;
+
+/** @type {{ lastSavedAt: Date|null, lastIndexedAt: Date|null, activity: string }} */
+let libraryDocStatus = { lastSavedAt: null, lastIndexedAt: null, activity: '' };
+
+/** @type {Promise<{ success?: (msg: string, opts?: object) => void, error?: (msg: string, opts?: object) => void, info?: (msg: string, opts?: object) => void } | null> | null} */
+let libraryToastPromise = null;
+
+/**
+ * @param {Date|null|undefined} d
+ */
+function formatLibraryStatusTime(d) {
+    if (!(d instanceof Date) || !Number.isFinite(d.getTime())) {
+        return '—';
+    }
+    return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}
+
+/**
+ * @param {string|undefined|null} iso
+ * @returns {Date|null}
+ */
+function parseLibraryStatusTime(iso) {
+    if (!iso || typeof iso !== 'string') return null;
+    const d = new Date(iso);
+    return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function refreshLibraryStatusBar() {
+    const bar = document.querySelector('[data-oaao-library-status-bar]');
+    if (!(bar instanceof HTMLElement)) return;
+    const saveEl = bar.querySelector('[data-oaao-library-status-save]');
+    const indexEl = bar.querySelector('[data-oaao-library-status-index]');
+    const revEl = bar.querySelector('[data-oaao-library-status-rev]');
+    const actEl = bar.querySelector('[data-oaao-library-status-activity]');
+    if (saveEl instanceof HTMLElement) {
+        saveEl.textContent = `Last saved: ${formatLibraryStatusTime(libraryDocStatus.lastSavedAt)}`;
+    }
+    if (indexEl instanceof HTMLElement) {
+        indexEl.textContent = `Indexed: ${formatLibraryStatusTime(libraryDocStatus.lastIndexedAt)}`;
+    }
+    if (revEl instanceof HTMLElement) {
+        const rev = editorState?.revision_id;
+        revEl.textContent =
+            rev != null && Number.isFinite(Number(rev)) ? `Revision #${rev}` : 'Revision —';
+    }
+    if (actEl instanceof HTMLElement) {
+        actEl.textContent = libraryDocStatus.activity;
+        actEl.classList.toggle('hidden', libraryDocStatus.activity === '');
+    }
+}
+
+async function loadLibraryToastCtor() {
+    if (!libraryToastPromise) {
+        libraryToastPromise = (async () => {
+            try {
+                const razyui = await loadRazyui();
+                if (typeof razyui?.load !== 'function') return null;
+                const loaded = await razyui.load('Toast');
+                const Toast = loaded?.default ?? loaded;
+                return typeof Toast === 'function' ? Toast : null;
+            } catch (err) {
+                console.warn('[library-panel] Toast load failed', err);
+                return null;
+            }
+        })();
+    }
+    return libraryToastPromise;
+}
+
+/**
+ * @param {'success'|'error'|'info'} kind
+ * @param {string} message
+ */
+async function libraryToast(kind, message) {
+    try {
+        const Toast = await loadLibraryToastCtor();
+        const fn = Toast?.[kind];
+        if (typeof fn === 'function') {
+            fn(message, { duration: 2800, position: 'bottom-right' });
+        }
+    } catch {
+        /* noop */
+    }
+}
+
+/**
+ * @param {HTMLElement} [parent]
+ * @returns {HTMLElement}
+ */
+function createLibraryStatusBar(parent) {
+    const bar = document.createElement('footer');
+    bar.dataset.oaaoLibraryStatusBar = '1';
+    bar.className =
+        'oaao-library-status-bar shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 min-h-[2.25rem] border-t border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] text-[0.6875rem] fg-[var(--grid-caption)] tabular-nums';
+
+    const saveSpan = document.createElement('span');
+    saveSpan.dataset.oaaoLibraryStatusSave = '1';
+    saveSpan.textContent = 'Last saved: —';
+
+    const indexSpan = document.createElement('span');
+    indexSpan.dataset.oaaoLibraryStatusIndex = '1';
+    indexSpan.textContent = 'Indexed: —';
+
+    const revSpan = document.createElement('span');
+    revSpan.dataset.oaaoLibraryStatusRev = '1';
+    revSpan.className = 'hidden sm:inline';
+    revSpan.textContent = 'Revision —';
+
+    const activity = document.createElement('span');
+    activity.dataset.oaaoLibraryStatusActivity = '1';
+    activity.className = 'ml-auto fg-[var(--grid-ink-muted)] empty:hidden hidden';
+    activity.setAttribute('aria-live', 'polite');
+
+    bar.append(saveSpan, indexSpan, revSpan, activity);
+    if (parent) parent.append(bar);
+    refreshLibraryStatusBar();
+    return bar;
+}
 
 function mountPrefix() {
     return (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
@@ -318,11 +470,12 @@ function renderLibraryEditorEmpty(editorHost) {
     if (JIT?.hydrate) JIT.hydrate(wrap);
 }
 
+/**
+ * @param {string} text — transient activity (e.g. Saving…); persistent times live in the status bar.
+ */
 function setSaveStatus(text) {
-    const el = document.querySelector('[data-oaao-library-save-status]');
-    if (el instanceof HTMLElement) {
-        el.textContent = text;
-    }
+    libraryDocStatus.activity = String(text ?? '');
+    refreshLibraryStatusBar();
 }
 
 /**
@@ -344,54 +497,55 @@ async function renderLibraryEditor(editorHost) {
 
     const head = document.createElement('header');
     head.className =
-        'oaao-library-block-editor-toolbar flex flex-wrap items-center gap-2 shrink-0 px-6 py-2.5';
+        'oaao-library-block-editor-toolbar flex items-center justify-between gap-2 shrink-0 px-4 py-2 min-h-[3rem]';
 
-    const hint = document.createElement('span');
-    hint.className = 'text-[0.75rem] fg-[var(--grid-caption)] flex-1 min-w-[10rem]';
-    hint.textContent =
-        "Type / for blocks · #/##/### + Space for headings · Table in slash menu · drag ⠇ to reorder";
+    const helpBtn = document.createElement('button');
+    helpBtn.type = 'button';
+    helpBtn.className =
+        'inline-flex items-center justify-center w-8 h-8 p-0 shrink-0 rounded-full border border-solid border-[var(--grid-line)] bg-transparent cursor-pointer font-inherit fg-[var(--grid-ink-muted)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)] transition-colors';
+    helpBtn.title = 'Editor tips';
+    helpBtn.setAttribute('aria-label', 'Editor tips');
+    mountLibraryHelpIcon(helpBtn, { size: 16 });
+    helpBtn.addEventListener('click', () => openLibraryEditorHelpDialog(hydrateJitRoot));
 
-    const corpusWrap = document.createElement('label');
-    corpusWrap.className =
-        'flex items-center gap-1.5 text-[0.75rem] fg-[var(--grid-caption)] shrink-0';
-    corpusWrap.title = 'Corpus profile for AI style (CS-2-S6)';
+    const actions = document.createElement('div');
+    actions.className = 'flex flex-wrap items-center justify-end gap-2 shrink-0';
 
-    const corpusLbl = document.createElement('span');
-    corpusLbl.textContent = 'Corpus';
-
-    const corpusSelect = document.createElement('select');
-    corpusSelect.className = 'oaao-library-select';
-    corpusSelect.innerHTML = '<option value="">Default</option>';
-    corpusSelect.addEventListener('change', () => {
-        if (!editorState) return;
-        const raw = corpusSelect.value;
-        editorState.corpus_id = raw ? Number(raw) : null;
-        scheduleLibrarySave();
+    const corpusChip = document.createElement('span');
+    corpusChip.dataset.oaaoLibraryCorpusChip = '1';
+    corpusChip.className =
+        'hidden text-[0.75rem] px-2 py-1 rounded-[6px] border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] fg-[var(--grid-caption)] shrink-0 max-w-[12rem] truncate';
+    corpusChip.title = 'Corpus template (set when document was created)';
+    void fetchCorpusProfiles().then(() => {
+        if (!editorState) {
+            corpusChip.classList.add('hidden');
+            return;
+        }
+        const cid = editorState.corpus_id;
+        if (cid == null || !Number.isFinite(cid) || cid < 1) {
+            corpusChip.classList.add('hidden');
+            corpusChip.textContent = '';
+            return;
+        }
+        const profile = cachedCorpusProfiles.find((p) => p.corpus_id === cid);
+        corpusChip.textContent = profile?.name ? `Template: ${profile.name}` : `Template #${cid}`;
+        corpusChip.classList.remove('hidden');
     });
 
-    corpusWrap.append(corpusLbl, corpusSelect);
-
-    void fetchCorpusProfiles().then((profiles) => {
-        if (!editorState) return;
-        const current = editorState.corpus_id;
-        corpusSelect.replaceChildren();
-        const defaultOpt = document.createElement('option');
-        defaultOpt.value = '';
-        defaultOpt.textContent = 'Default';
-        corpusSelect.append(defaultOpt);
-        for (const p of profiles) {
-            const opt = document.createElement('option');
-            opt.value = String(p.corpus_id);
-            opt.textContent = p.name;
-            corpusSelect.append(opt);
+    const embedBtn = document.createElement('button');
+    embedBtn.type = 'button';
+    embedBtn.className = LIBRARY_BTN_GHOST;
+    embedBtn.textContent = 'Index for search';
+    embedBtn.title = 'Enqueue Soft-RAG embedding for this library revision (L-ED-6)';
+    embedBtn.addEventListener('click', () => {
+        if (activeDocumentId) {
+            void runLibraryDocumentEmbed(activeDocumentId, editorHost);
         }
-        corpusSelect.value =
-            current != null && Number.isFinite(current) && current > 0 ? String(current) : '';
     });
 
     const finalizeBtn = document.createElement('button');
     finalizeBtn.type = 'button';
-    finalizeBtn.className = 'oaao-library-toolbar-btn';
+    finalizeBtn.className = LIBRARY_BTN_PRIMARY;
     finalizeBtn.textContent = 'Finalize to Vault';
     finalizeBtn.title = 'Copy this document into Vault for Hard-RAG indexing';
     finalizeBtn.addEventListener('click', () => {
@@ -400,12 +554,8 @@ async function renderLibraryEditor(editorHost) {
         }
     });
 
-    const saveLbl = document.createElement('span');
-    saveLbl.dataset.oaaoLibrarySaveStatus = '1';
-    saveLbl.className = 'text-[0.75rem] fg-[var(--grid-caption)] shrink-0 min-w-[4.5rem] text-right';
-    saveLbl.textContent = '';
-
-    head.append(hint, corpusWrap, finalizeBtn, saveLbl);
+    actions.append(corpusChip, embedBtn, finalizeBtn);
+    head.append(helpBtn, actions);
 
     const body = document.createElement('div');
     body.className = 'oaao-library-block-editor-mount flex-1 min-h-0 overflow-y-auto overscroll-contain';
@@ -416,6 +566,7 @@ async function renderLibraryEditor(editorHost) {
     body.append(loading);
 
     shell.append(head, body);
+    createLibraryStatusBar(shell);
     editorHost.append(shell);
 
     try {
@@ -449,6 +600,7 @@ async function renderLibraryEditor(editorHost) {
             },
         });
         blockEditorControl = blockEditorInstance.getControl();
+        installLibraryBlockEditorInteraction(body);
         await hydrateBlockEditorMount(body);
     } catch (err) {
         console.error('[library-panel] BlockEditor failed', err);
@@ -462,6 +614,36 @@ async function renderLibraryEditor(editorHost) {
     const JIT = globalThis.JIT;
     if (JIT?.hydrate) JIT.hydrate(shell);
     hydrateJitRoot(head);
+}
+
+/**
+ * L-ED-6 — enqueue Soft-RAG embed for current library revision.
+ *
+ * @param {number} documentId
+ * @param {HTMLElement} _editorHost
+ */
+async function runLibraryDocumentEmbed(documentId, _editorHost) {
+    if (!editorState) return;
+    syncEditorStateFromControl();
+    setSaveStatus('Indexing…');
+    const { res, data } = await libraryFetchJson('library_document_embed', {
+        method: 'POST',
+        body: JSON.stringify({
+            document_id: documentId,
+            revision_id: editorState.revision_id,
+            title: editorState.title,
+            blocks: editorState.blocks,
+        }),
+    });
+    if (!res.ok || !data?.success) {
+        setSaveStatus('');
+        void libraryToast('error', String(data?.message || 'Index failed'));
+        return;
+    }
+    libraryDocStatus.lastIndexedAt = new Date();
+    setSaveStatus('');
+    refreshLibraryStatusBar();
+    void libraryToast('success', 'Indexed for search');
 }
 
 function scheduleLibrarySave() {
@@ -495,6 +677,7 @@ async function persistLibraryEditor() {
     }
     if (!res.ok || !data?.success) {
         setSaveStatus('Save failed');
+        void libraryToast('error', String(data?.message || 'Save failed'));
         return;
     }
     const saved = data.data ?? {};
@@ -505,7 +688,9 @@ async function persistLibraryEditor() {
         editorState.corpus_id =
             saved.corpus_id != null && Number(saved.corpus_id) > 0 ? Number(saved.corpus_id) : null;
     }
-    setSaveStatus('Saved');
+    libraryDocStatus.lastSavedAt = new Date();
+    setSaveStatus('');
+    refreshLibraryStatusBar();
     const listHost = document.getElementById('workspace-library-doc-list');
     if (listHost) {
         void refreshLibrarySidebarList(listHost);
@@ -520,6 +705,7 @@ async function openLibraryDocument(documentId) {
     const editorHost = document.querySelector('[data-oaao-library-mount]');
     if (!(editorHost instanceof HTMLElement)) return;
 
+    libraryDocStatus = { lastSavedAt: null, lastIndexedAt: null, activity: '' };
     setSaveStatus('');
     const { res, data } = await libraryFetchJson(
         `library_document_get?document_id=${encodeURIComponent(String(documentId))}`,
@@ -543,6 +729,7 @@ async function openLibraryDocument(documentId) {
             d.corpus_id != null && Number(d.corpus_id) > 0 ? Number(d.corpus_id) : null,
         blocks: Array.isArray(d.blocks) ? d.blocks : [{ type: 'paragraph', content: '' }],
     };
+    libraryDocStatus.lastSavedAt = parseLibraryStatusTime(d.updated_at);
     await renderLibraryEditor(editorHost);
     const listHost = document.getElementById('workspace-library-doc-list');
     if (listHost) {
@@ -550,46 +737,175 @@ async function openLibraryDocument(documentId) {
     }
 }
 
+async function loadLibraryDialogCtor() {
+    try {
+        const razyui = await loadRazyui();
+        if (typeof razyui?.load !== 'function') {
+            console.error('[library-panel] RazyUI loader missing .load');
+            return null;
+        }
+        const loaded = await razyui.load('Dialog');
+        const Dialog = loaded?.default ?? loaded;
+        return typeof Dialog?.open === 'function' ? Dialog : null;
+    } catch (err) {
+        console.error('[library-panel] Dialog load failed', err);
+        return null;
+    }
+}
+
 async function importLibraryText() {
-    const title = window.prompt('Document title', 'Imported')?.trim() || 'Imported';
-    const text = window.prompt('Paste text to convert into blocks')?.trim() ?? '';
-    if (!text) return;
-    const wid = activeWorkspaceId();
-    const { res, data } = await libraryFetchJson('library_document_convert', {
-        method: 'POST',
-        body: JSON.stringify({
-            title,
-            text,
-            workspace_id: wid,
-        }),
+    const Dialog = await loadLibraryDialogCtor();
+    if (!Dialog?.open) return;
+
+    const body = document.createElement('div');
+    body.className = 'flex flex-col gap-3';
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.className =
+        'w-full rounded-[8px] border border-solid border-[var(--grid-line)] px-3 py-2 text-[0.875rem] font-inherit';
+    titleInput.placeholder = 'Document title';
+    titleInput.value = 'Imported';
+    const textArea = document.createElement('textarea');
+    textArea.className =
+        'w-full min-h-[140px] rounded-[8px] border border-solid border-[var(--grid-line)] px-3 py-2 text-[0.875rem] font-inherit resize-y';
+    textArea.placeholder = 'Paste text to convert into blocks…';
+    body.append(titleInput, textArea);
+
+    Dialog.open({
+        title: 'Import text',
+        content: body,
+        size: 'md',
+        buttons: [
+            { text: 'Cancel', color: 'muted', action: async () => true },
+            {
+                text: 'Import',
+                color: 'accent',
+                action: async () => {
+                    const title = titleInput.value.trim() || 'Imported';
+                    const text = textArea.value.trim();
+                    if (!text) return false;
+                    const wid = activeWorkspaceId();
+                    const { res, data } = await libraryFetchJson('library_document_convert', {
+                        method: 'POST',
+                        body: JSON.stringify({ title, text, workspace_id: wid }),
+                    });
+                    if (!res.ok || !data?.success) return false;
+                    const id = Number(data?.data?.document_id);
+                    if (!Number.isFinite(id) || id < 1) return false;
+                    const listHost = document.getElementById('workspace-library-doc-list');
+                    if (listHost) await refreshLibrarySidebarList(listHost);
+                    await openLibraryDocument(id);
+                    return true;
+                },
+            },
+        ],
     });
+}
+
+/**
+ * @param {File} file
+ */
+async function importLibraryFile(file) {
+    const wid = activeWorkspaceId();
+    const fd = new FormData();
+    fd.append('file', file);
+    const baseTitle = file.name.replace(/\.[^.]+$/, '') || 'Imported';
+    fd.append('title', baseTitle);
+    if (wid != null) fd.append('workspace_id', String(wid));
+
+    const url = `${mountPrefix()}/library/api/library_document_convert_upload`.replace(/\/{2,}/g, '/');
+    const res = await fetch(url, { method: 'POST', credentials: 'include', body: fd });
+    let data = null;
+    try {
+        data = await res.json();
+    } catch {
+        data = null;
+    }
     if (!res.ok || !data?.success) return;
     const id = Number(data?.data?.document_id);
     if (!Number.isFinite(id) || id < 1) return;
     const listHost = document.getElementById('workspace-library-doc-list');
-    if (listHost) {
-        await refreshLibrarySidebarList(listHost);
-    }
+    if (listHost) await refreshLibrarySidebarList(listHost);
     await openLibraryDocument(id);
 }
 
 async function createLibraryDocument() {
-    const wid = activeWorkspaceId();
-    const { res, data } = await libraryFetchJson('library_document_create', {
-        method: 'POST',
-        body: JSON.stringify({
-            title: 'Untitled',
-            workspace_id: wid,
-        }),
-    });
-    if (!res.ok || !data?.success) return;
-    const id = Number(data?.data?.document_id);
-    if (!Number.isFinite(id) || id < 1) return;
-    const listHost = document.getElementById('workspace-library-doc-list');
-    if (listHost) {
-        await refreshLibrarySidebarList(listHost);
+    const Dialog = await loadLibraryDialogCtor();
+    if (!Dialog?.open) return;
+
+    await fetchCorpusProfiles();
+
+    const body = document.createElement('div');
+    body.className = 'flex flex-col gap-3';
+
+    const titleLbl = document.createElement('label');
+    titleLbl.className = 'flex flex-col gap-1 text-[0.8125rem] fg-[var(--grid-ink)]';
+    titleLbl.textContent = 'Title';
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.className =
+        'w-full rounded-[8px] border border-solid border-[var(--grid-line)] px-3 py-2 text-[0.875rem] font-inherit';
+    titleInput.placeholder = 'Document title';
+    titleInput.value = 'Untitled';
+    titleLbl.append(titleInput);
+
+    const corpusLbl = document.createElement('label');
+    corpusLbl.className = 'flex flex-col gap-1 text-[0.8125rem] fg-[var(--grid-ink)]';
+    corpusLbl.textContent = 'Corpus template (style preset)';
+    const corpusSelect = document.createElement('select');
+    corpusSelect.className =
+        'w-full rounded-[8px] border border-solid border-[var(--grid-line)] px-3 py-2 text-[0.875rem] font-inherit bg-[var(--grid-paper)]';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'Default (no corpus profile)';
+    corpusSelect.append(defaultOpt);
+    for (const p of cachedCorpusProfiles) {
+        const opt = document.createElement('option');
+        opt.value = String(p.corpus_id);
+        opt.textContent = p.name;
+        corpusSelect.append(opt);
     }
-    await openLibraryDocument(id);
+    corpusLbl.append(corpusSelect);
+
+    body.append(titleLbl, corpusLbl);
+
+    Dialog.open({
+        title: 'New document',
+        content: body,
+        size: 'md',
+        buttons: [
+            { text: 'Cancel', color: 'muted', action: async () => true },
+            {
+                text: 'Create',
+                color: 'accent',
+                action: async () => {
+                    const wid = activeWorkspaceId();
+                    const title = titleInput.value.trim() || 'Untitled';
+                    const corpusRaw = corpusSelect.value.trim();
+                    const payload = {
+                        title,
+                        workspace_id: wid,
+                    };
+                    if (corpusRaw !== '') {
+                        payload.corpus_id = Number(corpusRaw);
+                    }
+                    const { res, data } = await libraryFetchJson('library_document_create', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    if (!res.ok || !data?.success) return false;
+                    const id = Number(data?.data?.document_id);
+                    if (!Number.isFinite(id) || id < 1) return false;
+                    const listHost = document.getElementById('workspace-library-doc-list');
+                    if (listHost) {
+                        await refreshLibrarySidebarList(listHost);
+                    }
+                    await openLibraryDocument(id);
+                    return true;
+                },
+            },
+        ],
+    });
 }
 
 /**
@@ -733,7 +1049,10 @@ async function openLibraryFinalizeDialog(documentId, editorHost) {
         confirmBtn.textContent = 'Done';
         confirmBtn.disabled = false;
         cancelBtn.textContent = 'Close';
-        setSaveStatus('Finalized');
+        libraryDocStatus.lastIndexedAt = new Date();
+        setSaveStatus('');
+        refreshLibraryStatusBar();
+        void libraryToast('success', 'Finalized to Vault — embedding queued');
         if (editorHost instanceof HTMLElement) {
             await renderLibraryEditor(editorHost);
         }
@@ -820,6 +1139,8 @@ export async function mountLibraryPanel(host) {
     const listHost = document.getElementById('workspace-library-doc-list');
     const newBtn = document.getElementById('workspace-library-new-doc');
     const importBtn = document.getElementById('workspace-library-import-text');
+    const importFileBtn = document.getElementById('workspace-library-import-file-btn');
+    const importFileInput = document.getElementById('workspace-library-import-file');
 
     if (editorHost instanceof HTMLElement) {
         renderLibraryEditorEmpty(editorHost);
@@ -841,6 +1162,16 @@ export async function mountLibraryPanel(host) {
         importBtn.dataset.oaaoLibraryImportBound = '1';
         importBtn.addEventListener('click', () => {
             void importLibraryText();
+        });
+    }
+    if (importFileInput instanceof HTMLInputElement && importFileInput.dataset.oaaoLibraryFileBound !== '1') {
+        importFileInput.dataset.oaaoLibraryFileBound = '1';
+        const openFilePicker = () => importFileInput.click();
+        importFileBtn?.addEventListener('click', openFilePicker);
+        importFileInput.addEventListener('change', () => {
+            const file = importFileInput.files?.[0];
+            importFileInput.value = '';
+            if (file) void importLibraryFile(file);
         });
     }
 

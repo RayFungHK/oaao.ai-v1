@@ -42,6 +42,7 @@ from oaao_orchestrator.routes.contracts import router as _contracts_router
 from oaao_orchestrator.routes.vault import router as _vault_router
 from oaao_orchestrator.routes.storage import router as _storage_router
 from oaao_orchestrator.routes.knowledge import router as _knowledge_router
+from oaao_orchestrator.routes.personalization import router as _personalization_router
 from oaao_orchestrator.build_info import load_build_info
 from oaao_orchestrator.vault_job_poll import vault_job_poll_loop
 
@@ -184,5 +185,6 @@ app.include_router(_contracts_router)
 app.include_router(_vault_router)
 app.include_router(_storage_router)
 app.include_router(_knowledge_router)
+app.include_router(_personalization_router)
 
 

@@ -5,7 +5,7 @@
  */
 
 import { oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
-import { oaaoT } from '@oaao/core-js/oaao-i18n.js';
+import { oaaoApplyUiLocale, oaaoT } from '@oaao/core-js/oaao-i18n.js';
 import { mountUserUsageOverview } from './user-usage-overview.js';
 import {
     settingsActionButton,
@@ -252,7 +252,8 @@ async function mountPersonalPanel(host) {
                         ? oaaoT('preferences.personal.language_saved')
                         : j?.message || oaaoT('preferences.personal.save_failed');
                 if (r.ok && j?.success) {
-                    document.documentElement.lang = localeSel.value;
+                    oaaoApplyUiLocale(localeSel.value);
+                    window.location.reload();
                 }
             } catch {
                 langStatus.className = settingsCardStatusClass(true);

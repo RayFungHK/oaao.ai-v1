@@ -2,6 +2,7 @@
  * Platform admin shell — left sidemenu + panel host (mirrors Settings dialog chrome).
  */
 
+import { dismissOaaoBootOverlay } from './oaao-shell-ready.js';
 import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from './shell-registry-url.js';
 import { oaaoLoadingLogoElement } from './oaao-loading-logo.js';
 
@@ -69,8 +70,6 @@ function readPlatformNavRegistry() {
 async function mountPlatformSideMenu(razyui) {
     const mount = document.getElementById('platform-shell-root');
     if (!(mount instanceof HTMLElement)) return;
-
-    await ensurePlatformPanelCtx(razyui);
 
     /** @type {Array<Record<string, unknown>>} */
     const registry = readPlatformNavRegistry();
@@ -159,11 +158,13 @@ async function mountPlatformSideMenu(razyui) {
 
     body.append(scroll);
     mount.append(nav, body);
+    globalThis.JIT?.hydrate?.(mount);
+    dismissOaaoBootOverlay();
 
     const first = sections[0];
     if (titleEl()) titleEl().textContent = first.title;
     if (subEl()) subEl().textContent = first.sub;
-    await ensurePanel(first);
+    queueMicrotask(() => void ensurePanel(first));
 
     async function ensurePanel(sec) {
         const host = panelHosts.get(sec.section_id);
@@ -175,11 +176,13 @@ async function mountPlatformSideMenu(razyui) {
             host.textContent = '';
             host.append(loadingNote());
             try {
+                const ctx = await ensurePlatformPanelCtx(razyui);
                 const url = oaaoAppendShellEsmV(resolveShellRegistryUrl(sec.panel_js_module));
                 const mod = await import(url);
                 host.textContent = '';
                 if (typeof mod.mountSettingsPanel === 'function') {
-                    await mod.mountSettingsPanel(host, { section: sec, ...platformPanelCtx });
+                    await mod.mountSettingsPanel(host, { section: sec, ...ctx });
+                    globalThis.JIT?.hydrate?.(host);
                 } else {
                     host.append(errorText('Panel module missing mountSettingsPanel.'));
                 }

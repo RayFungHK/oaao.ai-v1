@@ -51,6 +51,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
@@ -85,6 +87,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
@@ -121,6 +125,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
@@ -155,6 +161,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
@@ -191,6 +199,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
@@ -225,6 +235,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
@@ -261,6 +273,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
     RewriteRule ^webassets/live-meeting/(.+?)/(.+)$ sites/oaaoai/oaaoai/live-meeting/$1/webassets/$2 [END]
@@ -295,6 +309,8 @@ RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
     RewriteRule ^webassets/core/(.+?)/(.+)$ sites/oaaoai/oaaoai/core/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
     RewriteRule ^webassets/corpus/(.+?)/(.+)$ sites/oaaoai/oaaoai/corpus/$1/webassets/$2 [END]
+    RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
+    RewriteRule ^webassets/endpoints/(.+?)/(.+)$ sites/oaaoai/oaaoai/endpoints/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
     RewriteRule ^webassets/library/(.+?)/(.+)$ sites/oaaoai/oaaoai/library/$1/webassets/$2 [END]
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk

@@ -34,6 +34,8 @@ const OAAO_I18N_BASE = {
         'chat.context_usage.ring_aria': 'Context usage',
         'chat.context_usage.auto_compact_applied':
             'Older messages were summarized automatically to free context space.',
+        'chat.inference.saved': 'Inference settings saved.',
+        'chat.inference.saved_next_chat': 'Saved for your next chat.',
         'workspace.rail_mines_title': 'Data Mining',
         'workspace.vault_menu_heading': 'Vault',
         'workspace.agents.page_title': 'Agents',
@@ -546,6 +548,78 @@ const OAAO_I18N_BASE = {
         'settings.planner.agent.web_search': 'Web search',
         'settings.planner.agent.mcp_tool': 'MCP integrations',
 
+        'settings.nav.inference.label': 'Chat inference',
+        'settings.nav.inference.title': 'Inference defaults',
+        'settings.nav.inference.sub':
+            'Purpose-level temperature, top_p, penalties, and max tokens on chat.* meta_json.inference_params.',
+        'settings.inference.loading': 'Loading chat inference defaults…',
+        'settings.inference.load_failed': 'Could not load chat inference configuration.',
+        'settings.inference.postgresql_only': 'Inference defaults require PostgreSQL (canonical purposes table).',
+        'settings.inference.no_purpose_row':
+            'No chat purpose row found. Add chat or chat.primary under Purpose allocation first.',
+        'settings.inference.routing_note':
+            'Stored on your chat purpose ({endpoint}). Merged with user prefs and per-thread overrides on send.',
+        'settings.inference.hint':
+            'Defaults for chat runs (purpose chat.*). Users and per-thread overrides can still apply on top.',
+        'settings.inference.save': 'Save defaults',
+        'settings.inference.saving': 'Saving…',
+        'settings.inference.saved': 'Inference defaults saved.',
+        'settings.inference.save_failed': 'Save failed ({status}).',
+
+        'preferences.nav.model_tuning.label': 'Model tuning',
+        'preferences.nav.model_tuning.title': 'Model tuning survey',
+        'preferences.nav.model_tuning.sub': 'AI wizard compares sample replies and maps your pick to inference parameters.',
+        'preferences.survey.loading': 'Loading…',
+        'preferences.survey.load_failed': 'Could not load tuning panel.',
+        'preferences.survey.ui_unavailable': 'Preferences UI is not ready. Reload the page.',
+        'preferences.survey.intro_wizard':
+            'Run the wizard: five guided questions → we set your chat parameters automatically.',
+        'preferences.survey.completed_badge': 'Tuning saved — run the wizard again anytime.',
+        'preferences.survey.packs_title': 'Quick preset (optional)',
+        'preferences.survey.params_none': 'No overrides yet',
+        'preferences.survey.wizard_open': 'Open tuning wizard',
+        'preferences.survey.wizard_title': 'Tune your chat style',
+        'preferences.survey.wizard_phase_choice': 'Choice',
+        'preferences.survey.wizard_phase_confirm': 'Confirm',
+        'preferences.survey.wizard_confirm': 'Confirm',
+        'preferences.survey.theme_daily': 'Daily life',
+        'preferences.survey.theme_corporate': 'Workplace',
+        'preferences.survey.theme_research': 'Research',
+        'preferences.survey.wizard_intro_body':
+            'We will ask five short questions about how you like replies — no technical sliders.',
+        'preferences.survey.wizard_intro_sub':
+            'We use one everyday scenario for the whole run. Each option shows a different sample reply on that same topic so you can compare — then we set parameters automatically.',
+        'preferences.survey.wizard_compare_samples':
+            'Same situation below — compare how the assistant would reply in each style.',
+        'preferences.survey.wizard_profile_wave': 'Your chat style profile so far',
+        'preferences.survey.wizard_profile_wave_preview':
+            'Preview — how your chat style profile looks with this option',
+        'preferences.survey.wizard_profile_wave_saved': 'Style profile updated from your choices',
+        'preferences.survey.wizard_profile_wave_final': 'Final style profile',
+        'preferences.survey.wizard_sample_label': 'Sample reply',
+        'preferences.survey.wizard_step_progress': 'Question {{current}} of {{total}}',
+        'preferences.survey.wizard_question_loading': 'Preparing your question…',
+        'preferences.survey.wizard_question_failed': 'Could not load questions.',
+        'preferences.survey.wizard_theme_badge': 'Theme: {{label}}',
+        'preferences.survey.wizard_options_loading': 'Generating three options…',
+        'preferences.survey.wizard_options_failed': 'Could not generate options.',
+        'preferences.survey.wizard_pick_hint':
+            'Read each sample reply on the same topic, then pick the one that feels best.',
+        'preferences.survey.wizard_pick_required': 'Pick one option first.',
+        'preferences.survey.wizard_tune_hint':
+            'Adjust sliders if needed, then apply to save as your default chat parameters.',
+        'preferences.survey.wizard_finalize_loading':
+            'Setting your chat style from your answers…',
+        'preferences.survey.wizard_cancel': 'Cancel',
+        'preferences.survey.wizard_back': 'Back',
+        'preferences.survey.wizard_start': 'Start',
+        'preferences.survey.wizard_next': 'Next',
+        'preferences.survey.wizard_apply': 'Apply & save',
+        'preferences.survey.save_pack': 'Save preset only',
+        'preferences.survey.saving': 'Saving…',
+        'preferences.survey.saved': 'Saved.',
+        'preferences.survey.save_failed': 'Save failed.',
+
         'settings.nav.evolution_queue.label': 'Evolution',
         'settings.nav.evolution_queue.title': 'Evolution',
         'settings.nav.evolution_queue.sub': 'Queue status, patches, crystallization, and IQS governance.',
@@ -694,6 +768,10 @@ const OAAO_I18N_BASE = {
         'settings.slot.knowledge_distill.label': 'Knowledge distill',
         'settings.slot.knowledge_distill.sub':
             'Distill snippets for RAG / training (<code class="font-mono text-xs">knowledge.distill.*</code>).',
+        'settings.nav.platform_release_notes.label': 'Release notes',
+        'settings.nav.platform_release_notes.title': "What's New & changelog",
+        'settings.nav.platform_release_notes.sub':
+            'Publish release posts for all tenants (notifications + workspace What\'s New).',
         'settings.nav.platform_knowledge.label': 'Knowledge',
         'settings.nav.platform_knowledge.title': 'Platform evolution',
         'settings.nav.platform_knowledge.sub':
@@ -1012,7 +1090,7 @@ const OAAO_I18N_BASE = {
         'preferences.personal.save_failed': 'Save failed.',
         'preferences.personal.password_changed': 'Password updated.',
         'preferences.personal.password_failed': 'Could not change password.',
-        'preferences.personal.language_saved': 'Language updated. Reload for full UI refresh.',
+        'preferences.personal.language_saved': 'Language updated. Refreshing…',
         'preferences.nav.asr.label': 'Speech',
         'preferences.nav.asr.title': 'Speech & ASR',
         'preferences.nav.asr.sub': 'Voice input polish and related ASR preferences.',
@@ -1070,6 +1148,8 @@ const OAAO_I18N_BASE = {
         'workspace.library_import_text': '匯入文字',
         'chat.context_usage.ring_aria': '上下文用量',
         'chat.context_usage.auto_compact_applied': '已自動摘要較早的訊息以釋出上下文空間。',
+        'chat.inference.saved': '推論設定已儲存。',
+        'chat.inference.saved_next_chat': '已套用至下一個對話。',
         'workspace.vault_menu_heading': '文件庫',
         'workspace.agents.page_title': 'Agent',
         'workspace.agents.page_intro':
@@ -1547,6 +1627,69 @@ const OAAO_I18N_BASE = {
         'settings.planner.agent.web_search': '網路搜尋',
         'settings.planner.agent.mcp_tool': 'MCP 整合',
 
+        'settings.nav.inference.label': 'Chat 推論',
+        'settings.nav.inference.title': '推論預設值',
+        'settings.nav.inference.sub': 'chat.* purpose 的 temperature、top_p、penalties 與 max tokens（meta_json.inference_params）。',
+        'settings.inference.loading': '正在載入 Chat 推論預設…',
+        'settings.inference.load_failed': '無法載入 Chat 推論設定。',
+        'settings.inference.postgresql_only': '推論預設需要 PostgreSQL（canonical purposes 表）。',
+        'settings.inference.no_purpose_row': '找不到 chat purpose 列。請先在「用途分配」新增 chat 或 chat.primary。',
+        'settings.inference.routing_note': '寫入 chat purpose（{endpoint}）。送出時會與使用者偏好及對話覆寫合併。',
+        'settings.inference.hint': 'Chat 執行的預設值（chat.* purpose）。使用者與單一對話仍可覆寫。',
+        'settings.inference.save': '儲存預設值',
+        'settings.inference.saving': '儲存中…',
+        'settings.inference.saved': '推論預設已儲存。',
+        'settings.inference.save_failed': '儲存失敗（{status}）。',
+
+        'preferences.nav.model_tuning.label': '模型調校',
+        'preferences.nav.model_tuning.title': '模型調校問卷',
+        'preferences.nav.model_tuning.sub': 'AI 精靈比較範例回覆，並將你的選擇對應到推論參數。',
+        'preferences.survey.loading': '載入中…',
+        'preferences.survey.load_failed': '無法載入調校面板。',
+        'preferences.survey.ui_unavailable': '偏好設定介面尚未就緒，請重新整理頁面。',
+        'preferences.survey.intro_wizard':
+            '執行精靈：五題引導問答 → 自動設定你的對話參數。',
+        'preferences.survey.completed_badge': '已儲存調校 — 可隨時再跑精靈。',
+        'preferences.survey.packs_title': '快速預設（選用）',
+        'preferences.survey.params_none': '尚無覆寫參數',
+        'preferences.survey.wizard_open': '開啟調校精靈',
+        'preferences.survey.wizard_title': '調校對話風格',
+        'preferences.survey.wizard_phase_choice': '選擇',
+        'preferences.survey.wizard_phase_confirm': '確認',
+        'preferences.survey.wizard_confirm': '確認',
+        'preferences.survey.theme_daily': '日常生活',
+        'preferences.survey.theme_corporate': '職場',
+        'preferences.survey.theme_research': '研究',
+        'preferences.survey.wizard_intro_body':
+            '我們會用五個簡短問題了解你喜歡的回覆方式，不需要手動調滑桿。',
+        'preferences.survey.wizard_intro_sub':
+            '整段精靈共用同一個情境。每個選項會顯示在該情境下的範例回覆，方便對照差異，完成後自動設定參數。',
+        'preferences.survey.wizard_compare_samples': '以下為同一情境 — 請對照助理在不同風格下會如何回覆。',
+        'preferences.survey.wizard_profile_wave': '目前的對話風格輪廓',
+        'preferences.survey.wizard_profile_wave_preview': '預覽 — 若選此項，你的風格輪廓會變成這樣',
+        'preferences.survey.wizard_profile_wave_saved': '已依你的選擇更新風格輪廓',
+        'preferences.survey.wizard_profile_wave_final': '最終風格輪廓',
+        'preferences.survey.wizard_sample_label': '範例回覆',
+        'preferences.survey.wizard_step_progress': '第 {{current}} / {{total}} 題',
+        'preferences.survey.wizard_question_loading': '正在準備題目…',
+        'preferences.survey.wizard_question_failed': '無法載入題目。',
+        'preferences.survey.wizard_theme_badge': '主題：{{label}}',
+        'preferences.survey.wizard_options_loading': '正在產生三個方案…',
+        'preferences.survey.wizard_options_failed': '無法產生方案。',
+        'preferences.survey.wizard_pick_hint': '請先閱讀同一情境下的範例回覆，再選最順手的一種。',
+        'preferences.survey.wizard_pick_required': '請先選擇一個方案。',
+        'preferences.survey.wizard_tune_hint': '可按需要微調滑桿，套用後儲存為 Chat 預設參數。',
+        'preferences.survey.wizard_finalize_loading': '正在依你的回答設定對話風格…',
+        'preferences.survey.wizard_cancel': '取消',
+        'preferences.survey.wizard_back': '上一步',
+        'preferences.survey.wizard_start': '開始',
+        'preferences.survey.wizard_next': '下一步',
+        'preferences.survey.wizard_apply': '套用並儲存',
+        'preferences.survey.save_pack': '僅儲存預設',
+        'preferences.survey.saving': '儲存中…',
+        'preferences.survey.saved': '已儲存。',
+        'preferences.survey.save_failed': '儲存失敗。',
+
         'settings.nav.evolution_queue.label': 'Evolution',
         'settings.nav.evolution_queue.title': 'Evolution',
         'settings.nav.evolution_queue.sub': '佇列狀態、patches、結晶化與 IQS 治理。',
@@ -1686,6 +1829,10 @@ const OAAO_I18N_BASE = {
         'settings.slot.knowledge_distill.label': '知識精華',
         'settings.slot.knowledge_distill.sub':
             '摘要精華供 RAG／訓練（<code class="font-mono text-xs">knowledge.distill.*</code>）。',
+        'settings.nav.platform_release_notes.label': '版本說明',
+        'settings.nav.platform_release_notes.title': "What's New 與更新日誌",
+        'settings.nav.platform_release_notes.sub':
+            '發布全站版本說明（通知 + 工作區 What\'s New）。',
         'settings.nav.platform_knowledge.label': '知識',
         'settings.nav.platform_knowledge.title': '平台演化',
         'settings.nav.platform_knowledge.sub':
@@ -1997,7 +2144,7 @@ const OAAO_I18N_BASE = {
         'preferences.personal.save_failed': '儲存失敗。',
         'preferences.personal.password_changed': '密碼已更新。',
         'preferences.personal.password_failed': '無法變更密碼。',
-        'preferences.personal.language_saved': '語言已更新。重新載入頁面以完整套用介面。',
+        'preferences.personal.language_saved': '語言已更新，正在重新載入…',
         'preferences.nav.asr.label': '語音',
         'preferences.nav.asr.title': '語音與 ASR',
         'preferences.nav.asr.sub': '語音輸入潤飾與 ASR 相關偏好。',
@@ -2059,7 +2206,36 @@ export function oaaoI18nReloadOverrides() {
 }
 
 /** @returns {'en' | 'zh-Hant'} */
+export function normalizeOaaoLocale(raw) {
+    const s = String(raw ?? '').trim();
+    if (s === 'zh-Hant' || s.toLowerCase() === 'zh-hant' || s.toLowerCase().startsWith('zh')) {
+        return 'zh-Hant';
+    }
+    return 'en';
+}
+
+/**
+ * Apply display locale for {@link oaaoT} and orchestrator locale hints (wizard, samples).
+ *
+ * @param {string} locale
+ */
+export function oaaoApplyUiLocale(locale) {
+    if (typeof document === 'undefined') return;
+    const lang = normalizeOaaoLocale(locale);
+    document.documentElement.lang = lang;
+    if (document.body) {
+        document.body.dataset.oaaoUiLocale = lang;
+    }
+    document.dispatchEvent(new CustomEvent('oaao-locale-changed', { detail: { locale: lang } }));
+}
+
+/** @returns {'en' | 'zh-Hant'} */
 export function oaaoResolveLang() {
+    const fromBody =
+        typeof document !== 'undefined' ? document.body?.dataset?.oaaoUiLocale?.trim() : '';
+    if (fromBody) {
+        return normalizeOaaoLocale(fromBody);
+    }
     const raw = (document.documentElement.lang || navigator.language || 'en').toLowerCase();
     if (raw.startsWith('zh')) return 'zh-Hant';
     return 'en';

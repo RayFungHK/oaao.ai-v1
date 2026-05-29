@@ -99,3 +99,13 @@ Story,CS-P-S1,Vault job ingest SSE phase 2,,EPIC-CS-P,P1,platform;vault,Orchestr
 Story,CS-P-S2,Redis queue canary stage 2,,EPIC-CS-P,P1,platform;queue,Platform,devops,CS-W1,"staging OAAO_QUEUE_BACKEND=redis。","Canary checklist 完成。",
 Story,CS-P-S3,Update MIGRATION_LEGACY parity table,,EPIC-CS-P,P2,platform;docs,Platform,qa-lead,CS-W2,"§4 更新 storage/corpus/library 狀態。","Doc merged。",
 Story,CS-P-S4,contracts/v1 corpus + library schemas,,EPIC-CS-P,P1,platform;contracts,Platform,cto,CS-W3,"corpus + library JSON schemas。","CI contract tests 通過。",
+Epic,EPIC-WF-1,Workflow Decider Studio (process design),Workflow Decider Studio (process design),,P1,workflow;decider;classification;pipeline;rag,Workflow,cto,WF-W1-WF-W6,"AI+RAG designs company process blueprints: Workflow container with Classification Decider Pipeline nodes. v1 design-only.","workspace/workflow: problem+data in → blueprint out; types frozen; export JSON.",EPIC-CS-1
+Story,WF-1-S1,workflow-blueprint-v1 contract four kinds,,EPIC-WF-1,P0,workflow;contracts,Workflow,python-lead,WF-W1,"contracts/v1 workflow-blueprint-v1: workflow classification decider pipeline kinds + edges.","Schema CI; kind enum enforced.",EPIC-CS-P
+Story,WF-1-S2,workflow blueprint PostgreSQL schema,,EPIC-WF-1,P0,workflow;php,Workflow,php-lead,WF-W1,"oaao_workflow_blueprint + version; workspace ACL.","Migration ok; draft commit.",WF-1-S1
+Story,WF-1-S3,workflow module SPA workspace/workflow,,EPIC-WF-1,P1,workflow;php,Workflow,php-lead,WF-W2,"oaaoai/workflow registerSpaPage; shell JIT.","Sidebar entry; i18n EN zh.",WF-1-S2
+Story,WF-1-S4,orchestrator POST v1/workflow/design,,EPIC-WF-1,P0,workflow;python;rag,Orchestrator,python-lead,WF-W2,"Vault RAG + LLM compose; returns draft nodes citations.","Design job completes under 90s test fixture.",WF-1-S1
+Story,WF-1-S5,PHP workflow design enqueue API,,EPIC-WF-1,P0,workflow;php,Workflow,php-lead,WF-W2,"POST workflow_design; poll job; no PHP long RAG.","Enqueue+poll; auth workspace.",WF-1-S4
+Story,WF-1-S6,Studio node editor three kinds,,EPIC-WF-1,P1,workflow;ui,Workflow,php-lead,WF-W3,"Edit classification labels decider branches pipeline execution_ref.","Save draft version.",WF-1-S5
+Story,WF-1-S7,Export JSON and Mermaid citations,,EPIC-WF-1,P1,workflow,Workflow,php-lead,WF-W4,"Export blueprint; show RAG passage ids.","Download JSON; Mermaid renders.",WF-1-S6
+Story,WF-1-S8,workflow.design.refine partial regen,,EPIC-WF-1,P2,workflow;python,Orchestrator,python-lead,WF-W5,"Refine changed subgraph only.","Unchanged nodes stable diff.",WF-1-S4
+Story,WF-1-S9,Workflow tests purpose matrix i18n,,EPIC-WF-1,P1,workflow;qa,Workflow,qa-lead,WF-W6,"purpose workflow.design.*; E2E design smoke.","CI green; docs merged.",WF-1-S7

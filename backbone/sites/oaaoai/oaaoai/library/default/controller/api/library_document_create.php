@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * POST /library/api/library_document_create — { "title"?: string, "workspace_id"?: int|null }
+ * POST /library/api/library_document_create — { "title"?: string, "workspace_id"?: int|null, "corpus_id"?: int|null }
  */
 return function (): void {
     require_once __DIR__ . '/_library_api_bootstrap.php';
@@ -34,6 +34,12 @@ return function (): void {
         $workspaceId = (int) $widRaw;
     }
 
+    $corpusId = null;
+    $corpusRaw = $input['corpus_id'] ?? null;
+    if ($corpusRaw !== null && $corpusRaw !== '' && (int) $corpusRaw > 0) {
+        $corpusId = (int) $corpusRaw;
+    }
+
     $blocks = [
         ['type' => 'paragraph', 'content' => ''],
     ];
@@ -43,11 +49,11 @@ return function (): void {
     $pdo->beginTransaction();
     try {
         $st = $pdo->prepare(
-            'INSERT INTO oaao_library_document (tenant_id, workspace_id, title, status, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            'INSERT INTO oaao_library_document (tenant_id, workspace_id, title, status, corpus_id, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
              RETURNING document_id',
         );
-        $st->execute([$tenantId, $workspaceId, $title, 'draft', $ctx['uid']]);
+        $st->execute([$tenantId, $workspaceId, $title, 'draft', $corpusId, $ctx['uid']]);
         $docId = (int) $st->fetchColumn();
 
         $stRev = $pdo->prepare(

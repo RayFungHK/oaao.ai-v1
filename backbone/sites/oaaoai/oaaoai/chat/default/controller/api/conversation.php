@@ -45,6 +45,7 @@ return function (): void {
 
         $mode = 'default';
         $plannerModeId = 'default';
+        $inferenceMode = \oaaoai\chat\ChatInferenceControl::MODE_OFF;
         $paramsRaw = $row['params_json'] ?? null;
         if (\is_string($paramsRaw) && $paramsRaw !== '') {
             $decoded = json_decode($paramsRaw, true);
@@ -56,11 +57,13 @@ return function (): void {
                 if (\in_array($pm, ['default', 'tot', 'ddtree'], true)) {
                     $plannerModeId = $pm;
                 }
+                $inferenceMode = \oaaoai\chat\ChatInferenceControl::modeFromConversation($decoded);
             }
         }
         unset($row['params_json']);
         $row['mode'] = $mode;
         $row['planner_mode_id'] = $plannerModeId;
+        $row['inference_mode'] = $inferenceMode;
 
         echo json_encode([
             'success'      => true,

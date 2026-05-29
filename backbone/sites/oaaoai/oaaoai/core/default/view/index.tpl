@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="{$oaao_ui_lang}" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
@@ -97,7 +97,7 @@
 </script>
     <script type="module" crossorigin src="{$asset_path}js/main.js?v={$oaao_shell_esm_v}"></script>
 </head>
-<body class="oaao-app oaao-theme-grid min-h-[100dvh] flex flex-col bg-[var(--grid-paper)]{$oaao_session_active_class}" data-auth-installed="{$auth_installed}" data-auth-base="{$auth_base}" data-auth-pg-env="{$auth_pg_env}" data-auth-docker="{$auth_pg_docker}" data-auth-pg-simple-docker="{$auth_pg_simple_docker}" data-oaao-mount-prefix="{$oaao_mount_prefix}" data-oaao-core-webassets-root="{$oaao_core_webassets_root}" data-oaao-shell-esm-v="{$oaao_shell_esm_v}" data-oaao-orchestrator-stream-proxy="{$oaao_orchestrator_stream_proxy}" data-oaao-admin-settings="{$oaao_admin_settings}" data-oaao-platform-host="{$oaao_platform_host}" data-oaao-version="{$oaao_version}" data-oaao-build-id="{$oaao_build_id}" data-oaao-git-sha="{$oaao_git_sha}">
+<body class="oaao-app oaao-theme-grid min-h-[100dvh] flex flex-col bg-[var(--grid-paper)]{$oaao_session_active_class}" data-oaao-ui-locale="{$oaao_ui_lang}" data-auth-installed="{$auth_installed}" data-auth-base="{$auth_base}" data-auth-pg-env="{$auth_pg_env}" data-auth-docker="{$auth_pg_docker}" data-auth-pg-simple-docker="{$auth_pg_simple_docker}" data-oaao-mount-prefix="{$oaao_mount_prefix}" data-oaao-core-webassets-root="{$oaao_core_webassets_root}" data-oaao-shell-esm-v="{$oaao_shell_esm_v}" data-oaao-orchestrator-stream-proxy="{$oaao_orchestrator_stream_proxy}" data-oaao-admin-settings="{$oaao_admin_settings}" data-oaao-platform-host="{$oaao_platform_host}" data-oaao-version="{$oaao_version}" data-oaao-build-id="{$oaao_build_id}" data-oaao-git-sha="{$oaao_git_sha}">
     <div id="oaao-version-stale-banner" class="oaao-version-stale-banner hidden" role="status" aria-live="polite"></div>
     <div id="oaao-app-boot" class="oaao-app-boot" aria-hidden="true" role="status" aria-live="polite">
         <img src="{$asset_path}images/logo_animated.svg?v={$oaao_shell_esm_v}" alt="" width="48" height="48" decoding="async" class="oaao-app-boot__logo" />

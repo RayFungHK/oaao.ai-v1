@@ -222,6 +222,49 @@ async def finalize_run(
             except Exception:
                 logger.exception("calendar_event_suggested_emit_failed run_id=%s", run_id)
 
+        if cid_skill > 0 and persist_text and not run.cancelled:
+            try:
+                from oaao_orchestrator.evaluation.todo_item_candidate import (
+                    classify_todo_item_candidate,
+                )
+                from oaao_orchestrator.evaluation.todo_item_suggested_stream import (
+                    emit_todo_item_suggested_status,
+                )
+
+                todo_candidate = classify_todo_item_candidate(
+                    conversation_id=cid_skill,
+                    messages=messages_for_llm,
+                    assistant_text=persist_text,
+                )
+                if todo_candidate is not None:
+                    payload_todo = todo_candidate.to_dict()
+                    metrics_payload["todo_item_suggested"] = payload_todo
+                    await emit_todo_item_suggested_status(run, payload_todo)
+            except Exception:
+                logger.exception("todo_item_suggested_emit_failed run_id=%s", run_id)
+
+        open_todos = getattr(req, "open_todo_items", None) or []
+        if cid_skill > 0 and persist_text and not run.cancelled and open_todos:
+            try:
+                from oaao_orchestrator.evaluation.todo_completion_checker import (
+                    classify_todo_resolve_hint,
+                )
+                from oaao_orchestrator.evaluation.todo_resolve_suggested_stream import (
+                    emit_todo_resolve_suggested_status,
+                )
+
+                resolve_hint = classify_todo_resolve_hint(
+                    conversation_id=cid_skill,
+                    assistant_text=persist_text,
+                    open_todos=open_todos if isinstance(open_todos, list) else [],
+                )
+                if resolve_hint is not None:
+                    payload_resolve = resolve_hint.to_dict()
+                    metrics_payload["todo_resolve_suggested"] = payload_resolve
+                    await emit_todo_resolve_suggested_status(run, payload_resolve)
+            except Exception:
+                logger.exception("todo_resolve_suggested_emit_failed run_id=%s", run_id)
+
     if not run.cancelled:
         try:
             from oaao_orchestrator.conversation_title import (
