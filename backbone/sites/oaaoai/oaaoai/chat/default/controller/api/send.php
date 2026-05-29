@@ -1,10 +1,5 @@
 <?php
 
-use oaaoai\chat\ChatAccsReflection;
-use oaaoai\chat\ChatContextUsage;
-use oaaoai\chat\ChatConversationCompact;
-use oaaoai\chat\ChatTokenEstimator;
-use oaaoai\chat\ChatHistorySettings;
 use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatSendAbort;
 use oaaoai\chat\ChatSendContext;
@@ -12,6 +7,7 @@ use oaaoai\chat\ChatSendOrchestratorStage;
 use oaaoai\chat\ChatSendPersist;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
+use oaaoai\chat\ChatSendRunStarter;
 use oaaoai\chat\ChatTeachingIntent;
 use oaaoai\user\UserModelParams;
 
@@ -249,289 +245,38 @@ return function (): void {
         $conversationTitleOut = $persist->conversationTitleOut;
         $inferenceSnapshot = $persist->inferenceSnapshot;
 
-        $streamUrl = null;
-        $runId = null;
-        $streamToken = null;
-        $assistantOut = $assistantInsertContent;
-        $autoCompactApplied = false;
+        $run = ChatSendRunStarter::start(
+            pipeline: $sendPipeline,
+            ctx: $sendCtx,
+            chatController: $this,
+            splitDb: $splitDb,
+            canonDb: $canonDb instanceof \Razy\Database ? $canonDb : null,
+            user: $user,
+            authApi: $authApi,
+            uid: $uid,
+            wid: $wid,
+            conversationId: (int) $conversationId,
+            asstMsgId: $asstMsgId,
+            continueAssistantId: $continueAssistantId,
+            orchestratorUserContent: $orchestratorUserContent,
+            conversationModeId: $conversationModeId,
+            plannerModeId: $plannerModeId,
+            bubbleThread: $bubbleThread,
+            conversationCreated: $conversationCreated,
+            orchReady: $orchReady,
+            binding: $binding,
+            internalBase: $internalBase,
+            chatEndpointId: $chatEndpointId,
+            attachmentIds: $attachmentIds,
+            input: $input,
+            assistantOut: $assistantInsertContent,
+        );
 
-        if ($orchReady && $binding !== null) {
-            $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-            $secret = ($secret !== false && trim((string) $secret) !== '')
-                ? trim((string) $secret)
-                : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
-
-            $publicBase = getenv('OAAO_ORCHESTRATOR_PUBLIC_BASE');
-            $publicBase = ($publicBase !== false && trim((string) $publicBase) !== '')
-                ? rtrim(trim((string) $publicBase), '/')
-                : $internalBase;
-            $publicBase = \oaaoai\chat\OrchestratorPublicBase::forClientStream($publicBase);
-
-            /** Server-side prompt memory — never trust browser-loaded thread cache. */
-            $canonPdoForPrompt = $this->oaao_chat_canonical_pdo();
-            $bindingForContext = $binding;
-            $contextLimit = ChatContextUsage::resolveContextLimitFromBinding($bindingForContext);
-            $tokenizerProfile = ChatTokenEstimator::resolveProfileFromBinding($bindingForContext);
-            $splitPdoForCtx = $splitDb->getDBAdapter();
-            $overheadTokens = ChatContextUsage::measureOverheadTokens(
-                $this,
-                $uid,
-                $wid,
-                $splitPdoForCtx instanceof \PDO ? $splitPdoForCtx : null,
-                $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
-                'default',
-                $tokenizerProfile,
-            );
-            $usageBeforeSend = ChatContextUsage::usageReport(
-                $splitDb,
-                $conversationId,
-                $contextLimit,
-                $canonPdoForPrompt instanceof \PDO
-                    ? ChatHistorySettings::resolvePromptMessageLimit($canonPdoForPrompt)
-                    : ChatHistorySettings::promptMessageLimit(),
-                $overheadTokens,
-                $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
-                $tokenizerProfile,
-            );
-            $outputReserve = ChatContextUsage::outputReserveTokens($bindingForContext, $contextLimit);
-            if (
-                ChatContextUsage::shouldAutoCompactBeforeSend(
-                    $usageBeforeSend,
-                    $contextLimit,
-                    $outputReserve,
-                    $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
-                )
-            ) {
-                ChatConversationCompact::apply(
-                    $splitDb,
-                    $conversationId,
-                    $uid,
-                    (int) ($wid ?? 0),
-                    $this,
-                );
-                $autoCompactApplied = true;
-            }
-
-            $messages = ChatHistorySettings::buildPromptMessagesFromDb(
-                $splitDb,
-                $conversationId,
-                null,
-                $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
-            );
-
-            if ($orchestratorUserContent !== '') {
-                for ($mi = \count($messages) - 1; $mi >= 0; $mi--) {
-                    if (($messages[$mi]['role'] ?? '') === 'user') {
-                        $messages[$mi]['content'] = $orchestratorUserContent;
-                        break;
-                    }
-                }
-            }
-
-            $endpointRow = $binding['endpoint'];
-            $profileRow = $binding['profile'];
-
-            $endpointPayload = [
-                'endpoint_ref' => trim((string) ($endpointRow['name'] ?? '')),
-                'endpoint_id'  => (int) ($binding['endpoint_id'] ?? 0),
-                'base_url'     => trim((string) ($endpointRow['base_url'] ?? '')),
-                'model'        => trim((string) ($endpointRow['model'] ?? '')),
-                'api_key_env'  => \oaaoai\chat\ChatOrchestratorBootstrap::inferApiKeyEnv(
-                    isset($endpointRow['api_key_ref']) ? (string) $endpointRow['api_key_ref'] : null
-                ),
-            ];
-            $cfgRaw = isset($endpointRow['config_json']) ? trim((string) $endpointRow['config_json']) : '';
-            if ($cfgRaw !== '') {
-                try {
-                    /** @var mixed $cfgDec */
-                    $cfgDec = json_decode($cfgRaw, true, 512, JSON_THROW_ON_ERROR);
-                    if (\is_array($cfgDec) && isset($cfgDec['supports_vision']) && $cfgDec['supports_vision']) {
-                        $endpointPayload['capabilities'] = ['supports_vision' => true];
-                    }
-                    if (\is_array($cfgDec)) {
-                        $endpointPayload['config'] = $cfgDec;
-                        foreach (['knowledge_cutoff', 'knowledge_until', 'training_cutoff'] as $cutKey) {
-                            if (isset($cfgDec[$cutKey]) && \is_string($cfgDec[$cutKey]) && trim($cfgDec[$cutKey]) !== '') {
-                                $endpointPayload['knowledge_cutoff'] = trim($cfgDec[$cutKey]);
-                                break;
-                            }
-                        }
-                    }
-                } catch (\JsonException) {
-                }
-            }
-
-            $payload = [
-                'conversation_id'        => (string) $conversationId,
-                'user_id'                => (string) $uid,
-                'purpose_id'             => 'chat',
-                'mode_id'                => $conversationModeId,
-                'planner_mode_id'        => $plannerModeId,
-                'messages'               => $messages,
-                'temperature'            => $binding['temperature'],
-                ...(isset($binding['max_tokens']) && (int) $binding['max_tokens'] > 0
-                    ? ['max_tokens' => (int) $binding['max_tokens']]
-                    : []),
-                'endpoint'               => $endpointPayload,
-                'chat_profile'           => [
-                    'id'   => (int) ($profileRow['id'] ?? 0),
-                    'name' => (string) ($profileRow['name'] ?? ''),
-                    'type' => strtolower(trim((string) ($profileRow['type'] ?? 'single'))),
-                ],
-                'assistant_message_id'   => (string) $asstMsgId,
-            ];
-
-            $canonicalEndpointId = (int) ($binding['endpoint_id'] ?? 0);
-            if ($canonicalEndpointId > 0) {
-                $payload['endpoint_id'] = $canonicalEndpointId;
-            }
-            if ($chatEndpointId > 0) {
-                $payload['chat_endpoint_id'] = $chatEndpointId;
-            }
-            $chatPurposeKey = 'chat';
-            $profCfgRaw = isset($profileRow['config_json']) ? trim((string) $profileRow['config_json']) : '';
-            if ($profCfgRaw !== '') {
-                try {
-                    /** @var mixed $profCfgDec */
-                    $profCfgDec = json_decode($profCfgRaw, true, 512, JSON_THROW_ON_ERROR);
-                    if (\is_array($profCfgDec)) {
-                        $pk = trim((string) ($profCfgDec['purpose_key'] ?? ''));
-                        if ($pk !== '') {
-                            $chatPurposeKey = $pk;
-                        }
-                    }
-                } catch (\JsonException) {
-                }
-            }
-            $profileIdForPurpose = (int) ($profileRow['id'] ?? 0);
-            if ($chatPurposeKey === 'chat' && $profileIdForPurpose > 0 && (int) ($profileRow['is_default'] ?? 0) !== 1) {
-                $chatPurposeKey = 'chat.profile.' . $profileIdForPurpose;
-            }
-            $payload['purpose_key'] = $chatPurposeKey;
-
-            if ($canonDb instanceof \Razy\Database) {
-                if (! $bubbleThread) {
-                    $reflectionCtx = ChatAccsReflection::consumePendingForSend(
-                        $canonDb,
-                        $splitDb,
-                        $conversationId,
-                        (int) $asstMsgId,
-                    );
-                    if ($reflectionCtx !== null) {
-                        $payload['accs_reflection_context'] = $reflectionCtx;
-                    }
-                }
-            }
-
-            $endpointsApi = $this->api('endpoints');
-            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                'stage'          => ChatSendOrchestratorStage::AGENTS,
-                'endpoints_api'  => $endpointsApi,
-                'bubble_thread'  => $bubbleThread,
-            ]);
-
-            $slideDesignerApi = $this->api('slide_designer');
-            $splitPdo = $splitDb->getDBAdapter();
-            $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
-            $reuseGroundingMid = (int) ($input['reuse_grounding_message_id'] ?? 0);
-            $canonPdoGround = null;
-            $tenantIdGround = 0;
-            if ($canonDb instanceof \Razy\Database) {
-                $canonPdoGround = $canonDb->getDBAdapter();
-                if ($canonPdoGround instanceof \PDO) {
-                    $tenantIdGround = isset($user->tenant_id) ? (int) ($user->tenant_id ?? 0) : 0;
-                    if ($tenantIdGround < 1) {
-                        $coreApiGround = $this->api('core');
-                        $tenantIdGround = $coreApiGround
-                            ? $coreApiGround->bootstrapTenantContext($canonPdoGround)
-                            : 0;
-                    }
-                }
-            }
-            if ($splitPdo instanceof \PDO) {
-                $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                    'stage'                => ChatSendOrchestratorStage::CORE,
-                    'split_db'             => $splitDb,
-                    'conversation_id'      => (int) $conversationId,
-                    'bubble_thread'        => $bubbleThread,
-                    'conversation_created' => $conversationCreated,
-                    'user'                 => $user,
-                    'auth_api'             => $authApi,
-                    'endpoints_api'        => $endpointsApi,
-                    'slide_designer_api'   => $slideDesignerApi,
-                    'canonical_db'         => $canonDb,
-                    'attachment_ids'       => $attachmentIds,
-                ]);
-                $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                    'stage'                => ChatSendOrchestratorStage::SLIDE,
-                    'split_pdo'            => $splitPdo,
-                    'conversation_id'      => (int) $conversationId,
-                    'bubble_thread'        => $bubbleThread,
-                    'active_material_id'   => $activeMaterialId,
-                    'reuse_grounding_mid'  => $reuseGroundingMid,
-                    'canonical_pdo_ground' => $canonPdoGround,
-                    'tenant_id_ground'     => $tenantIdGround,
-                ]);
-            }
-
-            if ($canonDb instanceof \Razy\Database) {
-                $canonPdoForVault = $canonDb->getDBAdapter();
-                if ($canonPdoForVault instanceof \PDO) {
-                    $this->api('core')?->bootstrapTenantContext($canonPdoForVault);
-                }
-                $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                    'stage'          => ChatSendOrchestratorStage::PAYLOAD,
-                    'canonical_db'   => $canonDb,
-                ]);
-                $payload = array_merge($payload, $sendCtx->drainPayloadFragments());
-            }
-
-            $canonPdoForPersonalization = $this->oaao_chat_canonical_pdo();
-            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                'stage'                 => ChatSendOrchestratorStage::PERSONALIZE,
-                'user'                  => $user,
-                'canonical_pdo'         => $canonPdoForPersonalization,
-                'conversation_id'       => (int) $conversationId,
-                'orchestrator_payload'  => $payload,
-            ]);
-            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                'stage'                 => ChatSendOrchestratorStage::FINALIZE,
-                'user'                  => $user,
-                'canonical_db'          => $canonDb,
-                'conversation_id'       => (int) $conversationId,
-                'assistant_message_id'  => (int) $asstMsgId,
-                'continue_assistant_id' => $continueAssistantId,
-                'orchestrator_payload'  => $payload,
-            ]);
-            $payload = array_merge($payload, $sendCtx->drainPayloadFragments());
-
-            $sendPipeline->run(ChatSendPhase::RUN_START, $sendCtx, [
-                'orchestrator_payload' => $payload,
-                'started'              => null,
-            ]);
-
-            $started = $this->startOrchestratorChatRun($payload);
-
-            if ($started === null) {
-                $failStub = '*(Sidecar)* Could not start stream — check OAAO_ORCHESTRATOR_INTERNAL_URL and that the orchestrator is running.';
-                $splitDb->update('message', ['content'])
-                    ->where('id=?,conversation_id=?')
-                    ->assign([
-                        'content'          => $failStub,
-                        'id'               => $asstMsgId,
-                        'conversation_id'  => $conversationId,
-                    ])
-                    ->query();
-                $assistantOut = $failStub;
-            } elseif ($publicBase !== '') {
-                $runId = $started['run_id'];
-                $streamToken = $started['stream_token'];
-                $streamUrl = \oaaoai\chat\OrchestratorPublicBase::buildStreamUrl($publicBase, [
-                    'run_id' => $runId,
-                    'token'  => $streamToken,
-                ]);
-            }
-        }
+        $streamUrl = $run->streamUrl;
+        $runId = $run->runId;
+        $streamToken = $run->streamToken;
+        $assistantOut = $run->assistantOut;
+        $autoCompactApplied = $run->autoCompactApplied;
 
         $responsePayload = [
             'success'               => true,

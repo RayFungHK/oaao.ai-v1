@@ -90,17 +90,20 @@ def test_chat_send_pipeline_library_exists() -> None:
     assert (OAao / "vault" / "default" / "library" / "VaultSendScope.php").is_file()
     assert (OAao / "chat" / "default" / "library" / "ChatSendOrchestratorBinding.php").is_file()
     send_text = send
+    run_lib = (OAao / "chat" / "default" / "library" / "ChatSendRunStarter.php").read_text(encoding="utf-8")
     assert "ChatSendPhase::SCOPE" in send_text
-    assert "ChatSendOrchestratorStage::PAYLOAD" in send_text
+    assert "ChatSendOrchestratorStage::PAYLOAD" in run_lib
     persist_lib = (OAao / "chat" / "default" / "library" / "ChatSendPersist.php").read_text(encoding="utf-8")
     assert "ChatSendPhase::CONVERSATION_SETTLE" in persist_lib
-    assert "ChatSendOrchestratorStage::AGENTS" in send_text
+    assert "ChatSendOrchestratorStage::AGENTS" in run_lib
     assert "ChatSendPhase::GATE" in send_text
-    assert "ChatSendOrchestratorStage::CORE" in send_text
-    assert "ChatSendOrchestratorStage::SLIDE" in send_text
-    assert "ChatSendOrchestratorStage::PERSONALIZE" in send_text
-    assert "ChatSendPhase::RUN_START" in send_text
+    assert "ChatSendOrchestratorStage::CORE" in run_lib
+    assert "ChatSendOrchestratorStage::SLIDE" in run_lib
+    assert "ChatSendOrchestratorStage::PERSONALIZE" in run_lib
+    assert "ChatSendPhase::RUN_START" in run_lib
     assert "ChatSendPersist::execute" in send_text
+    assert "ChatSendRunStarter::start" in send_text
+    assert "startOrchestratorChatRun" not in send_text
     assert "UserPersonalization" not in send_text
     assert "ChatConversationMaterial" not in send_text
     assert (OAao / "chat" / "default" / "library" / "ChatSendGate.php").is_file()

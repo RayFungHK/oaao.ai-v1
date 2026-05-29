@@ -43,7 +43,7 @@ Compare with existing **registry** pattern (`planner_agent.register`, `chat_pipe
 | `persist` | `chat.send.persist` | chat | **Shipped:** `ChatSendPersist::execute()` — adjunct SQLite TX |
 | **`conversation_settle`** | **`chat.send.conversation_settle`** | **chat + slide-designer** | **Shipped:** provisional title, inference meta, user message meta |
 | **`orchestrator_ready`** | **`chat.send.orchestrator_ready`** | **chat + endpoints + vault + slide-designer** | **Partial:** `bind`, `agents`, `slide`, `payload` stages |
-| `run_start` | `chat.send.run_start` | chat | POST `/v1/runs/chat`, stream URL |
+| `run_start` | `chat.send.run_start` | chat | **Shipped:** `ChatSendRunStarter::start()` — compact, payload, POST run |
 | `respond` | `chat.send.respond` | chat | JSON envelope to browser |
 
 Phases run in order when using `ChatSendPipeline::runMany()`. Migration is **incremental** — wire one phase at a time in `send.php`.
@@ -58,6 +58,7 @@ Phases run in order when using `ChatSendPipeline::runMany()`. Migration is **inc
 | `ChatSendContext` | Request state; modules mutate fields or `moduleData('vault')` |
 | `ChatSendPipeline` | Fires `chat.send.*` on `oaaoai/chat` |
 | `ChatSendPersist` | Adjunct SQLite TX (`execute()` + `ChatSendPersistResult`) |
+| `ChatSendRunStarter` | Post-persist orchestrator run (`start()` + `ChatSendRunResult`) |
 | `ChatSendAbort` | Early JSON exit (HTTP status + payload) |
 | `ChatSendComposer` | Chat-owned input parsing (web search, attachments) |
 
@@ -106,8 +107,8 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 4. **Done:** `conversation_settle` — title, inference snapshot, user meta (+ slide-designer template meta).
 5. **Done:** `orchestrator_ready` — bind, agents, CORE, SLIDE, PAYLOAD (endpoints/vault), PERSONALIZE (user), FINALIZE (inference/corpus/library/run_principal).
 6. **Done:** `persist` — `ChatSendPersist::execute()` (conversation + messages TX).
-7. **Boundary only:** `run_start` — hook before POST; `startOrchestratorChatRun` still in `send.php` (`ChatSendRunStarter` placeholder).
-8. **Next:** extract `run_start` POST + optional `respond` phase.
+7. **Done:** `run_start` — `ChatSendRunStarter::start()` (compact, payload stages, POST run).
+8. **Next:** `respond` phase — JSON envelope assembly; optional further thinning of `send.php`.
 
 Modules to migrate (non-exhaustive):
 
