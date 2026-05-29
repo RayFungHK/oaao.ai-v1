@@ -15,10 +15,10 @@ use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatRunPrincipal;
 use oaaoai\chat\ChatSendAbort;
 use oaaoai\chat\ChatSendContext;
+use oaaoai\chat\ChatSendOrchestratorStage;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatTeachingIntent;
-use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\MicroSkillCatalog;
 use oaaoai\chat\PlannerAgentRegister;
 use oaaoai\chat\SkillsManifestStorage;
@@ -141,8 +141,10 @@ return function (): void {
         conversationId: $conversationId,
     );
 
+    $sendPipeline = new ChatSendPipeline($this);
+
     try {
-        (new ChatSendPipeline($this))->run(ChatSendPhase::PREPARE, $sendCtx);
+        $sendPipeline->run(ChatSendPhase::PREPARE, $sendCtx);
     } catch (ChatSendAbort $abort) {
         http_response_code($abort->httpStatus);
         echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
@@ -155,8 +157,9 @@ return function (): void {
     $vaultAutoRag = $sendCtx->vaultAutoRag;
     $enableWebSearch = $sendCtx->enableWebSearch;
     $attachmentIds = $sendCtx->attachmentIds;
-
-    $slideTemplateId = trim((string) ($input['slide_template_id'] ?? ''));
+    $slideTemplateId = $sendCtx->slideTemplateId;
+    $hasPublishedSlideTemplate = $sendCtx->hasPublishedSlideTemplate;
+    $slideTemplateLabel = $sendCtx->slideTemplateLabel;
 
     if ($content === '' && ! $appendAssistantTurn) {
         if ($slideTemplateId !== '') {
@@ -181,20 +184,6 @@ return function (): void {
 
     $canonDb = $authApi ? $authApi->getDB() : null;
 
-    $hasPublishedSlideTemplate = false;
-    $slideTemplateLabel = '';
-    $slideDesignerApi = $this->api('slide_designer');
-    if ($slideTemplateId !== '' && $slideDesignerApi) {
-        $tplRow = $slideDesignerApi->resolvePublishedTemplate($slideTemplateId);
-        if ($tplRow !== null) {
-            $hasPublishedSlideTemplate = true;
-            $slideTemplateLabel = trim((string) ($tplRow['label'] ?? ''));
-            if ($slideTemplateLabel === '') {
-                $slideTemplateLabel = $slideTemplateId;
-            }
-        }
-    }
-
     $orchestratorUserContent = $appendAssistantTurn
         ? 'Continue from where you left off in your previous assistant reply. Do not repeat text you already wrote; only add the next part.'
         : $content;
@@ -209,99 +198,25 @@ return function (): void {
             $slideTemplateId,
             $slideTemplateLabel,
         );
-    } elseif ($slideTemplateId !== '') {
-        http_response_code(400);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Slide template not found or not published. Publish it in Templates, then use “Use in chat” again.',
-        ]);
-
-        return;
     }
 
-    $hasExplicitVaultRefs = $vaultSourceRefs !== [] || $vaultSourceIds !== [];
-    /** @var list<array{kind: string, id: int, vault_id: int, name: string}> $matchedRefs */
-    $matchedRefs = [];
-    if (
-        $canonDb instanceof \Razy\Database
-        && ChatTeachingIntent::shouldTryComposerVaultMatch(
-            $vaultAutoRag,
-            $hasExplicitVaultRefs,
-            $orchestratorUserContent,
-        )
-    ) {
-        $matchedRefs = ChatVaultScope::composerRefsMatchingMessage(
-            $canonDb,
-            $uid,
-            $wid,
-            $orchestratorUserContent,
-        );
-    }
+    $sendCtx->content = $content;
+    $sendCtx->orchestratorUserContent = $orchestratorUserContent;
 
-    $expandVaultForGrounding = ChatTeachingIntent::shouldExpandVaultComposerScope(
-        $vaultAutoRag,
-        $hasExplicitVaultRefs,
-        $matchedRefs !== [],
-        $orchestratorUserContent,
-    );
-    if (
-        $expandVaultForGrounding
-        && $vaultSourceRefs === []
-        && $vaultSourceIds === []
-        && $canonDb instanceof \Razy\Database
-    ) {
-        if (ChatTeachingIntent::impliesPersonalRecordVaultLookup($orchestratorUserContent)) {
-            $audioRefs = ChatVaultScope::embeddedAudioRefsForRecordLookup(
-                $canonDb,
-                $uid,
-                $wid,
-                $orchestratorUserContent,
-            );
-            if ($audioRefs !== []) {
-                /** @var array<string, true> $seenRef */
-                $seenRef = [];
-                foreach ($matchedRefs as $ref) {
-                    $seenRef[(int) ($ref['vault_id'] ?? 0) . ':' . (int) ($ref['id'] ?? 0)] = true;
-                }
-                foreach ($audioRefs as $ref) {
-                    $key = (int) ($ref['vault_id'] ?? 0) . ':' . (int) ($ref['id'] ?? 0);
-                    if (isset($seenRef[$key])) {
-                        continue;
-                    }
-                    $seenRef[$key] = true;
-                    $matchedRefs[] = $ref;
-                }
-            }
+    if ($canonDb instanceof \Razy\Database) {
+        try {
+            $sendPipeline->run(ChatSendPhase::SCOPE, $sendCtx, [
+                'canonical_db' => $canonDb,
+                'auth_api'     => $authApi,
+            ]);
+        } catch (ChatSendAbort $abort) {
+            http_response_code($abort->httpStatus);
+            echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
+
+            return;
         }
-        if ($matchedRefs !== []) {
-            $vaultSourceRefs = $matchedRefs;
-            /** @var array<int, true> $seenVault */
-            $seenVault = [];
-            foreach ($matchedRefs as $ref) {
-                $vid = (int) ($ref['vault_id'] ?? 0);
-                if ($vid < 1 || isset($seenVault[$vid])) {
-                    continue;
-                }
-                $seenVault[$vid] = true;
-                $vaultSourceIds[] = $vid;
-            }
-            $vaultSourceIds = array_values(array_unique($vaultSourceIds, SORT_NUMERIC));
-        } else {
-            $authApi = $this->api('auth');
-            $candidates = ChatVaultScope::vaultIdsForRetrieval($canonDb, $uid, $wid, $authApi);
-            $vaultSourceIds = ChatVaultScope::filterVaultIdsWithEmbeddedDocuments($canonDb, $candidates);
-            if (\count($vaultSourceIds) > 24) {
-                $vaultSourceIds = \array_slice($vaultSourceIds, 0, 24);
-            }
-        }
-    }
-
-    if (
-        $expandVaultForGrounding
-        && $vaultSourceIds === []
-        && $canonDb instanceof \Razy\Database
-    ) {
-        $vaultSourceIds = $this->embeddedVaultIdsForUserWorkspace($uid, $wid);
+        $vaultSourceIds = $sendCtx->vaultSourceIds;
+        $vaultSourceRefs = $sendCtx->vaultSourceRefs;
     }
 
     if ($chatEndpointId > 0) {
@@ -316,34 +231,17 @@ return function (): void {
 
     /** @var array{profile: array<string, mixed>, endpoint: array<string, mixed>, endpoint_id: int, temperature: float}|null $binding */
     $binding = null;
-    if ($canonDb instanceof \Razy\Database) {
-        if ($chatEndpointId > 0) {
-            $binding = \oaaoai\chat\ChatOrchestratorBootstrap::resolveBindingForProfile($canonDb, $chatEndpointId);
-        }
-        if ($binding === null) {
-            $binding = \oaaoai\chat\ChatOrchestratorBootstrap::resolveDefaultBinding($canonDb);
-        }
-    }
-
     $internalBase = '';
-    $envInternal = getenv('OAAO_ORCHESTRATOR_INTERNAL_URL');
-    if ($envInternal !== false && trim((string) $envInternal) !== '') {
-        $internalBase = rtrim(trim((string) $envInternal), '/');
-    } elseif (getenv('OAAO_DOCKER') === '1') {
-        // Compose service hostname — used when INTERNAL_URL is unset (Apache may not inherit shell `.env`).
-        $internalBase = 'http://orchestrator:8103';
-    } else {
-        $port = getenv('OAAO_SIDECAR_PORT');
-        if ($port !== false && (string) $port !== '') {
-            $internalBase = 'http://127.0.0.1:' . max(1, min(65535, (int) $port));
-        }
-    }
-    // Apache/ClearEnv may drop OAAO_DOCKER — container filesystem still identifies Compose runs.
-    if ($internalBase === '' && @is_readable('/.dockerenv')) {
-        $internalBase = 'http://orchestrator:8103';
+    if ($canonDb instanceof \Razy\Database) {
+        $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+            'stage'        => ChatSendOrchestratorStage::BIND,
+            'canonical_db' => $canonDb,
+        ]);
+        $binding = $sendCtx->binding;
+        $internalBase = $sendCtx->internalBase;
     }
 
-    $orchReady = $binding !== null && $internalBase !== '';
+    $orchReady = $sendCtx->orchReady;
     $assistantInsertContent = $orchReady ? '' : $assistantStub;
     $conversationModeId = 'default';
     $plannerModeId = 'default';
@@ -910,6 +808,7 @@ return function (): void {
                 $payload['skip_persistent_agent_hooks'] = true;
             }
 
+            $slideDesignerApi = $this->api('slide_designer');
             $slideExtras = [];
             if (! $bubbleThread && $hasPublishedSlideTemplate) {
                 $slideExtras['template_id'] = $slideTemplateId;
@@ -1064,96 +963,16 @@ return function (): void {
                 }
             }
 
-            // Multimodal — always forward python_module bindings ({@code mm_modules.json}); no Purpose row.
-            $this->api('endpoints')?->ensureFeatureRegistries();
-            require_once __DIR__ . '/../../../../endpoints/default/library/MmModuleSettings.php';
-            $payload['mm_understand'] = MmModuleSettings::orchestratorPayloadForAxis('understand');
-            $payload['mm_generate'] = MmModuleSettings::orchestratorPayloadForAxis('generate');
-            $payload['mm_edit'] = MmModuleSettings::orchestratorPayloadForAxis('edit');
-
             if ($canonDb instanceof \Razy\Database) {
                 $canonPdoForVault = $canonDb->getDBAdapter();
                 if ($canonPdoForVault instanceof \PDO) {
-                    $coreApiForVault = $this->api('core');
-                    if ($coreApiForVault) {
-                        $coreApiForVault->bootstrapTenantContext($canonPdoForVault);
-                    }
+                    $this->api('core')?->bootstrapTenantContext($canonPdoForVault);
                 }
-                if ($vaultSourceIds !== []) {
-                    $payload['vault_retrieval_profiles'] = $this->vaultRetrievalProfilesForVaultIds(
-                        $uid,
-                        $wid,
-                        $vaultSourceIds,
-                    );
-                    $docCatalog = ChatVaultScope::documentCitationCatalog($canonDb, $vaultSourceIds);
-                    if ($docCatalog !== []) {
-                        $payload['vault_document_catalog'] = $docCatalog;
-                    }
-                    if ($vaultSourceRefs !== []) {
-                        $scopeDocs = ChatVaultScope::scopedDocumentIdsByVault($canonDb, $vaultSourceRefs);
-                        if ($scopeDocs !== []) {
-                            /** @var array<string, list<int>> $encoded */
-                            $encoded = [];
-                            foreach ($scopeDocs as $vid => $docIds) {
-                                $encoded[(string) $vid] = $docIds;
-                            }
-                            $payload['vault_scope_documents'] = $encoded;
-                        }
-                    }
-                }
-                if ($endpointsApi) {
-                    $emb = $endpointsApi->resolveOrchestratorEmbeddingPayload();
-                    if ($emb !== null) {
-                        $payload['embedding'] = $emb;
-                    }
-                    $rerank = $endpointsApi->resolveOrchestratorRerankPayload();
-                    if ($rerank !== null) {
-                        $payload['rerank'] = $rerank;
-                    }
-                    $rag = $endpointsApi->resolveOrchestratorVaultRagConfig();
-                    if ($rag !== []) {
-                        $payload['vault_rag'] = $rag;
-                    }
-                    $runPlannerMode = $endpointsApi->resolveRunPlannerMode();
-                    if ($vaultAutoRag && $vaultSourceRefs === [] && $vaultSourceIds === []) {
-                        $runPlannerMode = \oaaoai\endpoints\ChatRunPlannerPurposeConfig::MODE_LLM;
-                    }
-                    $payload['run_planner_mode'] = $runPlannerMode;
-                    $asr = $endpointsApi->resolveOrchestratorAsrPayload();
-                    if ($asr !== null) {
-                        $payload['asr'] = $asr;
-                    }
-                    $polish = $endpointsApi->resolveOrchestratorPolishPayload();
-                    if ($polish !== null) {
-                        $payload['polish'] = $polish;
-                    }
-                    $uiqe = $endpointsApi->resolveOrchestratorUiqePayload();
-                    if ($uiqe !== null) {
-                        $payload['uiqe'] = $uiqe;
-                    }
-                    $planner = $endpointsApi->resolveOrchestratorPlannerPayload();
-                    if ($planner !== null) {
-                        $payload['planner'] = $planner;
-                    }
-                    $plannerIntent = $endpointsApi->resolveOrchestratorPlannerIntentPayload();
-                    if ($plannerIntent !== null) {
-                        $payload['planner_intent'] = $plannerIntent;
-                    }
-                    $knowledge = $endpointsApi->resolveOrchestratorKnowledgePayload();
-                    if ($knowledge !== null) {
-                        $knowledge['scope'] = 'platform';
-                        $payload['knowledge'] = $knowledge;
-                    }
-                }
-                if ($wid !== null && $wid > 0) {
-                    $vaultApi = $this->api('vault');
-                    if ($vaultApi) {
-                        $glossary = $vaultApi->getWorkspaceGlossary($wid);
-                        if ($glossary !== []) {
-                            $payload['glossary'] = $glossary;
-                        }
-                    }
-                }
+                $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                    'stage'        => ChatSendOrchestratorStage::PAYLOAD,
+                    'canonical_db' => $canonDb,
+                ]);
+                $payload = array_merge($payload, $sendCtx->mergedPayloadFragments());
             }
 
             if ($inferenceApplied !== []) {

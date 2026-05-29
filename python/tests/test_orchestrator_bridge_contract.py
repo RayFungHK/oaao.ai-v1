@@ -35,7 +35,11 @@ def test_send_does_not_require_vault_glossary_library() -> None:
         encoding="utf-8"
     )
     assert "VaultGlossary.php" not in text
-    assert "vaultRetrievalProfilesForVaultIds" in text
+    vault_payload = (
+        OAao / "vault" / "default" / "library" / "VaultSendOrchestratorPayload.php"
+    ).read_text(encoding="utf-8")
+    assert "vaultRetrievalProfilesForVaultIds" in vault_payload
+    assert "getWorkspaceGlossary" in vault_payload
 
 
 def test_slide_designer_publishes_template_api() -> None:
@@ -64,11 +68,15 @@ def test_assistant_patch_uses_slide_api() -> None:
 
 
 def test_send_uses_endpoints_api() -> None:
+    endpoints_payload = (
+        OAao / "endpoints" / "default" / "library" / "EndpointsSendOrchestratorPayload.php"
+    ).read_text(encoding="utf-8")
+    assert "resolveOrchestratorVaultRagConfig" in endpoints_payload
     text = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(
         encoding="utf-8"
     )
-    assert "resolveOrchestratorVaultRagConfig" in text
     assert "CanonicalEndpointsRepository" not in text
+    assert "ChatSendOrchestratorStage::PAYLOAD" in text
 
 
 def test_chat_send_pipeline_library_exists() -> None:
@@ -80,3 +88,8 @@ def test_chat_send_pipeline_library_exists() -> None:
     for name in ("ChatSendContext.php", "ChatSendPipeline.php", "ChatSendPhase.php"):
         assert (OAao / "chat" / "default" / "library" / name).is_file()
     assert (OAao / "vault" / "default" / "library" / "VaultSendScope.php").is_file()
+    assert (OAao / "chat" / "default" / "library" / "ChatSendOrchestratorBinding.php").is_file()
+    send_text = send
+    assert "ChatSendPhase::SCOPE" in send_text
+    assert "ChatSendOrchestratorStage::PAYLOAD" in send_text
+    assert "MmModuleSettings.php" not in send_text

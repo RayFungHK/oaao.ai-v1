@@ -15,18 +15,22 @@ final class ChatSendContext
     /** @var array<string, mixed> */
     private array $moduleData = [];
 
+    /** @var array<string, array<string, mixed>> */
+    private array $payloadFragments = [];
+
     /**
      * @param array<string, mixed> $input Decoded POST body
      */
     public function __construct(
         public readonly int $userId,
-        public readonly int $workspaceId,
+        public readonly ?int $workspaceId,
         public readonly array $input,
         public readonly int $chatEndpointId = 0,
         public readonly bool $isBubbleChat = false,
         public readonly bool $appendAssistantTurn = false,
         public readonly ?int $conversationId = null,
     ) {
+        $this->slideTemplateId = self::parseSlideTemplateId($input);
     }
 
     /** @var list<int> */
@@ -44,6 +48,31 @@ final class ChatSendContext
     /** @var list<int> */
     public array $attachmentIds = [];
 
+    public string $slideTemplateId = '';
+
+    public bool $hasPublishedSlideTemplate = false;
+
+    public string $slideTemplateLabel = '';
+
+    public string $content = '';
+
+    public string $orchestratorUserContent = '';
+
+    /** @var array<string, mixed>|null */
+    public ?array $binding = null;
+
+    public string $internalBase = '';
+
+    public bool $orchReady = false;
+
+    /**
+     * @param array<string, mixed> $input
+     */
+    public static function parseSlideTemplateId(array $input): string
+    {
+        return trim((string) ($input['slide_template_id'] ?? ''));
+    }
+
     /**
      * Module-owned scratch space — key is module api_name ({@code vault}, {@code slide_designer}, …).
      *
@@ -60,6 +89,35 @@ final class ChatSendContext
         }
 
         return $this->moduleData[$k];
+    }
+
+    /**
+     * @param array<string, mixed> $fragment
+     */
+    public function mergePayloadFragment(string $moduleApiName, array $fragment): void
+    {
+        if ($fragment === []) {
+            return;
+        }
+        $k = strtolower(trim($moduleApiName));
+        if ($k === '') {
+            return;
+        }
+        $existing = $this->payloadFragments[$k] ?? [];
+        $this->payloadFragments[$k] = array_merge($existing, $fragment);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function mergedPayloadFragments(): array
+    {
+        $out = [];
+        foreach ($this->payloadFragments as $fragment) {
+            $out = array_merge($out, $fragment);
+        }
+
+        return $out;
     }
 
     /**

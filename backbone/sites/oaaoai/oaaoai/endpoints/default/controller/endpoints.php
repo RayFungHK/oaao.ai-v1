@@ -701,6 +701,7 @@ return new class extends Controller {
         $vaultDocumentHookListener = 'event/vault_document_hook_register_listener';
         $toolServerListener = 'event/tool_server_register_listener';
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
+        $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_ready');
         $agent->listen([
             'oaaoai/chat:purpose_allocation.register'      => $purposeAllocationListener,
             'oaaoai/rag:purpose_allocation.register'       => $purposeAllocationListener,

@@ -18,10 +18,13 @@ final class ChatSendPipeline
     ) {
     }
 
-    public function run(string $phase, ChatSendContext $context): ChatSendContext
+    /**
+     * @param array<string, mixed> $extra
+     */
+    public function run(string $phase, ChatSendContext $context, array $extra = []): ChatSendContext
     {
         $event = ChatSendPhase::eventName($phase);
-        $this->controller->trigger($event)->resolve(['context' => $context]);
+        $this->controller->trigger($event)->resolve(array_merge(['context' => $context], $extra));
 
         return $context;
     }

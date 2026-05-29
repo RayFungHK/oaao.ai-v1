@@ -38,10 +38,11 @@ Compare with existing **registry** pattern (`planner_agent.register`, `chat_pipe
 | Phase | Event | Owner (today) | Notes |
 |--------|--------|---------------|--------|
 | `gate` | `chat.send.gate` | chat (stub) | Credits, workspace scope — still inline in `send.php` |
-| **`prepare`** | **`chat.send.prepare`** | **chat + vault** | **Shipped:** composer flags, vault refs, attachments |
+| **`prepare`** | **`chat.send.prepare`** | **chat + vault + slide-designer** | **Shipped:** composer flags, vault refs, attachments, slide template |
+| **`scope`** | **`chat.send.scope`** | **chat** | **Shipped:** auto-RAG / teaching-intent vault expansion |
 | `persist` | `chat.send.persist` | chat | Adjunct SQLite TX — chat-only tables |
 | `conversation_settle` | `chat.send.conversation_settle` | chat (stub) | Provisional title, thread params, inference meta |
-| `orchestrator_ready` | `chat.send.orchestrator_ready` | chat + endpoints + vault + slide-designer (stub) | Binding, `agent_catalog`, vault profiles, slide extras |
+| **`orchestrator_ready`** | **`chat.send.orchestrator_ready`** | **chat + endpoints + vault** | **Partial:** `bind` (endpoint profile) + `payload` (purpose LLM + vault fragments) |
 | `run_start` | `chat.send.run_start` | chat | POST `/v1/runs/chat`, stream URL |
 | `respond` | `chat.send.respond` | chat | JSON envelope to browser |
 
@@ -98,12 +99,12 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 
 ## 6. Migration backlog (priority)
 
-1. **Done (draft):** `prepare` — vault scope, web search, attachments.
-2. **Next:** `gate` — credit block, workspace gate (move after auth in `send.php`).
-3. **Next:** `conversation_settle` — lines ~607–632 in current `send.php` (title, inference meta).
-4. **Next:** `orchestrator_ready` — lines ~397–421 + vault profile resolution + slide template + bubble flags.
-5. **Later:** `persist` / `run_start` / `respond` — only when TX boundaries are clear.
-6. **Cleanup:** remove remaining cross-module `require_once` in `send.php` per Audit P0.
+1. **Done:** `prepare` — vault scope, web search, attachments, slide template.
+2. **Done:** `scope` — vault auto-expand after message content known.
+3. **Partial:** `orchestrator_ready` — bind stage + endpoints/vault payload fragments (slide/materials still in `send.php`).
+4. **Next:** `gate` — credit block, workspace gate.
+5. **Next:** `conversation_settle` — provisional title, inference meta on user message.
+6. **Next:** `orchestrator_ready` — slide-designer payload, allowed_agents, agent_catalog.
 
 Modules to migrate (non-exhaustive):
 

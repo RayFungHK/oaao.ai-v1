@@ -3,15 +3,22 @@
 declare(strict_types=1);
 
 use oaaoai\chat\ChatSendContext;
+use oaaoai\chat\ChatSendOrchestratorBinding;
+use oaaoai\chat\ChatSendOrchestratorStage;
 
-/**
- * Placeholder for {@code chat.send.orchestrator_ready} — endpoint binding, agent catalog, vault profiles, slide extras.
- *
- * @see docs/design/chat-send-pipeline.md § orchestrator_ready
- */
+/** Chat-owned {@code chat.send.orchestrator_ready} bind stage — endpoint profile + sidecar base. */
 return function (array $payload): void {
-    $ctx = $payload['context'] ?? null;
-    if (! $ctx instanceof ChatSendContext) {
+    if (($payload['stage'] ?? '') !== ChatSendOrchestratorStage::BIND) {
         return;
     }
+
+    $ctx = $payload['context'] ?? null;
+    $canonDb = $payload['canonical_db'] ?? null;
+    if (! $ctx instanceof ChatSendContext || ! $canonDb instanceof \Razy\Database) {
+        return;
+    }
+
+    $ctx->binding = ChatSendOrchestratorBinding::resolveBinding($canonDb, $ctx->chatEndpointId);
+    $ctx->internalBase = ChatSendOrchestratorBinding::resolveInternalBase();
+    $ctx->orchReady = ChatSendOrchestratorBinding::isReady($ctx->binding, $ctx->internalBase);
 };

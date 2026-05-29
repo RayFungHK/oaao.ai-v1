@@ -808,6 +808,7 @@ return new class extends Controller {
 
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
         $agent->listen('oaaoai/chat:chat.send.prepare', 'event/chat_send_prepare');
+        $agent->listen('oaaoai/chat:chat.send.scope', 'event/chat_send_scope');
         $agent->listen('oaaoai/chat:chat.send.gate', 'event/chat_send_gate');
         $agent->listen('oaaoai/chat:chat.send.conversation_settle', 'event/chat_send_conversation_settle');
         $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_ready');

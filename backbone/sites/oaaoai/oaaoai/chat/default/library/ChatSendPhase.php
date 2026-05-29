@@ -17,6 +17,8 @@ final class ChatSendPhase
 
     public const PREPARE = 'prepare';
 
+    public const SCOPE = 'scope';
+
     public const PERSIST = 'persist';
 
     public const CONVERSATION_SETTLE = 'conversation_settle';
@@ -31,6 +33,7 @@ final class ChatSendPhase
     public const ORDER = [
         self::GATE,
         self::PREPARE,
+        self::SCOPE,
         self::PERSIST,
         self::CONVERSATION_SETTLE,
         self::ORCHESTRATOR_READY,
