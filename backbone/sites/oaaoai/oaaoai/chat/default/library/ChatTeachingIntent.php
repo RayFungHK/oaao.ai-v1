@@ -95,91 +95,28 @@ final class ChatTeachingIntent
 
     /**
      * Text stored on the user message row — template is shown via {@code meta_json} + UI pill, not bracket prose.
+     *
+     * @deprecated Use {@see \oaaoai\slide_designer\SlideSendTemplateSlug::displayThreadMessage}
      */
     public static function displayUserMessageForTemplate(string $content, string $templateId, string $label): string
     {
-        $tid = trim($templateId);
-        if ($tid === '') {
-            return trim($content);
-        }
-        $lab = trim($label) !== '' ? trim($label) : $tid;
-        $c = self::stripTemplateMetaSuffix(trim($content));
-        if (self::isVagueTemplateComposerText($c, $lab)) {
-            return '';
-        }
-
-        return $c;
+        return \oaaoai\slide_designer\SlideSendTemplateSlug::displayThreadMessage($content, $templateId, $label);
     }
 
     /**
      * Full instruction for orchestrator / planner only (not shown verbatim in the chat thread).
+     *
+     * @deprecated Use {@see \oaaoai\slide_designer\SlideSendTemplateSlug::enrichOrchestratorMessage}
      */
     public static function enrichUserMessageForTemplate(string $content, string $templateId, string $label): string
     {
-        $tid = trim($templateId);
-        if ($tid === '') {
-            return trim($content);
-        }
-        $lab = trim($label) !== '' ? trim($label) : $tid;
-        $c = self::stripTemplateMetaSuffix(trim($content));
-
-        if (self::isVagueTemplateComposerText($c, $lab)) {
-            return sprintf(
-                'Create a slide presentation using the published slide template "%s" (template_id: %s). '
-                . 'Apply its layout, typography, colors, and slide masters.',
-                $lab,
-                $tid,
-            );
-        }
-
-        return $c . sprintf(
-            "\n\n[Use published slide template: %s (template_id: %s).]",
-            $lab,
-            $tid,
-        );
+        return \oaaoai\slide_designer\SlideSendTemplateSlug::enrichOrchestratorMessage($content, $templateId, $label);
     }
 
+    /** @deprecated Use {@see \oaaoai\slide_designer\SlideSendTemplateSlug::stripTemplateMetaSuffix} */
     public static function stripTemplateMetaSuffix(string $content): string
     {
-        $c = trim($content);
-        if ($c === '') {
-            return '';
-        }
-
-        $c = trim((string) preg_replace(
-            '/\n\n\[Use published slide template:[^\]]+\]\.?\s*$/u',
-            '',
-            $c,
-        ));
-
-        return trim((string) preg_replace(
-            '/\s*Create a slide presentation using the published slide template "[^"]+" '
-            . '\(template_id:\s*[^)]+\)\.?\s*/iu',
-            '',
-            $c,
-        ));
-    }
-
-    private static function isVagueTemplateComposerText(string $content, string $label): bool
-    {
-        $c = trim($content);
-        if ($c === '') {
-            return true;
-        }
-        $low = mb_strtolower($c, 'UTF-8');
-        $labLow = mb_strtolower(trim($label), 'UTF-8');
-
-        return preg_match('/^use\s+(this\s+)?template\.?$/iu', $c) === 1
-            || preg_match('/^使用(此|這)?模板\.?$/u', $c) === 1
-            || ($labLow !== '' && $low === $labLow)
-            || preg_match(
-                '/^create a slide presentation using (my selected|the published slide) template\.?$/i',
-                $c,
-            ) === 1
-            || preg_match(
-                '/^create a slide presentation using the published slide template "/i',
-                $c,
-            ) === 1;
+        return \oaaoai\slide_designer\SlideSendTemplateSlug::stripTemplateMetaSuffix($content);
     }
 
     /**

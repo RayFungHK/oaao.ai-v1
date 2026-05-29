@@ -8,7 +8,7 @@ namespace oaaoai\chat;
  * Ordered phases for {@see ChatSendPipeline} — each maps to {@code chat.send.{phase}} on {@code oaaoai/chat}.
  *
  * Migration order (see {@code docs/design/chat-send-pipeline.md}):
- * prepare → conversation_settle → orchestrator_ready → run_start → respond.
+ * prepare → message → scope → … conversation_settle → orchestrator_ready → run_start → respond.
  * {@code gate} runs before prepare when wired.
  */
 final class ChatSendPhase
@@ -16,6 +16,8 @@ final class ChatSendPhase
     public const GATE = 'gate';
 
     public const PREPARE = 'prepare';
+
+    public const MESSAGE = 'message';
 
     public const SCOPE = 'scope';
 
@@ -27,19 +29,17 @@ final class ChatSendPhase
 
     public const RUN_START = 'run_start';
 
-    public const RUN_START = 'run_start';
-
     public const RESPOND = 'respond';
 
     /** @var list<string> */
     public const ORDER = [
         self::GATE,
         self::PREPARE,
+        self::MESSAGE,
         self::SCOPE,
         self::PERSIST,
         self::CONVERSATION_SETTLE,
         self::ORCHESTRATOR_READY,
-        self::RUN_START,
         self::RUN_START,
         self::RESPOND,
     ];

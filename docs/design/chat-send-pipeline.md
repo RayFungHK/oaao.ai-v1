@@ -39,6 +39,7 @@ Compare with existing **registry** pattern (`planner_agent.register`, `chat_pipe
 |--------|--------|---------------|--------|
 | `gate` | `chat.send.gate` | chat (stub) | Credits, workspace scope — still inline in `send.php` |
 | **`prepare`** | **`chat.send.prepare`** | **chat + vault + slide-designer** | **Shipped:** composer flags, vault refs, attachments, slide template |
+| **`message`** | **`chat.send.message`** | **chat + slide-designer** | **Shipped:** empty-body defaults, continue prompt, template slug display/enrich |
 | **`scope`** | **`chat.send.scope`** | **chat** | **Shipped:** auto-RAG / teaching-intent vault expansion |
 | `persist` | `chat.send.persist` | chat | **Shipped:** `ChatSendPersist::execute()` — adjunct SQLite TX |
 | **`conversation_settle`** | **`chat.send.conversation_settle`** | **chat + slide-designer** | **Shipped:** provisional title, inference meta, user message meta |
@@ -108,7 +109,8 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 5. **Done:** `orchestrator_ready` — bind, agents, CORE, SLIDE, PAYLOAD (endpoints/vault), PERSONALIZE (user), FINALIZE (inference/corpus/library/run_principal).
 6. **Done:** `persist` — `ChatSendPersist::execute()` (conversation + messages TX).
 7. **Done:** `run_start` — `ChatSendRunStarter::start()` (compact, payload stages, POST run).
-8. **Next:** `respond` phase — JSON envelope assembly; optional further thinning of `send.php`.
+8. **Next:** `respond` phase — JSON envelope assembly.
+9. **Done:** `message` — template slug + composer text via `chat.send.message`.
 
 Modules to migrate (non-exhaustive):
 

@@ -8,7 +8,6 @@ use oaaoai\chat\ChatSendPersist;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatSendRunStarter;
-use oaaoai\chat\ChatTeachingIntent;
 use oaaoai\user\UserModelParams;
 
 /**
@@ -62,9 +61,6 @@ return function (): void {
 
             return;
         }
-        if ($content === '') {
-            $content = 'Continue';
-        }
     }
 
     $inputPlannerMode = '';
@@ -108,6 +104,7 @@ return function (): void {
             'canonical_db' => $canonDbEarly,
         ]);
         $sendPipeline->run(ChatSendPhase::PREPARE, $sendCtx);
+        $sendPipeline->run(ChatSendPhase::MESSAGE, $sendCtx, ['raw_content' => $content]);
     } catch (ChatSendAbort $abort) {
         http_response_code($abort->httpStatus);
         echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
@@ -115,6 +112,8 @@ return function (): void {
         return;
     }
 
+    $content = $sendCtx->content;
+    $orchestratorUserContent = $sendCtx->orchestratorUserContent;
     $vaultSourceIds = $sendCtx->vaultSourceIds;
     $vaultSourceRefs = $sendCtx->vaultSourceRefs;
     $vaultAutoRag = $sendCtx->vaultAutoRag;
@@ -124,18 +123,6 @@ return function (): void {
     $hasPublishedSlideTemplate = $sendCtx->hasPublishedSlideTemplate;
     $slideTemplateLabel = $sendCtx->slideTemplateLabel;
 
-    if ($content === '' && ! $appendAssistantTurn) {
-        if ($slideTemplateId !== '') {
-            $content = 'Create a slide presentation using the selected template.';
-        } elseif ($attachmentIds !== []) {
-            $content = 'Please read the attached file(s) and respond helpfully.';
-        } else {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Message cannot be empty']);
-
-            return;
-        }
-    }
     if (strlen($content) > 32000) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Message too long']);
@@ -146,25 +133,6 @@ return function (): void {
     $assistantStub = '*(Preview)* Connect an LLM endpoint and sidecar to stream real replies. Stored locally: your message was received.';
 
     $canonDb = $authApi ? $authApi->getDB() : null;
-
-    $orchestratorUserContent = $appendAssistantTurn
-        ? 'Continue from where you left off in your previous assistant reply. Do not repeat text you already wrote; only add the next part.'
-        : $content;
-    if ($hasPublishedSlideTemplate) {
-        $orchestratorUserContent = ChatTeachingIntent::enrichUserMessageForTemplate(
-            $content,
-            $slideTemplateId,
-            $slideTemplateLabel,
-        );
-        $content = ChatTeachingIntent::displayUserMessageForTemplate(
-            $content,
-            $slideTemplateId,
-            $slideTemplateLabel,
-        );
-    }
-
-    $sendCtx->content = $content;
-    $sendCtx->orchestratorUserContent = $orchestratorUserContent;
 
     if ($canonDb instanceof \Razy\Database) {
         try {
