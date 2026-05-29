@@ -422,8 +422,6 @@ const ENDPOINT_TYPE_FALLBACK_PREFIXES = [
     'uiqe',
     'knowledge.orientation',
     'knowledge.search_plan',
-    'knowledge.classify',
-    'knowledge.distill',
     'asr',
     'asr.live',
     'asr_summary',
@@ -504,15 +502,7 @@ function endpointEditorFormHtml(initialEndpointTypes = 'chat') {
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.api_key_ref'))}</span><input name="api_key_ref" placeholder="vault / env ref" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)]" /></label>
   <label class="flex items-center gap-2 text-[0.8125rem] cursor-pointer"><input type="checkbox" name="is_enabled" checked class="rounded border-[var(--grid-line)]" /><span>${escapeHtml(oaaoT('settings.ep.form.enabled'))}</span></label>
   <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.tokens_per_credit'))}</span><span class="text-[0.75rem] fg-[var(--grid-ink-muted)]">${escapeHtml(oaaoT('settings.ep.form.tokens_per_credit_hint'))}</span><input name="tokens_per_credit" type="number" min="1" step="1" placeholder="1000" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs max-w-[12rem]" /></label>
-  <div class="flex flex-col gap-0.5 text-[0.8125rem]">
-    <div class="flex flex-wrap items-center gap-2">
-      <span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.config_json'))}</span>
-      <button type="button" data-act="ep-fetch-model-info" class="rounded border border-[var(--grid-line)] px-2 py-0.5 text-xs bg-[var(--grid-panel-bright)] cursor-pointer hover:bg-[var(--grid-panel)]">${escapeHtml(oaaoT('settings.ep.form.fetch_model_info'))}</button>
-    </div>
-    <span class="text-[0.75rem] fg-[var(--grid-ink-muted)] leading-snug">${escapeHtml(oaaoT('settings.ep.form.fetch_model_info_hint'))}</span>
-    <textarea name="config_json" rows="3" placeholder="{}" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs"></textarea>
-    <span data-oaao-ep-model-probe-msg class="text-[0.75rem] fg-[var(--grid-ink-muted)] min-h-[1rem]" role="status"></span>
-  </div>
+  <label class="flex flex-col gap-0.5 text-[0.8125rem]"><span class="fw-medium">${escapeHtml(oaaoT('settings.ep.form.config_json'))}</span><textarea name="config_json" rows="3" placeholder="{}" class="rounded border border-[var(--grid-line)] px-2 py-1.5 font-inherit bg-[var(--grid-panel-bright)] font-mono text-xs"></textarea></label>
   <p id="oaao-ep-dlg-msg" class="text-[0.8125rem] fg-[var(--grid-caution,#b45309)] min-h-[1.25rem]" role="status"></p>
 </form>`;
 }

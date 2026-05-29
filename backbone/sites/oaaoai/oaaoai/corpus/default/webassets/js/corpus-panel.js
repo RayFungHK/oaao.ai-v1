@@ -58,10 +58,7 @@ async function corpusFetchJson(path, options = {}) {
 }
 
 async function loadRazyui() {
-    const prefix = mountPrefix();
-    const base = prefix && prefix !== '/' ? prefix.replace(/\/+$/, '') : '';
-    const importPath = `${base}/webassets/core/default/razyui/razyui.js`.replace(/\/{2,}/g, '/');
-    const mod = await import(/* webpackIgnore: true */ importPath);
+    const mod = await import(/* webpackIgnore: true */ 'razyui');
     return mod.default ?? mod;
 }
 

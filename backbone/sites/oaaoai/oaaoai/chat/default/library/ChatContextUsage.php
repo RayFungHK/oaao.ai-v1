@@ -169,16 +169,20 @@ final class ChatContextUsage
         }
 
         $system = 0;
-        $repoRoot = OaaoRepoPaths::root();
-        $paths = [
-            $repoRoot . '/docker/polish-templates/turn_agent_intent.md',
-            $repoRoot . '/python/materials/prompts/planning/turn_agent_intent.md',
-        ];
-        foreach ($paths as $path) {
-            if (is_readable($path)) {
-                $system += self::estimateTokens((string) file_get_contents($path), $tokenizerProfile);
-                break;
+        try {
+            $repoRoot = OaaoRepoPaths::root();
+            $paths = [
+                $repoRoot . '/docker/polish-templates/turn_agent_intent.md',
+                $repoRoot . '/python/materials/prompts/planning/turn_agent_intent.md',
+            ];
+            foreach ($paths as $path) {
+                if (is_readable($path)) {
+                    $system += self::estimateTokens((string) file_get_contents($path), $tokenizerProfile);
+                    break;
+                }
             }
+        } catch (\Throwable) {
+            /* repo layout optional */
         }
         if ($system < 1) {
             $system = 400;
@@ -195,33 +199,44 @@ final class ChatContextUsage
             }
         }
 
-        $toolServers = [];
-        $endpointsApi = $controller->api('endpoints');
-        if ($endpointsApi && \method_exists($endpointsApi, 'getToolServerRegistry')) {
-            $toolServers = $endpointsApi->getToolServerRegistry();
-        } else {
-            $toolServers = ToolServerRegister::allSorted();
-        }
-
-        $mcpRows = [];
-        $toolOnly = [];
-        foreach ($toolServers as $row) {
-            if (! \is_array($row)) {
-                continue;
-            }
-            $id = strtolower((string) ($row['id'] ?? ''));
-            if (str_contains($id, 'mcp') || str_contains($id, 'model-context')) {
-                $mcpRows[] = $row;
+        $toolDefs = 0;
+        $mcp = 0;
+        try {
+            $toolServers = [];
+            $endpointsApi = $controller->api('endpoints');
+            if ($endpointsApi && \method_exists($endpointsApi, 'getToolServerRegistry')) {
+                $toolServers = $endpointsApi->getToolServerRegistry();
             } else {
-                $toolOnly[] = $row;
+                $toolServers = ToolServerRegister::allSorted();
             }
+
+            $mcpRows = [];
+            $toolOnly = [];
+            foreach ($toolServers as $row) {
+                if (! \is_array($row)) {
+                    continue;
+                }
+                $id = strtolower((string) ($row['id'] ?? ''));
+                if (str_contains($id, 'mcp') || str_contains($id, 'model-context')) {
+                    $mcpRows[] = $row;
+                } else {
+                    $toolOnly[] = $row;
+                }
+            }
+
+            $toolDefs = self::estimateJsonTokens($toolOnly, $tokenizerProfile);
+            $mcp = self::estimateJsonTokens($mcpRows, $tokenizerProfile);
+        } catch (\Throwable) {
+            /* tool registry optional for usage estimate */
         }
 
-        $toolDefs = self::estimateJsonTokens($toolOnly, $tokenizerProfile);
-        $mcp = self::estimateJsonTokens($mcpRows, $tokenizerProfile);
-
-        $hotPlug = SkillsManifestStorage::enabledForPurpose('chat');
-        $skillsTok = self::estimateJsonTokens($hotPlug, $tokenizerProfile);
+        $skillsTok = 0;
+        try {
+            $hotPlug = SkillsManifestStorage::enabledForPurpose('chat');
+            $skillsTok = self::estimateJsonTokens($hotPlug, $tokenizerProfile);
+        } catch (\Throwable) {
+            /* skills manifest optional */
+        }
 
         $microTok = 0;
         if ($splitPdo instanceof \PDO && $userId > 0) {
@@ -249,22 +264,35 @@ final class ChatContextUsage
 
         $rules = 0;
         if ($canonPdo instanceof \PDO && $userId > 0) {
-            $norm = UserPersonalization::loadForUser($canonPdo, $userId);
-            if (! empty($norm['use_knowledge_in_chat'])) {
-                $rules += self::estimateTokens((string) ($norm['custom_instructions'] ?? ''), $tokenizerProfile);
-                $rules += self::estimateTokens((string) ($norm['knowledge'] ?? ''), $tokenizerProfile);
+            try {
+                $norm = UserPersonalization::loadForUser($canonPdo, $userId);
+                if (! empty($norm['use_knowledge_in_chat'])) {
+                    $rules += self::estimateTokens((string) ($norm['custom_instructions'] ?? ''), $tokenizerProfile);
+                    $rules += self::estimateTokens((string) ($norm['knowledge'] ?? ''), $tokenizerProfile);
+                }
+            } catch (\Throwable) {
+                /* personalization optional for usage estimate */
             }
         }
-        $crystPath = CrystallizedSkillsStorage::configPath();
-        if (is_readable($crystPath)) {
-            $rules += self::estimateTokens((string) file_get_contents($crystPath), $tokenizerProfile);
+        try {
+            $crystPath = CrystallizedSkillsStorage::configPath();
+            if (is_readable($crystPath)) {
+                $rules += self::estimateTokens((string) file_get_contents($crystPath), $tokenizerProfile);
+            }
+        } catch (\Throwable) {
+            /* crystallized skills optional */
         }
 
-        $allowed = ChatAllowedAgentsPurposeConfig::defaultAllowed();
-        $subagents = self::estimateJsonTokens(
-            PlannerAgentRegister::catalogForAllowed($allowed),
-            $tokenizerProfile,
-        );
+        $subagents = 0;
+        try {
+            $allowed = ChatAllowedAgentsPurposeConfig::defaultAllowed();
+            $subagents = self::estimateJsonTokens(
+                PlannerAgentRegister::catalogForAllowed($allowed),
+                $tokenizerProfile,
+            );
+        } catch (\Throwable) {
+            /* subagent catalog optional */
+        }
 
         return [
             'system_prompt'        => $system,

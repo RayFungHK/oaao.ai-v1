@@ -51,14 +51,13 @@ async function mountUsersPanel(host, ctx, page = 1) {
 
         host.append(sectionTitle('User management'));
         host.append(
-            hint('Invite users by email (they set their own password). Edit existing accounts below.'),
+            hint('Create accounts, assign permission groups, and manage access within this tenant.'),
         );
         host.append(
-            buildCreateToolbar('Invite user', () => {
-                void openInviteDialog(groups, ctx, () => mountUsersPanel(host, ctx, 1));
+            buildCreateToolbar('Create user', () => {
+                void openUserDialog(null, groups, ctx, () => mountUsersPanel(host, ctx, 1));
             }),
         );
-        host.append(await buildPendingInvitationsBlock(ctx, () => mountUsersPanel(host, ctx, page)));
 
         if (users.length === 0) {
             host.append(hint('No users yet.', 'mt-md'));
@@ -141,7 +140,6 @@ function buildUsersTable(users, groups, ctx, pagination, host) {
                 <th>Display name</th>
                 <th>Role</th>
                 <th>Group</th>
-                <th>${escapeHtml(oaaoT('settings.users.credits_col', 'Credits'))}</th>
                 <th>Status</th>
                 <th class="oaao-access-table-actions"></th>
             </tr>
@@ -154,15 +152,11 @@ function buildUsersTable(users, groups, ctx, pagination, host) {
     for (const user of users) {
         const tr = document.createElement('tr');
         const status = user.disabled ? 'disabled' : 'active';
-        const creditsCell = user.credits_unlimited
-            ? oaaoT('preferences.dashboard.unlimited', 'Unlimited')
-            : String(Number(user.credit_balance ?? 0).toFixed(2));
         tr.innerHTML = `
             <td class="fw-medium"><button type="button" class="oaao-access-user-link">${escapeHtml(String(user.login_name || ''))}</button></td>
             <td>${escapeHtml(String(user.display_name || '—'))}</td>
             <td>${escapeHtml(String(user.role || 'user'))}</td>
             <td>${escapeHtml(String(user.permission_group_name || '—'))}</td>
-            <td class="font-mono text-xs">${escapeHtml(creditsCell)}</td>
             <td>${escapeHtml(status)}</td>
             <td class="oaao-access-table-actions"></td>`;
         const actions = tr.querySelector('.oaao-access-table-actions');
@@ -283,164 +277,6 @@ async function openUserUsageDialog(user, ctx) {
 }
 
 /**
- * @param {Array<Record<string, unknown>>} groups
- * @param {Record<string, unknown>} ctx
- * @param {() => void|Promise<void>} reload
- */
-async function openInviteDialog(groups, ctx, reload) {
-    const Dialog = ctx.Dialog;
-    if (typeof Dialog !== 'function') {
-        window.alert('Dialog component unavailable.');
-        return;
-    }
-
-    const wrap = document.createElement('div');
-    wrap.className = '[padding:0]';
-    const form = document.createElement('form');
-    form.className = 'flex flex-col gap-2';
-    form.innerHTML = `
-        <label class="text-xs">Email<input name="email" type="email" class="oaao-access-input" required autocomplete="email" /></label>
-        <label class="text-xs">Role<select name="role" class="oaao-access-input">
-            <option value="user" selected>user</option>
-            <option value="admin">admin</option>
-        </select></label>
-        <label class="text-xs">Permission group<select name="permission_group_id" class="oaao-access-input">
-            <option value="">— none —</option>
-            ${groups.map((g) => `<option value="${Number(g.id)}">${escapeHtml(String(g.name || ''))}</option>`).join('')}
-        </select></label>`;
-
-    const status = document.createElement('p');
-    status.className = 'text-xs fg-[var(--grid-ink-muted)] m-0';
-    status.setAttribute('role', 'status');
-    form.append(status);
-
-    form.addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        status.textContent = 'Sending…';
-        const fd = new FormData(form);
-        const body = {
-            email: String(fd.get('email') || '').trim(),
-            role: String(fd.get('role') || 'user'),
-        };
-        const gid = String(fd.get('permission_group_id') || '').trim();
-        if (gid) body.permission_group_id = Number(gid);
-
-        try {
-            const res = await fetch('/user/api/users_invite', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                body: JSON.stringify(body),
-            });
-            const json = await res.json();
-            if (!res.ok || !json?.success) {
-                status.textContent = json?.message || `HTTP ${res.status}`;
-                return;
-            }
-            if (json.register_url) {
-                status.textContent = `Invitation created. Dev link: ${json.register_url}`;
-            } else {
-                status.textContent = json.mail_sent
-                    ? 'Invitation email sent.'
-                    : 'Invitation created (enable OAAO_MAIL_ENABLED to send email).';
-            }
-            await reload();
-        } catch {
-            status.textContent = 'Could not send invitation.';
-        }
-    });
-
-    wrap.append(form);
-
-    new Dialog({
-        id: 'oaao-access-invite-user',
-        title: 'Invite user',
-        content: wrap,
-        size: 'sm',
-        closable: true,
-        buttons: [
-            { text: 'Cancel', color: 'muted', role: 'cancel' },
-            {
-                text: 'Send invitation',
-                color: 'primary',
-                role: 'confirm',
-                onClick: () => form.requestSubmit(),
-            },
-        ],
-        onOpen(ctrl) {
-            ctx.JIT?.hydrate?.(/** @type {HTMLElement} */ (ctrl.body ?? wrap));
-        },
-    });
-}
-
-/**
- * @param {Record<string, unknown>} ctx
- * @param {() => void|Promise<void>} reload
- */
-async function buildPendingInvitationsBlock(ctx, reload) {
-    const section = document.createElement('div');
-    section.className = 'mt-md';
-    section.append(sectionTitle('Pending invitations'));
-
-    try {
-        const res = await fetch('/user/api/users_invitations_list', {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-        });
-        const json = await res.json();
-        const items = Array.isArray(json?.data?.invitations) ? json.data.invitations : [];
-        if (!res.ok || !json?.success || items.length === 0) {
-            section.append(hint('No pending invitations.'));
-            return section;
-        }
-
-        const table = document.createElement('table');
-        table.className = 'oaao-access-table w-full text-sm mt-2';
-        table.innerHTML = `<thead><tr><th>Email</th><th>Role</th><th>Expires</th><th></th></tr></thead><tbody></tbody>`;
-        const tbody = table.querySelector('tbody');
-        for (const inv of items) {
-            const tr = document.createElement('tr');
-            const email = escapeHtml(String(inv.email || ''));
-            const role = escapeHtml(String(inv.role || 'user'));
-            const exp = escapeHtml(String(inv.expires_at || ''));
-            tr.innerHTML = `<td>${email}</td><td>${role}</td><td class="fg-[var(--grid-ink-muted)]">${exp}</td><td class="oaao-access-table-actions"></td>`;
-            const actions = tr.querySelector('.oaao-access-table-actions');
-            if (actions instanceof HTMLElement) {
-                const revokeBtn = tableActionBtn('Revoke');
-                revokeBtn.addEventListener('click', async () => {
-                    await fetch('/user/api/users_invite_revoke', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ invitation_id: Number(inv.invitation_id) }),
-                    });
-                    await reload();
-                });
-                const resendBtn = tableActionBtn('Resend');
-                resendBtn.addEventListener('click', async () => {
-                    const r = await fetch('/user/api/users_invite_resend', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ invitation_id: Number(inv.invitation_id) }),
-                    });
-                    const j = await r.json();
-                    if (j?.register_url) window.alert(j.register_url);
-                    await reload();
-                });
-                actions.append(resendBtn, revokeBtn);
-            }
-            tbody?.append(tr);
-        }
-        section.append(table);
-    } catch {
-        section.append(hint('Could not load pending invitations.'));
-    }
-
-    return section;
-}
-
-/**
  * @param {Record<string, unknown>|null} user
  * @param {Array<Record<string, unknown>>} groups
  * @param {Record<string, unknown>} ctx
@@ -464,7 +300,7 @@ async function openUserDialog(user, groups, ctx, reload) {
         <label class="text-xs">Login name<input name="login_name" class="oaao-access-input" required value="${isEdit ? escapeAttr(String(user.login_name || '')) : ''}" /></label>
         <label class="text-xs">Display name<input name="display_name" class="oaao-access-input" value="${isEdit ? escapeAttr(String(user.display_name || '')) : ''}" /></label>
         <label class="text-xs">Email<input name="email" type="email" class="oaao-access-input" value="${isEdit ? escapeAttr(String(user.email || '')) : ''}" /></label>
-        ${isEdit ? '<label class="text-xs">New password <span class="fg-[var(--grid-caption)]">(leave blank to keep)</span><input name="password" type="password" autocomplete="new-password" class="oaao-access-input" /></label>' : ''}
+        <label class="text-xs">${isEdit ? 'New password <span class="fg-[var(--grid-caption)]">(leave blank to keep)</span>' : 'Password'}<input name="password" type="password" autocomplete="new-password" class="oaao-access-input"${isEdit ? '' : ' required'} /></label>
         <label class="text-xs">Role<select name="role" class="oaao-access-input">
             <option value="user"${isEdit && user.role === 'user' ? ' selected' : ''}${!isEdit ? ' selected' : ''}>user</option>
             <option value="admin"${isEdit && user.role === 'admin' ? ' selected' : ''}>admin</option>
@@ -473,8 +309,7 @@ async function openUserDialog(user, groups, ctx, reload) {
         <label class="text-xs">Permission group<select name="permission_group_id" class="oaao-access-input">
             <option value="">— none —</option>
             ${groups.map((g) => `<option value="${Number(g.id)}"${isEdit && Number(user.permission_group_id) === Number(g.id) ? ' selected' : ''}>${escapeHtml(String(g.name || ''))}</option>`).join('')}
-        </select></label>
-        ${isEdit ? `<label class="text-xs flex flex-col gap-0.5"><span>${escapeHtml(oaaoT('settings.users.credit_balance', 'Credit balance'))}</span><span class="fg-[var(--grid-caption)] font-normal">${escapeHtml(oaaoT('settings.users.credit_balance_hint', 'Leave empty for unlimited. 0 blocks new chat sends.'))}</span><input name="credit_balance" type="text" inputmode="decimal" autocomplete="off" class="oaao-access-input font-mono" placeholder="${escapeHtml(oaaoT('preferences.dashboard.unlimited', 'Unlimited'))}" value="${user.credits_unlimited ? '' : escapeAttr(String(user.credit_balance ?? ''))}" /></label>` : ''}`;
+        </select></label>`;
 
     const status = document.createElement('p');
     status.className = 'text-xs fg-[var(--grid-ink-muted)] m-0 hidden';
@@ -526,8 +361,6 @@ async function openUserDialog(user, groups, ctx, reload) {
                     };
                     if (isEdit) {
                         body.user_id = Number(user.user_id ?? 0);
-                        const creditRaw = String(fd.get('credit_balance') ?? '').trim();
-                        body.credit_balance = creditRaw === '' ? null : creditRaw;
                     }
 
                     status.classList.remove('hidden', 'fg-[var(--grid-danger)]');

@@ -1,0 +1,267 @@
+/**
+ * CS-2-S4 — Notion-like BlockEditor skin inside workspace/library.
+ */
+.oaao-library-editor-host {
+    --be-max-width: 780px;
+    --be-padding: 3rem 96px 30vh;
+    --be-min-height: 100%;
+    --be-bg: var(--grid-paper, #fff);
+    --be-text: var(--grid-ink, #37352f);
+    --be-text-muted: var(--grid-caption, rgba(55, 53, 47, 0.65));
+    --be-text-secondary: var(--grid-caption, rgba(55, 53, 47, 0.55));
+    --be-border: var(--grid-line, rgba(55, 53, 47, 0.09));
+    --be-bg-hover: rgba(55, 53, 47, 0.04);
+    --be-row-hover: rgba(55, 53, 47, 0.035);
+    --be-accent: var(--grid-accent, #2383e2);
+    --be-placeholder: rgba(55, 53, 47, 0.35);
+    --be-font-stack: inherit;
+    --be-callout-bg: rgba(241, 241, 239, 0.6);
+    --be-quote-border: rgba(55, 53, 47, 0.45);
+}
+
+.oaao-library-block-editor-mount {
+    background: var(--grid-paper);
+}
+
+.oaao-library-block-editor-mount .block-editor {
+    max-width: var(--be-max-width);
+    margin: 0 auto;
+    padding: var(--be-padding);
+    min-height: var(--be-min-height);
+    color: var(--be-text);
+    background: var(--be-bg);
+    font-family: var(--be-font-stack);
+}
+
+/* Page title (Notion-scale) */
+.oaao-library-block-editor-mount .block-editor-title {
+    font-size: clamp(2rem, 5vw, 2.5rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.5rem;
+    padding: 3px 2px 3px var(--be-row-indent, 50px);
+}
+
+.oaao-library-block-editor-mount .block-editor-title:empty::before {
+    content: 'Untitled';
+    color: var(--be-placeholder);
+    pointer-events: none;
+}
+
+/* Block gutter — show + / drag on hover & focus */
+.oaao-library-block-editor-mount .block-wrapper {
+    border-radius: 4px;
+    transition: background 120ms ease;
+}
+
+.oaao-library-block-editor-mount .block-wrapper:hover,
+.oaao-library-block-editor-mount .block-wrapper:focus-within {
+    background: var(--be-row-hover);
+}
+
+.oaao-library-block-editor-mount .block-wrapper:hover .block-controls,
+.oaao-library-block-editor-mount .block-wrapper:focus-within .block-controls {
+    opacity: 1 !important;
+}
+
+.oaao-library-block-editor-mount .block-controls {
+    transition: opacity 140ms ease;
+}
+
+.oaao-library-block-editor-mount .block-add-btn,
+.oaao-library-block-editor-mount .block-handle {
+    opacity: 0.85;
+}
+
+.oaao-library-block-editor-mount .block-add-btn:hover,
+.oaao-library-block-editor-mount .block-handle:hover {
+    opacity: 1;
+    background: var(--be-bg-hover);
+}
+
+/* Placeholders */
+.oaao-library-block-editor-mount [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: var(--be-placeholder);
+    pointer-events: none;
+}
+
+/* Headings */
+.oaao-library-block-editor-mount .block-heading-h1 {
+    font-size: 1.875em;
+    margin-top: 1.5em;
+}
+
+.oaao-library-block-editor-mount .block-heading-h2 {
+    font-size: 1.5em;
+    margin-top: 1.25em;
+}
+
+.oaao-library-block-editor-mount .block-heading-h3 {
+    font-size: 1.25em;
+    margin-top: 1em;
+}
+
+/* Quote */
+.oaao-library-block-editor-mount .block-quote {
+    margin: 0;
+    padding: 0 0 0 1em;
+    border-left: 3px solid var(--be-quote-border);
+    color: var(--be-text);
+}
+
+/* Callout */
+.oaao-library-block-editor-mount .block-callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 1rem 1rem 0.875rem;
+    background: var(--be-callout-bg);
+    border-radius: 4px;
+}
+
+.oaao-library-block-editor-mount .block-callout-icon {
+    flex-shrink: 0;
+    font-size: 1.25rem;
+    line-height: 1.4;
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Toggle */
+.oaao-library-block-editor-mount .block-toggle {
+    margin: 0.25rem 0;
+}
+
+.oaao-library-block-editor-mount .block-toggle-summary {
+    cursor: pointer;
+    font-weight: 500;
+    list-style: none;
+}
+
+.oaao-library-block-editor-mount .block-toggle-summary::-webkit-details-marker {
+    display: none;
+}
+
+.oaao-library-block-editor-mount .block-toggle-summary::before {
+    content: '▸';
+    display: inline-block;
+    width: 1.25em;
+    color: var(--be-text-secondary);
+    transition: transform 120ms ease;
+}
+
+.oaao-library-block-editor-mount details[open].block-toggle > .block-toggle-summary::before {
+    transform: rotate(90deg);
+}
+
+/* Todo */
+.oaao-library-block-editor-mount .block-todo-row.is-checked .block-todo-content {
+    text-decoration: line-through;
+    color: var(--be-text-muted);
+}
+
+/* Code */
+.oaao-library-block-editor-mount .block-code-wrap {
+    background: rgba(135, 131, 120, 0.08);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.875em;
+}
+
+.oaao-library-block-editor-mount .block-code-lang {
+    display: block;
+    width: 100%;
+    margin-bottom: 0.5rem;
+    border: none;
+    background: transparent;
+    font-size: 0.75rem;
+    color: var(--be-text-muted);
+    outline: none;
+}
+
+.oaao-library-block-editor-mount pre.block-code,
+.oaao-library-block-editor-mount code.block-code {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Divider */
+.oaao-library-block-editor-mount hr.block-divider {
+    border: none;
+    border-top: 1px solid rgba(55, 53, 47, 0.16);
+    margin: 0.5rem 0;
+}
+
+/* Lists */
+.oaao-library-block-editor-mount .block-list-marker {
+    color: var(--be-text-secondary);
+}
+
+/* Slash menu & format bar — Notion-like elevation */
+.oaao-library-block-editor-mount .block-slash-menu.is-visible {
+    box-shadow:
+        0 8px 24px rgba(15, 15, 15, 0.12),
+        0 0 0 1px rgba(15, 15, 15, 0.06);
+}
+
+.oaao-library-block-editor-mount .block-format-bar.is-visible {
+    box-shadow: 0 4px 12px rgba(15, 15, 15, 0.2);
+}
+
+.oaao-library-block-editor-toolbar {
+    border-bottom: 1px solid var(--grid-line);
+    background: var(--grid-panel-bright, var(--grid-paper));
+}
+
+/* Native table block (RazyUI registerBlockType) */
+.oaao-library-block-editor-mount .block-table-wrap {
+    margin: 0.25rem 0;
+    overflow-x: auto;
+}
+
+.oaao-library-block-editor-mount .block-table-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.oaao-library-block-editor-mount .block-wrapper:hover .block-table-bar,
+.oaao-library-block-editor-mount .block-wrapper:focus-within .block-table-bar {
+    opacity: 1;
+}
+
+.oaao-library-block-editor-mount .block-table-bar-btn {
+    border: 1px solid var(--grid-line);
+    background: var(--grid-paper);
+    color: var(--grid-caption);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.oaao-library-block-editor-mount .block-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.oaao-library-block-editor-mount .block-table td {
+    border: 1px solid var(--grid-line);
+    padding: 0.4rem 0.55rem;
+    min-width: 4rem;
+    vertical-align: top;
+}
+
+@media (max-width: 900px) {
+    .oaao-library-editor-host {
+        --be-padding: 2rem 1.25rem 20vh;
+    }
+}

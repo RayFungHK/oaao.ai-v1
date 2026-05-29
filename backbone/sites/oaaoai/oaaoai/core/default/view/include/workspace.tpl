@@ -191,16 +191,16 @@
                                 data-i18n="workspace.library_sidebar_heading">Library</p>
                             <div class="shrink-0 px-md pb-2 flex flex-col gap-1.5">
                                 <button type="button" id="workspace-library-new-doc"
-                                    class="w-full inline-flex items-center justify-center gap-2 rounded-[10px] h-9 px-3 text-[0.8125rem] fw-semibold fg-[var(--grid-ink)] bg-[var(--grid-paper)] border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25">
+                                    class="oaao-library-sidebar-btn-primary">
                                     <span data-i18n="workspace.library_new_doc">New document</span>
                                 </button>
                                 <button type="button" id="workspace-library-import-text"
-                                    class="w-full inline-flex items-center justify-center gap-2 rounded-[10px] h-9 px-3 text-[0.8125rem] fw-medium fg-[var(--grid-ink-muted)] bg-transparent border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/20">
+                                    class="oaao-library-sidebar-btn-secondary">
                                     <span data-i18n="workspace.library_import_text">Import text</span>
                                 </button>
                             </div>
                             <div id="workspace-library-doc-list" role="list"
-                                class="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] px-sm pb-md flex flex-col gap-0.5"></div>
+                                class="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] px-sm pb-md flex flex-col gap-0.5 items-stretch justify-start [&>*]:flex-none [&>*]:min-h-0 [&>*]:max-h-none [&>*]:shrink-0 [&>*]:self-stretch"></div>
                         </section>
                         <section id="workspace-rag-explore-sidebar-section" class="flex flex-col flex-1 min-h-0 overflow-hidden hidden" aria-label="RAG Explore">
                             <p class="workspace-chat-sidebar-label shrink-0 px-md pt-md pb-1 text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold"

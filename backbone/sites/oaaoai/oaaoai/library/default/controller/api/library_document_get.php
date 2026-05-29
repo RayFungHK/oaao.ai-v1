@@ -23,7 +23,7 @@ return function (): void {
 
     $tenantId = (int) $ctx['tenant_id'];
     $st = $ctx['pdo']->prepare(
-        'SELECT d.document_id, d.title, d.status, d.updated_at,
+        'SELECT d.document_id, d.title, d.status, d.updated_at, d.corpus_id, d.current_revision_id,
                 r.revision_id, r.version, r.blocks_json
          FROM oaao_library_document d
          LEFT JOIN LATERAL (
@@ -66,6 +66,12 @@ return function (): void {
             'status'      => (string) ($row['status'] ?? 'draft'),
             'revision_id' => isset($row['revision_id']) ? (int) $row['revision_id'] : null,
             'version'     => isset($row['version']) ? (int) $row['version'] : 1,
+            'corpus_id'   => isset($row['corpus_id']) && $row['corpus_id'] !== null
+                ? (int) $row['corpus_id']
+                : null,
+            'current_revision_id' => isset($row['current_revision_id']) && $row['current_revision_id'] !== null
+                ? (int) $row['current_revision_id']
+                : (isset($row['revision_id']) ? (int) $row['revision_id'] : null),
             'blocks'      => $blocks,
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);

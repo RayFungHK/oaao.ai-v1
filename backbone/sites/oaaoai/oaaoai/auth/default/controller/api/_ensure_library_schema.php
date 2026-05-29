@@ -34,4 +34,14 @@ function oaao_auth_ensure_library_schema(\PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_oaao_library_document_tenant
          ON oaao_library_document (tenant_id, workspace_id)',
     );
+    $pdo->exec(
+        'ALTER TABLE oaao_library_document ADD COLUMN IF NOT EXISTS current_revision_id BIGINT DEFAULT NULL',
+    );
+    $pdo->exec(
+        'ALTER TABLE oaao_library_document ADD COLUMN IF NOT EXISTS corpus_id BIGINT DEFAULT NULL',
+    );
+    $pdo->exec(
+        'CREATE INDEX IF NOT EXISTS idx_oaao_library_revision_doc_ver
+         ON oaao_library_revision (document_id, version DESC)',
+    );
 }

@@ -14,7 +14,7 @@
 | Planner 很慢或一直多步 | `needs_multi_agent_turn`、`build_fast_chat_plan` vs `build_run_plan` |
 | Live meeting 麥克風無反應 | `live-meeting-panel.js` 是否 export **`mountShellPanel`** |
 | 跨模組改動後 500 | 是否違規 `require` 他模組 library（見審計 §6） |
-| `Class "oaaoai\…" not found` | Razy autoload：模組是否 Loaded、`package.php` `require`、slide `_bootstrap.php`（見 [design/razy-module-autoload.md](./design/razy-module-autoload.md)） |
+| `/library/workspace-panel` 404 | Razy `< v1.0.3-beta` skip-listed `library` in `.htaccess`. Fixed upstream in `htaccess.tpl`; rebuild `backbone/Razy.phar` from `../Razy` and run `php Razy.phar rewrite`. Legacy patch: `scripts/oaao_patch_htaccess_library.php` (docker entrypoint). **Rebuild/restart web container**; purge Cloudflare cache if edge cached 404. |
 
 ---
 

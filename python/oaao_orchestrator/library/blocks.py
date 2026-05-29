@@ -39,6 +39,18 @@ def blocks_to_markdown(blocks: list[dict[str, Any]], *, title: str = "") -> str:
                     parts.append(f"{i}. {ln}\n")
         elif btype == "code":
             parts.append(f"```\n{content}\n```\n")
+        elif btype == "table":
+            rows = block.get("meta", {}).get("rows") if isinstance(block.get("meta"), dict) else None
+            if isinstance(rows, list) and rows:
+                header = rows[0] if isinstance(rows[0], list) else []
+                lines = ["| " + " | ".join(str(c) for c in header) + " |"]
+                lines.append("| " + " | ".join("---" for _ in header) + " |")
+                for row in rows[1:]:
+                    if isinstance(row, list):
+                        lines.append("| " + " | ".join(str(c) for c in row) + " |")
+                parts.append("\n".join(lines) + "\n")
+            elif content:
+                parts.append(f"{content}\n\n")
         else:
             parts.append(f"{content}\n\n")
     return "".join(parts).strip()

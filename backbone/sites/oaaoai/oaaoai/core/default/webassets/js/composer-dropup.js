@@ -1,6 +1,0 @@
-/** @deprecated Use `./oaao-composer-dropup.js` — kept for legacy URLs. */
-export {
-    mountComposerDropupAbove,
-    renderComposerDropupEmpty,
-    renderComposerDropupOptions,
-} from './oaao-composer-dropup.js';

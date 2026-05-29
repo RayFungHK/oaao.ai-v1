@@ -1,5 +1,6 @@
 import razyui from 'razyui';
 import { applyLoginPreset } from './preset/login.js';
+import { applyShellComponentPresets } from './preset/shell.js';
 import oaaoPresets from './oaao-jit.js';
 import { initPlatformShell } from './platform-shell.js';
 import { initOaaoVersionBadge } from './oaao-version-badge.js';
@@ -147,27 +148,6 @@ function readFeatureScopeRegistry() {
 }
 
 globalThis.OAAO_FEATURE_SCOPE_REGISTRY = Object.freeze(readFeatureScopeRegistry());
-
-/**
- * ASR user preference field registry ({@code AsrUserPreferenceRegister}).
- *
- * @type {ReadonlyArray<Record<string, unknown>>}
- */
-function readAsrUserPreferenceRegistry() {
-    const el = document.getElementById('oaao-asr-user-preference-registry');
-    const raw = el?.textContent?.trim();
-    if (!raw) {
-        return [];
-    }
-    try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
-globalThis.OAAO_ASR_USER_PREFERENCE_REGISTRY = Object.freeze(readAsrUserPreferenceRegistry());
 
 /**
  * Purpose allocation slots ({@code PurposeAllocationRegister}): registered pipeline groups — seeded from {@code oaaoai/endpoints}, {@code oaaoai/rag}, {@code oaaoai/chat}, …;
@@ -680,8 +660,10 @@ function applySessionShellVisibility() {
 
 try {
     await applyLoginPreset(razyui);
+    await applyShellComponentPresets(razyui);
 
     const JITModule = await razyui.load('JIT');
+    globalThis.JIT = JITModule;
     JITModule.setPreset(oaaoPresets);
 
     await razyui.boot();

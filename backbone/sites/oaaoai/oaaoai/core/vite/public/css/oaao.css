@@ -1783,6 +1783,95 @@ button.oaao-vault-menu-active {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 }
 
+/* ── Library sidebar doc list (plain CSS — JIT presets may not hydrate dynamic rows). ── */
+
+.oaao-app .oaao-library-doc-row {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    width: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+    transition: background-color 150ms ease-out;
+}
+
+.oaao-app .oaao-library-doc-row:hover,
+.oaao-app .oaao-library-doc-row:focus-within {
+    background-color: color-mix(in srgb, var(--grid-line) 35%, transparent);
+}
+
+.oaao-app .oaao-library-doc-row.oaao-library-doc-active {
+    background-color: color-mix(in srgb, var(--grid-line) 45%, transparent);
+    font-weight: 600;
+}
+
+.oaao-app .oaao-library-doc-pick {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    width: 100%;
+    padding: 0.375rem 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--grid-ink);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.oaao-app .oaao-library-doc-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    align-items: center;
+    justify-content: center;
+    color: var(--grid-caption);
+    pointer-events: none;
+}
+
+.oaao-app .oaao-library-doc-row:hover .oaao-library-doc-icon,
+.oaao-app .oaao-library-doc-row:focus-within .oaao-library-doc-icon {
+    color: var(--grid-ink);
+}
+
+.oaao-app .oaao-library-sidebar-btn-primary,
+.oaao-app .oaao-library-sidebar-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border-radius: 10px;
+    border: 1px solid var(--grid-line);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background-color 150ms ease-out;
+}
+
+.oaao-app .oaao-library-sidebar-btn-primary {
+    font-weight: 600;
+    color: var(--grid-ink);
+    background-color: var(--grid-paper);
+}
+
+.oaao-app .oaao-library-sidebar-btn-secondary {
+    font-weight: 500;
+    color: var(--grid-ink-muted);
+    background-color: transparent;
+}
+
+.oaao-app .oaao-library-sidebar-btn-primary:hover,
+.oaao-app .oaao-library-sidebar-btn-secondary:hover {
+    background-color: color-mix(in srgb, var(--grid-line) 25%, transparent);
+}
+
 /* ── JIT fallbacks (JS-mounted panels — px-3.5 / fg-white often not emitted) ───── */
 
 .oaao-app .fg-white,

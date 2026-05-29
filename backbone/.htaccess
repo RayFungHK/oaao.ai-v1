@@ -7,12 +7,6 @@ RewriteRule ^sidecar(/.*)?$ - [L]
 RewriteCond $0#%{REQUEST_URI} ^([^#]*)#(.*)\1$
 RewriteRule ^.*$ - [E=BASE:%2]
 
-# Pass through real files, symlinks, and directories. Virtual URLs (e.g. /webassets/…) are not files until rewritten below.
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -l [OR]
-RewriteCond %{REQUEST_FILENAME} -d
-RewriteRule ^ - [L]
-
 # Rewrite the shared module location
 RewriteRule ^\w+/shared/(.*)$ shared/$1 [L]
 
@@ -41,6 +35,12 @@ RewriteCond %{HTTP_HOST} ^web(:\d+)?$ [NC]
 RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
 
 # ── Distributor Rewrite Rules ──
+
+# OAAO_LIBRARY_MODULE_ROUTE — oaaoai/library module (api_name library)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-l
+RewriteRule ^library/.*$ %{ENV:BASE}index.php [L]
 # [localhost] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =localhost
     RewriteRule ^webassets/calendar/(.+?)/(.+)$ sites/oaaoai/oaaoai/calendar/$1/webassets/$2 [END]
@@ -74,7 +74,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [*.localhost] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =*.localhost
@@ -109,7 +109,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [*.invalid] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =*.invalid
@@ -144,7 +144,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [admin.localhost] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.localhost
@@ -179,7 +179,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [rayfung.hk] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =rayfung.hk
@@ -214,7 +214,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [*.rayfung.hk] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =*.rayfung.hk
@@ -249,7 +249,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [admin.rayfung.hk] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =admin.rayfung.hk
@@ -284,7 +284,7 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]
 # [oaao.rayfung.hk] oaaoai (/)
     RewriteCond %{ENV:RAZY_DOMAIN} =oaao.rayfung.hk
@@ -319,5 +319,5 @@ RewriteRule ^ - [E=RAZY_DOMAIN:localhost]
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-l
-    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|library|asset|webassets|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
+    RewriteCond $1 !^(index\.php|robots\.txt|sites|system|shared|plugins|asset|repository\.inc\.php|config\.inc\.php|sites\.inc\.php)
     RewriteRule ^(.*)$ %{ENV:BASE}index.php [L]

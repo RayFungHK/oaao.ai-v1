@@ -1,2 +1,0 @@
-import"./GridTable-DpP6JSbl.js";import"./index-fvOjOMKn.js";import"../component/Icons.js";import"./styleFragments-3w3M6soM.js";import"./setContent-DNLRngWi.js";import"./SharedResizeObserver-CPzpUTSU.js";function e(e){e._selectionInstalled=!0,e.toggleSelectAll=()=>{const t=e._getDisplayCount();if(e.selectedRows.size>=t)e.selectedRows.clear();else for(let s=0;s<t;s++)e.selectedRows.add(s);e.scheduleRender(!0)},e.getSelectedRows=()=>new Set(e.selectedRows)}export{e as default,e as installSelection};
-//# sourceMappingURL=selection-B9R6v4Z8.js.map

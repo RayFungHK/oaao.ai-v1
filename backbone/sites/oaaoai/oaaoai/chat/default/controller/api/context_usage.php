@@ -65,11 +65,15 @@ return function (): void {
         $binding = null;
         $tokenizerProfile = null;
         if ($chatEndpointId > 0 && $canonPdo instanceof \PDO) {
-            $authDb = $this->api('auth')?->getDB();
-            if ($authDb instanceof \Razy\Database) {
-                $binding = ChatOrchestratorBootstrap::resolveBindingForProfile($authDb, $chatEndpointId);
-                $contextLimit = ChatContextUsage::resolveContextLimitFromBinding($binding);
-                $tokenizerProfile = ChatTokenEstimator::resolveProfileFromBinding($binding);
+            $canonDb = $this->api('auth')?->getDB();
+            if ($canonDb instanceof \Razy\Database) {
+                try {
+                    $binding = ChatOrchestratorBootstrap::resolveBindingForProfile($canonDb, $chatEndpointId);
+                    $contextLimit = ChatContextUsage::resolveContextLimitFromBinding($binding);
+                    $tokenizerProfile = ChatTokenEstimator::resolveProfileFromBinding($binding);
+                } catch (\Throwable $bindErr) {
+                    error_log('[oaao context_usage] binding: ' . $bindErr->getMessage());
+                }
             }
         }
 

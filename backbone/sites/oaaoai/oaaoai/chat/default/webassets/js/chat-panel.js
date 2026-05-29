@@ -480,7 +480,7 @@ function mountChatComposerFeatureToggles(host, signal) {
     }
 
     const btnClass =
-        'oaao-chat-composer-toggle inline-flex items-center justify-center w-8 h-8 p-0 [border:1px_solid_var(--grid-line)] rounded-full bg-transparent fg-[var(--grid-ink-muted)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)] cursor-pointer font-inherit shrink-0 transition-colors';
+        'oaao-composer-toggle oaao-chat-composer-toggle inline-flex items-center justify-center w-8 h-8 p-0 [border:1px_solid_var(--grid-line)] rounded-full bg-transparent fg-[var(--grid-ink-muted)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)] cursor-pointer font-inherit shrink-0 transition-colors';
 
     /**
      * @param {{ id: string, iconEl: HTMLElement, title: string, pressed: boolean, onToggle: (on: boolean) => void }} spec
@@ -563,6 +563,7 @@ function mountChatComposerFeatureToggles(host, signal) {
     mountChatComposerPlannerModeDropup(plannerWrap, plannerStepsBtn, signal);
 
     host.replaceChildren(webSearchBtn, plannerWrap);
+    globalThis.JIT?.hydrate?.(host);
     syncComposerPlannerStepsVisibility(document);
 }
 

@@ -1,2 +1,0 @@
-import{s as e,c as t,b as n}from"./GridTable-DpP6JSbl.js";import"./index-fvOjOMKn.js";import"./styleFragments-3w3M6soM.js";import"../component/Icons.js";import"./setContent-DNLRngWi.js";import"./SharedResizeObserver-CPzpUTSU.js";function o(o){o._contextMenuInstalled=!0,o.showColumnContextMenu=(t,n,s)=>e(o,t,n,s),o.closeContextMenu=()=>t(o),o.bindContextMenuActions=e=>n(o,e)}export{o as default,o as installContextMenu};
-//# sourceMappingURL=contextmenu-DbtHGcxO.js.map

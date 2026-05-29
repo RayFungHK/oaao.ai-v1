@@ -91,14 +91,14 @@
                         <div class="flex w-full min-w-0 items-stretch gap-2 px-4">
                             <div class="flex flex-col flex-1 min-w-0 gap-2 w-full min-h-0 items-stretch">
                                 <div data-oaao-chat="composer-input-shell"
-                                    class="oaao-chat-composer-input-shell w-full min-w-0 min-h-[88px] max-h-[216px] overflow-y-auto [overscroll-behavior-y:contain] px-1 py-2 [box-sizing:border-box]">
+                                    class="oaao-composer-input-shell oaao-chat-composer-input-shell w-full min-w-0 min-h-[88px] max-h-[216px] overflow-y-auto [overscroll-behavior-y:contain] px-1 py-2 [box-sizing:border-box]">
                                     <div data-oaao-chat="composer-attachment-stack"
                                         class="oaao-chat-composer-attachment-stack hidden flex flex-col gap-2 w-full min-w-0 mb-2"></div>
                                     <div data-oaao-chat="input" contenteditable="true" role="textbox" aria-multiline="true"
                                         spellcheck="true"
                                         data-placeholder="Assign a task or ask any question"
                                         aria-label="Message"
-                                        class="oaao-chat-composer-editor w-full min-h-[72px] max-h-[200px] border-none px-0 py-0 text-[15px] leading-[24px] fg-[var(--grid-ink)] bg-transparent [font-family:inherit] [outline:none] [box-sizing:border-box] whitespace-pre-wrap break-words empty:fg-[var(--grid-caption)]"></div>
+                                        class="oaao-composer-editor oaao-chat-composer-editor w-full min-h-[72px] max-h-[200px] border-none px-0 py-0 text-[15px] leading-[24px] fg-[var(--grid-ink)] bg-transparent [font-family:inherit] [outline:none] [box-sizing:border-box] whitespace-pre-wrap break-words empty:fg-[var(--grid-caption)]"></div>
                                 </div>
                             </div>
                         </div>

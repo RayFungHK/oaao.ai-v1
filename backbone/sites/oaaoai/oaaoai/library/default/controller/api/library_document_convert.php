@@ -84,6 +84,11 @@ return function (): void {
         $stRev->execute([$docId, $blocksJson, $ctx['uid']]);
         $revId = (int) $stRev->fetchColumn();
 
+        $stCur = $pdo->prepare(
+            'UPDATE oaao_library_document SET current_revision_id = ? WHERE document_id = ?',
+        );
+        $stCur->execute([$revId, $docId]);
+
         $pdo->commit();
 
         echo json_encode([

@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
+from oaao_orchestrator.library.ai_transform import run_library_ai_transform
 from oaao_orchestrator.library.embed import run_library_embed
 from oaao_orchestrator.library.search import run_library_search
 from oaao_orchestrator.routes._deps import require_internal_token
@@ -23,6 +24,10 @@ class LibraryEmbedRequest(BaseModel):
 
 
 class LibrarySearchRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class LibraryAiTransformRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
@@ -82,3 +87,13 @@ async def library_search(
     """CS-2-S7 — tenant-scoped vector search; optional ``document_ids`` for attach-only recall."""
     payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
     return await run_library_search(payload)
+
+
+@router.post("/ai/transform")
+async def library_ai_transform(
+    req: LibraryAiTransformRequest,
+    _: None = Depends(require_internal_token),
+) -> dict[str, Any]:
+    """CS-2-S5 — rewrite / expand / summarize editor selection."""
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    return await run_library_ai_transform(payload)

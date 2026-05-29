@@ -1,5 +1,6 @@
 import razyui from 'razyui';
 import { applyLoginPreset } from './preset/login.js';
+import { applyShellComponentPresets } from './preset/shell.js';
 import oaaoPresets from './oaao-jit.js';
 import { initPlatformShell } from './platform-shell.js';
 import { initOaaoVersionBadge } from './oaao-version-badge.js';
@@ -659,8 +660,10 @@ function applySessionShellVisibility() {
 
 try {
     await applyLoginPreset(razyui);
+    await applyShellComponentPresets(razyui);
 
     const JITModule = await razyui.load('JIT');
+    globalThis.JIT = JITModule;
     JITModule.setPreset(oaaoPresets);
 
     await razyui.boot();

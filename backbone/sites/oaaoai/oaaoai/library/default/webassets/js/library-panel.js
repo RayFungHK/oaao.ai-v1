@@ -1,19 +1,192 @@
 /**
- * CS-2-S4 — Library split shell: sidebar list (workspace) + block editor (main).
+ * CS-2-S4 — Library split shell: sidebar list + RazyUI BlockEditor (Notion-like).
  *
  * @module library-panel
  */
 
+import { fromLibraryBlocks, toLibraryBlocks } from './library-block-adapter.js';
+
 /** @type {number|null} */
 let activeDocumentId = null;
 
-/** @type {{ document_id: number, title: string, blocks: Array<{ type: string, content: string }> }|null} */
+/** @type {{ document_id: number, title: string, revision_id: number|null, corpus_id: number|null, blocks: Array<Record<string, unknown>> }|null} */
 let editorState = null;
 
+/** @type {import('../../../core/default/webassets/razyui/BlockEditorOaao.js').default|null} */
+let blockEditorInstance = null;
+
+/** @type {ReturnType<NonNullable<typeof blockEditorInstance>['getControl']>|null} */
+let blockEditorControl = null;
+
+/** @type {Promise<{ BlockEditor: typeof import('../../../core/default/webassets/razyui/BlockEditorOaao.js').default, buildOaaoEditorPlugins: typeof import('../../../core/default/webassets/razyui/extensions/block-editor/index.js').buildOaaoEditorPlugins }>|null} */
+let blockEditorModulePromise = null;
+
+/** @type {Array<{ corpus_id: number, name: string }>} */
+let cachedCorpusProfiles = [];
+
 let saveTimer = null;
+let editorStylesInjected = false;
 
 function mountPrefix() {
     return (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
+}
+
+function blockEditorModuleUrl() {
+    const prefix = mountPrefix();
+    return `${prefix}/webassets/core/default/razyui/component/BlockEditor.js`.replace(/\/{2,}/g, '/');
+}
+
+/** @returns {Promise<{ load: (name: string) => Promise<unknown> }>} */
+async function loadRazyui() {
+    const mod = await import(/* webpackIgnore: true */ 'razyui');
+    return mod.default ?? mod;
+}
+
+async function hydrateBlockEditorMount(root) {
+    if (!(root instanceof HTMLElement)) return;
+    try {
+        let JIT = globalThis.JIT;
+        if (!JIT?.hydrate) {
+            const razyui = await loadRazyui();
+            JIT = await razyui.load('JIT');
+        }
+        if (JIT?.hydrate) {
+            JIT.hydrate(root);
+        }
+    } catch {
+        /* BlockEditor still usable with CSS fallbacks */
+    }
+}
+
+function libraryCssHref() {
+    const prefix = mountPrefix();
+    return `${prefix}/webassets/library/default/css/library-block-editor.css`.replace(/\/{2,}/g, '/');
+}
+
+/** @param {HTMLElement|null|undefined} root */
+function hydrateJitRoot(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const JIT = globalThis.JIT ?? globalThis.razyui?.JIT;
+    if (JIT?.hydrate) JIT.hydrate(root);
+}
+
+const LIBRARY_DOC_ICON_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" class="block shrink-0 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+
+function injectLibraryEditorStyles() {
+    if (editorStylesInjected || typeof document === 'undefined') return;
+    editorStylesInjected = true;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = libraryCssHref();
+    document.head.append(link);
+}
+
+async function loadBlockEditorModule() {
+    if (!blockEditorModulePromise) {
+        blockEditorModulePromise = import(/* webpackIgnore: true */ blockEditorModuleUrl())
+            .then((mod) => {
+                const BlockEditor = mod.default ?? mod;
+                const buildPlugins =
+                    mod.buildBlockEditorPlugins ??
+                    BlockEditor?.plugins?.build ??
+                    ((Ctor, opts) => Ctor.plugins?.build?.(Ctor, opts) ?? []);
+                return { BlockEditor, buildBlockEditorPlugins: buildPlugins };
+            })
+            .catch((err) => {
+                blockEditorModulePromise = null;
+                throw err;
+            });
+    }
+    return blockEditorModulePromise;
+}
+
+function corpusApiUrl(path) {
+    const base = `${mountPrefix()}/corpus/api`.replace(/\/{2,}/g, '/');
+    const p = String(path || '').replace(/^\//, '');
+    return p ? `${base}/${p}` : base;
+}
+
+async function fetchCorpusProfiles() {
+    const wid = activeWorkspaceId();
+    const q = scopeQuery(wid);
+    const path = q ? `corpus_profiles_list${q}` : 'corpus_profiles_list';
+    try {
+        const res = await fetch(corpusApiUrl(path), { credentials: 'include', headers: { Accept: 'application/json' } });
+        const data = await res.json();
+        if (!res.ok || !data?.success) return [];
+        const rows = Array.isArray(data?.data?.profiles) ? data.data.profiles : [];
+        cachedCorpusProfiles = [];
+        for (const row of rows) {
+            const id = Number(row.corpus_id ?? row.id ?? 0);
+            if (!Number.isFinite(id) || id < 1) continue;
+            cachedCorpusProfiles.push({
+                corpus_id: id,
+                name: String(row.name ?? row.title ?? `Corpus #${id}`),
+            });
+        }
+        return cachedCorpusProfiles;
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * @param {object} payload
+ * @param {AbortSignal} [payload.signal]
+ */
+async function libraryAskAI(payload) {
+    if (!activeDocumentId || !editorState) {
+        throw new Error('No active document');
+    }
+    syncEditorStateFromControl();
+    const skill = payload?.skill ?? {};
+    const skillId = String(payload?.skillId ?? skill?.id ?? 'improve-writing');
+    const action = skillId.replace(/^ai:(slash|blockmenu|format):/, '').replace(/^ai:/, '') || 'improve-writing';
+    const selection = payload?.selection ?? null;
+    const block = payload?.block ?? null;
+    const blocks = Array.isArray(payload?.blocks) ? payload.blocks : blockEditorControl?.getBlocks?.() ?? [];
+
+    const { res, data } = await libraryFetchJson('library_ai_transform', {
+        method: 'POST',
+        body: JSON.stringify({
+            document_id: activeDocumentId,
+            action,
+            skill_id: skillId,
+            selection_text: String(selection?.text ?? ''),
+            block_id: block?.id ?? selection?.blockId ?? null,
+            blocks: toLibraryBlocks(blocks),
+            corpus_id: editorState.corpus_id,
+            workspace_id: activeWorkspaceId(),
+        }),
+        signal: payload?.signal,
+    });
+    if (!res.ok || !data?.success) {
+        throw new Error(String(data?.message || 'AI transform failed'));
+    }
+    const result = data.data ?? {};
+    return {
+        mode: String(result.mode || 'replace-selection'),
+        text: String(result.text || ''),
+        message: String(result.message || ''),
+    };
+}
+
+function destroyBlockEditor() {
+    if (blockEditorInstance && typeof blockEditorInstance.destroy === 'function') {
+        blockEditorInstance.destroy();
+    }
+    blockEditorInstance = null;
+    blockEditorControl = null;
+}
+
+function syncEditorStateFromControl() {
+    if (!editorState || !blockEditorControl) return;
+    editorState.blocks = toLibraryBlocks(blockEditorControl.getBlocks());
+    const title = String(blockEditorControl.title || '').trim();
+    if (title) {
+        editorState.title = title;
+    }
 }
 
 function libraryApiUrl(path) {
@@ -96,46 +269,74 @@ async function refreshLibrarySidebarList(listHost) {
     for (const row of docs) {
         const id = Number(row.document_id);
         if (!Number.isFinite(id) || id < 1) continue;
+        const active = id === activeDocumentId;
+
+        const rowWrap = document.createElement('div');
+        rowWrap.setAttribute('role', 'listitem');
+        rowWrap.className = `oaao-library-doc-row shrink-0 self-stretch${active ? ' oaao-library-doc-active' : ''}`;
+
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.dataset.documentId = String(id);
-        const active = id === activeDocumentId;
-        btn.className = [
-            'w-full text-left rounded-[8px] px-2 py-2 text-[0.8125rem] leading-snug fg-[var(--grid-ink)]',
-            'border-none bg-transparent cursor-pointer font-inherit transition-colors truncate',
-            active ? 'bg-[var(--grid-line)]/45 fw-semibold' : 'hover:bg-[var(--grid-line)]/20',
-        ].join(' ');
-        btn.textContent = String(row.title || 'Untitled').trim() || 'Untitled';
+        btn.className = 'oaao-library-doc-pick';
+        btn.title = String(row.title || 'Untitled').trim() || 'Untitled';
+
+        const icon = document.createElement('span');
+        icon.className = 'oaao-library-doc-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = LIBRARY_DOC_ICON_SVG;
+
+        const label = document.createElement('span');
+        label.className = 'truncate min-w-0';
+        label.textContent = btn.title;
+
+        btn.append(icon, label);
         btn.addEventListener('click', () => {
             void openLibraryDocument(id);
         });
-        listHost.append(btn);
+        rowWrap.append(btn);
+        listHost.append(rowWrap);
     }
+    hydrateJitRoot(listHost);
 }
 
 /**
  * @param {HTMLElement} editorHost
  */
 function renderLibraryEditorEmpty(editorHost) {
+    destroyBlockEditor();
     editorHost.replaceChildren();
     const wrap = document.createElement('div');
     wrap.className =
         'flex flex-col items-center justify-center flex-1 gap-2 p-8 text-center fg-[var(--grid-caption)]';
     wrap.innerHTML =
-        '<p class="m-0 text-sm">Select a document from the sidebar or create a new one.</p>';
+        '<p class="m-0 text-sm">Select a document from the sidebar or create a new one.</p>' +
+        '<p class="m-0 text-xs opacity-80">Type <kbd class="px-1 rounded bg-[var(--grid-line)]/40">/</kbd> for blocks · ' +
+        '<kbd class="px-1 rounded bg-[var(--grid-line)]/40">#</kbd>+<kbd class="px-1 rounded bg-[var(--grid-line)]/40">Space</kbd> for headings</p>';
     editorHost.append(wrap);
     const JIT = globalThis.JIT;
     if (JIT?.hydrate) JIT.hydrate(wrap);
 }
 
+function setSaveStatus(text) {
+    const el = document.querySelector('[data-oaao-library-save-status]');
+    if (el instanceof HTMLElement) {
+        el.textContent = text;
+    }
+}
+
 /**
  * @param {HTMLElement} editorHost
  */
-function renderLibraryEditor(editorHost) {
+async function renderLibraryEditor(editorHost) {
+    destroyBlockEditor();
+
     if (!editorState) {
         renderLibraryEditorEmpty(editorHost);
         return;
     }
+
+    injectLibraryEditorStyles();
     editorHost.replaceChildren();
 
     const shell = document.createElement('div');
@@ -143,36 +344,54 @@ function renderLibraryEditor(editorHost) {
 
     const head = document.createElement('header');
     head.className =
-        'flex flex-wrap items-center gap-2 shrink-0 px-6 py-3 border-b border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]';
+        'oaao-library-block-editor-toolbar flex flex-wrap items-center gap-2 shrink-0 px-6 py-2.5';
 
-    const titleInput = document.createElement('input');
-    titleInput.type = 'text';
-    titleInput.className =
-        'flex-1 min-w-[12rem] rounded-[8px] border border-solid border-[var(--grid-line)] px-3 py-1.5 text-[0.9375rem] fg-[var(--grid-ink)] bg-[var(--grid-paper)] font-inherit';
-    titleInput.value = editorState.title || 'Untitled';
-    titleInput.addEventListener('input', () => {
-        if (editorState) {
-            editorState.title = titleInput.value;
-            scheduleLibrarySave();
-        }
+    const hint = document.createElement('span');
+    hint.className = 'text-[0.75rem] fg-[var(--grid-caption)] flex-1 min-w-[10rem]';
+    hint.textContent =
+        "Type / for blocks · #/##/### + Space for headings · Table in slash menu · drag ⠇ to reorder";
+
+    const corpusWrap = document.createElement('label');
+    corpusWrap.className =
+        'flex items-center gap-1.5 text-[0.75rem] fg-[var(--grid-caption)] shrink-0';
+    corpusWrap.title = 'Corpus profile for AI style (CS-2-S6)';
+
+    const corpusLbl = document.createElement('span');
+    corpusLbl.textContent = 'Corpus';
+
+    const corpusSelect = document.createElement('select');
+    corpusSelect.className = 'oaao-library-select';
+    corpusSelect.innerHTML = '<option value="">Default</option>';
+    corpusSelect.addEventListener('change', () => {
+        if (!editorState) return;
+        const raw = corpusSelect.value;
+        editorState.corpus_id = raw ? Number(raw) : null;
+        scheduleLibrarySave();
     });
 
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className =
-        'rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25';
-    addBtn.textContent = 'Add paragraph';
-    addBtn.addEventListener('click', () => {
+    corpusWrap.append(corpusLbl, corpusSelect);
+
+    void fetchCorpusProfiles().then((profiles) => {
         if (!editorState) return;
-        editorState.blocks.push({ type: 'paragraph', content: '' });
-        renderLibraryEditor(editorHost);
-        scheduleLibrarySave();
+        const current = editorState.corpus_id;
+        corpusSelect.replaceChildren();
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Default';
+        corpusSelect.append(defaultOpt);
+        for (const p of profiles) {
+            const opt = document.createElement('option');
+            opt.value = String(p.corpus_id);
+            opt.textContent = p.name;
+            corpusSelect.append(opt);
+        }
+        corpusSelect.value =
+            current != null && Number.isFinite(current) && current > 0 ? String(current) : '';
     });
 
     const finalizeBtn = document.createElement('button');
     finalizeBtn.type = 'button';
-    finalizeBtn.className =
-        'rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25 shrink-0';
+    finalizeBtn.className = 'oaao-library-toolbar-btn';
     finalizeBtn.textContent = 'Finalize to Vault';
     finalizeBtn.title = 'Copy this document into Vault for Hard-RAG indexing';
     finalizeBtn.addEventListener('click', () => {
@@ -183,82 +402,66 @@ function renderLibraryEditor(editorHost) {
 
     const saveLbl = document.createElement('span');
     saveLbl.dataset.oaaoLibrarySaveStatus = '1';
-    saveLbl.className = 'text-[0.75rem] fg-[var(--grid-caption)] shrink-0';
+    saveLbl.className = 'text-[0.75rem] fg-[var(--grid-caption)] shrink-0 min-w-[4.5rem] text-right';
     saveLbl.textContent = '';
 
-    head.append(titleInput, addBtn, finalizeBtn, saveLbl);
+    head.append(hint, corpusWrap, finalizeBtn, saveLbl);
 
     const body = document.createElement('div');
-    body.className =
-        'flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4 flex flex-col gap-3 max-w-[48rem] w-full mx-auto box-border';
+    body.className = 'oaao-library-block-editor-mount flex-1 min-h-0 overflow-y-auto overscroll-contain';
 
-    editorState.blocks.forEach((block, idx) => {
-        const row = document.createElement('div');
-        row.className = 'flex flex-col gap-1 min-w-0';
-
-        if (block.type === 'heading') {
-            const el = document.createElement('div');
-            el.contentEditable = 'true';
-            el.className =
-                'oaao-library-block text-[1.125rem] fw-semibold fg-[var(--grid-ink)] outline-none min-h-[1.5rem] whitespace-pre-wrap break-words';
-            el.textContent = block.content || '';
-            el.addEventListener('input', () => {
-                block.content = el.textContent || '';
-                scheduleLibrarySave();
-            });
-            row.append(el);
-        } else {
-            const el = document.createElement('div');
-            el.contentEditable = 'true';
-            el.className =
-                'oaao-library-block text-[0.9375rem] leading-relaxed fg-[var(--grid-ink)] outline-none min-h-[1.25rem] whitespace-pre-wrap break-words';
-            el.textContent = block.content || '';
-            el.addEventListener('input', () => {
-                block.content = el.textContent || '';
-                scheduleLibrarySave();
-            });
-            row.append(el);
-        }
-
-        const tools = document.createElement('div');
-        tools.className = 'flex gap-2';
-        const toHeading = document.createElement('button');
-        toHeading.type = 'button';
-        toHeading.className = 'text-[0.6875rem] fg-[var(--grid-caption)] bg-transparent border-none cursor-pointer font-inherit underline';
-        toHeading.textContent = block.type === 'heading' ? 'Paragraph' : 'Heading';
-        toHeading.addEventListener('click', () => {
-            block.type = block.type === 'heading' ? 'paragraph' : 'heading';
-            renderLibraryEditor(editorHost);
-            scheduleLibrarySave();
-        });
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'text-[0.6875rem] fg-[var(--grid-caption)] bg-transparent border-none cursor-pointer font-inherit underline';
-        del.textContent = 'Remove';
-        del.addEventListener('click', () => {
-            editorState.blocks.splice(idx, 1);
-            if (editorState.blocks.length === 0) {
-                editorState.blocks.push({ type: 'paragraph', content: '' });
-            }
-            renderLibraryEditor(editorHost);
-            scheduleLibrarySave();
-        });
-        tools.append(toHeading, del);
-        row.append(tools);
-        body.append(row);
-    });
+    const loading = document.createElement('p');
+    loading.className = 'p-6 text-sm fg-[var(--grid-caption)] m-0';
+    loading.textContent = 'Loading editor…';
+    body.append(loading);
 
     shell.append(head, body);
     editorHost.append(shell);
+
+    try {
+        const { BlockEditor, buildBlockEditorPlugins } = await loadBlockEditorModule();
+        if (!editorState) return;
+
+        body.replaceChildren();
+        const blocks = fromLibraryBlocks(/** @type {Array<Record<string, unknown>>} */ (editorState.blocks));
+
+        blockEditorInstance = new BlockEditor(body, {
+            title: editorState.title || '',
+            blocks,
+            placeholder: "Type '/' for blocks, or start writing…",
+            titleEditable: true,
+            virtualize: {
+                enabled: true,
+                minBlocks: 48,
+                rootMargin: '900px 0px',
+            },
+            plugins: buildBlockEditorPlugins(BlockEditor, {
+                askAI: libraryAskAI,
+            }),
+            onChange: (ruBlocks) => {
+                if (!editorState) return;
+                editorState.blocks = toLibraryBlocks(ruBlocks);
+                if (blockEditorControl) {
+                    const t = String(blockEditorControl.title || '').trim();
+                    if (t) editorState.title = t;
+                }
+                scheduleLibrarySave();
+            },
+        });
+        blockEditorControl = blockEditorInstance.getControl();
+        await hydrateBlockEditorMount(body);
+    } catch (err) {
+        console.error('[library-panel] BlockEditor failed', err);
+        body.replaceChildren();
+        const fail = document.createElement('p');
+        fail.className = 'p-6 text-sm fg-red-6 m-0';
+        fail.textContent = 'Could not load block editor.';
+        body.append(fail);
+    }
+
     const JIT = globalThis.JIT;
     if (JIT?.hydrate) JIT.hydrate(shell);
-}
-
-function setSaveStatus(text) {
-    const el = document.querySelector('[data-oaao-library-save-status]');
-    if (el instanceof HTMLElement) {
-        el.textContent = text;
-    }
+    hydrateJitRoot(head);
 }
 
 function scheduleLibrarySave() {
@@ -270,18 +473,37 @@ function scheduleLibrarySave() {
 
 async function persistLibraryEditor() {
     if (!editorState || !activeDocumentId) return;
+    syncEditorStateFromControl();
     setSaveStatus('Saving…');
     const { res, data } = await libraryFetchJson('library_revision_save', {
         method: 'POST',
         body: JSON.stringify({
             document_id: activeDocumentId,
+            base_revision_id: editorState.revision_id,
             title: editorState.title,
             blocks: editorState.blocks,
+            corpus_id: editorState.corpus_id,
         }),
     });
+    if (res.status === 409) {
+        setSaveStatus('Conflict — reloading…');
+        const editorHost = document.querySelector('[data-oaao-library-mount]');
+        if (activeDocumentId && editorHost instanceof HTMLElement) {
+            await openLibraryDocument(activeDocumentId);
+        }
+        return;
+    }
     if (!res.ok || !data?.success) {
         setSaveStatus('Save failed');
         return;
+    }
+    const saved = data.data ?? {};
+    if (saved.revision_id != null) {
+        editorState.revision_id = Number(saved.revision_id);
+    }
+    if (Object.prototype.hasOwnProperty.call(saved, 'corpus_id')) {
+        editorState.corpus_id =
+            saved.corpus_id != null && Number(saved.corpus_id) > 0 ? Number(saved.corpus_id) : null;
     }
     setSaveStatus('Saved');
     const listHost = document.getElementById('workspace-library-doc-list');
@@ -298,10 +520,12 @@ async function openLibraryDocument(documentId) {
     const editorHost = document.querySelector('[data-oaao-library-mount]');
     if (!(editorHost instanceof HTMLElement)) return;
 
+    setSaveStatus('');
     const { res, data } = await libraryFetchJson(
         `library_document_get?document_id=${encodeURIComponent(String(documentId))}`,
     );
     if (!res.ok || !data?.success) {
+        editorState = null;
         renderLibraryEditorEmpty(editorHost);
         return;
     }
@@ -309,9 +533,17 @@ async function openLibraryDocument(documentId) {
     editorState = {
         document_id: Number(d.document_id),
         title: String(d.title || 'Untitled'),
+        revision_id:
+            d.current_revision_id != null
+                ? Number(d.current_revision_id)
+                : d.revision_id != null
+                  ? Number(d.revision_id)
+                  : null,
+        corpus_id:
+            d.corpus_id != null && Number(d.corpus_id) > 0 ? Number(d.corpus_id) : null,
         blocks: Array.isArray(d.blocks) ? d.blocks : [{ type: 'paragraph', content: '' }],
     };
-    renderLibraryEditor(editorHost);
+    await renderLibraryEditor(editorHost);
     const listHost = document.getElementById('workspace-library-doc-list');
     if (listHost) {
         void refreshLibrarySidebarList(listHost);
@@ -367,6 +599,7 @@ async function createLibraryDocument() {
  * @param {HTMLElement} editorHost
  */
 async function openLibraryFinalizeDialog(documentId, editorHost) {
+    syncEditorStateFromControl();
     await persistLibraryEditor();
 
     const overlay = document.createElement('div');
@@ -413,14 +646,12 @@ async function openLibraryFinalizeDialog(documentId, editorHost) {
 
     const cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
-    cancelBtn.className =
-        'rounded-[8px] h-9 px-3 text-[0.8125rem] border border-solid border-[var(--grid-line)] bg-transparent cursor-pointer font-inherit';
+    cancelBtn.className = 'oaao-library-toolbar-btn-ghost';
     cancelBtn.textContent = 'Cancel';
 
     const confirmBtn = document.createElement('button');
     confirmBtn.type = 'button';
-    confirmBtn.className =
-        'rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/25 disabled:opacity-45';
+    confirmBtn.className = 'oaao-library-toolbar-btn disabled:opacity-45';
     confirmBtn.textContent = 'Finalize';
     confirmBtn.disabled = true;
 
@@ -428,6 +659,7 @@ async function openLibraryFinalizeDialog(documentId, editorHost) {
     card.append(title, hint, vaultLabel, folderLabel, status, actions);
     overlay.append(card);
     document.body.append(overlay);
+    hydrateJitRoot(overlay);
 
     /** @type {Array<{ id: number, name: string }>} */
     let vaults = [];
@@ -503,7 +735,7 @@ async function openLibraryFinalizeDialog(documentId, editorHost) {
         cancelBtn.textContent = 'Close';
         setSaveStatus('Finalized');
         if (editorHost instanceof HTMLElement) {
-            renderLibraryEditor(editorHost);
+            await renderLibraryEditor(editorHost);
         }
     });
 
@@ -571,6 +803,16 @@ async function openLibraryFinalizeDialog(documentId, editorHost) {
     }
 }
 
+function onWorkspaceScopeChanged() {
+    activeDocumentId = null;
+    editorState = null;
+    destroyBlockEditor();
+    const listHost = document.getElementById('workspace-library-doc-list');
+    if (listHost) void refreshLibrarySidebarList(listHost);
+    const editorHost = document.querySelector('[data-oaao-library-mount]');
+    if (editorHost instanceof HTMLElement) renderLibraryEditorEmpty(editorHost);
+}
+
 export async function mountLibraryPanel(host) {
     const editorHost =
         host?.querySelector?.('[data-oaao-library-mount]') ||
@@ -587,6 +829,8 @@ export async function mountLibraryPanel(host) {
         await refreshLibrarySidebarList(listHost);
     }
 
+    hydrateJitRoot(document.getElementById('workspace-library-sidebar-section'));
+
     if (newBtn && newBtn.dataset.oaaoLibraryNewBound !== '1') {
         newBtn.dataset.oaaoLibraryNewBound = '1';
         newBtn.addEventListener('click', () => {
@@ -600,12 +844,25 @@ export async function mountLibraryPanel(host) {
         });
     }
 
-    document.addEventListener('oaao-workspace-scope-changed', () => {
-        activeDocumentId = null;
-        editorState = null;
-        if (listHost) void refreshLibrarySidebarList(listHost);
-        if (editorHost instanceof HTMLElement) renderLibraryEditorEmpty(editorHost);
-    });
+    if (document.body?.dataset?.oaaoLibraryScopeBound !== '1') {
+        document.body.dataset.oaaoLibraryScopeBound = '1';
+        document.addEventListener('oaao-workspace-scope-changed', onWorkspaceScopeChanged);
+    }
 }
 
-export default { mountLibraryPanel };
+/** Workspace shell entry (matches vault/corpus panels). */
+export async function mountShellPanel(mount) {
+    await mountLibraryPanel(mount);
+}
+
+export function teardownShellPanel() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+    }
+    destroyBlockEditor();
+    activeDocumentId = null;
+    editorState = null;
+}
+
+export default mountShellPanel;

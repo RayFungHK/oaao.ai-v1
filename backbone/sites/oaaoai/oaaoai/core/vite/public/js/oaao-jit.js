@@ -7,6 +7,7 @@
  * for layout tokens and host tweaks — see .cursor/rules/rayfung-razy-stack.mdc.
  *
  * Login inputs: <rui-input preset="login"> — preset in public/js/preset/login.js.
+ * Shell presets: public/js/preset/shell.js (composer Input, toolbar Button).
  *
  * Other pages: class on <rui-input>
  *   - oaao-input-form — default-ish in-app form
@@ -100,6 +101,76 @@ const oaaoPresets = {
     /** Settings dialog section typography inside panels — shell layout tokens live in {@link ./settings-dialog.js} as atomic JIT classes. */
     'oaao-sdlg-section-title': 'text-sm fw-semibold fg-[var(--grid-ink)] mb-2',
     'oaao-sdlg-section-desc': 'text-xs fg-[var(--grid-caption)] mb-4',
+
+    /** Chat composer — contenteditable body ({@code data-oaao-chat="input"}). */
+    'oaao-composer-editor': [
+        'w-full min-h-[72px] max-h-[200px] border-none px-0 py-0',
+        'text-[15px] leading-[24px] fg-[var(--grid-ink)] bg-transparent',
+        '[font-family:inherit] [outline:none] [box-sizing:border-box]',
+        'whitespace-pre-wrap break-words empty:fg-[var(--grid-caption)]',
+    ].join(' '),
+
+    /** Chat composer scroll shell. */
+    'oaao-composer-input-shell': [
+        'w-full min-w-0 min-h-[88px] max-h-[216px] overflow-y-auto',
+        '[overscroll-behavior-y:contain] px-1 py-2 [box-sizing:border-box]',
+    ].join(' '),
+
+    /** Composer feature toggles (web search, planner steps). */
+    'oaao-composer-toggle': [
+        'inline-flex items-center justify-center w-8 h-8 p-0',
+        '[border:1px_solid_var(--grid-line)] rounded-full bg-transparent',
+        'fg-[var(--grid-ink-muted)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]',
+        'cursor-pointer font-inherit shrink-0 transition-colors',
+    ].join(' '),
+
+    /** Library editor toolbar + finalize dialog actions. */
+    'oaao-library-toolbar-btn': [
+        'rounded-[8px] h-9 px-3 text-[0.8125rem] fw-medium shrink-0',
+        'border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)]',
+        'cursor-pointer font-inherit fg-[var(--grid-ink)]',
+        'hover:bg-[var(--grid-line)]/25 transition-colors',
+    ].join(' '),
+
+    'oaao-library-toolbar-btn-ghost': [
+        'rounded-[8px] h-9 px-3 text-[0.8125rem] shrink-0',
+        'border border-solid border-[var(--grid-line)] bg-transparent',
+        'cursor-pointer font-inherit fg-[var(--grid-ink)]',
+        'hover:bg-[var(--grid-line)]/20 transition-colors',
+    ].join(' '),
+
+    /** Library corpus picker + native selects. */
+    'oaao-library-select': [
+        'rounded-[6px] h-8 px-2 text-[0.8125rem] font-inherit max-w-[11rem]',
+        'border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] fg-[var(--grid-ink)]',
+    ].join(' '),
+
+    /** Library sidebar — workspace-style group-hover doc rows. */
+    'oaao-library-doc-row':
+        'group flex items-stretch min-w-0 w-full rounded-[6px] overflow-hidden transition-colors hover:bg-[var(--grid-line)]/35 focus-within:bg-[var(--grid-line)]/35',
+
+    'oaao-library-doc-pick':
+        'flex flex-1 min-w-0 items-center gap-2 text-left px-2 py-1.5 text-[0.8125rem] fg-[var(--grid-ink)] bg-transparent border-none cursor-pointer font-inherit truncate min-w-0',
+
+    'oaao-library-doc-icon':
+        'inline-flex shrink-0 w-4 h-4 items-center justify-center fg-[var(--grid-caption)] transition-colors duration-150 group-hover:fg-[var(--grid-ink)] pointer-events-none',
+
+    'oaao-library-doc-active': 'bg-[var(--grid-line)]/45 fw-semibold',
+
+    /** Library sidebar header buttons ({@code workspace.tpl}). */
+    'oaao-library-sidebar-btn-primary': [
+        'w-full inline-flex items-center justify-center gap-2 rounded-[10px] h-9 px-3',
+        'text-[0.8125rem] fw-semibold fg-[var(--grid-ink)] bg-[var(--grid-paper)]',
+        'border border-solid border-[var(--grid-line)] cursor-pointer font-inherit',
+        'hover:bg-[var(--grid-line)]/25 transition-colors',
+    ].join(' '),
+
+    'oaao-library-sidebar-btn-secondary': [
+        'w-full inline-flex items-center justify-center gap-2 rounded-[10px] h-9 px-3',
+        'text-[0.8125rem] fw-medium fg-[var(--grid-ink-muted)] bg-transparent',
+        'border border-solid border-[var(--grid-line)] cursor-pointer font-inherit',
+        'hover:bg-[var(--grid-line)]/20 transition-colors',
+    ].join(' '),
 };
 
 export default oaaoPresets;

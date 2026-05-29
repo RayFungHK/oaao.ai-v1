@@ -141,9 +141,9 @@ flowchart LR
 
 **Spike result (fill on completion):**
 
-- [ ] Option A / B chosen  
-- [ ] Undo model: revision stack vs operational transform  
-- [ ] Notes: ___
+- [x] Option **A** (RazyUI BlockEditor) chosen — CS-2-S4 wired in `library-panel.js`
+- [x] Undo model: BlockEditor operational undo + revision autosave (800ms debounce)
+- [x] Notes: `library-block-adapter.js` maps snake_case library blocks ↔ RazyUI kebab-case; extended types (todo, quote, callout, toggle, image) round-trip via `meta.ruType`; table via `code` + `meta.libraryType=table`
 
 ---
 

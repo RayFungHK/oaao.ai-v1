@@ -60,9 +60,7 @@ async function calendarFetchJson(path, options = {}) {
 }
 
 async function loadRazyui() {
-    const base = mountPrefix() || '';
-    const importPath = `${base}/webassets/core/default/razyui/razyui.js`.replace(/\/{2,}/g, '/');
-    return import(/* webpackIgnore: true */ importPath);
+    return import(/* webpackIgnore: true */ 'razyui');
 }
 
 /**

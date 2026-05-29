@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+# Do not use set -e — a failed sed/grep during boot must not skip exec apache2-foreground (Cloudflare 502).
 
 AUTH_DATA=/var/www/html/sites/oaaoai/oaaoai/auth/data
 DIST_DATA=/var/www/html/sites/oaaoai/oaaoai/data
@@ -24,9 +24,17 @@ if [ -f /var/www/html/.htaccess ]; then
 fi
 
 # Keep Apache webassets/data rewrites aligned with sites.inc.php (incl. OAAO_* host env).
+# Requires OAAO_APEX_DOMAIN / OAAO_CUSTOMER_HOSTS in container env — otherwise rewrite emits localhost-only rules.
 if [ -f /var/www/html/Razy.phar ]; then
     php /var/www/html/Razy.phar rewrite >/dev/null 2>&1 || true
     chmod 644 /var/www/html/.htaccess 2>/dev/null || true
+fi
+
+# Optional legacy patch (Razy >= v1.0.3-beta no longer skip-lists `library` in htaccess.tpl).
+if [ -f /var/www/html/scripts/oaao_patch_htaccess_library.php ]; then
+    php /var/www/html/scripts/oaao_patch_htaccess_library.php /var/www/html/.htaccess || true
+elif [ -f /var/www/html/scripts/oaao_patch_htaccess_library.sh ]; then
+    sh /var/www/html/scripts/oaao_patch_htaccess_library.sh /var/www/html/.htaccess || true
 fi
 
 if [ "${OAAO_BENCH_PROBE:-}" = "1" ]; then
@@ -56,7 +64,7 @@ if [ -f /var/www/html/.htaccess ] && ! grep -q 'OAAO_ORCHESTRATOR_SIDECAR' /var/
     sed -i '/^RewriteEngine on$/a\
 \
 # OAAO_ORCHESTRATOR_SIDECAR — Apache ProxyPass handles /sidecar (not PHP).\
-RewriteRule ^sidecar(/.*)?$ - [L]' /var/www/html/.htaccess
+RewriteRule ^sidecar(/.*)?$ - [L]' /var/www/html/.htaccess 2>/dev/null || true
 fi
 
 exec apache2-foreground
