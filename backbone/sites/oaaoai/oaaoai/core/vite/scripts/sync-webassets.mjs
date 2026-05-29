@@ -77,12 +77,14 @@ if (!fs.existsSync(razyCss)) {
 
 validateRazyDist(razyDist);
 
-for (const name of fs.readdirSync(webassets)) {
-    fs.rmSync(path.join(webassets, name), { recursive: true, force: true });
+/** Only replace {@code razyui/}; merge {@code public/} over webassets (do not wipe shell JS absent from public). */
+const razyuiDest = path.join(webassets, 'razyui');
+if (fs.existsSync(razyuiDest)) {
+    fs.rmSync(razyuiDest, { recursive: true, force: true });
 }
 
 fs.cpSync(publicDir, webassets, { recursive: true });
-fs.cpSync(razyDist, path.join(webassets, 'razyui'), { recursive: true });
+fs.cpSync(razyDist, razyuiDest, { recursive: true });
 
 validateRazyDist(path.join(webassets, 'razyui'));
 
