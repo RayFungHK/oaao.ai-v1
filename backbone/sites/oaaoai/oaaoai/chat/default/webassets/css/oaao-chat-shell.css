@@ -2628,6 +2628,16 @@
     flex-shrink: 0;
 }
 
+/* Bubble Chat dialog — message column spacing (JIT gap may not hydrate in Dialog). */
+.oaao-app [data-oaao-chat-mount='bubble'] [data-oaao-chat='messages'] {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.oaao-app [data-oaao-chat-mount='bubble'] [data-oaao-chat='messages'] > * {
+    margin-bottom: 0;
+}
+
 
 /*
  * Thread toolbar — sticky top-right inside {@code thread-wrap} scrollport.

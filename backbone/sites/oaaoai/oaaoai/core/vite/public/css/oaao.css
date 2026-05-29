@@ -305,6 +305,26 @@ body {
     box-sizing: border-box;
 }
 
+/* Calendar (split layout) — scroll on outer body; inset via padding on inner (not margin gap before scrollbar). */
+.oaao-app [data-module="oaao-calendar"] .oaao-calendar-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.oaao-app [data-module="oaao-calendar"] .oaao-calendar-scroll-inner {
+    box-sizing: border-box;
+}
+
+/* Month grid uses full main column width. */
+.oaao-app [data-module="oaao-calendar"] .calendar-view {
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+}
+
 /* Slide templates + Agents — single shell column (do not rely on JIT max-w-[48rem]). */
 .oaao-app #workspace-view.oaao-workspace-layout--gallery [data-module="oaao-slide-templates"] .oaao-tpl-gallery-shell,
 .oaao-app #workspace-view.oaao-workspace-layout--gallery [data-module="oaao-agents"] .oaao-agents-shell {
@@ -1752,16 +1772,124 @@ button.oaao-vault-menu-active {
     pointer-events: auto;
 }
 
-.oaao-app .oaao-header-alerts-tray {
+/* Header alerts — segmented button group (bubble / todos / bell). */
+.oaao-app .oaao-header-alerts-wrap {
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
+}
+
+.oaao-app .oaao-header-alerts-tray.oaao-header-btn-group {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 0;
+    overflow: visible;
+    pointer-events: auto;
+    background-color: #fff;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-slot {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2rem;
+    height: 1.875rem;
+    pointer-events: auto;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-slot + .oaao-header-icon-slot {
+    border-left: 1px solid var(--grid-line);
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-slot:first-child .oaao-header-icon-btn {
+    border-radius: 7px 0 0 7px;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-slot:last-child .oaao-header-icon-btn {
+    border-radius: 0 7px 7px 0;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    min-width: 2rem;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--grid-accent, #2563eb);
+    cursor: pointer;
+    pointer-events: auto;
+    font: inherit;
+    line-height: 0;
+    vertical-align: middle;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn:hover {
+    background: color-mix(in srgb, var(--grid-accent, #2563eb) 8%, #fff);
+    color: var(--grid-accent, #2563eb);
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn[aria-expanded="true"],
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--grid-accent, #2563eb) 12%, #fff);
+    color: var(--grid-accent, #2563eb);
+}
+
+.oaao-app .oaao-header-btn-group .oaao-notifications-anchor {
+    z-index: 90;
+    pointer-events: auto;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn .oaao-header-icon-glyph,
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn svg.rz-icon {
+    display: block;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    pointer-events: none;
+}
+
+.oaao-app .oaao-header-icon-btn [id$='-badge'].hidden {
+    display: none !important;
+}
+
+.oaao-app .oaao-header-icon-btn [id$='-badge']:not(.hidden) {
+    display: block;
+}
+
+.oaao-app .oaao-header-btn-group .oaao-header-icon-btn [id$='-badge'] {
+    position: absolute;
+    top: 0.0625rem;
+    right: 0.0625rem;
+    min-width: 0.875rem;
+    height: 0.875rem;
+    padding: 0 0.2rem;
+    border-radius: 9999px;
+    background: var(--grid-accent);
+    color: #fff;
+    font-size: 0.5625rem;
+    font-weight: 600;
+    line-height: 0.875rem;
+    text-align: center;
+    pointer-events: none;
 }
 
 .oaao-app .oaao-notifications-menu {
     position: relative;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
 }
 
 .oaao-app .oaao-notifications-anchor {
@@ -1979,4 +2107,78 @@ button.oaao-vault-menu-active {
 
 .oaao-version-stale-banner.hidden {
     display: none;
+}
+
+/* RazyUI CalendarView: close btn lives in .cal-popup-actions; base .cal-popup-close is absolute and stacks over edit/delete when popup is not JIT-hydrated. */
+.oaao-app .calendar-view .cal-popup-actions .cal-popup-close {
+    position: static;
+    top: auto;
+    right: auto;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.oaao-app .calendar-view .cal-popup-actions .cal-popup-action-btn {
+    flex-shrink: 0;
+}
+
+.oaao-app .calendar-view .cal-popup-description {
+    max-height: 4.5rem;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+}
+
+/* CalendarView Add/Edit dialog — native fields; RazyUI DatePicker + legacy .form-row breaks in oaao Dialog. */
+.oaao-calendar-event-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.oaao-calendar-event-form .oaao-cal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    margin: 0;
+}
+
+.oaao-calendar-event-form .oaao-cal-field-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--grid-caption);
+}
+
+.oaao-calendar-event-form .oaao-cal-field-input {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 8px;
+    border: 1px solid var(--grid-line);
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    font-family: inherit;
+    color: var(--grid-ink);
+    background: var(--grid-paper);
+}
+
+.oaao-calendar-event-form .oaao-cal-field-textarea {
+    resize: vertical;
+    min-height: 4.5rem;
+}
+
+.oaao-calendar-event-form .oaao-cal-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: start;
+}
+
+@media (max-width: 480px) {
+    .oaao-calendar-event-form .oaao-cal-form-row {
+        grid-template-columns: 1fr;
+    }
 }

@@ -5,6 +5,7 @@
  */
 
 import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
+import { planCalendarEventFields } from '../../../calendar/default/js/calendar-planner-api.js';
 
 /** @param {string} key @param {string} fallback */
 function pt(key, fallback) {
@@ -164,18 +165,25 @@ async function openAddToCalendarDialog(mount, conversationId, messageId, payload
                     const endVal = endInput.value.trim();
                     const startAt = startVal ? new Date(startVal).toISOString() : String(payload.start_at || '');
                     const endAt = endVal ? new Date(endVal).toISOString() : String(payload.end_at || '');
+                    const planned = await planCalendarEventFields({
+                        title: titleInput.value.trim(),
+                        notes: notesInput.value.trim(),
+                        start_at: startAt,
+                        end_at: endAt,
+                        location: locationInput.value.trim(),
+                    });
                     const res = await fetch(calendarApiUrl('calendar_events_save'), {
                         method: 'POST',
                         credentials: 'include',
                         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                         body: JSON.stringify({
-                            title: titleInput.value.trim(),
+                            title: planned.title,
                             start_at: startAt,
                             end_at: endAt,
                             all_day: Boolean(payload.all_day),
                             timezone: String(payload.timezone || 'UTC'),
-                            location: locationInput.value.trim(),
-                            notes: notesInput.value.trim(),
+                            location: planned.location,
+                            notes: planned.notes,
                             conversation_id: conversationId,
                             message_id: messageId,
                             ...workspaceBodyFields(),

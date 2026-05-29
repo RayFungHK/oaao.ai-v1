@@ -41,6 +41,7 @@ import { handleSkillSuggestedStream, handleSkillUpgradeSuggestedStream } from '.
 import { handleCalendarEventSuggestedStream } from './conversation-calendar-suggest.js';
 import {
     handleTodoItemSuggestedStream,
+    handleTodoItemsSuggestedStream,
     handleTodoResolveSuggestedStream,
 } from './conversation-todo-suggest.js';
 import { refreshThreadTodoStrip } from './conversation-todo-thread.js';
@@ -12924,6 +12925,29 @@ export async function mountShellPanel(mount) {
                     if (
                         phase === 'system' &&
                         kind === 'status' &&
+                        text === 'todo_items_suggested' &&
+                        envelope.payload &&
+                        typeof envelope.payload === 'object' &&
+                        streamingMsgId &&
+                        streamingMsgId > 0
+                    ) {
+                        const batchPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        if (isStreamConversationVisible()) {
+                            handleTodoItemsSuggestedStream(
+                                mount,
+                                conversationId,
+                                streamingMsgId,
+                                batchPayload,
+                                () =>
+                                    conversationId && conversationId > 0
+                                        ? chatScopeBodyFieldsForConversation(conversationId)
+                                        : workspaceChatBodyFields(),
+                            );
+                        }
+                    }
+                    if (
+                        phase === 'system' &&
+                        kind === 'status' &&
                         text === 'todo_resolve_suggested' &&
                         envelope.payload &&
                         typeof envelope.payload === 'object' &&
@@ -14747,4 +14771,238 @@ export async function mountShellPanel(mount) {
     if (!activeConversationId) {
         void maybeReplayPipelineFixture(mount, messagesEl);
     }
+}
+
+/** Bubble Chat / isolated composer — sync {@link #activeConversationId} before send. */
+/** @param {number | null} id */
+export function setChatPanelActiveConversationId(id) {
+    activeConversationId = id == null || Number(id) < 1 ? null : Number(id);
+}
+
+/** @returns {Record<string, unknown>} */
+export function getChatComposerVaultSendExtra() {
+    return buildChatVaultSendExtra();
+}
+
+export function getChatComposerWebSearchEnabled() {
+    return chatComposerWebSearchEnabled;
+}
+
+/**
+ * @param {number | null | undefined} conversationId
+ * @returns {'default' | 'tot' | 'ddtree'}
+ */
+export function getChatComposerPlannerModeForSend(conversationId) {
+    return readComposerPlannerModeForSend(conversationId);
+}
+
+/**
+ * @param {number | null | undefined} conversationId
+ */
+export function getChatComposerInferenceForSend(conversationId) {
+    return readComposerInferenceForSend(conversationId != null && Number(conversationId) > 0 ? Number(conversationId) : null);
+}
+
+export function getWorkspaceChatEndpointIdForComposerSend() {
+    return getWorkspaceChatEndpointIdForSend();
+}
+
+/** @returns {Record<string, string>} */
+export function getWorkspaceChatBodyFieldsForComposer() {
+    return workspaceChatBodyFields();
+}
+
+/**
+ * @param {number} conversationId
+ * @returns {Record<string, string>}
+ */
+export function getChatScopeBodyFieldsForComposer(conversationId) {
+    return chatScopeBodyFieldsForConversation(conversationId);
+}
+
+const BUBBLE_CHAT_COMPOSER_INNER_HTML = `
+<div data-oaao-chat="composer-card-wrap" class="flex flex-col w-full min-w-0" style="border-radius:22px;overflow:hidden;background:#fff;border:1px solid rgba(0,0,0,0.12);box-shadow:0 12px 32px rgba(0,0,0,0.06);box-sizing:border-box">
+  <div data-oaao-chat="composer-inner" class="flex flex-col min-w-0 w-full bg-[var(--grid-panel-bright)] [box-sizing:border-box]">
+    <form data-oaao-chat="composer" class="flex flex-col gap-2 w-full py-2 bg-transparent rounded-none border-0 shadow-none [box-sizing:border-box]">
+      <div class="flex w-full min-w-0 items-stretch gap-2 px-4">
+        <div class="flex flex-col flex-1 min-w-0 gap-2 w-full min-h-0 items-stretch">
+          <div data-oaao-chat="composer-input-shell" class="oaao-composer-input-shell oaao-chat-composer-input-shell w-full min-w-0 min-h-[72px] max-h-[160px] overflow-y-auto [overscroll-behavior-y:contain] px-1 py-2 [box-sizing:border-box]">
+            <div data-oaao-chat="composer-attachment-stack" class="oaao-chat-composer-attachment-stack hidden flex flex-col gap-2 w-full min-w-0 mb-2"></div>
+            <div data-oaao-chat="input" contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true" data-placeholder="Ask a quick question…" aria-label="Message" class="oaao-composer-editor oaao-chat-composer-editor w-full min-h-[56px] max-h-[140px] border-none px-0 py-0 text-[15px] leading-[24px] fg-[var(--grid-ink)] bg-transparent [font-family:inherit] [outline:none] [box-sizing:border-box] whitespace-pre-wrap break-words empty:fg-[var(--grid-caption)]"></div>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-end justify-between gap-2 px-3 pb-1 flex-wrap">
+        <div class="flex flex-wrap items-end gap-2 min-w-0">
+          <div data-oaao-chat="composer-feature-toggles" class="inline-flex flex-wrap items-end gap-1.5 shrink-0"></div>
+          <div data-oaao-chat="composer-registry-slots-left" class="flex flex-wrap items-end gap-2 min-w-0"></div>
+        </div>
+        <div class="flex flex-wrap items-end gap-2 shrink-0 ml-auto justify-end min-w-0">
+          <div data-oaao-chat="composer-registry-slots-actions" class="flex flex-wrap items-end gap-2 shrink-0"></div>
+          <button type="submit" data-oaao-chat="send" class="inline-flex items-center justify-center w-8 h-8 p-0 border-0 rounded-full bg-[#2d2d2d] fg-[#fff] cursor-pointer hover:opacity-[0.88] disabled:opacity-50 disabled:pointer-events-none shrink-0" aria-label="Send">
+            <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div data-oaao-chat="composer-extra-toolbar-wrap" class="hidden w-full box-border px-4 py-2 gap-1.5 text-[0.625rem] leading-tight fg-[var(--grid-ink-muted)] bg-[var(--grid-panel)] [border-top:1px_solid_var(--grid-line)] flex flex-wrap items-center justify-between min-h-0 shrink-0">
+    <div data-oaao-chat="composer-registry-extra-toolbar" class="flex flex-wrap items-center gap-1.5 min-w-0 flex-1"></div>
+    <span data-oaao-chat="composer-toolbar-hint" class="oaao-chat-composer-toolbar-hint hidden max-w-[14rem] min-w-0 shrink overflow-hidden text-ellipsis whitespace-nowrap text-[0.625rem] leading-tight fg-[var(--grid-caption)] text-right ml-auto pl-2" aria-live="polite"></span>
+  </div>
+</div>`;
+
+/**
+ * Mount the shared chat composer chrome (planner / web / vault / context ring) for Bubble Chat.
+ *
+ * @param {HTMLElement} host
+ * @param {AbortSignal} signal
+ * @param {{ getConversationId?: () => number | null }} [options]
+ * @returns {Promise<{ mount: HTMLElement, formEl: HTMLFormElement, inputEl: HTMLElement, sendBtn: HTMLButtonElement } | null>}
+ */
+export async function mountBubbleChatComposer(host, signal, options = {}) {
+    const resolveBubbleConversationId =
+        typeof options.getConversationId === 'function'
+            ? options.getConversationId
+            : () => activeConversationId;
+    host.dataset.module = 'oaao-chat';
+    host.dataset.oaaoChatMount = 'bubble';
+    host.replaceChildren();
+    const shell = document.createElement('div');
+    shell.className = 'w-full min-w-0';
+    shell.innerHTML = BUBBLE_CHAT_COMPOSER_INNER_HTML;
+    host.append(shell);
+    const mount = host;
+
+    const formEl = mount.querySelector('[data-oaao-chat="composer"]');
+    const inputEl = mount.querySelector('[data-oaao-chat="input"]');
+    const sendBtn = mount.querySelector('[data-oaao-chat="send"]');
+    if (!(formEl instanceof HTMLFormElement) || !(inputEl instanceof HTMLElement) || !(sendBtn instanceof HTMLButtonElement)) {
+        return null;
+    }
+
+    const onVaultSourcesChange = (refs) => {
+        chatComposerVaultSourceRefs = refs;
+        persistVaultChatSourceRefs(refs);
+    };
+    purgeComposerContextUsageOrphans(mount);
+    syncComposerExtraToolbarVisibility(mount);
+    mountChatComposerBuiltInVaultUi(mount, signal, onVaultSourcesChange);
+
+    const onLibraryDocsChange = (docs) => {
+        chatComposerLibraryDocs = docs;
+        persistLibraryChatDocs(docs);
+    };
+    mountChatComposerBuiltInLibraryUi(mount, signal, onLibraryDocsChange);
+
+    const composerFeatureToggles = mount.querySelector('[data-oaao-chat="composer-feature-toggles"]');
+    if (composerFeatureToggles instanceof HTMLElement) {
+        mountChatComposerFeatureToggles(composerFeatureToggles, signal);
+    }
+
+    const toolbarHintEl = mount.querySelector('[data-oaao-chat="composer-toolbar-hint"]');
+    chatComposerToolbarHintEl = toolbarHintEl instanceof HTMLElement ? toolbarHintEl : null;
+
+    mountChatComposerRegistrySlots(mount, signal, onVaultSourcesChange, {
+        getConversationId: () => resolveBubbleConversationId(),
+        chatFetchJson,
+        chatApiUrl,
+        workspaceChatBodyFields,
+        getComposerPlainText: () => {
+            if (!isChatComposerEditorEl(inputEl)) return '';
+            return getChatComposerEditorPayload(inputEl).text;
+        },
+        setComposerPlainText: (text) => {
+            if (!isChatComposerEditorEl(inputEl)) return;
+            const payload = getChatComposerEditorPayload(inputEl);
+            setChatComposerEditorPlainText(inputEl, String(text ?? ''), { keepTemplate: Boolean(payload.template_id) });
+        },
+        wireComposerIconHoverHint: (el, getText) => wireComposerToolbarIconHoverHint(el, getText, signal),
+        onAttachmentsChange: (items) => {
+            chatComposerAttachments = Array.isArray(items)
+                ? items.map((row) => ({
+                      id: Number(row.id ?? 0),
+                      file_name: String(row.file_name ?? 'attachment'),
+                      mime_type: String(row.mime_type ?? ''),
+                      kind: String(row.kind ?? 'other'),
+                      byte_size: Number(row.byte_size ?? 0),
+                  }))
+                : [];
+            renderChatComposerAttachmentChips(mount);
+        },
+        getAttachmentItems: () => chatComposerAttachments.slice(),
+        onTranscribed: (text) => {
+            if (!isChatComposerEditorEl(inputEl)) return;
+            appendChatComposerEditorText(inputEl, text);
+        },
+        toast: () => {},
+        setComposerToolbarHint: setChatComposerToolbarHint,
+    });
+
+    if (isChatComposerEditorEl(inputEl)) {
+        const attachmentUploadCtx = {
+            getConversationId: () => resolveBubbleConversationId(),
+            getAttachmentItems: () => chatComposerAttachments.slice(),
+            chatApiUrl,
+            workspaceChatBodyFields,
+            signal,
+            toast: () => {},
+            onAttachmentsChange: (items) => {
+                chatComposerAttachments = Array.isArray(items)
+                    ? items.map((row) => ({
+                          id: Number(row.id ?? 0),
+                          file_name: String(row.file_name ?? 'attachment'),
+                          mime_type: String(row.mime_type ?? ''),
+                          kind: String(row.kind ?? 'other'),
+                          byte_size: Number(row.byte_size ?? 0),
+                      }))
+                    : [];
+                renderChatComposerAttachmentChips(mount);
+            },
+        };
+        mountChatComposerEditor(inputEl, signal, {
+            onTemplateRemoved: () => {
+                chatComposerActiveSlideTemplate = null;
+            },
+            onTemplateInserted: (hit) => {
+                chatComposerActiveSlideTemplate = {
+                    template_id: hit.template_id,
+                    label: hit.label,
+                    thumb_url: hit.thumb_url,
+                };
+            },
+            resolveTemplateSlug: resolvePublishedSlideTemplateSlug,
+            onPasteFiles: async (files) => {
+                const room = Math.max(0, 4 - chatComposerAttachments.length);
+                for (const file of files.slice(0, room)) {
+                    await uploadChatComposerAttachment(file, attachmentUploadCtx);
+                }
+            },
+        });
+    }
+
+    try {
+        const mod = await loadChatContextUsageMod();
+        purgeComposerContextUsageOrphans(mount);
+        syncComposerExtraToolbarVisibility(mount);
+        if (typeof mod.mountChatContextUsage === 'function') {
+            mod.mountChatContextUsage(
+                mount,
+                () => Number(resolveBubbleConversationId()) || 0,
+                () => getWorkspaceChatEndpointIdForSend(),
+                chatApiBase(),
+                async () => {},
+                () => {
+                    const cid = Number(resolveBubbleConversationId()) || 0;
+                    return cid > 0 ? chatScopeBodyFieldsForConversation(cid) : workspaceChatBodyFields();
+                },
+            );
+        }
+    } catch (err) {
+        console.error('[oaao bubble] context usage mount failed', err);
+    }
+
+    globalThis.JIT?.hydrate?.(mount);
+
+    return { mount, formEl, inputEl, sendBtn };
 }

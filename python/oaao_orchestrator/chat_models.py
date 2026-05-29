@@ -199,6 +199,21 @@ class ChatRunRequest(BaseModel):
         default=False,
         description="True when PHP just created this conversation row — enables auto-title.",
     )
+    conversation_kind: str | None = Field(
+        default=None,
+        description="Thread kind from PHP — e.g. bubble for ephemeral Bubble Chat (sidebar excluded).",
+    )
+    skip_persistent_agent_hooks: bool = Field(
+        default=False,
+        description=(
+            "Bubble / ephemeral threads — skip slide_designer planner injection, "
+            "skill suggest/upgrade, and auto-title; calendar/todo post-turn hooks still run."
+        ),
+    )
+    skip_post_turn_agent_hooks: bool = Field(
+        default=False,
+        description="Deprecated alias for skip_persistent_agent_hooks (bubble early builds).",
+    )
     corpus_id: int | None = Field(
         default=None,
         ge=1,

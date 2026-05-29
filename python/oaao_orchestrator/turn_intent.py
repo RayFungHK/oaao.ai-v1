@@ -161,6 +161,11 @@ async def apply_turn_intent_hook(
     allowed_agents: list[str] | None = None,
 ) -> None:
     """Run planning.intent hook — LLM scores plus temporal knowledge-gap floor."""
+    from oaao_orchestrator.bubble_chat_run import filter_persistent_agents_from_allowed, is_bubble_chat
+
+    if allowed_agents is not None and is_bubble_chat(req):
+        allowed_agents = filter_persistent_agents_from_allowed(allowed_agents)
+
     force_globe_web = bool(getattr(req, "enable_web_search", False))
 
     user_msg = _last_user_message(getattr(req, "messages", []) or [])
@@ -194,7 +199,7 @@ async def apply_turn_intent_hook(
         analysis: dict[str, float] = {"web_search": 1.0} if (gap or force_globe_web) else {}
         from oaao_orchestrator.slide_project.conversation_intent import text_implies_slide_deck_request
 
-        if user_msg and text_implies_slide_deck_request(user_msg):
+        if user_msg and text_implies_slide_deck_request(user_msg) and not is_bubble_chat(req):
             analysis["slide_designer"] = 1.0
         llm_signals = AgentIntentSignals(
             needs_web_search=True,
@@ -210,11 +215,14 @@ async def apply_turn_intent_hook(
     slide_score = float(analysis.get("slide_designer", 0.0))
     from oaao_orchestrator.slide_project.conversation_intent import text_implies_slide_deck_request
 
-    if user_msg and text_implies_slide_deck_request(user_msg):
+    if user_msg and text_implies_slide_deck_request(user_msg) and not is_bubble_chat(req):
         slide_score = max(slide_score, 1.0)
         analysis["slide_designer"] = slide_score
+    if is_bubble_chat(req):
+        slide_score = 0.0
+        analysis.pop("slide_designer", None)
     needs_web = web_score >= _web_threshold()
-    needs_slide = slide_score >= _slide_threshold()
+    needs_slide = False if is_bubble_chat(req) else slide_score >= _slide_threshold()
     if not needs_web and not needs_slide and not analysis:
         return
 

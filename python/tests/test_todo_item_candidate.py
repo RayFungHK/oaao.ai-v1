@@ -1,4 +1,9 @@
-from oaao_orchestrator.evaluation.todo_item_candidate import classify_todo_item_candidate
+import asyncio
+
+from oaao_orchestrator.evaluation.todo_item_candidate import (
+    classify_todo_item_candidate,
+    classify_todo_item_candidates,
+)
 
 
 def test_classify_todo_from_checkbox():
@@ -31,3 +36,27 @@ def test_classify_todo_skips_duplicate_open_item():
         open_todo_items=[{"todo_id": 1, "title": "Send Q2 report to finance"}],
     )
     assert cand is None
+
+
+def test_heuristic_splits_chinese_todo_list():
+    messages = [
+        {
+            "role": "user",
+            "content": "幫我建立一個待辦清單，包含：整理數據、撰寫初稿、寄給主管審閱",
+        },
+    ]
+    assistant = "好的，以下是待辦清單：整理數據、撰寫初稿、寄給主管審閱。"
+    items = asyncio.run(
+        classify_todo_item_candidates(
+            conversation_id=7,
+            messages=messages,
+            assistant_text=assistant,
+            llm_cfg=None,
+            chat_request=None,
+        )
+    )
+    assert len(items) >= 3
+    titles = {c.title for c in items}
+    assert any("整理" in t for t in titles)
+    assert any("初稿" in t for t in titles)
+    assert any("主管" in t for t in titles)

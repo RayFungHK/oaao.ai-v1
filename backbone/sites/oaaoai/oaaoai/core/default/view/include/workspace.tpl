@@ -213,6 +213,12 @@
                             <div id="workspace-rag-explore-sidebar-root"
                                 class="flex flex-col flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch] px-md pb-md gap-3"></div>
                         </section>
+                        <section id="workspace-calendar-sidebar-section" class="flex flex-col flex-1 min-h-0 overflow-hidden hidden" aria-label="Calendar schedule">
+                            <p class="workspace-chat-sidebar-label shrink-0 px-md pt-md pb-1 text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold"
+                                data-i18n="calendar.schedule_heading">Schedule</p>
+                            <div id="workspace-calendar-schedule-list" role="list"
+                                class="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] px-sm pb-md flex flex-col gap-0.5 items-stretch justify-start [&>*]:flex-none [&>*]:min-h-0 [&>*]:max-h-none [&>*]:shrink-0 [&>*]:self-stretch"></div>
+                        </section>
                     </div>
                     <!-- SPA apps not pinned on the icon rail ({@see workspace.js renderNav}); hidden when empty. -->
                     <nav id="workspace-nav"
@@ -278,38 +284,50 @@
                             </svg>
                             <span data-i18n="workspace.service_ok">All systems operational</span>
                         </span>
-                        <div class="oaao-header-alerts-tray flex items-center gap-1 shrink-0" role="group" aria-label="Alerts">
-                        <div class="oaao-todos-menu oaao-notifications-menu relative inline-flex items-center">
+                        <div class="oaao-header-alerts-wrap shrink-0 relative z-[2]">
+                        <div class="oaao-header-alerts-tray oaao-header-btn-group inline-flex items-stretch rounded-[8px] border border-solid border-[var(--grid-line)] bg-white" role="group" aria-label="Alerts">
+                        <div class="oaao-header-icon-slot">
+                            <button type="button" id="workspace-bubble-chat-trigger"
+                                class="oaao-header-icon-btn"
+                                aria-pressed="false"
+                                aria-label="Bubble Chat"
+                                title="Bubble Chat"
+                                data-i18n-attr:aria-label="bubble_chat.open"
+                                data-i18n-attr:title="bubble_chat.open">
+                                <!-- Lucide message-circle-dashed ({@see oaao-rui-icons.js}) -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon oaao-header-icon-glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 3.1c-.5 0-1-.1-1.5-.1s-1 .1-1.5.1"/><path d="M19.3 6.8a10.45 10.45 0 0 0-2.1-2.1"/><path d="M20.9 13.5c.1-.5.1-1 .1-1.5s-.1-1-.1-1.5"/><path d="M17.2 19.3a10.45 10.45 0 0 0 2.1-2.1"/><path d="M10.5 20.9c.5.1 1 .1 1.5.1s1-.1 1.5-.1"/><path d="M3.5 17.5 2 22l4.5-1.5"/><path d="M3.1 10.5c0 .5-.1 1-.1 1.5s.1 1 .1 1.5"/><path d="M6.8 4.7a10.45 10.45 0 0 0-2.1 2.1"/></svg>
+                            </button>
+                        </div>
+                        <div class="oaao-header-icon-slot oaao-todos-menu">
                             <button type="button" id="workspace-todos-trigger"
-                                class="relative inline-flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer font-inherit fg-[var(--grid-caption)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
+                                class="oaao-header-icon-btn"
                                 aria-expanded="false"
                                 aria-haspopup="true"
                                 aria-controls="workspace-todos-panel"
                                 aria-label="Todos"
                                 title="Todos">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                                <span id="workspace-todos-badge"
-                                    class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-[var(--grid-accent)] fg-white text-[0.625rem] fw-semibold leading-4 text-center pointer-events-none"></span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon oaao-header-icon-glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                                <span id="workspace-todos-badge" class="hidden" aria-hidden="true"></span>
                             </button>
                             <div id="workspace-todos-anchor" class="oaao-notifications-anchor hidden" hidden>
                                 <div id="workspace-todos-panel" role="menu" class="oaao-notifications-panel"></div>
                             </div>
                         </div>
-                        <div class="oaao-notifications-menu relative inline-flex items-center">
+                        <div class="oaao-header-icon-slot oaao-notifications-menu">
                             <button type="button" id="workspace-notifications-trigger"
-                                class="relative inline-flex items-center justify-center w-9 h-9 rounded-full border-none bg-transparent cursor-pointer font-inherit fg-[var(--grid-caption)] hover:bg-[var(--grid-line)]/35 hover:fg-[var(--grid-ink)]"
+                                class="oaao-header-icon-btn"
                                 aria-expanded="false"
                                 aria-haspopup="true"
                                 aria-controls="workspace-notifications-panel"
                                 aria-label="Notifications"
                                 title="Notifications">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon w-[1.125rem] h-[1.125rem] shrink-0 block pointer-events-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-                                <span id="workspace-notifications-badge"
-                                    class="hidden absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 rounded-full bg-[var(--grid-accent)] fg-white text-[0.625rem] fw-semibold leading-4 text-center pointer-events-none"></span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="rz-icon oaao-header-icon-glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                                <span id="workspace-notifications-badge" class="hidden" aria-hidden="true"></span>
                             </button>
                             <div id="workspace-notifications-anchor" class="oaao-notifications-anchor hidden" hidden>
                                 <div id="workspace-notifications-panel" role="menu" class="oaao-notifications-panel"></div>
                             </div>
+                        </div>
                         </div>
                         </div>
                         <!-- Account menu: hand-rolled panel + JIT today; prefer {@code rui-dropdown} / {@see Dropdown.js} + {@code registerElement} when init wiring lands — practice RazyUI, avoid parallel menu semantics. Keep {@code #workspace-user-label} for preferences greeting ({@see preferences-dialog.js}). -->

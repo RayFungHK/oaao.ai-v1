@@ -24,7 +24,7 @@ export function isChatComposerEditorEl(el) {
     return (
         el instanceof HTMLElement &&
         el.getAttribute('data-oaao-chat') === 'input' &&
-        el.isContentEditable
+        el.getAttribute('contenteditable') !== 'false'
     );
 }
 

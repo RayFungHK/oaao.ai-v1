@@ -48,9 +48,12 @@ async def finalize_run(
         _report_usage_to_php,
     )
     from oaao_orchestrator.endpoint_keys import resolve_api_key as _resolve_api_key
+    from oaao_orchestrator.bubble_chat_run import should_skip_bubble_ephemeral_hooks
     from oaao_orchestrator.run_executor_plan import (
         materials_end_snapshot as _materials_end_snapshot,
     )
+
+    skip_ephemeral_hooks = should_skip_bubble_ephemeral_hooks(req)
 
     t_end = time.perf_counter()
     duration_ms = int((t_end - t_start) * 1000)
@@ -138,7 +141,7 @@ async def finalize_run(
             cid_skill = int(str(req.conversation_id or "0"))
         except (TypeError, ValueError):
             cid_skill = 0
-        if cid_skill > 0:
+        if cid_skill > 0 and not skip_ephemeral_hooks:
             try:
                 from oaao_orchestrator.evaluation.skill_candidate import (
                     classify_skill_candidate,
@@ -165,7 +168,8 @@ async def finalize_run(
         if isinstance(plan, _RunPlan) and plan.apply_skill_ids:
             applied_ids = list(plan.apply_skill_ids)
         if (
-            not run.cancelled
+            not skip_ephemeral_hooks
+            and not run.cancelled
             and not run_failed
             and persist_text
             and applied_ids
@@ -210,10 +214,11 @@ async def finalize_run(
                     emit_calendar_event_suggested_status,
                 )
 
-                cal_candidate = classify_calendar_event_candidate(
+                cal_candidate = await classify_calendar_event_candidate(
                     conversation_id=cid_skill,
                     messages=messages_for_llm,
                     assistant_text=persist_text,
+                    chat_request=req,
                 )
                 if cal_candidate is not None:
                     payload_cal = cal_candidate.to_dict()
@@ -225,21 +230,31 @@ async def finalize_run(
         if cid_skill > 0 and persist_text and not run.cancelled:
             try:
                 from oaao_orchestrator.evaluation.todo_item_candidate import (
-                    classify_todo_item_candidate,
+                    classify_todo_item_candidates,
                 )
                 from oaao_orchestrator.evaluation.todo_item_suggested_stream import (
                     emit_todo_item_suggested_status,
+                    emit_todo_items_suggested_status,
                 )
 
                 open_todos_for_dedupe = getattr(req, "open_todo_items", None) or []
-                todo_candidate = classify_todo_item_candidate(
+                todo_candidates = await classify_todo_item_candidates(
                     conversation_id=cid_skill,
                     messages=messages_for_llm,
                     assistant_text=persist_text,
                     open_todo_items=open_todos_for_dedupe if isinstance(open_todos_for_dedupe, list) else [],
+                    chat_request=req,
                 )
-                if todo_candidate is not None:
-                    payload_todo = todo_candidate.to_dict()
+                if len(todo_candidates) >= 2:
+                    item_payloads = [c.to_dict() for c in todo_candidates]
+                    metrics_payload["todo_items_suggested"] = item_payloads
+                    await emit_todo_items_suggested_status(
+                        run,
+                        conversation_id=cid_skill,
+                        items=item_payloads,
+                    )
+                elif len(todo_candidates) == 1:
+                    payload_todo = todo_candidates[0].to_dict()
                     metrics_payload["todo_item_suggested"] = payload_todo
                     await emit_todo_item_suggested_status(run, payload_todo)
             except Exception:
@@ -267,7 +282,7 @@ async def finalize_run(
             except Exception:
                 logger.exception("todo_resolve_suggested_emit_failed run_id=%s", run_id)
 
-    if not run.cancelled:
+    if not run.cancelled and not skip_ephemeral_hooks:
         try:
             from oaao_orchestrator.conversation_title import (
                 resolve_conversation_title_for_run,

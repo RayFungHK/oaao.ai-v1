@@ -28,9 +28,10 @@ return new class extends Controller {
         $agent->addRoute('GET /calendar/workspace-panel', 'panel/workspace_panel');
         $agent->addLazyRoute([
             'api' => [
-                'GET calendar_events_list'  => 'calendar_events_list',
-                'POST calendar_events_save' => 'calendar_events_save',
-                'POST calendar_event_delete'=> 'calendar_event_delete',
+                'GET calendar_events_list'   => 'calendar_events_list',
+                'POST calendar_events_plan'  => 'calendar_events_plan',
+                'POST calendar_events_save'  => 'calendar_events_save',
+                'POST calendar_event_delete' => 'calendar_event_delete',
             ],
         ]);
 

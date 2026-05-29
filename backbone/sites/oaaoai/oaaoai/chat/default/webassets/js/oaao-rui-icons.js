@@ -20,6 +20,9 @@ export const OAAO_RUI_ICON_GALLERY_MODE = 'gallery-thumbnails';
 /** Default chat thread in the conversation sidebar. */
 export const OAAO_RUI_ICON_CONVERSATION = 'message-square';
 
+/** Workspace header Bubble Chat trigger ({@see workspace.tpl}). */
+export const OAAO_RUI_ICON_BUBBLE_CHAT = 'message-circle-dashed';
+
 /** Material row download action. */
 export const OAAO_RUI_ICON_DOWNLOAD = 'download';
 
@@ -46,6 +49,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 /** Embedded Lucide paths — always render without {@code Icons.js}. */
 const OAAO_SVG_ICONS = {
     'message-square': '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />',
+    /** Lucide message-circle-dashed — Bubble Chat ({@see https://lucide.dev/icons/message-circle-dashed}). */
+    'message-circle-dashed':
+        '<path d="M13.5 3.1c-.5 0-1-.1-1.5-.1s-1 .1-1.5.1" /><path d="M19.3 6.8a10.45 10.45 0 0 0-2.1-2.1" /><path d="M20.9 13.5c.1-.5.1-1 .1-1.5s-.1-1-.1-1.5" /><path d="M17.2 19.3a10.45 10.45 0 0 0 2.1-2.1" /><path d="M10.5 20.9c.5.1 1 .1 1.5.1s1-.1 1.5-.1" /><path d="M3.5 17.5 2 22l4.5-1.5" /><path d="M3.1 10.5c0 .5-.1 1-.1 1.5s.1 1 .1 1.5" /><path d="M6.8 4.7a10.45 10.45 0 0 0-2.1 2.1" />',
     'square-dashed-kanban':
         '<path d="M8 7v7" /><path d="M12 7v4" /><path d="M16 7v9" /><path d="M5 3a2 2 0 0 0-2 2" /><path d="M9 3h1" /><path d="M14 3h1" /><path d="M19 3a2 2 0 0 1 2 2" /><path d="M21 9v1" /><path d="M21 14v1" /><path d="M21 19a2 2 0 0 1-2 2" /><path d="M14 21h1" /><path d="M9 21h1" /><path d="M5 21a2 2 0 0 1-2-2" /><path d="M3 14v1" /><path d="M3 9v1" />',
     'gallery-thumbnails':

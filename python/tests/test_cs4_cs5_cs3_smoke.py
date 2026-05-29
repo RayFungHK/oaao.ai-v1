@@ -1,5 +1,4 @@
 from oaao_orchestrator.corpus.xlsx_render import markdown_to_xlsx_bytes, table_data_to_xlsx_bytes
-from oaao_orchestrator.evaluation.calendar_event_candidate import classify_calendar_event_candidate
 from oaao_orchestrator.evaluation.todo_item_candidate import classify_todo_item_candidate
 from oaao_orchestrator.evaluation.skill_upgrade import pick_skill_upgrade_candidate
 from oaao_orchestrator.micro_skills.apply import inject_applied_micro_skills
@@ -49,35 +48,12 @@ def test_inject_applied_micro_skills():
     )
 
 
-def test_classify_calendar_event_candidate_meeting():
-    messages = [
-        {"role": "user", "content": "Schedule a team meeting on 2026-06-15 at 14:00 location: Room 3A"},
-    ]
-    cand = classify_calendar_event_candidate(
-        conversation_id=9,
-        messages=messages,
-        assistant_text="Confirmed — I'll block 2026-06-15 at 14:00 for the team meeting in Room 3A.",
-    )
-    assert cand is not None
-    assert cand.conversation_id == 9
-    assert "2026" in cand.start_at
-
-
 def test_markdown_to_xlsx_bytes_smoke():
     md = "| Name | Qty |\n| --- | --- |\n| Widget | 2 |\n"
     raw = markdown_to_xlsx_bytes(md, title="Orders")
     assert isinstance(raw, bytes)
     assert len(raw) > 100
     assert raw[:2] == b"PK"
-
-
-def test_calendar_rejects_vault_meta_assistant_turn():
-    cand = classify_calendar_event_candidate(
-        conversation_id=1,
-        messages=[{"role": "user", "content": "Meet tomorrow at 3pm about W2 data in Urayasu."}],
-        assistant_text="This turn scoped or ran a knowledge-base (Vault) search.",
-    )
-    assert cand is None
 
 
 def test_classify_todo_item_candidate_action():

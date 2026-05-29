@@ -416,6 +416,7 @@ async def refine_plan_for_mode(
                     messages=messages,
                     slide_designer_cfg=slide_cfg,
                     conv_materials=conv_materials if isinstance(conv_materials, list) else None,
+                    req=req,
                 )
             )
         if main_llm_url and main_model:

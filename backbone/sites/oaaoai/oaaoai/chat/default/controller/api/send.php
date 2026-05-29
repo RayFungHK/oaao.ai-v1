@@ -3,6 +3,7 @@
 use oaaoai\chat\ChatAccsReflection;
 use oaaoai\chat\ChatAttachmentManifest;
 use oaaoai\chat\ChatAttachmentStorage;
+use oaaoai\chat\ChatBubbleConversation;
 use oaaoai\chat\ChatConversationMaterial;
 use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatConversationTitle;
@@ -39,7 +40,8 @@ use oaaoai\user\UserPreferenceProfile;
  *             "continue_assistant_message_id"?: int — append to an existing truncated assistant reply (same message row),
  *             "slide_template_id"?: string — published custom template for a new deck,
  *             "planner_mode_id"?: "default"|"tot"|"ddtree" — thread planner mode (persisted on new chats),
- *             "corpus_id"?: number — Corpus Studio style injection (CS-1-S10); programmatic only, not chat composer }
+ *             "corpus_id"?: number — Corpus Studio style injection (CS-1-S10); programmatic only, not chat composer,
+ *             "bubble"?: bool — ephemeral Bubble Chat dialog thread (excluded from sidebar; TTL in params_json) }
  */
 return function (): void {
     [$splitDb, $user, $pdo] = $this->oaao_chat_require_user();
@@ -89,6 +91,8 @@ return function (): void {
     $appendAssistantTurn = $continueAssistantId > 0;
     $conversationId = $input['conversation_id'] ?? null;
     $conversationId = ($conversationId === null || $conversationId === '') ? null : (int) $conversationId;
+    $isBubbleChat = ! empty($input['bubble']);
+    $bubbleThread = $isBubbleChat;
 
     if ($appendAssistantTurn) {
         if ($conversationId === null || $conversationId < 1) {
@@ -418,6 +422,22 @@ return function (): void {
 
                 return;
             }
+            if (ChatBubbleConversation::isBubbleRow($own)) {
+                $bubbleThread = true;
+                if (ChatBubbleConversation::isExpiredParams(ChatBubbleConversation::paramsFromRow($own))) {
+                    $pdo->rollBack();
+                    try {
+                        $splitDb->delete('message', ['conversation_id' => (int) $conversationId])->query();
+                        $splitDb->delete('conversation', ['id' => (int) $conversationId, 'user_id' => $uid])->query();
+                    } catch (\Throwable) {
+                    }
+                    http_response_code(410);
+                    echo json_encode(['success' => false, 'message' => 'Bubble chat expired', 'code' => 'bubble_expired']);
+
+                    return;
+                }
+                ChatBubbleConversation::touchExpiry($splitDb, (int) $conversationId, $uid);
+            }
             $paramsRaw = trim((string) ($own['params_json'] ?? ''));
             if ($paramsRaw !== '') {
                 try {
@@ -441,19 +461,25 @@ return function (): void {
                 $plannerModeId = $inputPlannerMode;
             }
         } else {
-            $title = 'New chat';
-            if ($hasPublishedSlideTemplate && $slideTemplateLabel !== '') {
+            $title = $isBubbleChat ? 'Bubble' : 'New chat';
+            if (! $isBubbleChat && $hasPublishedSlideTemplate && $slideTemplateLabel !== '') {
                 $title = mb_substr($slideTemplateLabel, 0, 80);
             }
             $nowConv = date('Y-m-d H:i:s');
-            $splitDb->insert('conversation', ['user_id', 'workspace_id', 'title', 'created_at', 'updated_at'])
-                ->assign([
-                    'user_id'       => $uid,
-                    'workspace_id'  => $wid,
-                    'title'         => $title,
-                    'created_at'    => $nowConv,
-                    'updated_at'    => $nowConv,
-                ])
+            $insertCols = ['user_id', 'workspace_id', 'title', 'created_at', 'updated_at'];
+            $insertAssign = [
+                'user_id'       => $uid,
+                'workspace_id'  => $wid,
+                'title'         => $title,
+                'created_at'    => $nowConv,
+                'updated_at'    => $nowConv,
+            ];
+            if ($isBubbleChat) {
+                $insertCols[] = 'params_json';
+                $insertAssign['params_json'] = \oaaoai\chat\ChatBubbleConversation::initialParamsJson();
+            }
+            $splitDb->insert('conversation', $insertCols)
+                ->assign($insertAssign)
                 ->query();
             $conversationId = (int) $splitDb->lastID();
             $conversationCreated = true;
@@ -884,14 +910,16 @@ return function (): void {
             $payload['purpose_key'] = $chatPurposeKey;
 
             if ($canonDb instanceof \Razy\Database) {
-                $reflectionCtx = ChatAccsReflection::consumePendingForSend(
-                    $canonDb,
-                    $splitDb,
-                    $conversationId,
-                    (int) $asstMsgId,
-                );
-                if ($reflectionCtx !== null) {
-                    $payload['accs_reflection_context'] = $reflectionCtx;
+                if (! $bubbleThread) {
+                    $reflectionCtx = ChatAccsReflection::consumePendingForSend(
+                        $canonDb,
+                        $splitDb,
+                        $conversationId,
+                        (int) $asstMsgId,
+                    );
+                    if ($reflectionCtx !== null) {
+                        $payload['accs_reflection_context'] = $reflectionCtx;
+                    }
                 }
             }
 
@@ -904,11 +932,18 @@ return function (): void {
                 $allowedAgents = ChatAllowedAgentsPurposeConfig::defaultAllowed();
             }
             // Planner chooses web_search per turn (needs_web_search); do not strip from allowed_agents here.
-            $allowedAgents = ChatTeachingIntent::ensureSlideDesignerAllowed(
-                $allowedAgents,
-                $orchestratorUserContent,
-                $hasPublishedSlideTemplate,
-            );
+            if (! $bubbleThread) {
+                $allowedAgents = ChatTeachingIntent::ensureSlideDesignerAllowed(
+                    $allowedAgents,
+                    $orchestratorUserContent,
+                    $hasPublishedSlideTemplate,
+                );
+            } else {
+                $allowedAgents = array_values(array_filter(
+                    $allowedAgents,
+                    static fn ($k) => (string) $k !== 'slide_designer',
+                ));
+            }
             $payload['allowed_agents'] = $allowedAgents;
             $payload['enable_web_search'] = $enableWebSearch;
             $payload['agent_catalog'] = PlannerAgentRegister::catalogForAllowed(
@@ -925,12 +960,17 @@ return function (): void {
             if ($wid !== null) {
                 $payload['workspace_id'] = $wid;
             }
-            if ($conversationCreated) {
+            if ($conversationCreated && ! $bubbleThread) {
                 $payload['is_new_conversation'] = true;
             }
 
+            if ($bubbleThread) {
+                $payload['conversation_kind'] = ChatBubbleConversation::KIND;
+                $payload['skip_persistent_agent_hooks'] = true;
+            }
+
             $slideExtras = [];
-            if ($hasPublishedSlideTemplate) {
+            if (! $bubbleThread && $hasPublishedSlideTemplate) {
                 $slideExtras['template_id'] = $slideTemplateId;
                 $slideExtras['start_new_deck'] = true;
             }
@@ -945,7 +985,7 @@ return function (): void {
                     $authApi,
                     $uid,
                     $wid,
-                    $hasPublishedSlideTemplate ? $slideTemplateId : null,
+                    (! $bubbleThread && $hasPublishedSlideTemplate) ? $slideTemplateId : null,
                     $this,
                     $slideDesignerApi,
                 );
@@ -956,7 +996,7 @@ return function (): void {
             }
             $payload['hot_plug_skills'] = SkillsManifestStorage::enabledForPurpose('chat');
             $activeMaterialId = trim((string) ($input['active_material_id'] ?? ''));
-            if ($splitPdo instanceof \PDO && $conversationId > 0) {
+            if ($splitPdo instanceof \PDO && $conversationId > 0 && ! $bubbleThread) {
                 if ($activeMaterialId !== '') {
                     $slideDesignerPayload['active_material_id'] = $activeMaterialId;
                     $resolved = ChatConversationMaterial::resolveSlideProjectMaterial(

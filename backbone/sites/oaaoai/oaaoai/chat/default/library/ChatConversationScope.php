@@ -123,7 +123,20 @@ final class ChatConversationScope
                 ->assign(['user_id' => $uid, 'workspace_id' => $scopeWid, 'archived' => 0]);
         }
         $raw = $prep->order('>updated_at,>created_at')->limit($limit)->query()->fetchAll();
+        if (! \is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            if (ChatBubbleConversation::isBubbleRow($row)) {
+                continue;
+            }
+            $out[] = $row;
+        }
 
-        return \is_array($raw) ? $raw : [];
+        return $out;
     }
 }

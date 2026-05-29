@@ -40,6 +40,7 @@ return function (): void {
     }
 
     try {
+        \oaaoai\chat\ChatBubbleConversation::purgeExpiredForUser($splitDb, $uid);
         $includeArchived = isset($_GET['include_archived']) && (string) $_GET['include_archived'] === '1';
         $rows = \oaaoai\chat\ChatConversationScope::listForUser(
             $splitDb,

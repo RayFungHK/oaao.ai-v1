@@ -740,6 +740,10 @@ def inject_slide_designer_for_turn_intent(
     req: object,
 ) -> list[RunTaskSpec]:
     """Append slide_designer when ``planning.intent`` scored slide need (promotional / generic decks)."""
+    from oaao_orchestrator.bubble_chat_run import is_bubble_chat
+
+    if is_bubble_chat(req):
+        return specs
     turn_intent = getattr(req, "turn_intent", None)
     if not isinstance(turn_intent, dict) or not turn_intent.get("needs_slide_designer"):
         return specs
@@ -834,9 +838,12 @@ def planner_output_to_run_plan(
     messages: list[dict[str, Any]] | None = None,
     slide_designer_cfg: dict[str, Any] | None = None,
     conv_materials: list[Any] | None = None,
+    req: object | None = None,
 ) -> RunPlan:
+    from oaao_orchestrator.bubble_chat_run import is_bubble_chat
     from oaao_orchestrator.conversation_title import normalize_conversation_title
 
+    bubble = is_bubble_chat(req)
     slide_cfg = merge_planner_slide_intent(
         draft,
         slide_designer_cfg,
@@ -860,20 +867,21 @@ def planner_output_to_run_plan(
         allowed_agents=allowed_agents,
         needs_web_search=bool(draft.needs_web_search),
     )
-    specs = inject_slide_designer_for_teaching_intent(
-        specs,
-        allowed_agents=allowed_agents,
-        messages=messages,
-        slide_designer_cfg=slide_cfg,
-    )
-    specs = ensure_slide_designer_requires_ask(
-        specs,
-        messages=messages,
-        slide_designer_cfg=slide_cfg,
-    )
-    specs = apply_slide_continuation_to_specs(specs, slide_cfg)
-    specs = apply_slide_fanout_to_specs(specs, messages, slide_cfg)
-    specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
+    if not bubble:
+        specs = inject_slide_designer_for_teaching_intent(
+            specs,
+            allowed_agents=allowed_agents,
+            messages=messages,
+            slide_designer_cfg=slide_cfg,
+        )
+        specs = ensure_slide_designer_requires_ask(
+            specs,
+            messages=messages,
+            slide_designer_cfg=slide_cfg,
+        )
+        specs = apply_slide_continuation_to_specs(specs, slide_cfg)
+        specs = apply_slide_fanout_to_specs(specs, messages, slide_cfg)
+        specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
     cat = catalog
     abilities = (
         list(draft.abilities)
@@ -1098,6 +1106,7 @@ async def plan_run_with_llm(
         messages=list(getattr(req, "messages", []) or []),
         slide_designer_cfg=slide_cfg,
         conv_materials=conv_materials if isinstance(conv_materials, list) else None,
+        req=req,
     )
 
 

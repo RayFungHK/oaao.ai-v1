@@ -48,6 +48,7 @@ def resolve_template_path(
         prompts_subdir("workers"),
         prompts_subdir("planning"),
         prompts_subdir("evolution"),
+        prompts_subdir("productivity"),
     )
     candidates: list[Path] = []
     for raw in (ref.strip(), *extra_refs):

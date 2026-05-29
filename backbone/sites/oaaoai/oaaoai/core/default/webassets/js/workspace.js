@@ -13,6 +13,7 @@ import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 import { openWorkspaceSettingsDialog } from './settings-dialog.js';
 import { wireWorkspaceNotifications } from './notification-panel.js';
 import { wireWorkspaceTodos } from './todos-panel.js';
+import { wireWorkspaceBubbleChat } from '../../../chat/default/js/bubble-chat.js';
 import { openWhatsNewDialog } from './whats-new-dialog.js';
 
 /**
@@ -227,6 +228,7 @@ const SPLIT_LAYOUT_PAGE_IDS = new Set([
     'workspace/vault',
     'workspace/rag-explore',
     'workspace/library',
+    'workspace/calendar',
 ]);
 
 /** Gallery layout — icon rail + main; centered card column ({@code workspace/agents}, {@code workspace/templates}). */
@@ -241,7 +243,6 @@ const RAIL_ONLY_LAYOUT_PAGE_IDS = new Set([
     'workspace/live-meeting',
     'workspace/research',
     'workspace/mines',
-    'workspace/calendar',
 ]);
 
 /**
@@ -1576,10 +1577,12 @@ export function initWorkspaceShell() {
         const vaultSection = document.getElementById('workspace-vault-sidebar-section');
         const librarySection = document.getElementById('workspace-library-sidebar-section');
         const ragExploreSection = document.getElementById('workspace-rag-explore-sidebar-section');
+        const calendarSection = document.getElementById('workspace-calendar-sidebar-section');
         const hasChat = spaPages().some((p) => p.page_id === 'workspace/chat');
         const hasVault = spaPages().some((p) => p.page_id === 'workspace/vault');
         const hasLibrary = spaPages().some((p) => p.page_id === 'workspace/library');
         const hasRagExplore = spaPages().some((p) => p.page_id === 'workspace/rag-explore');
+        const hasCalendar = spaPages().some((p) => p.page_id === 'workspace/calendar');
         if (chatSection) {
             chatSection.classList.toggle('hidden', !hasChat || activePageId !== 'workspace/chat');
         }
@@ -1591,6 +1594,9 @@ export function initWorkspaceShell() {
         }
         if (ragExploreSection) {
             ragExploreSection.classList.toggle('hidden', !hasRagExplore || activePageId !== 'workspace/rag-explore');
+        }
+        if (calendarSection) {
+            calendarSection.classList.toggle('hidden', !hasCalendar || activePageId !== 'workspace/calendar');
         }
         if (isGalleryLayoutPage(activePageId) || isRailOnlyLayoutPage(activePageId)) {
             drawerCtl?.closeIfMobile?.();
@@ -2005,6 +2011,7 @@ export function initWorkspaceShell() {
 
     wireWorkspaceNotifications();
     wireWorkspaceTodos();
+    wireWorkspaceBubbleChat();
 
     if (!document.body.dataset.oaaoNavigateCalendarBound) {
         document.body.dataset.oaaoNavigateCalendarBound = '1';

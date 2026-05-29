@@ -30,3 +30,38 @@ async def emit_todo_item_suggested_status(
         payload.get("conversation_id"),
         payload.get("confidence"),
     )
+
+
+async def emit_todo_items_suggested_status(
+    run: StreamRun,
+    *,
+    conversation_id: int,
+    items: list[dict[str, Any]],
+) -> None:
+    """Batch suggestion — one SSE event with multiple tasks."""
+    cleaned: list[dict[str, Any]] = []
+    for idx, row in enumerate(items):
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or "").strip()
+        if len(title) < 4:
+            continue
+        cleaned.append({**row, "title": title, "suggestion_index": idx})
+    if len(cleaned) < 2:
+        return
+    await run.append(
+        StreamEnvelope(
+            phase=PHASE_SYSTEM,
+            kind="status",
+            text="todo_items_suggested",
+            payload={
+                "conversation_id": conversation_id,
+                "items": cleaned,
+            },
+        )
+    )
+    logger.info(
+        "todo_items_suggested stream conversation_id=%s count=%s",
+        conversation_id,
+        len(cleaned),
+    )

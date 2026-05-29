@@ -5,6 +5,7 @@ return [
     'api_name'    => 'calendar',
     'require'     => [
         'oaaoai/auth'      => '*',
+        'oaaoai/chat'      => '*',
         'oaaoai/core'      => '*',
         'oaaoai/endpoints' => '*',
     ],

@@ -30,6 +30,7 @@ from oaao_orchestrator.slide_project.conversation_intent import (
     text_signals_vault_grounding,
     wants_multi_agent_for_slides,
 )
+from oaao_orchestrator.bubble_chat_run import filter_persistent_agents_from_allowed, is_bubble_chat
 from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskType
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,8 @@ ensure_web_search_allowed_for_intent = ensure_web_search_allowed_for_public_web
 
 def ensure_slide_designer_allowed_for_intent(req: object, allowed_agents: list[str]) -> list[str]:
     """``planning.intent`` may require slide_designer even when Task planner omits it."""
+    if is_bubble_chat(req):
+        return filter_persistent_agents_from_allowed(allowed_agents)
     if not _turn_intent_needs_slide(req):
         return allowed_agents
     out = list(allowed_agents)
@@ -128,6 +131,8 @@ def ensure_slide_designer_allowed_for_intent(req: object, allowed_agents: list[s
 
 def ensure_slide_designer_allowed_for_user_message(req: object, allowed_agents: list[str]) -> list[str]:
     """Pre-intent: allow slide_designer scoring/injection when the user message asks for a deck."""
+    if is_bubble_chat(req):
+        return filter_persistent_agents_from_allowed(allowed_agents)
     from oaao_orchestrator.slide_project.conversation_intent import text_implies_slide_deck_request
     from oaao_orchestrator.planner_llm import _last_user_message
 
@@ -176,16 +181,19 @@ def finalize_public_web_plan(plan: RunPlan, req: object, *, allowed_agents: list
         spec.index = idx
         spec.total = total
     plan = apply_turn_intent_slide_to_plan(plan, req, allowed_agents=allowed_agents)
-    sd_cfg = getattr(req, "slide_designer", None)
-    slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
-    if isinstance(getattr(plan, "slide_designer", None), dict):
-        slide_cfg = dict(plan.slide_designer)
-    tasks = list(plan.tasks)
-    tasks = apply_slide_continuation_to_specs(tasks, slide_cfg)
-    tasks = apply_slide_fanout_to_specs(
-        tasks, list(getattr(req, "messages", []) or []), slide_cfg
-    )
-    tasks = apply_template_deck_plan_adjustments(tasks, slide_cfg)
+    if not is_bubble_chat(req):
+        sd_cfg = getattr(req, "slide_designer", None)
+        slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
+        if isinstance(getattr(plan, "slide_designer", None), dict):
+            slide_cfg = dict(plan.slide_designer)
+        tasks = list(plan.tasks)
+        tasks = apply_slide_continuation_to_specs(tasks, slide_cfg)
+        tasks = apply_slide_fanout_to_specs(
+            tasks, list(getattr(req, "messages", []) or []), slide_cfg
+        )
+        tasks = apply_template_deck_plan_adjustments(tasks, slide_cfg)
+    else:
+        tasks = list(plan.tasks)
     plan.tasks = tasks
     total = len(plan.tasks)
     for idx, spec in enumerate(plan.tasks, start=1):
@@ -222,6 +230,8 @@ def needs_multi_agent_turn(req: object) -> bool:
 
     Composer globe alone uses :func:`build_composer_web_fast_plan` (web_search → llm_stream).
     """
+    if is_bubble_chat(req):
+        return _composer_auto_vault_rag(req)
     if bool(getattr(req, "enable_web_search", False)):
         return False
     if _turn_intent_needs_web(req):
@@ -308,6 +318,8 @@ def _apply_turn_intent_slide_to_specs(
     *,
     allowed_agents: list[str],
 ) -> list[RunTaskSpec]:
+    if is_bubble_chat(req):
+        return specs
     sd_cfg = getattr(req, "slide_designer", None)
     slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
     messages = list(getattr(req, "messages", []) or [])
@@ -327,6 +339,7 @@ def _apply_turn_intent_slide_to_specs(
 
 def build_composer_web_fast_plan(req: object, *, allowed_agents: list[str] | None = None) -> RunPlan:
     """Composer globe on — run web_search then compose without LLM planner or agent ask."""
+    bubble = is_bubble_chat(req)
     specs, report_after = _build_core_run_tasks(req)
     specs = [
         s
@@ -338,14 +351,16 @@ def build_composer_web_fast_plan(req: object, *, allowed_agents: list[str] | Non
         if allowed_agents
         else ensure_web_search_allowed_for_public_web(req, resolve_allowed_agents(req))
     )
-    allowed = ensure_slide_designer_allowed_for_user_message(req, allowed)
-    allowed = ensure_slide_designer_allowed_for_intent(req, allowed)
+    if not bubble:
+        allowed = ensure_slide_designer_allowed_for_user_message(req, allowed)
+        allowed = ensure_slide_designer_allowed_for_intent(req, allowed)
     specs = inject_web_search_for_planner_intent(
         specs,
         allowed_agents=allowed,
         needs_web_search=True,
     )
-    specs = _apply_turn_intent_slide_to_specs(specs, req, allowed_agents=allowed)
+    if not bubble:
+        specs = _apply_turn_intent_slide_to_specs(specs, req, allowed_agents=allowed)
     specs.append(
         RunTaskSpec(
             id="rt-llm-stream",
@@ -353,13 +368,14 @@ def build_composer_web_fast_plan(req: object, *, allowed_agents: list[str] | Non
             type=RunTaskType.LLM_STREAM,
         )
     )
-    sd_cfg = getattr(req, "slide_designer", None)
-    slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
-    specs = apply_slide_continuation_to_specs(specs, slide_cfg)
-    specs = apply_slide_fanout_to_specs(
-        specs, list(getattr(req, "messages", []) or []), slide_cfg
-    )
-    specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
+    if not bubble:
+        sd_cfg = getattr(req, "slide_designer", None)
+        slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
+        specs = apply_slide_continuation_to_specs(specs, slide_cfg)
+        specs = apply_slide_fanout_to_specs(
+            specs, list(getattr(req, "messages", []) or []), slide_cfg
+        )
+        specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
     hint_kinds = [s.agent_kind for s in specs if s.agent_kind] or ["web_search"]
     return _finalize_run_plan(specs, report_after=report_after, hint_kinds=hint_kinds)
 
@@ -371,22 +387,23 @@ def build_default_run_plan(req: object) -> RunPlan:
     specs, report_after = _build_core_run_tasks(req)
 
     allowed = resolve_allowed_agents(req)
-    sd_cfg = getattr(req, "slide_designer", None)
-    slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
-    specs = inject_slide_designer_for_teaching_intent(
-        specs,
-        allowed_agents=allowed,
-        messages=list(getattr(req, "messages", []) or []),
-        slide_designer_cfg=slide_cfg,
-    )
-    specs = ensure_slide_designer_requires_ask(
-        specs,
-        messages=list(getattr(req, "messages", []) or []),
-        slide_designer_cfg=slide_cfg,
-    )
-    specs = apply_slide_continuation_to_specs(specs, slide_cfg)
-    specs = apply_slide_fanout_to_specs(specs, list(getattr(req, "messages", []) or []), slide_cfg)
-    specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
+    if not is_bubble_chat(req):
+        sd_cfg = getattr(req, "slide_designer", None)
+        slide_cfg = sd_cfg if isinstance(sd_cfg, dict) else None
+        specs = inject_slide_designer_for_teaching_intent(
+            specs,
+            allowed_agents=allowed,
+            messages=list(getattr(req, "messages", []) or []),
+            slide_designer_cfg=slide_cfg,
+        )
+        specs = ensure_slide_designer_requires_ask(
+            specs,
+            messages=list(getattr(req, "messages", []) or []),
+            slide_designer_cfg=slide_cfg,
+        )
+        specs = apply_slide_continuation_to_specs(specs, slide_cfg)
+        specs = apply_slide_fanout_to_specs(specs, list(getattr(req, "messages", []) or []), slide_cfg)
+        specs = apply_template_deck_plan_adjustments(specs, slide_cfg)
     specs = inject_web_search_for_planner_intent(
         specs,
         allowed_agents=allowed,
@@ -419,7 +436,7 @@ def apply_turn_intent_to_plan(plan: RunPlan, req: object, *, allowed_agents: lis
 
 def apply_turn_intent_slide_to_plan(plan: RunPlan, req: object, *, allowed_agents: list[str]) -> RunPlan:
     """Inject slide_designer when ``planning.intent`` hook scored slide need."""
-    if not _turn_intent_needs_slide(req):
+    if is_bubble_chat(req) or not _turn_intent_needs_slide(req):
         return plan
     tasks = _apply_turn_intent_slide_to_specs(list(plan.tasks), req, allowed_agents=allowed_agents)
     plan.tasks = tasks
@@ -453,7 +470,10 @@ async def build_run_plan(
             intent_model = im
             intent_key = resolve_api_key_env_dict(intent_payload)
     allowed_pre_intent = ensure_web_search_allowed_for_public_web(req, resolve_allowed_agents(req))
-    allowed_pre_intent = ensure_slide_designer_allowed_for_user_message(req, allowed_pre_intent)
+    if is_bubble_chat(req):
+        allowed_pre_intent = filter_persistent_agents_from_allowed(allowed_pre_intent)
+    else:
+        allowed_pre_intent = ensure_slide_designer_allowed_for_user_message(req, allowed_pre_intent)
     await apply_turn_intent_hook(
         req,
         chat_completions_url=intent_base,
@@ -463,7 +483,10 @@ async def build_run_plan(
     )
 
     allowed = ensure_web_search_allowed_for_public_web(req, allowed_pre_intent)
-    allowed = ensure_slide_designer_allowed_for_intent(req, allowed)
+    if is_bubble_chat(req):
+        allowed = filter_persistent_agents_from_allowed(allowed)
+    else:
+        allowed = ensure_slide_designer_allowed_for_intent(req, allowed)
 
     if not needs_multi_agent_turn(req):
         if bool(getattr(req, "enable_web_search", False)):

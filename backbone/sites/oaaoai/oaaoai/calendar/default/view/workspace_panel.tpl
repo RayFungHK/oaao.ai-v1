@@ -1,6 +1,6 @@
-<section class="oaao-calendar-root flex flex-1 min-h-0 min-w-0 flex-col w-full bg-[var(--grid-paper)]" data-module="oaao-calendar">
+<section class="oaao-calendar-root flex flex-1 min-h-0 min-w-0 flex-col w-full overflow-hidden bg-[var(--grid-paper)]" data-module="oaao-calendar">
 
-    <header class="flex flex-wrap items-center gap-2 shrink-0 border-b border-solid border-[var(--grid-line)] px-4 py-3 bg-[var(--grid-panel-bright)]">
+    <header class="flex flex-wrap items-center gap-2 shrink-0 border-b border-solid border-[var(--grid-line)] px-4 py-3 bg-[var(--grid-panel-bright)] w-full">
         <h1 class="text-base fw-semibold fg-[var(--grid-ink)] m-0 flex-1 min-w-[8rem]" data-i18n="calendar.title">Calendar</h1>
         <div class="inline-flex rounded-[8px] border border-solid border-[var(--grid-line)] overflow-hidden shrink-0" role="tablist">
             <button type="button" data-oaao-calendar-view="list"
@@ -18,9 +18,11 @@
         </button>
     </header>
 
-    <div class="flex flex-1 min-h-0 flex-col p-4 gap-3 overflow-hidden">
-        <div data-oaao-calendar="list-view" class="hidden flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2"></div>
-        <div data-oaao-calendar="month-view" class="flex-1 min-h-0 overflow-hidden"></div>
+    <div class="oaao-calendar-scroll flex flex-1 min-h-0 min-w-0 w-full flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <div class="oaao-calendar-scroll-inner flex flex-col flex-1 min-h-0 min-w-0 w-full gap-3 p-4 box-border">
+            <div data-oaao-calendar="list-view" class="hidden flex-1 min-h-0 min-w-0 flex flex-col gap-2 w-full"></div>
+            <div data-oaao-calendar="month-view" class="flex flex-1 min-h-0 min-w-0 min-h-[420px] w-full"></div>
+        </div>
     </div>
 
 </section>
