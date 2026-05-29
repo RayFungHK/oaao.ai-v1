@@ -75,8 +75,11 @@ def test_send_uses_endpoints_api() -> None:
     text = (OAao / "chat" / "default" / "controller" / "api" / "send.php").read_text(
         encoding="utf-8"
     )
+    run_lib = (OAao / "chat" / "default" / "library" / "ChatSendRunStarter.php").read_text(
+        encoding="utf-8"
+    )
     assert "CanonicalEndpointsRepository" not in text
-    assert "ChatSendOrchestratorStage::PAYLOAD" in text
+    assert "ChatSendOrchestratorStage::PAYLOAD" in run_lib
 
 
 def test_chat_send_pipeline_library_exists() -> None:
