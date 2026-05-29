@@ -171,6 +171,22 @@ function buildPostRow(post, allPosts, signal, reload) {
                 pubBtn.disabled = false;
                 return;
             }
+            const postId = Number(post.release_post_id);
+            let fanoutDone = Boolean(out?.data?.fanout?.done);
+            while (!fanoutDone && !signal.aborted) {
+                const tickRes = await fetch(`${API}release_posts_fanout_tick`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal,
+                    body: JSON.stringify({ release_post_id: postId }),
+                });
+                const tickOut = await tickRes.json();
+                fanoutDone = Boolean(tickOut?.data?.done);
+                if (!fanoutDone) {
+                    await new Promise((resolve) => window.setTimeout(resolve, 80));
+                }
+            }
             reload();
         },
         { signal },

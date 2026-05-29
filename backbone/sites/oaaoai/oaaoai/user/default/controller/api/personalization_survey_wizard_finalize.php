@@ -108,10 +108,13 @@ return function (): void {
     echo json_encode([
         'success' => true,
         'data'    => [
-            'model_params' => $resp['model_params'] ?? [],
-            'rationale'    => (string) ($resp['rationale'] ?? ''),
-            'selected_id'  => (string) ($resp['selected_id'] ?? $selectedId),
-            'source'       => (string) ($resp['source'] ?? 'llm'),
+            'model_params'                  => $resp['model_params'] ?? [],
+            'rationale'                     => (string) ($resp['rationale'] ?? ''),
+            'selected_id'                   => (string) ($resp['selected_id'] ?? $selectedId),
+            'source'                        => (string) ($resp['source'] ?? 'llm'),
+            'preference_tags'               => $resp['preference_tags'] ?? [],
+            'preference_tags_summary'       => (string) ($resp['preference_tags_summary'] ?? ''),
+            'preference_system_instruction' => (string) ($resp['preference_system_instruction'] ?? ''),
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 };

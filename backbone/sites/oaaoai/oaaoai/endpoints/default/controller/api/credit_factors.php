@@ -40,6 +40,9 @@ return function (): void {
 
     try {
         $repo = $isPgsql ? new CanonicalEndpointsRepository($db, $this->api('core')) : null;
+        if ($repo !== null) {
+            $repo->ensureChatPrimaryPurposeRow();
+        }
         echo json_encode(
             [
                 'success' => true,

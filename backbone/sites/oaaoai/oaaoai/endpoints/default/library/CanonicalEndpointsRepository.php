@@ -941,6 +941,57 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Settings → Chat inference row ({@code chat.primary} or {@code chat}).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findChatPurposeRowForSettings(): ?array
+    {
+        $row = $this->findPurposeRowByPrefix('chat', 'chat.primary', 'chat');
+        if ($row !== null) {
+            return $row;
+        }
+        $this->ensureChatPrimaryPurposeRow();
+
+        return $this->findPurposeRowByPrefix('chat', 'chat.primary', 'chat');
+    }
+
+    /**
+     * Create {@code chat.primary} when chat completion has endpoints but no purpose row yet.
+     */
+    public function ensureChatPrimaryPurposeRow(): void
+    {
+        if ($this->findPurposeRowByPrefix('chat', 'chat.primary', 'chat') !== null) {
+            return;
+        }
+
+        $endpointId = $this->resolveDefaultEndpointIdForChatBootstrap();
+
+        try {
+            $metaJson = json_encode([], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $metaJson = null;
+        }
+
+        $now = gmdate('Y-m-d H:i:s');
+        try {
+            $this->insertPurpose([
+                'purpose_key'         => 'chat.primary',
+                'label'               => 'Chat',
+                'description'         => 'Workspace chat completion — compose and answer (auto-created)',
+                'default_endpoint_id' => $endpointId,
+                'is_enabled'          => 1,
+                'sort_order'          => 45,
+                'meta_json'           => $metaJson,
+                'created_at'          => $now,
+                'updated_at'          => $now,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('[oaao-endpoints] ensureChatPrimaryPurposeRow: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Create {@code planning.primary} when the Planning slot exists but no purpose row was saved yet.
      */
     public function ensurePlanningPurposeRow(): void
@@ -1007,6 +1058,28 @@ final class CanonicalEndpointsRepository
             'created_at'          => $now,
             'updated_at'          => $now,
         ]);
+    }
+
+    private function resolveDefaultEndpointIdForChatBootstrap(): ?int
+    {
+        foreach ($this->listEndpoints() as $ep) {
+            if (! \is_array($ep)) {
+                continue;
+            }
+            if ((int) ($ep['is_enabled'] ?? 1) !== 1) {
+                continue;
+            }
+            $types = strtolower((string) ($ep['endpoint_type'] ?? ''));
+            if ($types === '' || (! str_contains($types, 'chat') && $types !== 'llm')) {
+                continue;
+            }
+            $id = (int) ($ep['id'] ?? 0);
+            if ($id > 0 && $this->endpointRowExists($id)) {
+                return $id;
+            }
+        }
+
+        return $this->resolveDefaultEndpointIdForPlanningBootstrap();
     }
 
     private function resolveDefaultEndpointIdForPlanningBootstrap(): ?int

@@ -534,7 +534,7 @@ flowchart LR
 
 #### B. Auto-Tuning — 第一階段：偏好標籤與 Prompt 注入（最快 ROI）
 
-- **首次登入**（或 invitation 完成後）可選 **Preference questionnaire**（10–30 題）— **可 Skip**。
+- **首次登入**（或 Settings → Re-tune）可選 **5-step guided wizard**（同一情境、範例回覆比較）— Intro **可 Skip**（不寫入完成狀態）。舊版 10–30 題問卷已由 guided 取代。
 - 問卷答案 → LLM 或規則轉 **用戶畫像標籤**（例：`#簡潔` `#幽默` `#學術傾向` `#程式碼優先`）。
 - 標籤映射為 **隱藏 System Instruction** 注入 planner/composer（使用者不可見原文，Settings 可檢視摘要）。
 - **Preferences → Re-tune** 可重跑問卷或手改標籤。
@@ -591,8 +591,8 @@ flowchart LR
 | **UX-1-S1**  | Per-user `model_params` schema + API       | P1       | php-lead    | `preferences_json.model_params` v1 schema；GET/POST user preferences |
 | **UX-1-S2**  | Composer Advanced panel UI                 | P1       | php-lead    | adv 展開；temp/top_p/top_k/presence/frequency/max_tokens；Reset         |
 | **UX-1-S3**  | ChatRun contract — merge user params       | P1       | python-lead | send.php + orchestrator 合併 params；thread override 可選                |
-| **UX-1-S4**  | First-login preference questionnaire       | P1       | php-lead    | 10–30 題；Skip；完成後存 raw answers                                       |
-| **UX-1-S5**  | Phase 1 — tags → hidden system instruction | P1       | python-lead | 標籤生成 + 映射表；planner 注入；Settings 可見摘要                                 |
+| **UX-1-S4**  | Guided preference wizard (5 steps)         | P1       | php-lead    | 同一情境 5 題 + 範例回覆；Intro **Skip**；finalize 寫入 `model_params` + wizard audit |
+| **UX-1-S5**  | Phase 1 — tags → hidden system instruction | P1       | python-lead | `preference_tags` + `preference_system_instruction`；planner + composer 注入；Settings 標籤摘要 |
 | **UX-1-S6**  | Preferences Re-tune entry                  | P1       | php-lead    | Settings 重跑問卷或編輯標籤                                                  |
 | **UX-1-S7**  | Phase 2 — three personality packs          | P1       | php-lead    | 創意家/嚴謹學者/親切助手 preset；一鍵選取                                           |
 | **UX-1-S8**  | Phase 2 — survey-to-params mapping engine  | P1       | python-lead | 映射表可配置；輸出 bounded params；寫入 preferences                             |

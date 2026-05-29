@@ -104,17 +104,23 @@ From `proto/hub.proto` (`service Hub`), non-exhaustive but migration-relevant:
 | Area | Status | Notes |
 |------|--------|------|
 | Auth + PostgreSQL canonical | ✅ | `oaaoai/auth` |
+| User invitation + register/reset pages | ✅ **partial** | PLAT-2: `users_invite*`, `/user/register`, `/user/reset-password`; public `POST /auth/register` gated unless `OAAO_ALLOW_PUBLIC_REGISTER=1` |
 | Endpoints + purposes (admin) | ✅ | `oaaoai/endpoints` |
 | Chat completion profiles | ✅ | `oaaoai/chat` + `oaao_chat_endpoint*` |
 | Adjunct SQLite chat persistence | ✅ | conversations/messages |
-| Orchestrator HTTP | ✅ **partial** | `POST /v1/runs/chat`, `GET /v1/stream` — token-gated SSE |
-| Assistant persistence after stream | ✅ **partial** | `POST /chat/api/assistant_patch` |
-| SSE via PHP | ❌ **forbidden by design** | See `.cursor/rules/rayfung-razy-stack.mdc` |
-| Vault module / Library module | ❌ | DDL pieces exist in installers; no full PHP module parity |
-| Task-list Plan/Report | ❌ | No gRPC/executor equivalent yet |
-| RAG retrieve in orchestrator | ❌ | Phase vocabulary exists (`PHASE_RAG`); chat path does not retrieve |
-| ASR | ❌ | Purpose slot `pa-asr` registered; no service |
-| Composer attachments | ❌ | UI stubs disabled (`workspace_panel.tpl`) |
+| Orchestrator HTTP | ✅ | `POST /v1/runs/chat`, `GET /v1/stream`, corpus/library/personalization routes |
+| Assistant persistence after stream | ✅ | `POST /chat/api/assistant_patch` |
+| SSE via PHP | ❌ **forbidden by design** | Sidecar only — `.cursor/rules/rayfung-razy-stack.mdc` |
+| Vault module | ✅ | `oaaoai/vault` — ingest SSE, RAG, graph |
+| Library module | ✅ | `oaaoai/library` — editor, soft-RAG `@library` attach-only |
+| Corpus Studio | ✅ | `oaaoai/corpus` — analyze, schema registry |
+| Calendar / Todo agents | ✅ **partial** | Stream chips + APIs; see `docs/design/productivity-agents.md` |
+| Release notes (PLAT-1) | ✅ | Platform CMS + What's New + notification fan-out |
+| UX-1 personalization | ✅ **partial** | Wizard, tags, model_params, thumbs + downvote tune (S10), judge audit (S11) |
+| Task-list Plan/Report | ✅ **partial** | Planner pipeline in orchestrator; not full Legacy Manus executor |
+| RAG in chat runs | ✅ **partial** | Vault RAG + optional library attach + knowledge buckets |
+| ASR | ✅ **partial** | Composer + live meeting via orchestrator |
+| Composer attachments | ✅ | Upload + vault/library picks |
 
 ---
 

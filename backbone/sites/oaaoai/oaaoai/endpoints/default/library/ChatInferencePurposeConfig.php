@@ -73,7 +73,7 @@ final class ChatInferencePurposeConfig
     {
         $out = [];
         $repo = new CanonicalEndpointsRepository($canonicalDb);
-        $row = $repo->findPurposeRowByPrefix('chat', 'chat.primary', 'chat');
+        $row = $repo->findChatPurposeRowForSettings();
         if ($row !== null) {
             $meta = self::decodePurposeMeta($row['meta_json'] ?? null);
             $out = UserModelParams::activeOverrides(self::paramsFromMeta($meta));

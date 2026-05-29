@@ -4,6 +4,13 @@
  * @module conversation-calendar-suggest
  */
 
+import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
+
+/** @param {string} key @param {string} fallback */
+function pt(key, fallback) {
+    return oaaoT(key, fallback);
+}
+
 /** @type {Set<string>} */
 const calendarSuggestionDismissed = new Set();
 
@@ -103,27 +110,27 @@ async function openAddToCalendarDialog(mount, conversationId, messageId, payload
     };
 
     body.append(
-        mkLabel('Title'),
+        mkLabel(pt('productivity.calendar.label_title', 'Title')),
         titleInput,
-        mkLabel('Start'),
+        mkLabel(pt('productivity.calendar.label_start', 'Start')),
         startInput,
-        mkLabel('End'),
+        mkLabel(pt('productivity.calendar.label_end', 'End')),
         endInput,
-        mkLabel('Location'),
+        mkLabel(pt('productivity.calendar.label_location', 'Location')),
         locationInput,
-        mkLabel('Notes'),
+        mkLabel(pt('productivity.calendar.label_notes', 'Notes')),
         notesInput,
     );
 
     void new Dialog({
-        title: 'Add to calendar',
+        title: pt('productivity.calendar.dialog_title', 'Add to calendar'),
         content: body,
         size: 'md',
         closable: true,
         buttons: [
-            { text: 'Cancel', color: 'muted', role: 'cancel' },
+            { text: pt('productivity.common.cancel', 'Cancel'), color: 'muted', role: 'cancel' },
             {
-                text: 'Save event',
+                text: pt('productivity.calendar.save_event', 'Save event'),
                 color: 'accent',
                 close: false,
                 action: async (ctrl) => {
@@ -161,7 +168,7 @@ async function openAddToCalendarDialog(mount, conversationId, messageId, payload
                         calLink.type = 'button';
                         calLink.className =
                             'text-[0.75rem] border-0 bg-transparent p-0 fg-[var(--grid-accent)] underline cursor-pointer font-inherit';
-                        calLink.textContent = 'View in Calendar';
+                        calLink.textContent = pt('productivity.calendar.view', 'View in Calendar');
                         calLink.addEventListener('click', () => {
                             document.dispatchEvent(new CustomEvent('oaao:navigate-calendar'));
                         });
@@ -204,19 +211,19 @@ export function renderCalendarSuggestChip(mount, conversationId, messageId, payl
 
     const label = document.createElement('span');
     label.className = 'flex-1 min-w-0 text-[0.8125rem] fg-[var(--grid-ink)] truncate';
-    label.textContent = String(payload.title || 'Add to calendar?');
+    label.textContent = String(payload.title || pt('productivity.calendar.add_prompt', 'Add to calendar?'));
 
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className =
         'rounded-[8px] h-8 px-2.5 text-[0.75rem] fw-medium border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit';
-    addBtn.textContent = 'Add to calendar';
+    addBtn.textContent = pt('productivity.calendar.add', 'Add to calendar');
 
     const dismissBtn = document.createElement('button');
     dismissBtn.type = 'button';
     dismissBtn.className =
         'rounded-[8px] h-8 px-2.5 text-[0.75rem] border-none bg-transparent fg-[var(--grid-caption)] cursor-pointer font-inherit underline';
-    dismissBtn.textContent = 'Dismiss';
+    dismissBtn.textContent = pt('productivity.dismiss', 'Dismiss');
 
     addBtn.addEventListener('click', () => {
         void openAddToCalendarDialog(mount, cid, mid, payload, workspaceBodyFields);

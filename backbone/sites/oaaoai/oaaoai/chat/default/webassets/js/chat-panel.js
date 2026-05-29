@@ -20,6 +20,7 @@ import {
 import { uploadChatComposerAttachment } from './chat-composer-attach-upload.js';
 import {
     hydrateRuiIconSlots,
+    mountFeedbackThumbIconSync,
     mountRuiIcon,
     mountRuiIconSync,
     OAAO_RUI_ICON_CONVERSATION,
@@ -28,7 +29,7 @@ import {
     OAAO_RUI_ICON_SLIDE,
     OAAO_RUI_ICON_SOFT_CLASS,
     OAAO_RUI_ICON_TEMPLATE,
-} from './oaao-rui-icons.js';
+} from './oaao-rui-icons.js?v=20260529-thumbs3-host-fix';
 import {
     countMaterialsFromMeta,
     createTaskMaterialsToolbarIcon,
@@ -2263,7 +2264,7 @@ async function confirmDeleteChatDialog(opts = {}) {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260529-ctx-extra-toolbar-v123';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260529-feedback-thumb-host-v127';
 
 /** @type {Promise<Record<string, unknown>> | null} */
 let chatContextUsageModPromise = null;
@@ -10082,26 +10083,65 @@ function applyAssistantIdentityHeader(outer, meta) {
  * Shown when upstream stopped at max_tokens ({@code finish_reason: length}).
  *
  * @param {HTMLElement} outer
+ * @param {{
+ *   conversationId?: number,
+ *   assistantMessageId?: number,
+ *   onContinue?: () => void | Promise<void>,
+ *   signal?: AbortSignal,
+ * }} [opts]
  */
-function applyAssistantTruncationNoticeToRow(outer) {
+function applyAssistantTruncationNoticeToRow(outer, opts = {}) {
     if (!outer) return;
-    let el = outer.querySelector('[data-oaao-chat="assistant-truncation"]');
-    if (!el) {
-        el = document.createElement('p');
-        el.dataset.oaaoChat = 'assistant-truncation';
-        el.className =
-            'text-[0.75rem] leading-snug fg-[var(--grid-ink-muted)] mt-1 mb-0 px-0 py-0 w-full break-words';
-        el.setAttribute('role', 'note');
+    let wrap = outer.querySelector('[data-oaao-chat="assistant-truncation-wrap"]');
+    if (!(wrap instanceof HTMLElement)) {
+        wrap = document.createElement('div');
+        wrap.dataset.oaaoChat = 'assistant-truncation-wrap';
+        wrap.className =
+            'flex flex-wrap items-center gap-2 mt-1 mb-0 w-full max-w-full';
+        wrap.setAttribute('role', 'note');
         const summary =
             outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
             outer.querySelector('[data-oaao-chat="assistant-summary"]');
         const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
-        if (summary) summary.insertAdjacentElement('beforebegin', el);
-        else if (toolbar) outer.insertBefore(el, toolbar);
-        else outer.append(el);
+        if (summary) summary.insertAdjacentElement('beforebegin', wrap);
+        else if (toolbar) outer.insertBefore(wrap, toolbar);
+        else outer.append(wrap);
     }
-    el.textContent =
-        'Reply may be cut off (model token limit). Ask to continue, or raise max_tokens in chat profile / endpoint config.';
+    wrap.replaceChildren();
+
+    const note = document.createElement('p');
+    note.className = 'm-0 text-[0.75rem] leading-snug fg-[var(--grid-ink-muted)] flex-1 min-w-[12rem]';
+    note.textContent = oaaoChatT(
+        'chat.truncation_notice',
+        'Reply stopped at the token limit. You can continue in steps.',
+    );
+    wrap.append(note);
+
+    const cid = Number(opts.conversationId ?? 0);
+    const mid = Number(opts.assistantMessageId ?? 0);
+    if (typeof opts.onContinue === 'function' && cid > 0 && mid > 0) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.oaaoChat = 'assistant-continue';
+        btn.className =
+            'shrink-0 text-[0.75rem] px-2.5 py-1 rounded-[8px] border-none bg-[var(--grid-accent)] fg-white cursor-pointer font-inherit hover:opacity-90';
+        btn.textContent = oaaoChatT('chat.continue_reply', 'Continue');
+        btn.addEventListener(
+            'click',
+            () => {
+                void Promise.resolve(opts.onContinue()).catch(() => {});
+            },
+            opts.signal ? { signal: opts.signal } : undefined,
+        );
+        wrap.append(btn);
+    }
+}
+
+/**
+ * @param {HTMLElement} outer
+ */
+function removeAssistantTruncationNoticeFromRow(outer) {
+    outer?.querySelector('[data-oaao-chat="assistant-truncation-wrap"]')?.remove();
 }
 
 function applyAssistantRunSummaryToRow(outer, meta) {
@@ -12047,17 +12087,127 @@ export async function mountShellPanel(mount) {
         archiveThreadBtn.title = label;
     }
 
-    async function postMessageFeedback(conversationId, messageId, feedbackLike) {
-        await chatFetchJson(chatApiUrl('message_feedback'), {
+    /**
+     * @param {unknown} raw
+     * @returns {'' | 'up' | 'down'}
+     */
+    function normalizeMessageFeedbackVote(raw) {
+        const v = String(raw ?? '').toLowerCase();
+
+        if (v === 'up' || v === 'like') {
+            return 'up';
+        }
+        if (v === 'down' || v === 'dislike') {
+            return 'down';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param {HTMLButtonElement} btn
+     * @param {'up' | 'down'} vote
+     * @param {boolean} active
+     */
+    function setMessageFeedbackThumbBtnState(btn, vote, active) {
+        const isUp = vote === 'up';
+        const tip = active
+            ? isUp
+                ? 'Remove thumbs up'
+                : 'Remove thumbs down'
+            : isUp
+              ? 'Helpful'
+              : 'Not helpful';
+        btn.title = tip;
+        btn.setAttribute('aria-label', tip);
+        if (active) {
+            btn.setAttribute('aria-pressed', 'true');
+        } else {
+            btn.removeAttribute('aria-pressed');
+        }
+        btn.className = [
+            'inline-flex items-center justify-center w-7 h-7 shrink-0 rounded-[6px] border-none cursor-pointer font-inherit transition-colors',
+            active
+                ? 'fg-[var(--grid-accent)] bg-[var(--grid-accent)]/14 hover:bg-[var(--grid-accent)]/22'
+                : 'fg-[var(--grid-caption)] bg-[var(--grid-line)]/25 hover:bg-[var(--grid-line)]/45 hover:fg-[var(--grid-ink)]',
+        ].join(' ');
+        let iconHost = btn.querySelector('[data-oaao-msg-feedback-icon]');
+        if (!(iconHost instanceof HTMLElement)) {
+            iconHost = document.createElement('span');
+            iconHost.dataset.oaaoMsgFeedbackIcon = vote;
+            iconHost.className = 'inline-flex items-center justify-center pointer-events-none';
+            btn.replaceChildren(iconHost);
+        }
+        mountFeedbackThumbIconSync(iconHost, vote, {
+            size: 14,
+            strokeWidth: active ? 2.25 : 2,
+        });
+    }
+
+    /**
+     * Update thumb UI for one assistant message — no {@link loadMessages} refetch.
+     *
+     * @param {number} messageId
+     * @param {unknown} feedbackRaw API {@code feedback} (null clears)
+     */
+    function applyMessageFeedbackLocal(messageId, feedbackRaw) {
+        const mid = coercePositiveInt(messageId);
+        if (mid === null || !(messagesEl instanceof HTMLElement)) {
+            return;
+        }
+
+        const vote = normalizeMessageFeedbackVote(feedbackRaw);
+        for (const row of cachedMessageRows) {
+            if (coercePositiveInt(row.id) === mid) {
+                if (vote === '') {
+                    delete row.feedback;
+                } else {
+                    row.feedback = vote;
+                }
+                break;
+            }
+        }
+
+        const bubble = messagesEl.querySelector(
+            `[data-oaao-msg-id="${mid}"][data-oaao-msg-role="assistant"]`,
+        );
+        const outer = bubble?.closest('.oaao-chat-assistant-row');
+        if (!(outer instanceof HTMLElement)) {
+            return;
+        }
+
+        const upBtn = outer.querySelector('[data-oaao-msg-feedback-vote="up"]');
+        const downBtn = outer.querySelector('[data-oaao-msg-feedback-vote="down"]');
+        if (upBtn instanceof HTMLButtonElement) {
+            setMessageFeedbackThumbBtnState(upBtn, 'up', vote === 'up');
+        }
+        if (downBtn instanceof HTMLButtonElement) {
+            setMessageFeedbackThumbBtnState(downBtn, 'down', vote === 'down');
+        }
+    }
+
+    /**
+     * @param {number} conversationId
+     * @param {number} messageId
+     * @param {'up' | 'down' | ''} vote
+     * @returns {Promise<'' | 'up' | 'down'>}
+     */
+    async function postMessageFeedback(conversationId, messageId, vote) {
+        const { res, data } = await chatFetchJson(chatApiUrl('message_feedback'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 conversation_id: conversationId,
                 message_id: messageId,
-                feedback: feedbackLike ? 'like' : '',
+                feedback: vote,
                 ...workspaceChatBodyFields(),
             }),
         });
+        if (!res.ok || !data?.success) {
+            throw new Error(String(data?.message ?? 'Feedback failed'));
+        }
+
+        return normalizeMessageFeedbackVote(data.feedback);
     }
 
     /**
@@ -12183,6 +12333,96 @@ export async function mountShellPanel(mount) {
     }
 
     /**
+     * Append to a truncated assistant reply (Gemini/Copilot-style continue).
+     *
+     * @param {number} conversationId
+     * @param {number} assistantMsgId
+     */
+    async function continueTruncatedAssistantReply(conversationId, assistantMsgId) {
+        if (!conversationId || conversationId < 1 || !assistantMsgId || assistantMsgId < 1) return;
+        if (chatComposerSubmitInFlight || isChatComposerBusy(mount)) return;
+        const contOuter = messagesEl
+            .querySelector(`[data-oaao-msg-id="${assistantMsgId}"]`)
+            ?.closest('.oaao-chat-assistant-row');
+        if (contOuter instanceof HTMLElement) {
+            removeAssistantTruncationNoticeFromRow(contOuter);
+        }
+        clearStreamCursor(conversationId);
+        abortStreamReaderForConversation(conversationId);
+        clearOaaoTaskListStrip(mount, true);
+        dismissThreadHealthBannerForSend(mount, conversationId);
+        oaaoFreshRunByConv.add(conversationId);
+        chatComposerSubmitConvId = conversationId;
+        chatComposerSubmitInFlight = true;
+        setChatComposerBusy(mount, true, 'send');
+        let continueStreamStarted = false;
+        try {
+            /** @type {Record<string, unknown>} */
+            const vaultSendExtra = buildChatVaultSendExtra();
+            if (chatComposerWebSearchEnabled) {
+                vaultSendExtra.enable_web_search = true;
+            }
+            vaultSendExtra.continue_assistant_message_id = assistantMsgId;
+            const { res, data, raw, parseError } = await chatFetchJson(chatApiUrl('send'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversation_id: conversationId,
+                    content: '',
+                    chat_endpoint_id: getWorkspaceChatEndpointIdForSend(),
+                    ...vaultSendExtra,
+                    ...chatScopeBodyFieldsForConversation(conversationId),
+                }),
+            });
+            if (!res.ok || data.success !== true) {
+                toastOaao(
+                    formatChatApiError(res, data, raw, parseError) ||
+                        oaaoChatT('chat.continue_reply.failed', 'Continue failed — try again.'),
+                );
+                if (contOuter instanceof HTMLElement) {
+                    applyAssistantTruncationNoticeToRow(contOuter, {
+                        conversationId,
+                        assistantMessageId: assistantMsgId,
+                        onContinue: () => continueTruncatedAssistantReply(conversationId, assistantMsgId),
+                    });
+                }
+                return;
+            }
+            notifyAutoCompactApplied(data);
+            const rid = typeof data.run_id === 'string' ? data.run_id.trim() : '';
+            const su = typeof data.stream_url === 'string' ? data.stream_url.trim() : '';
+            const amid = coercePositiveInt(data.assistant_message_id) ?? assistantMsgId;
+            if (su && rid) {
+                saveStreamCursor(conversationId, {
+                    stream_url: su,
+                    run_id: rid,
+                    last_seq: 0,
+                    assistant_message_id: amid,
+                });
+                setChatComposerStreamingUi(mount, true);
+                continueStreamStarted = true;
+                void consumeAssistantStream(
+                    su,
+                    rid,
+                    conversationId,
+                    0,
+                    amid,
+                    Boolean(data.orchestrator_persist),
+                    true,
+                );
+            }
+            toastOaao(oaaoChatT('chat.continue_reply.started', 'Continuing reply…'));
+        } finally {
+            chatComposerSubmitInFlight = false;
+            chatComposerSubmitConvId = null;
+            syncComposerBusyForActiveView(mount);
+            if (!continueStreamStarted) {
+                releaseThreadHealthBannerAfterStream(mount, conversationId);
+            }
+        }
+    }
+
+    /**
      * Stale {@code sessionStorage} cursor after orchestrator restart → probe, persist {@code run_status}, show Retry.
      *
      * @param {number} conversationId
@@ -12302,6 +12542,8 @@ export async function mountShellPanel(mount) {
      * @param {number} conversationId
      * @param {number} sinceSeq
      * @param {number | null} assistantMessageId
+     * @param {boolean} [orchestratorOwnsPersist]
+     * @param {boolean} [appendStreamToExisting] — seed stream buffer from existing assistant bubble (continue turn)
      */
     async function consumeAssistantStream(
         streamUrl,
@@ -12310,6 +12552,7 @@ export async function mountShellPanel(mount) {
         sinceSeq,
         assistantMessageId,
         orchestratorOwnsPersist = false,
+        appendStreamToExisting = false,
     ) {
         abortStreamReaderForConversation(conversationId);
         const streamController = new AbortController();
@@ -12357,6 +12600,15 @@ export async function mountShellPanel(mount) {
         }
 
         let acc = '';
+        if (appendStreamToExisting && streamingMsgId && streamingMsgId > 0 && isStreamConversationVisible()) {
+            const seedBubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+            if (seedBubble instanceof HTMLElement) {
+                const prefix = readAssistantBubblePlainText(seedBubble);
+                if (prefix) {
+                    acc = prefix;
+                }
+            }
+        }
         /** Incremental markdown renderer for this stream (stable-prefix cache). */
         const streamMdView = createStreamingMarkdownView();
         /** @type {Record<string, unknown> | null} */
@@ -13051,7 +13303,20 @@ export async function mountShellPanel(mount) {
                         applyAssistantIdentityHeader(outer, runMeta);
                         applyAssistantRunSummaryToRow(outer, runMeta);
                         if (streamTruncated || runMeta.finish_reason === 'length') {
-                            applyAssistantTruncationNoticeToRow(outer);
+                            applyAssistantTruncationNoticeToRow(outer, {
+                                conversationId,
+                                assistantMessageId: streamingMsgId ?? undefined,
+                                onContinue:
+                                    streamingMsgId && streamingMsgId > 0
+                                        ? () =>
+                                              continueTruncatedAssistantReply(
+                                                  conversationId,
+                                                  streamingMsgId,
+                                              )
+                                        : undefined,
+                            });
+                        } else {
+                            removeAssistantTruncationNoticeFromRow(outer);
                         }
                         const pipe = normalizePipelineFromMeta(runMeta);
                         if (pipe) {
@@ -13521,6 +13786,29 @@ export async function mountShellPanel(mount) {
         }
 
         /**
+         * @param {string} iconName
+         * @param {boolean} active
+         * @param {(btn: HTMLButtonElement) => void | Promise<void>} fn
+         */
+        function msgFeedbackIconBtn(iconName, active, fn) {
+            const vote = iconName === 'thumbs-down' ? 'down' : 'up';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.dataset.oaaoMsgFeedbackVote = vote;
+            setMessageFeedbackThumbBtnState(b, vote, active);
+
+            b.addEventListener(
+                'click',
+                () => {
+                    void Promise.resolve(fn(b)).catch(() => {});
+                },
+                { signal },
+            );
+
+            return b;
+        }
+
+        /**
          * @param {string} ariaLabel
          * @param {(btn: HTMLButtonElement) => void | Promise<void>} fn
          */
@@ -13694,12 +13982,56 @@ export async function mountShellPanel(mount) {
                 metaRaw && typeof metaRaw === 'object' ? /** @type {Record<string, unknown>} */ (metaRaw) : null;
 
             if (mid !== null) {
-                const liked = String(m.feedback ?? '').toLowerCase() === 'like';
+                const fbVote = normalizeMessageFeedbackVote(m.feedback);
+                const isUp = fbVote === 'up';
+                const isDown = fbVote === 'down';
                 toolbar.append(
-                    msgToolbarBtn(liked ? 'Unlike' : 'Like', liked ? 'Remove like' : 'Like reply', async () => {
-                        await postMessageFeedback(cid, mid, !liked);
-                        await loadMessages(cid, 'auto');
-                    }),
+                    msgFeedbackIconBtn('thumbs-up', isUp, async (btn) => {
+                            const prevUp = btn.getAttribute('aria-pressed') === 'true';
+                            const prevDown =
+                                toolbar.querySelector('[data-oaao-msg-feedback-vote="down"]')?.getAttribute(
+                                    'aria-pressed',
+                                ) === 'true';
+                            btn.disabled = true;
+                            const downBtn = toolbar.querySelector('[data-oaao-msg-feedback-vote="down"]');
+                            if (downBtn instanceof HTMLButtonElement) {
+                                downBtn.disabled = true;
+                            }
+                            try {
+                                const stored = await postMessageFeedback(cid, mid, prevUp ? '' : 'up');
+                                applyMessageFeedbackLocal(mid, stored);
+                            } catch {
+                                applyMessageFeedbackLocal(mid, prevUp ? 'up' : prevDown ? 'down' : '');
+                            } finally {
+                                btn.disabled = false;
+                                if (downBtn instanceof HTMLButtonElement) {
+                                    downBtn.disabled = false;
+                                }
+                            }
+                        }),
+                    msgFeedbackIconBtn('thumbs-down', isDown, async (btn) => {
+                            const prevDown = btn.getAttribute('aria-pressed') === 'true';
+                            const prevUp =
+                                toolbar.querySelector('[data-oaao-msg-feedback-vote="up"]')?.getAttribute(
+                                    'aria-pressed',
+                                ) === 'true';
+                            btn.disabled = true;
+                            const upBtn = toolbar.querySelector('[data-oaao-msg-feedback-vote="up"]');
+                            if (upBtn instanceof HTMLButtonElement) {
+                                upBtn.disabled = true;
+                            }
+                            try {
+                                const stored = await postMessageFeedback(cid, mid, prevDown ? '' : 'down');
+                                applyMessageFeedbackLocal(mid, stored);
+                            } catch {
+                                applyMessageFeedbackLocal(mid, prevUp ? 'up' : prevDown ? 'down' : '');
+                            } finally {
+                                btn.disabled = false;
+                                if (upBtn instanceof HTMLButtonElement) {
+                                    upBtn.disabled = false;
+                                }
+                            }
+                        }),
                     msgToolbarBtn('Share', 'Copy prompt + reply', async (btn) => {
                         const prompt = findPrevUserPrompt(rows, i);
                         await copyTextToClipboard(formatPromptReplySnippet(prompt, contentText));
@@ -13756,6 +14088,14 @@ export async function mountShellPanel(mount) {
             }
             if (metaRaw && typeof metaRaw === 'object') {
                 applyAssistantRunSummaryToRow(outer, /** @type {Record<string, unknown>} */ (metaRaw));
+                if (String(/** @type {Record<string, unknown>} */ (metaRaw).finish_reason ?? '') === 'length' && cid && mid) {
+                    applyAssistantTruncationNoticeToRow(outer, {
+                        conversationId: cid,
+                        assistantMessageId: mid,
+                        onContinue: () => continueTruncatedAssistantReply(cid, mid),
+                        signal,
+                    });
+                }
             }
             const turnScore =
                 m.turn_score && typeof m.turn_score === 'object'

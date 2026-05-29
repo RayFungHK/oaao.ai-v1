@@ -150,7 +150,13 @@ def upstream_http_error_payload(
 
 
 def _resolve_planner_llm(req: Any) -> tuple[str, str | None, str]:
-    """Task planner URL/key/model — planning.* purpose when configured, else chat endpoint."""
+    """Task planner URL/key/model — ``planning.*`` only; never the full-context chat endpoint.
+
+    Planner calls use a compact two-message payload (system + flags), not ``req.messages``
+    history. Bind ``planning.primary`` to a small/fast model (e.g. Gemma E4B); bind
+    ``chat.primary`` / Fast profile to the large-context model (e.g. 26B).
+    """
+    log = logging.getLogger(__name__)
     planner = getattr(req, "planner", None)
     if isinstance(planner, dict):
         base = str(planner.get("base_url") or "").strip()
@@ -158,6 +164,12 @@ def _resolve_planner_llm(req: Any) -> tuple[str, str | None, str]:
         if base and model:
             return _chat_completions_url(base), resolve_api_key_env_dict(planner), model
     ep = req.endpoint
+    log.warning(
+        "planner_missing_planning_purpose — falling back to chat endpoint %s (%s); "
+        "assign planning.primary (e.g. E4B) in Settings",
+        getattr(ep, "endpoint_ref", ""),
+        getattr(ep, "model", ""),
+    )
     return _chat_completions_url(ep.base_url), resolve_api_key(ep), str(ep.model or "")
 
 

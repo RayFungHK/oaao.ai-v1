@@ -21,8 +21,11 @@ from oaao_orchestrator.run_executor_timing import finalize_run_task_timing
 from oaao_orchestrator.run_executor_upstream import (
     apply_model_params_from_request,
     apply_upstream_sampling,
+    finalize_max_tokens_for_upstream,
+    is_upstream_context_length_error,
     llm_stream_timeout,
     resolve_max_tokens,
+    shrink_max_tokens_for_context_error,
 )
 from oaao_orchestrator.run_executor_vault_rag import inject_compose_vault_awareness
 from oaao_orchestrator.streaming.events import (
@@ -140,6 +143,7 @@ async def handle_llm_stream_task(
         body["tools"] = merged_tools
     apply_model_params_from_request(body, req)
     apply_upstream_sampling(body)
+    finalize_max_tokens_for_upstream(body, req, messages_for_llm)
     if os.environ.get(
         "OAAO_CHAT_STREAM_INCLUDE_USAGE", "1"
     ).strip().lower() not in (
@@ -174,6 +178,7 @@ async def handle_llm_stream_task(
         if use_tool_loop:
             from oaao_orchestrator.llm_tool_loop import stream_chat_with_tools
 
+            body_tool = dict(body)
             try:
                 (
                     _tool_text,
@@ -185,7 +190,7 @@ async def handle_llm_stream_task(
                     client=client,
                     url=url,
                     headers=headers,
-                    body=body,
+                    body=body_tool,
                     messages=list(messages_for_llm),
                     on_delta=_emit_llm_delta,
                     cancelled=lambda: run.cancelled,
@@ -197,6 +202,33 @@ async def handle_llm_stream_task(
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code if exc.response is not None else 0
                 raw = (exc.response.text if exc.response is not None else str(exc))[:800]
+                if (
+                    exc.response is not None
+                    and is_upstream_context_length_error(status, raw)
+                    and shrink_max_tokens_for_context_error(
+                        body_tool, req, messages_for_llm, raw
+                    )
+                ):
+                    (
+                        _tool_text,
+                        fr_out,
+                        tool_out_chars,
+                        ct_out,
+                        pt_out,
+                    ) = await stream_chat_with_tools(
+                        client=client,
+                        url=url,
+                        headers=headers,
+                        body=body_tool,
+                        messages=list(messages_for_llm),
+                        on_delta=_emit_llm_delta,
+                        cancelled=lambda: run.cancelled,
+                    )
+                    state.finish_reason = fr_out
+                    state.completion_tokens = ct_out
+                    state.prompt_tokens = pt_out
+                    state.out_chars += tool_out_chars
+                    return False
                 logger.warning(
                     "upstream_http_error status=%s url=%s ref=%s",
                     status,
@@ -236,108 +268,123 @@ async def handle_llm_stream_task(
                 )
                 return True
         else:
-            async with client.stream("POST", url, headers=headers, json=body) as resp:
-                if resp.status_code < 200 or resp.status_code >= 300:
-                    txt = await resp.aread()
-                    raw = txt.decode("utf-8", errors="replace")[:800]
-                    logger.warning(
-                        "upstream_http_error status=%s url=%s ref=%s",
-                        resp.status_code,
-                        url,
-                        getattr(req.endpoint, "endpoint_ref", ""),
-                    )
-                    err_payload = upstream_http_error_payload(
-                        resp.status_code,
-                        raw,
-                        endpoint_base_url=str(getattr(req.endpoint, "base_url", "") or ""),
-                        endpoint_ref=str(getattr(req.endpoint, "endpoint_ref", "") or ""),
-                        endpoint_model=str(getattr(req.endpoint, "model", "") or ""),
-                    )
-                    await run.append(
-                        StreamEnvelope(
-                            phase=PHASE_SYSTEM,
-                            kind="error",
-                            text=f"upstream_http_{resp.status_code}",
-                            payload=err_payload,
+            body_stream = dict(body)
+            context_retried = False
+            while True:
+                async with client.stream("POST", url, headers=headers, json=body_stream) as resp:
+                    if resp.status_code < 200 or resp.status_code >= 300:
+                        txt = await resp.aread()
+                        raw = txt.decode("utf-8", errors="replace")[:800]
+                        if (
+                            not context_retried
+                            and is_upstream_context_length_error(resp.status_code, raw)
+                            and shrink_max_tokens_for_context_error(
+                                body_stream, req, messages_for_llm, raw
+                            )
+                        ):
+                            context_retried = True
+                            break
+                        logger.warning(
+                            "upstream_http_error status=%s url=%s ref=%s",
+                            resp.status_code,
+                            url,
+                            getattr(req.endpoint, "endpoint_ref", ""),
                         )
-                    )
-                    state.task_failed = True
-                    state.run_failed = True
-                    llm_ms = finalize_run_task_timing(
-                        pipeline_timing=pipeline_timing,
-                        run_task=run_task,
-                        task_t0=task_t0,
-                    )
-                    await emit_run_task_end(
-                        run,
-                        plan,
-                        run_task,
-                        allowed_agents=allowed_agents,
-                        pipeline_snap=pipeline_snap,
-                        failed=True,
-                        duration_ms=llm_ms,
-                    )
-                    return True
-
-                async for line in resp.aiter_lines():
-                    if run.cancelled:
-                        state.run_failed = True
-                        state.task_failed = True
-                        break
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data_s = line[5:].strip()
-                    if data_s == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_s)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(chunk, dict):
-                        usage = chunk.get("usage")
-                        if isinstance(usage, dict):
-                            ct = usage.get("completion_tokens")
-                            pt = usage.get("prompt_tokens")
-                            if isinstance(ct, int):
-                                state.completion_tokens = ct
-                            if isinstance(pt, int):
-                                state.prompt_tokens = pt
-                    choices = chunk.get("choices") if isinstance(chunk, dict) else None
-                    if not isinstance(choices, list) or not choices:
-                        continue
-                    choice0 = choices[0] if isinstance(choices[0], dict) else {}
-                    fr = choice0.get("finish_reason")
-                    if isinstance(fr, str) and fr.strip():
-                        state.finish_reason = fr.strip()
-                    delta = choice0.get("delta") if isinstance(choice0, dict) else None
-                    if not isinstance(delta, dict):
-                        continue
-                    piece = delta.get("content")
-                    if isinstance(piece, list):
-                        buf: list[str] = []
-                        for seg in piece:
-                            if (
-                                isinstance(seg, dict)
-                                and seg.get("type") == "text"
-                                and isinstance(seg.get("text"), str)
-                            ):
-                                buf.append(seg["text"])
-                            elif isinstance(seg, str):
-                                buf.append(seg)
-                        piece = "".join(buf) if buf else None
-                    if isinstance(piece, str) and piece != "":
-                        if state.t_first_token is None:
-                            state.t_first_token = time.perf_counter()
-                        state.out_chars += len(piece)
-                        state.streamed_parts.append(piece)
+                        err_payload = upstream_http_error_payload(
+                            resp.status_code,
+                            raw,
+                            endpoint_base_url=str(getattr(req.endpoint, "base_url", "") or ""),
+                            endpoint_ref=str(getattr(req.endpoint, "endpoint_ref", "") or ""),
+                            endpoint_model=str(getattr(req.endpoint, "model", "") or ""),
+                        )
                         await run.append(
                             StreamEnvelope(
-                                phase=PHASE_LLM,
-                                kind="delta",
-                                text=piece,
-                                payload={},
+                                phase=PHASE_SYSTEM,
+                                kind="error",
+                                text=f"upstream_http_{resp.status_code}",
+                                payload=err_payload,
                             )
                         )
+                        state.task_failed = True
+                        state.run_failed = True
+                        llm_ms = finalize_run_task_timing(
+                            pipeline_timing=pipeline_timing,
+                            run_task=run_task,
+                            task_t0=task_t0,
+                        )
+                        await emit_run_task_end(
+                            run,
+                            plan,
+                            run_task,
+                            allowed_agents=allowed_agents,
+                            pipeline_snap=pipeline_snap,
+                            failed=True,
+                            duration_ms=llm_ms,
+                        )
+                        return True
+
+                    async for line in resp.aiter_lines():
+                        if run.cancelled:
+                            state.run_failed = True
+                            state.task_failed = True
+                            break
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_s = line[5:].strip()
+                        if data_s == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_s)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(chunk, dict):
+                            usage = chunk.get("usage")
+                            if isinstance(usage, dict):
+                                ct = usage.get("completion_tokens")
+                                pt = usage.get("prompt_tokens")
+                                if isinstance(ct, int):
+                                    state.completion_tokens = ct
+                                if isinstance(pt, int):
+                                    state.prompt_tokens = pt
+                        choices = chunk.get("choices") if isinstance(chunk, dict) else None
+                        if not isinstance(choices, list) or not choices:
+                            continue
+                        choice0 = choices[0] if isinstance(choices[0], dict) else {}
+                        fr = choice0.get("finish_reason")
+                        if isinstance(fr, str) and fr.strip():
+                            state.finish_reason = fr.strip()
+                        delta = choice0.get("delta") if isinstance(choice0, dict) else None
+                        if not isinstance(delta, dict):
+                            continue
+                        piece = delta.get("content")
+                        if isinstance(piece, list):
+                            buf: list[str] = []
+                            for seg in piece:
+                                if (
+                                    isinstance(seg, dict)
+                                    and seg.get("type") == "text"
+                                    and isinstance(seg.get("text"), str)
+                                ):
+                                    buf.append(seg["text"])
+                                elif isinstance(seg, str):
+                                    buf.append(seg)
+                            piece = "".join(buf) if buf else None
+                        if isinstance(piece, str) and piece != "":
+                            if state.t_first_token is None:
+                                state.t_first_token = time.perf_counter()
+                            state.out_chars += len(piece)
+                            state.streamed_parts.append(piece)
+                            await run.append(
+                                StreamEnvelope(
+                                    phase=PHASE_LLM,
+                                    kind="delta",
+                                    text=piece,
+                                    payload={},
+                                )
+                            )
+                if context_retried:
+                    continue
+                break
 
     if state.finish_reason == "length":
         await run.append(

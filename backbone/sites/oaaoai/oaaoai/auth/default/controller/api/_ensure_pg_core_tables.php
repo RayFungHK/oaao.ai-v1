@@ -86,6 +86,14 @@ function oaao_auth_ensure_pg_extension_schemas(\PDO $pdo): void
         oaao_auth_ensure_library_schema($pdo);
     } catch (\Throwable) {
     }
+
+    try {
+        require_once __DIR__ . '/_ensure_release_post_schema.php';
+        oaao_auth_ensure_release_post_schema($pdo);
+        require_once dirname(__DIR__, 4) . '/core/default/library/ReleasePostFirstNewsSeed.php';
+        \Oaaoai\Core\ReleasePostFirstNewsSeed::ensureOnce($pdo);
+    } catch (\Throwable) {
+    }
 }
 
 function oaao_auth_ensure_pg_storage_schema(\PDO $pdo): void

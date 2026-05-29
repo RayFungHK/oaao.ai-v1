@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Oaaoai\Core\OaaoBuildInfo;
+use Oaaoai\Core\ReleaseBuildCompare;
 
 /**
  * GET /user/api/release_notes_list?locale=en&since_build=
@@ -61,7 +62,7 @@ return function (): void {
                 continue;
             }
             $buildId = (string) ($row['build_id'] ?? '');
-            if ($sinceBuild !== '' && $buildId !== '' && $buildId === $sinceBuild) {
+            if ($sinceBuild !== '' && ! ReleaseBuildCompare::postVisibleSinceBuild($buildId, $sinceBuild)) {
                 continue;
             }
             $posts[] = [

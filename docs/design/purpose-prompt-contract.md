@@ -63,6 +63,16 @@ Python loads templates with:
 |---------|-------------|
 | `planning.primary` | Task planner system (`conversation` → `planner_system.md`) |
 | `planning.intent` | Per-turn agent scores (`command_template` → `turn_agent_intent.md`) |
+
+### Endpoint split (recommended)
+
+| Role | Purpose | Model class | Context use |
+|------|---------|-------------|---------------|
+| **Compose / answer** | `chat.primary` + chat profile (e.g. Fast) | Large-context (e.g. Gemma 26B) | Full thread + RAG inject → `LLM_STREAM` |
+| **Task planner** | `planning.primary` | Small/fast (e.g. Gemma E4B) | **No** full history — system + turn flags + last user line (~4k chars), `max_tokens` ≤512 |
+| **Intent hook** | `planning.intent` | Same as planner or E4B | Single command template, no thread |
+
+If `planning.primary` points at the 26B host, planner still sends a **small** prompt, but you waste the wrong SKU and may confuse ops. If **Fast** points at E4B (16k), compose hits context limits — point **Fast** at 26B and **planning** at E4B.
 | `polish.*` | ASR polish (`command_template`, `{{raw}}`) |
 | `uiqe.*` | Post-stream workers (`command_template`) |
 

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\user\UserDisplayPreferences;
 use oaaoai\user\UserInvitationMail;
 use oaaoai\user\UserInvitationSupport;
 
@@ -74,10 +75,13 @@ return function (): void {
         ->query();
 
     $resetUrl = UserInvitationSupport::resetPasswordUrl($plainToken);
+    $mailLocale = UserInvitationMail::normalizeMailLocale(
+        UserDisplayPreferences::localeForUser($ctx['pdo'], $userId),
+    );
     UserInvitationSupport::sendMail(
         $email,
-        UserInvitationMail::resetSubject(),
-        UserInvitationMail::resetBody($resetUrl, $expiresAt),
+        UserInvitationMail::resetSubject($mailLocale),
+        UserInvitationMail::resetBody($resetUrl, $expiresAt, $mailLocale),
     );
 
     echo json_encode($generic, JSON_UNESCAPED_UNICODE);

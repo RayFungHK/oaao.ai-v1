@@ -1,56 +1,40 @@
-# OAAO.ai roadmap — late May 2026
+# What's new — late May 2026
 
-**What shipped since 27 May 2026** (and what is landing next). This is the first **What's New** entry for the workspace.
+**Shipped from 27 May 2026 through today.** This is the first **news** post in the workspace bell and **What's New** dialog.
 
-## Shipped in the repo
+## Chat & orchestration
 
-### Chat & orchestration
+- **Web search** — Purpose-aware LLM routing, SearXNG, composer **Force web search**, and locale-aware result filtering.
+- **Composer** — Multi-line input, **pipeline / planner steps** toggle, planner modes (Default / ToT / DDTree), **credits** on send, and **context usage** ring with optional **CIT/CMT** compaction when the thread is nearly full.
+- **Truncated replies** — **Continue** on assistant messages that hit the output token limit (append to the same bubble).
+- **Voice** — Live and batch ASR on the composer with stop-time LLM polish.
+- **Inference control v2** — Composer **Off / Auto / Manual**; baseline from system + user preferences; per-turn planner **`inference_delta`** (see `docs/design/chat-inference-auto-tune.md`).
+- **Message feedback (UX-1)** — **Thumbs up / down** on assistant replies; **downvote** applies a small bounded tweak to your saved **model params** (temperature / penalties) with an audit trail in preferences.
 
-- **Web search routing** — purpose-aware LLM routing, SearXNG integration, composer **Force web search** toggle, and locale-aware search filters.
-- **Composer UX** — multi-line input, **pipeline / planner steps** toggle, planner mode drop-up (Default / ToT / DDTree), and **credits** surfaced on send.
-- **Context window** — **context usage** API + ring in the composer (segment breakdown, optional **CIT/CMT compact** when the thread is nearly full).
-- **Voice** — live + batch ASR on the composer with stop-time LLM polish.
+## Vault, library & content
 
-### Vault, library & content
+- **Vault phase 2** — Ingest progress over SSE, HTML split pipeline, graph transcript fixes, card layout, and job backpressure fixes.
+- **Library workspace** — Dedicated **Library** rail, block editor shell, **@library** attach in chat (soft-RAG only when attached; separate from Vault auto-source).
+- **Corpus** — Schema-driven analyze (`document_type` registry), dual markdown / HTML-template output, render jobs for HTML/PDF preview.
+- **Slides** — Web-to-slide pipeline fixes; slide-designer autoload aligned with Razy module libraries.
 
-- **Vault phase 2** — ingest progress over SSE, HTML split pipeline, graph transcript fixes, card layout and job backpressure restored.
-- **Library workspace** — dedicated **Library** rail page, block editor shell, **@library** attach in chat (soft-RAG; distinct from vault auto-source).
-- **Corpus / slide** — web-to-slide pipeline fixes; slide-designer autoload aligned with Razy module libraries.
+## Platform & settings
 
-### Platform & settings
+- **Per-tenant storage** — Local / S3 / GCS / HF backends and migration UI.
+- **Endpoints** — CLI **export/import** for endpoints and purpose bindings (**26B** for full-context chat, **E4B** for planner — see Settings → Purposes).
+- **Release notes (PLAT-1)** — Platform CMS, **What's New** dialog, build-line deep link, batched **cross-tenant notification** fan-out when a post is published (this article).
+- **Personalization** — Guided preference wizard, personality packs, Advanced model params panel, **Re-tune** in Settings.
+- **Admin & ops** — User usage overview, notification dropdown styling, Redis canary, orchestrator health gating.
 
-- **Per-tenant storage** — local / S3 / GCS / HF backends and migration UI in admin settings.
-- **Endpoints** — CLI **export/import** for endpoint rows and purpose settings.
-- **Admin** — user usage overview; notification dropdown styling.
-- **Ops** — Redis canary checks, orchestrator health gating, Windows PowerShell monitor for dev.
-- **Release notes (PLAT-1)** — platform CMS schema + APIs; workspace **What's New** dialog (this post).
+## Product direction (docs)
 
-### Docs & epics
-
-- **Content Studio** epics updated: **Calendar agent** (rail), **Todo agent** (header), **ERP business workspace** north-star design.
-
-## In progress (working tree — not all merged yet)
-
-- **Inference control v2** — composer **Off / Auto / Manual**; baseline from system + user prefs; planner **`inference_delta`** per turn; bounded merge; optional ACCS feedback behind env flag. See `docs/design/chat-inference-auto-tune.md`.
-- **Personalization wizard** — random theme → three LLM style options → fine-tune and save default params (preferences language drives copy).
-- **Todo module** — header todos panel, thread chips, orchestrator candidate streams.
-- **Library editor** — block editor interaction pass, convert/upload API, orchestrator convert route.
-- **Composer polish** — context ring placement in feature toggles (not the extra toolbar strip); inference panel compact typography.
-
-## Roadmap (next)
-
-| Theme | Direction |
-| ----- | --------- |
-| **Content Studio** | Corpus schema-driven extraction (CS-1), Library hard-RAG + Save to Vault, Office Agent artifacts |
-| **Agents** | Calendar + Todo E2E from chat chips to workspace records |
-| **Platform** | Published release notes fan-out + read state on the notification bell |
-| **Inference** | Stable auto-tune without ACCS as the primary driver; purpose-specific baselines in Settings |
-| **Enterprise** | ERP business workspace modules (see `docs/design/erp-business-workspace.md`) |
+- **Content Studio** epics: **Calendar agent** (rail), **Todo agent** (header), **ERP business workspace** north-star (`docs/design/erp-business-workspace.md`).
 
 ## How to try
 
-1. Hard-refresh the workspace after deploy (shell ESM cache rev bumps with chat/core assets).
+1. **Hard-refresh** the workspace after deploy (shell ESM cache rev on chat/core assets).
 2. Open **Settings → Endpoints** and **Preferences** for locale, inference, and personalization.
-3. Start a chat thread — enable **web search** or **pipeline steps** from the composer toolbar when you need them.
+3. Start a chat — enable **web search** or **pipeline steps** when needed; use **thumbs down** once to nudge params if replies feel too verbose.
+4. Open the **bell** — tap this **news** item to read the full post in **What's New**.
 
-Questions or regressions: note your **build_id** from the workspace footer / `GET /api/build_info` when filing issues.
+Report issues with your **build_id** from the workspace footer or `GET /api/build_info`.

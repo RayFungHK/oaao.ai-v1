@@ -28,6 +28,18 @@ return function (): void {
         return;
     }
 
+    $allowPublic = getenv('OAAO_ALLOW_PUBLIC_REGISTER');
+    if ($allowPublic === false || trim((string) $allowPublic) === '' || trim((string) $allowPublic) === '0') {
+        http_response_code(403);
+        echo json_encode([
+            'result'  => false,
+            'message' => 'Public registration is disabled. Use an invitation link from your administrator.',
+            'code'    => 'invite_required',
+        ]);
+
+        return;
+    }
+
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
     $email       = trim($input['email'] ?? '');
     $password    = $input['password'] ?? '';

@@ -309,6 +309,7 @@ async def finalize_run(
                     principal=run_principal,
                     content=persist_text,
                     meta=metrics_payload,
+                    append=bool(getattr(req, "append_assistant_content", False)),
                 ):
                     metrics_payload["persisted_by_orchestrator"] = True
             if run_principal is not None and (

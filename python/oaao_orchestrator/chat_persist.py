@@ -23,6 +23,7 @@ def persist_assistant_message(
     principal: RunPrincipal,
     content: str,
     meta: dict[str, Any] | None,
+    append: bool = False,
 ) -> bool:
     if not chat_persist_enabled():
         return False
@@ -30,7 +31,7 @@ def persist_assistant_message(
     if not path or not os.path.isfile(path):
         logger.debug("chat_persist: sqlite adjunct missing at %s", path)
         return False
-    body = content if len(content) <= _MAX_CONTENT else content[:_MAX_CONTENT]
+    chunk = content if len(content) <= _MAX_CONTENT else content[:_MAX_CONTENT]
     meta_json: str | None = None
     if meta:
         try:
@@ -54,6 +55,23 @@ def persist_assistant_message(
             )
             if cur.fetchone() is None:
                 return False
+            body = chunk
+            if append:
+                cur.execute(
+                    "SELECT content FROM oaao_message WHERE id = ? AND conversation_id = ? AND role = 'assistant'",
+                    (principal.assistant_message_id, principal.conversation_id),
+                )
+                prefix_row = cur.fetchone()
+                prefix = ""
+                if prefix_row and prefix_row[0]:
+                    prefix = str(prefix_row[0])
+                if prefix and chunk:
+                    body = prefix + chunk
+                elif prefix:
+                    body = prefix
+                if len(body) > _MAX_CONTENT:
+                    body = body[-_MAX_CONTENT:]
+
             if meta_json is not None:
                 cur.execute(
                     "UPDATE oaao_message SET content = ?, meta_json = ? WHERE id = ? AND conversation_id = ?",

@@ -10,6 +10,10 @@ from typing import Any
 import httpx
 
 from oaao_orchestrator.corpus.llm import _extract_json_array, _extract_json_object, chat_completion_text
+from oaao_orchestrator.preference_profile import (
+    align_guided_option_id,
+    derive_preference_profile_from_guided,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1020,14 +1024,21 @@ async def run_personalization_survey_guided_step(payload: dict[str, Any]) -> dic
     if parsed is None:
         return fallback_resp
 
+    fb_opts = list(fallback_resp["options"])
     merged_opts: list[dict[str, Any]] = []
     for i, row in enumerate(parsed["options"]):
-        oid = str(row.get("id") or "").strip()
-        fb_match = next((o for o in fallback_resp["options"] if o["id"] == oid), None)
-        if fb_match is None and i < len(fallback_resp["options"]):
-            oid = fallback_resp["options"][i]["id"]
-            fb_match = fallback_resp["options"][i]
-        label = str(row.get("label") or (fb_match or {}).get("label") or oid).strip()
+        raw_oid = str(row.get("id") or "").strip()
+        fb_match = next((o for o in fb_opts if o["id"] == raw_oid), None)
+        if fb_match is None and i < len(fb_opts):
+            fb_match = fb_opts[i]
+        label = str(row.get("label") or (fb_match or {}).get("label") or raw_oid).strip()
+        oid = align_guided_option_id(
+            raw_oid,
+            label=label,
+            step_index=step_index,
+            option_index=i,
+            fallback_options=fb_opts,
+        )
         hint = str(row.get("hint") or (fb_match or {}).get("hint") or "").strip()
         sample = _option_sample_text(row) or (fb_match and _option_sample_text(fb_match)) or ""
         opt: dict[str, Any] = {
@@ -1112,22 +1123,26 @@ async def _finalize_from_guided_answers(payload: dict[str, Any]) -> dict[str, An
         logger.exception("personalization_survey_guided_finalize_failed")
         if not base_params:
             return {"ok": False, "error": str(exc) or "finalize_failed"}
+        profile = derive_preference_profile_from_guided(answers, locale=locale)
         return {
             "ok": True,
             "model_params": base_params,
             "rationale": str(last_row.get("label") or "").strip(),
             "selected_id": selected_id,
             "source": "fallback",
+            **profile,
         }
 
     obj = _extract_json_object(text or "")
     if not obj:
+        profile = derive_preference_profile_from_guided(answers, locale=locale)
         return {
             "ok": True,
             "model_params": base_params,
             "rationale": "",
             "selected_id": selected_id,
             "source": "fallback",
+            **profile,
         }
 
     rationale = str(obj.pop("rationale", "") or "").strip()
@@ -1139,12 +1154,15 @@ async def _finalize_from_guided_answers(payload: dict[str, Any]) -> dict[str, An
     if not params:
         return {"ok": False, "error": "empty_params"}
 
+    profile = derive_preference_profile_from_guided(answers, locale=locale)
+
     return {
         "ok": True,
         "model_params": params,
         "rationale": rationale,
         "selected_id": selected_id,
         "source": "llm",
+        **profile,
     }
 
 

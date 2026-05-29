@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
+from oaao_orchestrator.personalization_feedback_judge import run_feedback_judge
 from oaao_orchestrator.personalization_wizard import (
     run_personalization_survey_finalize,
     run_personalization_survey_guided_step,
@@ -56,3 +57,13 @@ async def personalization_survey_finalize(
 ) -> dict[str, Any]:
     payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
     return await run_personalization_survey_finalize(payload)
+
+
+@router.post("/feedback_judge")
+async def personalization_feedback_judge(
+    req: PersonalizationWizardRequest,
+    _: None = Depends(require_internal_token),
+) -> dict[str, Any]:
+    """UX-1-S11 — structured hints after message thumbs-down (v1 heuristic)."""
+    payload = req.model_dump() if hasattr(req, "model_dump") else dict(req)
+    return run_feedback_judge(payload)

@@ -29,6 +29,7 @@ return function (): void {
 
     try {
         $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $repo->ensureChatPrimaryPurposeRow();
         $repo->ensurePlanningPurposeRow();
         $repo->ensurePlanningIntentPurposeRow();
         $repo->ensureAsrLivePurposeRow();

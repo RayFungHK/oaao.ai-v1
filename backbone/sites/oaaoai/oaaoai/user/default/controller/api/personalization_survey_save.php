@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use oaaoai\user\UserModelParams;
+use oaaoai\user\UserPreferenceProfile;
 
 /**
  * POST /user/api/personalization_survey_save — UX-1 Phase 2 pack or Phase 3 feedback stub.
@@ -90,6 +91,29 @@ return function (): void {
     if (isset($input['wizard']) && \is_array($input['wizard'])) {
         $survey['wizard'] = $input['wizard'];
     }
+    if (isset($input['preference_tags']) && \is_array($input['preference_tags'])) {
+        $prefs = UserPreferenceProfile::mergeIntoPreferences($prefs, [
+            'tags' => array_values(array_filter(array_map('strval', $input['preference_tags']))),
+        ]);
+    }
+    if (isset($input['preference_profile']) && \is_array($input['preference_profile'])) {
+        $pp = $input['preference_profile'];
+        $prefs = UserPreferenceProfile::mergeIntoPreferences($prefs, [
+            'tags'        => \is_array($pp['preference_tags'] ?? null) ? $pp['preference_tags'] : [],
+            'summary'     => (string) ($pp['preference_tags_summary'] ?? ''),
+            'instruction' => (string) ($pp['preference_system_instruction'] ?? ''),
+        ]);
+    }
+    $guidedForProfile = $survey['wizard']['guided_answers'] ?? $survey['answers'] ?? null;
+    if (
+        \is_array($guidedForProfile)
+        && $guidedForProfile !== []
+        && empty($prefs['preference_tags'])
+    ) {
+        $locale = trim((string) ($input['locale'] ?? ''));
+        $built = UserPreferenceProfile::fromGuidedAnswers($guidedForProfile, $locale !== '' ? $locale : 'en');
+        $prefs = UserPreferenceProfile::mergeIntoPreferences($prefs, $built);
+    }
     $prefs['personalization_survey'] = $survey;
 
     $json = json_encode($prefs, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -103,6 +127,7 @@ return function (): void {
         'data'    => [
             'personalization_survey' => $survey,
             'model_params'           => UserModelParams::fromPreferences($prefs),
+            'preference_profile'     => UserPreferenceProfile::fromPreferences($prefs),
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 };

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\user\UserDisplayPreferences;
+use oaaoai\user\UserDisplayPreferences;
 use oaaoai\user\UserInvitationMail;
 use oaaoai\user\UserInvitationSupport;
 
@@ -82,10 +84,13 @@ return function (): void {
 
     $newId = (int) $db->lastID();
     $registerUrl = UserInvitationSupport::inviteRegisterUrl($plainToken);
+    $mailLocale = UserInvitationMail::normalizeMailLocale(
+        UserDisplayPreferences::localeForUser($ctx['pdo'], (int) $ctx['uid']),
+    );
     $mailResult = UserInvitationSupport::sendMail(
         $email,
-        UserInvitationMail::inviteSubject(),
-        UserInvitationMail::inviteBody($registerUrl, $expiresAt),
+        UserInvitationMail::inviteSubject($mailLocale),
+        UserInvitationMail::inviteBody($registerUrl, $expiresAt, $mailLocale),
     );
 
     echo json_encode([

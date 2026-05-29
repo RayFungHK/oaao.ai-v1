@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use oaaoai\user\UserModelParams;
+use oaaoai\user\UserPreferenceProfile;
 
 /**
  * GET /user/api/personalization_survey — UX-1 Phase 2/3 survey state + personality packs.
@@ -61,6 +62,7 @@ return function (): void {
             ],
             'selected_pack'      => $survey['selected_pack'] ?? null,
             'model_params'       => UserModelParams::fromPreferences($prefs),
+            'preference_profile' => UserPreferenceProfile::fromPreferences($prefs),
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 };

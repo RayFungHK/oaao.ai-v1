@@ -4,7 +4,13 @@
  * @module conversation-todo-thread
  */
 
+import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
 import { todoApiUrl } from './conversation-todo-suggest.js';
+
+/** @param {string} key @param {string} fallback */
+function pt(key, fallback) {
+    return oaaoT(key, fallback);
+}
 
 /**
  * @param {HTMLElement} mount
@@ -49,7 +55,7 @@ export async function refreshThreadTodoStrip(mount, conversationId) {
 
         const title = document.createElement('p');
         title.className = 'm-0 text-[0.6875rem] uppercase tracking-wide fg-[var(--grid-caption)] fw-semibold';
-        title.textContent = `Open todos (${rows.length})`;
+        title.textContent = `${pt('productivity.todo.open_panel', 'Open todos')} (${rows.length})`;
         host.append(title);
 
         for (const row of rows) {
@@ -62,7 +68,7 @@ export async function refreshThreadTodoStrip(mount, conversationId) {
             doneBtn.type = 'button';
             doneBtn.className =
                 'shrink-0 text-[0.75rem] px-2 py-0.5 rounded border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit';
-            doneBtn.textContent = 'Resolve';
+            doneBtn.textContent = pt('productivity.todo.resolve', 'Resolve');
             const todoId = Number(row.todo_id ?? 0);
             doneBtn.addEventListener('click', () => {
                 void fetch(todoApiUrl('todos_resolve'), {

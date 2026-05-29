@@ -6,6 +6,8 @@ namespace oaaoai\endpoints;
 
 use Oaaoai\Core\CreditLedgerRepository;
 
+require_once dirname(__DIR__, 3) . '/core/default/library/CreditLedgerRepository.php';
+
 /**
  * Aggregate credit ratios / factors for admin Credit settings page.
  *
@@ -98,6 +100,16 @@ final class CreditFactorsCatalog
         return self::normalizeMmCreditFactors(\is_array($raw) ? $raw : []);
     }
 
+    /** @return array<string, mixed> */
+    public static function safeMmCreditFactorsFromConfig(): array
+    {
+        try {
+            return self::mmCreditFactorsFromConfig();
+        } catch (\Throwable) {
+            return self::defaultMmCreditFactors();
+        }
+    }
+
     /**
      * Resolve credits for a multimodal run (generate/edit by resolution tier).
      */
@@ -137,13 +149,22 @@ final class CreditFactorsCatalog
     ): array {
         $tokensPerCredit = CreditLedgerRepository::DEFAULT_TOKENS_PER_CREDIT;
         if ($tenantId > 0) {
-            $tokensPerCredit = CreditLedgerRepository::resolveTokensPerCredit($pdo, $tenantId, 0);
+            try {
+                $tokensPerCredit = CreditLedgerRepository::resolveTokensPerCredit($pdo, $tenantId, 0);
+            } catch (\Throwable) {
+                $tokensPerCredit = CreditLedgerRepository::DEFAULT_TOKENS_PER_CREDIT;
+            }
         }
 
         $purposes = [];
         $endpoints = [];
         if ($repo !== null && $purposesAvailable) {
-            foreach ($repo->listPurposesWithDefaultEndpointName() as $row) {
+            try {
+                $purposeRows = $repo->listPurposesWithDefaultEndpointName();
+            } catch (\Throwable) {
+                $purposeRows = [];
+            }
+            foreach ($purposeRows as $row) {
                 if (! \is_array($row)) {
                     continue;
                 }
@@ -168,7 +189,12 @@ final class CreditFactorsCatalog
                 ];
             }
 
-            foreach ($repo->listEndpoints() as $row) {
+            try {
+                $endpointRows = $repo->listEndpoints();
+            } catch (\Throwable) {
+                $endpointRows = [];
+            }
+            foreach ($endpointRows as $row) {
                 if (! \is_array($row)) {
                     continue;
                 }
@@ -237,7 +263,7 @@ final class CreditFactorsCatalog
             'purposes'          => $purposes,
             'endpoints'         => $endpoints,
             'chat_endpoints'    => $chatEndpoints,
-            'mm_credit_factors'        => self::mmCreditFactorsFromConfig(),
+            'mm_credit_factors'        => self::safeMmCreditFactorsFromConfig(),
             'mm_config_path'           => MmModuleSettings::configPath(),
             'purposes_postgresql_only' => ! $purposesAvailable,
         ];

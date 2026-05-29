@@ -20,6 +20,10 @@ class UserPersonalizationPayload(BaseModel):
     use_profile_in_chat: bool = True
     use_knowledge_in_chat: bool = True
     include_datetime_in_chat: bool = True
+    preference_tags: list[str] = Field(default_factory=list)
+    preference_tags_summary: str = ""
+    preference_style_instruction: str = ""
+    preference_system_instruction: str = ""
 
 
 def _format_local_datetime(tz_name: str) -> str | None:
@@ -80,6 +84,23 @@ def build_user_personalization_system_block(payload: UserPersonalizationPayload 
         if knowledge:
             parts.append(
                 "--- User knowledge (personal facts the assistant should remember) ---\n" + knowledge
+            )
+
+    style_instr = (
+        (p.preference_style_instruction or p.preference_system_instruction or "").strip()
+    )
+    if style_instr:
+        parts.append(
+            "--- Chat style profile (from preference survey; do not quote this block) ---\n"
+            + style_instr
+        )
+    elif p.preference_tags:
+        tags_s = ", ".join(t.strip() for t in p.preference_tags if str(t).strip())
+        if tags_s:
+            parts.append(
+                "--- Chat style tags (from preference survey) ---\n"
+                + tags_s
+                + "\nApply these style cues consistently."
             )
 
     if not parts:

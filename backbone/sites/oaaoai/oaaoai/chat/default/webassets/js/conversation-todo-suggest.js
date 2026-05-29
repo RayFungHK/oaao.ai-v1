@@ -4,6 +4,13 @@
  * @module conversation-todo-suggest
  */
 
+import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
+
+/** @param {string} key @param {string} fallback */
+function pt(key, fallback) {
+    return oaaoT(key, fallback);
+}
+
 /** @type {Set<string>} */
 const todoSuggestionDismissed = new Set();
 
@@ -68,13 +75,13 @@ async function openAddToTodosDialog(mount, conversationId, messageId, payload, w
     body.append(titleInput, hint);
 
     Dialog.open({
-        title: 'Add to todos',
+        title: pt('productivity.todo.dialog_title', 'Add to todos'),
         content: body,
         size: 'sm',
         buttons: [
-            { text: 'Cancel', color: 'muted', action: async () => true },
+            { text: pt('productivity.common.cancel', 'Cancel'), color: 'muted', action: async () => true },
             {
-                text: 'Add',
+                text: pt('productivity.common.add', 'Add'),
                 color: 'accent',
                 action: async () => {
                     const title = titleInput.value.trim();
@@ -138,19 +145,19 @@ export function renderTodoSuggestChip(mount, conversationId, messageId, payload,
 
     const label = document.createElement('span');
     label.className = 'flex-1 min-w-0 text-[0.8125rem] fg-[var(--grid-ink)] truncate';
-    label.textContent = String(payload.title || 'Add to todos?');
+    label.textContent = String(payload.title || pt('productivity.todo.add_prompt', 'Add to todos?'));
 
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className =
         'rounded-[8px] h-8 px-2.5 text-[0.75rem] fw-medium border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit';
-    addBtn.textContent = 'Add to todos';
+    addBtn.textContent = pt('productivity.todo.add', 'Add to todos');
 
     const dismissBtn = document.createElement('button');
     dismissBtn.type = 'button';
     dismissBtn.className =
         'rounded-[8px] h-8 px-2.5 text-[0.75rem] border-none bg-transparent fg-[var(--grid-caption)] cursor-pointer font-inherit underline';
-    dismissBtn.textContent = 'Dismiss';
+    dismissBtn.textContent = pt('productivity.dismiss', 'Dismiss');
 
     addBtn.addEventListener('click', () => {
         void openAddToTodosDialog(mount, cid, mid, payload, workspaceBodyFields);

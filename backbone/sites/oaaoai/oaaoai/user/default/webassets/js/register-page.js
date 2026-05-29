@@ -2,6 +2,22 @@
  * Public invitation registration page (/user/register?token=).
  */
 
+import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
+
+/** @param {string} key @param {string} fallback */
+function rt(key, fallback) {
+    return oaaoT(key, fallback);
+}
+
+function applyRegisterPageI18n(root) {
+    root.querySelectorAll('[data-i18n]').forEach((el) => {
+        const key = el.getAttribute('data-i18n');
+        if (!key) return;
+        const text = rt(key, el.textContent?.trim() || '');
+        if (text) el.textContent = text;
+    });
+}
+
 async function hydratePublicPage(root) {
     const prefix = (document.body.dataset.oaaoMountPrefix || '').replace(/\/+$/, '');
     const base = prefix || '';
@@ -25,6 +41,7 @@ function setStatus(el, text, isErr = false) {
 }
 
 (async function () {
+    applyRegisterPageI18n(document.body);
     await hydratePublicPage(document.body);
 
     const statusEl = document.getElementById('oaao-reg-status');
@@ -37,7 +54,7 @@ function setStatus(el, text, isErr = false) {
     const api = (path) => `${prefix}/user/api/${path}`;
 
     if (!token || !/^[a-f0-9]{64}$/i.test(token)) {
-        setStatus(statusEl, 'Invalid or missing invitation link.', true);
+        setStatus(statusEl, rt('auth.register.invalid_link', 'Invalid or missing invitation link.'), true);
         return;
     }
 
@@ -47,18 +64,21 @@ function setStatus(el, text, isErr = false) {
         });
         const j = await res.json();
         if (!j?.success) {
-            setStatus(statusEl, j?.message || 'Invitation expired or invalid.', true);
+            setStatus(statusEl, j?.message || rt('auth.register.expired', 'Invitation expired or invalid.'), true);
             return;
         }
         setStatus(statusEl, '');
-        if (emailEl) emailEl.textContent = `Email: ${j.data?.email || ''}`;
+        if (emailEl) {
+            const label = rt('auth.register.email_label', 'Email');
+            emailEl.textContent = `${label}: ${j.data?.email || ''}`;
+        }
         if (form) {
             form.hidden = false;
             form.classList.remove('hidden');
             await hydratePublicPage(form);
         }
     } catch {
-        setStatus(statusEl, 'Could not verify invitation.', true);
+        setStatus(statusEl, rt('auth.register.verify_failed', 'Could not verify invitation.'), true);
     }
 
     form?.addEventListener('submit', async (ev) => {
@@ -77,12 +97,14 @@ function setStatus(el, text, isErr = false) {
             });
             const j = await res.json();
             if (!res.ok || !j?.success) {
-                setStatus(statusEl, j?.message || 'Registration failed.', true);
+                setStatus(statusEl, j?.message || rt('auth.register.failed', 'Registration failed.'), true);
                 return;
             }
-            window.location.href = `${prefix}/` || '/';
+            setStatus(statusEl, rt('auth.register.success', 'Account created. You can sign in now.'));
+            form.hidden = true;
+            form.classList.add('hidden');
         } catch {
-            setStatus(statusEl, 'Registration failed.', true);
+            setStatus(statusEl, rt('auth.register.failed', 'Registration failed.'), true);
         }
     });
 })();

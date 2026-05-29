@@ -24,6 +24,7 @@ use oaaoai\endpoints\MmModuleSettings;
 use oaaoai\user\UserDisplayPreferences;
 use oaaoai\user\UserModelParams;
 use oaaoai\user\UserPersonalization;
+use oaaoai\user\UserPreferenceProfile;
 
 /**
  * POST /chat/api/send — append user message + assistant row; when orchestrator + binding exist, start Python stream run.
@@ -35,6 +36,7 @@ use oaaoai\user\UserPersonalization;
  *             "attachment_ids"?: number[] — ephemeral conversation attachments (this turn only),
  *             "active_material_id"?: string — continue a slide deck ({@code slide-{project_id}}),
  *             "reuse_grounding_message_id"?: int — retry/regenerate: load material container from this assistant turn,
+ *             "continue_assistant_message_id"?: int — append to an existing truncated assistant reply (same message row),
  *             "slide_template_id"?: string — published custom template for a new deck,
  *             "planner_mode_id"?: "default"|"tot"|"ddtree" — thread planner mode (persisted on new chats),
  *             "corpus_id"?: number — Corpus Studio style injection (CS-1-S10); programmatic only, not chat composer }
@@ -83,8 +85,22 @@ return function (): void {
     }
 
     $content = trim((string) ($input['content'] ?? ''));
+    $continueAssistantId = (int) ($input['continue_assistant_message_id'] ?? 0);
+    $appendAssistantTurn = $continueAssistantId > 0;
     $conversationId = $input['conversation_id'] ?? null;
     $conversationId = ($conversationId === null || $conversationId === '') ? null : (int) $conversationId;
+
+    if ($appendAssistantTurn) {
+        if ($conversationId === null || $conversationId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'conversation_id required for continue']);
+
+            return;
+        }
+        if ($content === '') {
+            $content = 'Continue';
+        }
+    }
 
     $inputPlannerMode = '';
     if (isset($input['planner_mode_id'])) {
@@ -197,7 +213,7 @@ return function (): void {
 
     $slideTemplateId = trim((string) ($input['slide_template_id'] ?? ''));
 
-    if ($content === '') {
+    if ($content === '' && ! $appendAssistantTurn) {
         if ($slideTemplateId !== '') {
             $content = 'Create a slide presentation using the selected template.';
         } elseif ($attachmentIds !== []) {
@@ -234,7 +250,9 @@ return function (): void {
         }
     }
 
-    $orchestratorUserContent = $content;
+    $orchestratorUserContent = $appendAssistantTurn
+        ? 'Continue from where you left off in your previous assistant reply. Do not repeat text you already wrote; only add the next part.'
+        : $content;
     if ($hasPublishedSlideTemplate) {
         $orchestratorUserContent = ChatTeachingIntent::enrichUserMessageForTemplate(
             $content,
@@ -620,6 +638,10 @@ return function (): void {
             $inferenceApplied = $resolvedPre['params'];
         }
         $userMetaArr['inference'] = $inferenceSnapshot;
+        if ($appendAssistantTurn) {
+            $userMetaArr['continue_turn'] = true;
+            $userMetaArr['continues_assistant_message_id'] = $continueAssistantId;
+        }
         if ($userMetaArr !== []) {
             try {
                 $userMeta = json_encode($userMetaArr, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -652,19 +674,44 @@ return function (): void {
                 $asstMetaJson = null;
             }
         }
-        $asstCols = ['conversation_id', 'role', 'content', 'created_at'];
-        $asstAssign = [
-            'conversation_id' => $conversationId,
-            'role'              => 'assistant',
-            'content'           => $assistantInsertContent,
-            'created_at'        => $nowMsg,
-        ];
-        if ($asstMetaJson !== null) {
-            $asstCols[] = 'meta_json';
-            $asstAssign['meta_json'] = $asstMetaJson;
+        if ($appendAssistantTurn) {
+            $asstExisting = $splitDb->prepare()
+                ->select('id, content')
+                ->from('message')
+                ->where('id=?,conversation_id=?,role=?')
+                ->assign([
+                    'id'              => $continueAssistantId,
+                    'conversation_id' => $conversationId,
+                    'role'            => 'assistant',
+                ])
+                ->limit(1)
+                ->query()
+                ->fetch();
+            if (! \is_array($asstExisting) || ! isset($asstExisting['id'])) {
+                $pdo->rollBack();
+                http_response_code(404);
+                echo json_encode(['success' => false, 'message' => 'Assistant message not found']);
+
+                return;
+            }
+            $asstMsgId = $continueAssistantId;
+            $assistantInsertContent = (string) ($asstExisting['content'] ?? '');
+            $assistantOut = $assistantInsertContent;
+        } else {
+            $asstCols = ['conversation_id', 'role', 'content', 'created_at'];
+            $asstAssign = [
+                'conversation_id' => $conversationId,
+                'role'              => 'assistant',
+                'content'           => $assistantInsertContent,
+                'created_at'        => $nowMsg,
+            ];
+            if ($asstMetaJson !== null) {
+                $asstCols[] = 'meta_json';
+                $asstAssign['meta_json'] = $asstMetaJson;
+            }
+            $splitDb->insert('message', $asstCols)->assign($asstAssign)->query();
+            $asstMsgId = (int) $splitDb->lastID();
         }
-        $splitDb->insert('message', $asstCols)->assign($asstAssign)->query();
-        $asstMsgId = (int) $splitDb->lastID();
 
         $splitDb->update('conversation', ['updated_at'])
             ->where('id=?')
@@ -746,7 +793,7 @@ return function (): void {
                 $canonPdoForPrompt instanceof \PDO ? $canonPdoForPrompt : null,
             );
 
-            if ($hasPublishedSlideTemplate && $orchestratorUserContent !== '') {
+            if ($orchestratorUserContent !== '') {
                 for ($mi = \count($messages) - 1; $mi >= 0; $mi--) {
                     if (($messages[$mi]['role'] ?? '') === 'user') {
                         $messages[$mi]['content'] = $orchestratorUserContent;
@@ -1168,11 +1215,32 @@ return function (): void {
                     $payload['open_todo_items'] = $openTodos;
                 }
             }
-            $payload['user_personalization'] = UserPersonalization::forOrchestratorPayload(
+            $persPayload = UserPersonalization::forOrchestratorPayload(
                 $canonPdoForPersonalization instanceof \PDO
                     ? UserPersonalization::loadForUser($canonPdoForPersonalization, $uid)
                     : UserPersonalization::defaults(),
             );
+            if ($canonPdoForPersonalization instanceof \PDO) {
+                $stmtPrefs = $canonPdoForPersonalization->prepare(
+                    'SELECT preferences_json FROM oaao_user WHERE user_id = ? LIMIT 1',
+                );
+                $stmtPrefs->execute([$uid]);
+                $rawPrefs = $stmtPrefs->fetchColumn();
+                if (\is_string($rawPrefs) && $rawPrefs !== '') {
+                    try {
+                        $decodedPrefs = json_decode($rawPrefs, true, 512, JSON_THROW_ON_ERROR);
+                        if (\is_array($decodedPrefs)) {
+                            $persPayload = array_merge(
+                                $persPayload,
+                                UserPreferenceProfile::forOrchestratorPayload($decodedPrefs),
+                            );
+                        }
+                    } catch (\JsonException) {
+                        /* keep profile block empty */
+                    }
+                }
+            }
+            $payload['user_personalization'] = $persPayload;
             $payload['display_locale'] = $canonPdoForPersonalization instanceof \PDO
                 ? UserDisplayPreferences::localeForUser($canonPdoForPersonalization, $uid)
                 : UserDisplayPreferences::DEFAULT_LOCALE;
@@ -1209,6 +1277,11 @@ return function (): void {
             }
             if ($libraryDocIds !== []) {
                 $payload['library_doc_ids'] = array_values($libraryDocIds);
+            }
+
+            if ($appendAssistantTurn) {
+                $payload['append_assistant_content'] = true;
+                $payload['continue_assistant_message_id'] = $continueAssistantId;
             }
 
             $tenantForPrincipal = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : 0;

@@ -9,6 +9,7 @@
             <directory>backbone/sites/oaaoai/oaaoai/user/default/tests</directory>
             <directory>backbone/sites/oaaoai/oaaoai/corpus/default/tests</directory>
             <directory>backbone/sites/oaaoai/oaaoai/endpoints/default/tests</directory>
+            <directory>backbone/sites/oaaoai/oaaoai/core/default/tests</directory>
         </testsuite>
     </testsuites>
 </phpunit>

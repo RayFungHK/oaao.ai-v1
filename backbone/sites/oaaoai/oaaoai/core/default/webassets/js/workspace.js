@@ -1560,7 +1560,7 @@ export function initWorkspaceShell() {
             buildLine.dataset.oaaoUserMenuBound = '1';
             buildLine.addEventListener('click', () => {
                 const since = (document.body?.dataset?.oaaoBuildId ?? '').trim();
-                void openWhatsNewDialog({ sinceBuild: since }).catch((err) => {
+                void openWhatsNewDialog({ sinceBuild: since, highlightBuildId: since }).catch((err) => {
                     console.error('[oaao] whats new dialog failed', err);
                 });
                 buildLine.blur();

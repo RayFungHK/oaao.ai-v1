@@ -34,7 +34,7 @@ function setBadgeCount(badge, count) {
 /**
  * @param {HTMLElement} panel
  * @param {HTMLElement | null} badge
- * @param {Array<{ notification_id?: number, kind?: string, title?: string, body?: string, read?: boolean }>} rows
+ * @param {Array<{ notification_id?: number, kind?: string, title?: string, body?: string, read?: boolean, payload?: Record<string, unknown> | null }>} rows
  */
 function renderNotificationList(panel, badge, rows) {
     panel.textContent = '';
@@ -77,7 +77,16 @@ function renderNotificationList(panel, badge, rows) {
                     try {
                         const mod = await import('./whats-new-dialog.js');
                         const since = (document.body?.dataset?.oaaoBuildId ?? '').trim();
-                        await mod.openWhatsNewDialog({ sinceBuild: since });
+                        const payload =
+                            row.payload && typeof row.payload === 'object'
+                                ? /** @type {Record<string, unknown>} */ (row.payload)
+                                : {};
+                        const focusId = Number(payload.release_post_id ?? 0);
+                        await mod.openWhatsNewDialog({
+                            sinceBuild: since,
+                            highlightBuildId: since,
+                            focusReleasePostId: Number.isFinite(focusId) && focusId > 0 ? focusId : undefined,
+                        });
                     } catch (err) {
                         console.error('[oaao] release whats-new failed', err);
                     }

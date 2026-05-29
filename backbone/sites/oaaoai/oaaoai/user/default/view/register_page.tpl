@@ -11,22 +11,23 @@
     <div class="flex flex-col flex-1 items-center justify-center w-full max-w-[28rem] mx-auto gap-4">
         <img src="%%OAao_ASSET_PREFIX%%/webassets/core/default/images/logo.svg" alt="oaao" class="h-12 w-auto" />
         <div class="w-full p-6 box-border bg-[var(--grid-panel-bright)] border border-solid border-[var(--grid-line)] rounded-lg shadow-sm">
-            <h1 class="text-lg fw-bold m-0 mb-md">Complete registration</h1>
-            <p class="text-sm fg-[var(--grid-ink-muted)] m-0 mb-md min-h-[1.25rem]" id="oaao-reg-status" role="status">Checking invitation…</p>
+            <h1 class="text-lg fw-bold m-0 mb-md" data-i18n="auth.register.title">Complete registration</h1>
+            <p class="text-sm fg-[var(--grid-ink-muted)] m-0 mb-md min-h-[1.25rem]" id="oaao-reg-status" role="status" data-i18n="auth.register.checking">Checking invitation…</p>
             <form id="oaao-reg-form" class="flex flex-col gap-3 hidden" hidden>
                 <p class="text-sm fg-[var(--grid-ink-muted)] m-0" id="oaao-reg-email"></p>
                 <label class="flex flex-col gap-1 text-xs fg-[var(--grid-ink)]">
-                    <span>Display name</span>
+                    <span data-i18n="auth.register.display_name">Display name</span>
                     <input name="display_name" required autocomplete="name"
                         class="w-full box-border px-3 py-2 text-sm rounded-lg border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]" />
                 </label>
                 <label class="flex flex-col gap-1 text-xs fg-[var(--grid-ink)]">
-                    <span>Password</span>
+                    <span data-i18n="auth.register.password">Password</span>
                     <input name="password" type="password" required minlength="6" autocomplete="new-password"
                         class="w-full box-border px-3 py-2 text-sm rounded-lg border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)]" />
                 </label>
                 <button type="submit"
-                    class="rounded-[10px] h-11 px-4 fw-semibold w-full fg-[#fff] bg-[#2d2d2d] border-none cursor-pointer [font-family:inherit] hover:opacity-[0.92]">
+                    class="rounded-[10px] h-11 px-4 fw-semibold w-full fg-[#fff] bg-[#2d2d2d] border-none cursor-pointer [font-family:inherit] hover:opacity-[0.92]"
+                    data-i18n="auth.register.submit">
                     Create account
                 </button>
             </form>

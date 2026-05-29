@@ -30,6 +30,10 @@
                     <span>Stay signed in for 30 days</span>
                 </label>
 
+                <p class="mt-2 text-[0.8125rem] text-right">
+                    <a id="login-forgot-password" href="/user/reset-password" class="fg-[var(--grid-accent)] no-underline hover:underline" data-i18n="auth.forgot_password">Forgot password?</a>
+                </p>
+
                 <!-- Error slot -->
                 <p id="login-error" class="text-sm fg-red-6 hidden mt-1" role="alert"></p>
             </form>

@@ -1043,15 +1043,21 @@ async def plan_run_with_llm(
     if skill_entries:
         flags.append("skills_catalog:\n" + catalog_summary_for_planner(skill_entries))
     planner_payload = getattr(req, "planner", None)
+    from oaao_orchestrator.preference_profile import preference_style_planner_append
+
+    system_base = _planner_system_prompt(
+        allowed_agents=allowed_agents,
+        max_tasks=max_tasks,
+        agent_guide=agent_guide,
+        planner_payload=planner_payload if isinstance(planner_payload, dict) else None,
+    )
+    style_append = preference_style_planner_append(getattr(req, "user_personalization", None))
+    if style_append:
+        system_base = system_base + style_append
     messages = [
         {
             "role": "system",
-            "content": _planner_system_prompt(
-                allowed_agents=allowed_agents,
-                max_tasks=max_tasks,
-                agent_guide=agent_guide,
-                planner_payload=planner_payload if isinstance(planner_payload, dict) else None,
-            ),
+            "content": system_base,
         },
         {
             "role": "user",
@@ -1066,6 +1072,7 @@ async def plan_run_with_llm(
         model=model,
         messages=messages,
         temperature=0.15,
+        max_tokens=_planner_max_tokens(),
     )
     if not text:
         return None

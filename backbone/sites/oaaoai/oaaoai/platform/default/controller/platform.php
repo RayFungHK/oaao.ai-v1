@@ -108,7 +108,9 @@ return new class extends Controller {
                 'GET usage_summary'          => 'usage_summary',
                 'GET release_posts_list'     => 'release_posts_list',
                 'POST release_posts_save'    => 'release_posts_save',
-                'POST release_posts_publish' => 'release_posts_publish',
+                'POST release_posts_publish'      => 'release_posts_publish',
+                'POST release_posts_fanout_tick' => 'release_posts_fanout_tick',
+                'POST release_posts_seed_first_news' => 'release_posts_seed_first_news',
             ],
         ]);
 

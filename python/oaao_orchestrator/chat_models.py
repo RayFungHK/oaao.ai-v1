@@ -134,6 +134,15 @@ class ChatRunRequest(BaseModel):
         default=None,
         description="Assistant message id — load materials indexed from that turn (retry/regenerate).",
     )
+    continue_assistant_message_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="Reuse this assistant row and append streamed text (token-limit continue).",
+    )
+    append_assistant_content: bool = Field(
+        default=False,
+        description="When true, persist stream output appended to existing assistant message content.",
+    )
     skills_catalog: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Micro skills catalog — bound_template, conversation, … from PHP MicroSkillCatalog.",

@@ -566,9 +566,17 @@ async function openPersonalizationWizard(_razyui, opts = {}) {
             const n = Number(v);
             if (Number.isFinite(n)) modelParams[def.key] = n;
         }
+        const tags = Array.isArray(data.preference_tags) ? data.preference_tags.map(String) : [];
         return {
             model_params: modelParams,
             rationale: typeof data.rationale === 'string' ? data.rationale : '',
+            preference_tags: tags,
+            preference_tags_summary:
+                typeof data.preference_tags_summary === 'string' ? data.preference_tags_summary : '',
+            preference_system_instruction:
+                typeof data.preference_system_instruction === 'string'
+                    ? data.preference_system_instruction
+                    : '',
         };
     }
 
@@ -611,7 +619,7 @@ async function openPersonalizationWizard(_razyui, opts = {}) {
                     'Final style profile',
                 );
                 finalizeRationale = fin.rationale ?? '';
-                await saveGuidedParams(fin.model_params);
+                await saveGuidedParams(fin.model_params, fin);
             } catch (err) {
                 console.warn('[oaao] guided finalize failed', err);
                 status.textContent = oaaoT('preferences.survey.save_failed', 'Save failed.');
@@ -663,8 +671,9 @@ async function openPersonalizationWizard(_razyui, opts = {}) {
 
     /**
      * @param {Record<string, number>} modelParams
+     * @param {{ preference_tags?: string[], preference_tags_summary?: string, preference_system_instruction?: string }} [profile]
      */
-    async function saveGuidedParams(modelParams) {
+    async function saveGuidedParams(modelParams, profile = {}) {
         status.textContent = oaaoT('preferences.survey.saving', 'Saving…');
         /** @type {Record<string, number|null>} */
         const toSave = {};
@@ -679,14 +688,20 @@ async function openPersonalizationWizard(_razyui, opts = {}) {
             body: JSON.stringify({
                 completed: true,
                 model_params: toSave,
-                    wizard: {
-                        mode: 'guided',
-                        theme_id: themeId,
-                        theme_label: themeLabel,
-                        scenario_prompt: scenarioPrompt,
-                        guided_answers: guidedAnswers,
-                        rationale: finalizeRationale,
-                    },
+                locale: wizardLocaleForApi(),
+                preference_profile: {
+                    preference_tags: profile.preference_tags ?? [],
+                    preference_tags_summary: profile.preference_tags_summary ?? '',
+                    preference_system_instruction: profile.preference_system_instruction ?? '',
+                },
+                wizard: {
+                    mode: 'guided',
+                    theme_id: themeId,
+                    theme_label: themeLabel,
+                    scenario_prompt: scenarioPrompt,
+                    guided_answers: guidedAnswers,
+                    rationale: finalizeRationale,
+                },
             }),
         });
         const json = await res.json();
@@ -719,6 +734,11 @@ async function openPersonalizationWizard(_razyui, opts = {}) {
         if (step === 'intro') {
             dc.setButtons([
                 dlgBtn({ text: oaaoT('preferences.survey.wizard_cancel', 'Cancel'), color: 'muted', role: 'cancel' }),
+                dlgBtn({
+                    text: oaaoT('preferences.survey.wizard_skip', 'Skip for now'),
+                    color: 'muted',
+                    role: 'cancel',
+                }),
                 dlgBtn({
                     text: oaaoT('preferences.survey.wizard_start', 'Start'),
                     color: 'accent',
@@ -866,11 +886,95 @@ export async function mountPreferencesPanel(host, ctx = {}) {
             wrap.append(done);
         }
 
+        const profile = data.preference_profile && typeof data.preference_profile === 'object'
+            ? data.preference_profile
+            : {};
+        const tags = Array.isArray(profile.tags) ? profile.tags.map(String) : [];
+
+        const tagsWrap = document.createElement('div');
+        tagsWrap.className = 'flex flex-wrap gap-1.5 min-w-0';
+        tagsWrap.dataset.oaaoSurveyTags = '1';
+        const renderTagChips = (/** @type {string[]} */ list) => {
+            tagsWrap.replaceChildren();
+            if (!list.length) {
+                const empty = document.createElement('span');
+                empty.className = 'text-[0.75rem] fg-[var(--grid-caption)]';
+                empty.textContent = oaaoT(
+                    'preferences.survey.tags_empty',
+                    'No style tags yet — run the wizard to generate your profile.',
+                );
+                tagsWrap.append(empty);
+                return;
+            }
+            for (const tag of list) {
+                const chip = document.createElement('span');
+                chip.className =
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-[0.6875rem] fw-medium bg-[var(--grid-paper)] border border-solid border-[var(--grid-line)] fg-[var(--grid-ink)]';
+                chip.textContent = tag.startsWith('#') ? tag : `#${tag}`;
+                tagsWrap.append(chip);
+            }
+        };
+        renderTagChips(tags);
+
+        const tagsSummary = document.createElement('p');
+        tagsSummary.className = 'text-[0.75rem] fg-[var(--grid-ink-muted)] m-0';
+        tagsSummary.dataset.oaaoSurveyTagsSummary = '1';
+        tagsSummary.textContent =
+            typeof profile.summary === 'string' && profile.summary
+                ? profile.summary
+                : oaaoT('preferences.survey.tags_summary_label', 'Style summary');
+
         const paramsLine = document.createElement('p');
         paramsLine.className = 'text-[0.75rem] font-mono fg-[var(--grid-caption)] m-0';
         paramsLine.dataset.oaaoSurveyParamsSummary = '1';
         paramsLine.textContent = formatParamsSummary(modelParams);
-        wrap.append(paramsLine);
+
+        wrap.append(tagsSummary, tagsWrap, paramsLine);
+
+        if (packs.length) {
+            const packsLabel = document.createElement('p');
+            packsLabel.className = 'text-[0.8125rem] fw-medium fg-[var(--grid-ink)] m-0 mt-2';
+            packsLabel.textContent = oaaoT(
+                'preferences.survey.personality_packs',
+                'Quick personality packs',
+            );
+            const packRow = document.createElement('div');
+            packRow.className = 'flex flex-wrap gap-2';
+            for (const pack of packs) {
+                const pid = String(pack.id ?? '');
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className =
+                    'rounded-[8px] h-8 px-3 text-[0.75rem] border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit fg-[var(--grid-ink)]';
+                if (pid && pid === selectedPack) {
+                    btn.classList.add('border-[var(--grid-accent)]', 'fg-[var(--grid-accent)]');
+                }
+                btn.textContent = String(pack.label ?? pid);
+                btn.addEventListener('click', async () => {
+                    try {
+                        const r = await fetch(userApiUrl('personalization_survey_save'), {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ selected_pack: pid, completed: true }),
+                        });
+                        const j = await r.json();
+                        if (r.ok && j?.success) {
+                            const mp = j.data?.model_params ?? {};
+                            paramsLine.textContent = formatParamsSummary(
+                                /** @type {Record<string, number|null>} */ (mp),
+                            );
+                            const prof = j.data?.preference_profile ?? {};
+                            if (Array.isArray(prof.tags)) renderTagChips(prof.tags.map(String));
+                        }
+                    } catch {
+                        /* ignore */
+                    }
+                });
+                packRow.append(btn);
+            }
+            wrap.append(packsLabel, packRow);
+        }
 
         const wizardBtn = document.createElement('button');
         wizardBtn.type = 'button';
@@ -888,6 +992,13 @@ export async function mountPreferencesPanel(host, ctx = {}) {
                             paramsLine.textContent = formatParamsSummary(
                                 /** @type {Record<string, number|null>} */ (mp),
                             );
+                            const prof = j.data?.preference_profile ?? {};
+                            if (tagsWrap.isConnected && Array.isArray(prof.tags)) {
+                                renderTagChips(prof.tags.map(String));
+                            }
+                            if (tagsSummary.isConnected && typeof prof.summary === 'string') {
+                                tagsSummary.textContent = prof.summary || tagsSummary.textContent;
+                            }
                         }
                     } catch {
                         /* ignore */
