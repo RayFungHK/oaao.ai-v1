@@ -10,4 +10,6 @@ final class ChatSendOrchestratorStage
     public const BIND = 'bind';
 
     public const PAYLOAD = 'payload';
+
+    public const AGENTS = 'agents';
 }

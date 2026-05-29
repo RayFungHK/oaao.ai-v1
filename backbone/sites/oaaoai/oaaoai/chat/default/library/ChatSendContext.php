@@ -65,6 +65,27 @@ final class ChatSendContext
 
     public bool $orchReady = false;
 
+    /** @var array<string, mixed>|null */
+    public ?array $paramsDec = null;
+
+    /** @var list<array<string, mixed>> */
+    public array $attachmentRows = [];
+
+    public ?string $conversationTitleOut = null;
+
+    /** @var array<string, mixed> */
+    public array $userMetaArr = [];
+
+    /** @var array<string, int|float> */
+    public array $inferenceApplied = [];
+
+    /** @var array<string, mixed> */
+    public array $inferenceSnapshot = [
+        'mode'           => ChatInferenceControl::MODE_OFF,
+        'params_applied' => [],
+        'source'         => 'endpoint_defaults',
+    ];
+
     /**
      * @param array<string, mixed> $input
      */

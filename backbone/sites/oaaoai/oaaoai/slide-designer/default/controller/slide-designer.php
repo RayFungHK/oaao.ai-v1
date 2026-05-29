@@ -104,6 +104,7 @@ return new class extends Controller {
 
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
         $agent->listen('oaaoai/chat:chat.send.prepare', 'event/chat_send_prepare');
+        $agent->listen('oaaoai/chat:chat.send.conversation_settle', 'event/chat_send_conversation_settle');
             'resolvePublishedTemplate'           => 'resolvePublishedTemplate',
             'orchestratorSlideDesignerBase'      => 'orchestratorSlideDesignerBase',
             'listBoundTemplateSkillsForPlanner'  => 'listBoundTemplateSkillsForPlanner',

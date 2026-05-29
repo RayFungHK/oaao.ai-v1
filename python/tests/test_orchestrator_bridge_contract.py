@@ -92,4 +92,7 @@ def test_chat_send_pipeline_library_exists() -> None:
     send_text = send
     assert "ChatSendPhase::SCOPE" in send_text
     assert "ChatSendOrchestratorStage::PAYLOAD" in send_text
+    assert "ChatSendPhase::CONVERSATION_SETTLE" in send_text
+    assert "ChatSendOrchestratorStage::AGENTS" in send_text
+    assert "PlannerAgentRegister" not in send_text
     assert "MmModuleSettings.php" not in send_text

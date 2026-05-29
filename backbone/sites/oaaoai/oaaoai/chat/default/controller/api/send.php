@@ -1,12 +1,10 @@
 <?php
 
 use oaaoai\chat\ChatAccsReflection;
-use oaaoai\chat\ChatAttachmentManifest;
 use oaaoai\chat\ChatAttachmentStorage;
 use oaaoai\chat\ChatBubbleConversation;
 use oaaoai\chat\ChatConversationMaterial;
 use oaaoai\chat\ChatConversationScope;
-use oaaoai\chat\ChatConversationTitle;
 use oaaoai\chat\ChatContextUsage;
 use oaaoai\chat\ChatConversationCompact;
 use oaaoai\chat\ChatTokenEstimator;
@@ -15,15 +13,14 @@ use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatRunPrincipal;
 use oaaoai\chat\ChatSendAbort;
 use oaaoai\chat\ChatSendContext;
+use oaaoai\chat\ChatSendConversationSettle;
 use oaaoai\chat\ChatSendOrchestratorStage;
 use oaaoai\chat\ChatSendPhase;
 use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatTeachingIntent;
 use oaaoai\chat\MicroSkillCatalog;
-use oaaoai\chat\PlannerAgentRegister;
 use oaaoai\chat\SkillsManifestStorage;
 use oaaoai\corpus\CorpusStyleResolver;
-use oaaoai\endpoints\ChatAllowedAgentsPurposeConfig;
 use oaaoai\endpoints\ChatInferencePurposeConfig;
 use oaaoai\endpoints\MmModuleSettings;
 use oaaoai\user\UserDisplayPreferences;
@@ -432,8 +429,6 @@ return function (): void {
 
         $nowMsg = date('Y-m-d H:i:s');
         $userMeta = null;
-        /** @var array<string, mixed> $userMetaArr */
-        $userMetaArr = [];
         /** @var list<array<string, mixed>> $attRows */
         $attRows = [];
         if ($attachmentIds !== []) {
@@ -441,79 +436,37 @@ return function (): void {
             oaao_chat_ensure_conversation_attachment_schema($pdo);
             ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
             $attRows = ChatAttachmentStorage::loadRowsForIds($splitDb, (int) $conversationId, $uid, $attachmentIds);
-            $userMetaArr['attachments'] = ChatAttachmentManifest::manifestFromRows($attRows, false);
         }
 
         $conversationTitleOut = null;
-        $titleRow = $splitDb->prepare()
-            ->select('title')
-            ->from('conversation')
-            ->where('id=?,user_id=?')
-            ->assign(['id' => $conversationId, 'user_id' => $uid])
-            ->limit(1)
-            ->query()
-            ->fetch();
-        $curTitle = \is_array($titleRow) ? ChatConversationTitle::normalize((string) ($titleRow['title'] ?? '')) : '';
-        if (ChatConversationTitle::isPlaceholder($curTitle)) {
-            $provisional = ChatConversationTitle::provisionalFromSend($orchestratorUserContent, $attRows);
-            if ($provisional !== '') {
-                $splitDb->update('conversation', ['title', 'updated_at'])
-                    ->where('id=?,user_id=?')
-                    ->assign([
-                        'title'      => $provisional,
-                        'updated_at' => $nowMsg,
-                        'id'         => $conversationId,
-                        'user_id'    => $uid,
-                    ])
-                    ->query();
-                $conversationTitleOut = $provisional;
-            }
-        }
-        if ($hasPublishedSlideTemplate) {
-            $userMetaArr['slide_template_id'] = $slideTemplateId;
-            $userMetaArr['slide_template_label'] = $slideTemplateLabel;
-            $userMetaArr['slide_template_ui'] = true;
-        }
         /** @var array<string, int|float> $inferenceApplied */
         $inferenceApplied = [];
         /** @var array<string, mixed> $inferenceSnapshot */
-        $inferenceSnapshot = [
-            'mode'             => ChatInferenceControl::MODE_OFF,
-            'params_applied' => [],
-            'source'           => 'endpoint_defaults',
-        ];
-        if ($canonDb instanceof \Razy\Database) {
-            $purposeMpPre = ChatInferencePurposeConfig::resolveDefaultsForChatEndpoint(
-                $canonDb,
-                $chatEndpointId > 0 ? $chatEndpointId : 0,
-            );
-            $userMpPre = [];
-            $canonPdoPre = $this->oaao_chat_canonical_pdo();
-            if ($canonPdoPre instanceof \PDO) {
-                $userMpPre = UserModelParams::activeOverrides(
-                    UserModelParams::loadForUser($canonPdoPre, $uid),
-                );
-            }
-            $resolvedPre = ChatInferenceControl::resolveForSend(
-                isset($paramsDec) && \is_array($paramsDec) ? $paramsDec : null,
-                $purposeMpPre,
-                $userMpPre,
-            );
-            $inferenceSnapshot = $resolvedPre['snapshot'];
-            $inferenceApplied = $resolvedPre['params'];
+        $inferenceSnapshot = $sendCtx->inferenceSnapshot;
+
+        try {
+            $sendPipeline->run(ChatSendPhase::CONVERSATION_SETTLE, $sendCtx, [
+                'split_db'              => $splitDb,
+                'conversation_id'       => (int) $conversationId,
+                'canonical_db'          => $canonDb,
+                'canonical_pdo'         => $this->oaao_chat_canonical_pdo(),
+                'attachment_rows'       => $attRows,
+                'now_msg'               => $nowMsg,
+                'params_dec'            => $paramsDec,
+                'continue_assistant_id' => $continueAssistantId,
+            ]);
+        } catch (ChatSendAbort $abort) {
+            $pdo->rollBack();
+            http_response_code($abort->httpStatus);
+            echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
+
+            return;
         }
-        $userMetaArr['inference'] = $inferenceSnapshot;
-        if ($appendAssistantTurn) {
-            $userMetaArr['continue_turn'] = true;
-            $userMetaArr['continues_assistant_message_id'] = $continueAssistantId;
-        }
-        if ($userMetaArr !== []) {
-            try {
-                $userMeta = json_encode($userMetaArr, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-            } catch (\JsonException) {
-                $userMeta = null;
-            }
-        }
+
+        $conversationTitleOut = $sendCtx->conversationTitleOut;
+        $inferenceApplied = $sendCtx->inferenceApplied;
+        $inferenceSnapshot = $sendCtx->inferenceSnapshot;
+        $userMeta = ChatSendConversationSettle::encodeUserMeta($sendCtx->userMetaArr);
         $userCols = ['conversation_id', 'role', 'content', 'created_at'];
         $userAssign = [
             'conversation_id' => $conversationId,
@@ -528,17 +481,7 @@ return function (): void {
         $splitDb->insert('message', $userCols)->assign($userAssign)->query();
         $userMsgId = (int) $splitDb->lastID();
 
-        $asstMetaJson = null;
-        if ($inferenceSnapshot !== []) {
-            try {
-                $asstMetaJson = json_encode(
-                    ['inference' => $inferenceSnapshot],
-                    JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
-                );
-            } catch (\JsonException) {
-                $asstMetaJson = null;
-            }
-        }
+        $asstMetaJson = ChatSendConversationSettle::encodeAssistantInferenceMeta($inferenceSnapshot);
         if ($appendAssistantTurn) {
             $asstExisting = $splitDb->prepare()
                 ->select('id, content')
@@ -762,32 +705,12 @@ return function (): void {
                 }
             }
 
-            $this->api('endpoints')?->ensureFeatureRegistries();
-
             $endpointsApi = $this->api('endpoints');
-            if ($endpointsApi) {
-                $allowedAgents = $endpointsApi->resolveAllowedAgents();
-            } else {
-                $allowedAgents = ChatAllowedAgentsPurposeConfig::defaultAllowed();
-            }
-            // Planner chooses web_search per turn (needs_web_search); do not strip from allowed_agents here.
-            if (! $bubbleThread) {
-                $allowedAgents = ChatTeachingIntent::ensureSlideDesignerAllowed(
-                    $allowedAgents,
-                    $orchestratorUserContent,
-                    $hasPublishedSlideTemplate,
-                );
-            } else {
-                $allowedAgents = array_values(array_filter(
-                    $allowedAgents,
-                    static fn ($k) => (string) $k !== 'slide_designer',
-                ));
-            }
-            $payload['allowed_agents'] = $allowedAgents;
-            $payload['enable_web_search'] = $enableWebSearch;
-            $payload['agent_catalog'] = PlannerAgentRegister::catalogForAllowed(
-                $payload['allowed_agents'],
-            );
+            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                'stage'          => ChatSendOrchestratorStage::AGENTS,
+                'endpoints_api'  => $endpointsApi,
+                'bubble_thread'  => $bubbleThread,
+            ]);
 
             if ($vaultSourceIds !== []) {
                 $payload['vault_source_ids'] = $vaultSourceIds;
@@ -969,8 +892,8 @@ return function (): void {
                     $this->api('core')?->bootstrapTenantContext($canonPdoForVault);
                 }
                 $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-                    'stage'        => ChatSendOrchestratorStage::PAYLOAD,
-                    'canonical_db' => $canonDb,
+                    'stage'          => ChatSendOrchestratorStage::PAYLOAD,
+                    'canonical_db'   => $canonDb,
                 ]);
                 $payload = array_merge($payload, $sendCtx->mergedPayloadFragments());
             }

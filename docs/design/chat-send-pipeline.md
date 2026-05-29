@@ -41,8 +41,8 @@ Compare with existing **registry** pattern (`planner_agent.register`, `chat_pipe
 | **`prepare`** | **`chat.send.prepare`** | **chat + vault + slide-designer** | **Shipped:** composer flags, vault refs, attachments, slide template |
 | **`scope`** | **`chat.send.scope`** | **chat** | **Shipped:** auto-RAG / teaching-intent vault expansion |
 | `persist` | `chat.send.persist` | chat | Adjunct SQLite TX — chat-only tables |
-| `conversation_settle` | `chat.send.conversation_settle` | chat (stub) | Provisional title, thread params, inference meta |
-| **`orchestrator_ready`** | **`chat.send.orchestrator_ready`** | **chat + endpoints + vault** | **Partial:** `bind` (endpoint profile) + `payload` (purpose LLM + vault fragments) |
+| **`conversation_settle`** | **`chat.send.conversation_settle`** | **chat + slide-designer** | **Shipped:** provisional title, inference meta, user message meta |
+| **`orchestrator_ready`** | **`chat.send.orchestrator_ready`** | **chat + endpoints + vault** | **Partial:** `bind`, `agents`, `payload` stages |
 | `run_start` | `chat.send.run_start` | chat | POST `/v1/runs/chat`, stream URL |
 | `respond` | `chat.send.respond` | chat | JSON envelope to browser |
 
@@ -101,10 +101,10 @@ No changes to `send.php` when adding vault-only behavior — only the listener.
 
 1. **Done:** `prepare` — vault scope, web search, attachments, slide template.
 2. **Done:** `scope` — vault auto-expand after message content known.
-3. **Partial:** `orchestrator_ready` — bind stage + endpoints/vault payload fragments (slide/materials still in `send.php`).
-4. **Next:** `gate` — credit block, workspace gate.
-5. **Next:** `conversation_settle` — provisional title, inference meta on user message.
-6. **Next:** `orchestrator_ready` — slide-designer payload, allowed_agents, agent_catalog.
+3. **Partial:** `orchestrator_ready` — bind + agents + endpoints/vault payload (slide/materials still in `send.php`).
+4. **Done:** `conversation_settle` — title, inference snapshot, user meta (+ slide-designer template meta).
+5. **Next:** `gate` — credit block, workspace gate.
+6. **Next:** `orchestrator_ready` — slide-designer payload, materials grounding.
 
 Modules to migrate (non-exhaustive):
 
