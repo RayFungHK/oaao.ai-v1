@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use oaaoai\user\UserDisplayPreferences;
-use oaaoai\user\UserDisplayPreferences;
 use oaaoai\user\UserInvitationMail;
 use oaaoai\user\UserInvitationSupport;
 

@@ -68,11 +68,22 @@ export function syncSkillSuggestBannerVisibility(mount) {
  * @param {(path: string) => string} chatApiUrl
  * @param {() => number|null} getWorkspaceId
  */
-async function loadDialogCtor() {
+/** @type {Promise<typeof import('../../../core/default/webassets/razyui/component/Dialog.js').default>|null} */
+let dialogCtorPromise = null;
+
+function skillDialogPrefixed(path) {
+    const p = path.startsWith('/') ? path : `/${path}`;
     const prefix = (document.body?.dataset?.oaaoMountPrefix || '').trim();
-    const base = prefix ? `${prefix}/webassets/core/default/razyui/razyui.js` : '/webassets/core/default/razyui/razyui.js';
-    const razyui = await import(/* webpackIgnore: true */ base.replace(/\/{2,}/g, '/'));
-    return razyui.load('Dialog');
+    return prefix ? `${prefix}${p}`.replace(/\/{2,}/g, '/') : p;
+}
+
+async function loadDialogCtor() {
+    if (!dialogCtorPromise) {
+        dialogCtorPromise = import(
+            /* webpackIgnore: true */ skillDialogPrefixed('/webassets/core/default/razyui/component/Dialog.js'),
+        ).then((m) => m.default);
+    }
+    return dialogCtorPromise;
 }
 
 /**

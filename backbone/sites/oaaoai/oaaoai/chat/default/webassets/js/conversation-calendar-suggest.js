@@ -37,17 +37,31 @@ function mountPrefix() {
 /**
  * @param {string} path
  */
+function prefixed(path) {
+    const p = path.startsWith('/') ? path : `/${path}`;
+    const prefix = mountPrefix();
+    return prefix ? `${prefix}${p}`.replace(/\/{2,}/g, '/') : p;
+}
+
+/**
+ * @param {string} path
+ */
 export function calendarApiUrl(path) {
     const base = `${mountPrefix()}/calendar/api`.replace(/\/{2,}/g, '/');
     const p = String(path || '').replace(/^\//, '');
     return p ? `${base}/${p}` : base;
 }
 
+/** @type {Promise<typeof import('../../../core/default/webassets/razyui/component/Dialog.js').default>|null} */
+let dialogCtorPromise = null;
+
 async function loadDialogCtor() {
-    const prefix = mountPrefix();
-    const base = prefix ? `${prefix}/webassets/core/default/razyui/razyui.js` : '/webassets/core/default/razyui/razyui.js';
-    const razyui = await import(/* webpackIgnore: true */ base.replace(/\/{2,}/g, '/'));
-    return razyui.load('Dialog');
+    if (!dialogCtorPromise) {
+        dialogCtorPromise = import(
+            /* webpackIgnore: true */ prefixed('/webassets/core/default/razyui/component/Dialog.js'),
+        ).then((m) => m.default);
+    }
+    return dialogCtorPromise;
 }
 
 /**
