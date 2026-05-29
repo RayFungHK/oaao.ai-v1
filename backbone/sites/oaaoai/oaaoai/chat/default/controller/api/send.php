@@ -3,6 +3,7 @@
 use oaaoai\chat\ChatInferenceControl;
 use oaaoai\chat\ChatSendAbort;
 use oaaoai\chat\ChatSendContext;
+use oaaoai\chat\ChatSendHttp;
 use oaaoai\chat\ChatSendOrchestratorStage;
 use oaaoai\chat\ChatSendPersist;
 use oaaoai\chat\ChatSendPhase;
@@ -10,6 +11,7 @@ use oaaoai\chat\ChatSendPipeline;
 use oaaoai\chat\ChatSendRespondInput;
 use oaaoai\chat\ChatSendResponder;
 use oaaoai\chat\ChatSendRunStarter;
+use oaaoai\chat\ChatSendValidator;
 use oaaoai\user\UserModelParams;
 
 /**
@@ -35,13 +37,6 @@ return function (): void {
     }
 
     $uid = (int) ($user->user_id ?? 0);
-    if ($uid < 1) {
-        http_response_code(401);
-        echo json_encode(['success' => false, 'message' => 'Invalid session']);
-
-        return;
-    }
-
     $authApi = $this->api('auth');
     $canonDbEarly = $authApi ? $authApi->getDB() : null;
 
@@ -55,15 +50,6 @@ return function (): void {
     $conversationId = ($conversationId === null || $conversationId === '') ? null : (int) $conversationId;
     $isBubbleChat = ! empty($input['bubble']);
     $bubbleThread = $isBubbleChat;
-
-    if ($appendAssistantTurn) {
-        if ($conversationId === null || $conversationId < 1) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'conversation_id required for continue']);
-
-            return;
-        }
-    }
 
     $inputPlannerMode = '';
     if (isset($input['planner_mode_id'])) {
@@ -97,8 +83,12 @@ return function (): void {
     );
 
     $sendPipeline = new ChatSendPipeline($this);
+    $assistantStub = '*(Preview)* Connect an LLM endpoint and sidecar to stream real replies. Stored locally: your message was received.';
 
     try {
+        ChatSendValidator::assertAuthenticatedUser($uid);
+        ChatSendValidator::assertContinueConversation($conversationId, $appendAssistantTurn);
+
         $sendPipeline->run(ChatSendPhase::GATE, $sendCtx, [
             'user'         => $user,
             'auth_api'     => $authApi,
@@ -107,77 +97,36 @@ return function (): void {
         ]);
         $sendPipeline->run(ChatSendPhase::PREPARE, $sendCtx);
         $sendPipeline->run(ChatSendPhase::MESSAGE, $sendCtx, ['raw_content' => $content]);
-    } catch (ChatSendAbort $abort) {
-        http_response_code($abort->httpStatus);
-        echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
 
-        return;
-    }
+        ChatSendValidator::assertContentLength($sendCtx->content);
 
-    $content = $sendCtx->content;
-    $orchestratorUserContent = $sendCtx->orchestratorUserContent;
-    $vaultSourceIds = $sendCtx->vaultSourceIds;
-    $vaultSourceRefs = $sendCtx->vaultSourceRefs;
-    $vaultAutoRag = $sendCtx->vaultAutoRag;
-    $enableWebSearch = $sendCtx->enableWebSearch;
-    $attachmentIds = $sendCtx->attachmentIds;
-    $slideTemplateId = $sendCtx->slideTemplateId;
-    $hasPublishedSlideTemplate = $sendCtx->hasPublishedSlideTemplate;
-    $slideTemplateLabel = $sendCtx->slideTemplateLabel;
-
-    if (strlen($content) > 32000) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Message too long']);
-
-        return;
-    }
-
-    $assistantStub = '*(Preview)* Connect an LLM endpoint and sidecar to stream real replies. Stored locally: your message was received.';
-
-    $canonDb = $authApi ? $authApi->getDB() : null;
-
-    if ($canonDb instanceof \Razy\Database) {
-        try {
+        $canonDb = $authApi ? $authApi->getDB() : null;
+        if ($canonDb instanceof \Razy\Database) {
             $sendPipeline->run(ChatSendPhase::SCOPE, $sendCtx, [
                 'canonical_db' => $canonDb,
                 'auth_api'     => $authApi,
             ]);
-        } catch (ChatSendAbort $abort) {
-            http_response_code($abort->httpStatus);
-            echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
-
-            return;
         }
-        $vaultSourceIds = $sendCtx->vaultSourceIds;
-        $vaultSourceRefs = $sendCtx->vaultSourceRefs;
-    }
 
-    if ($chatEndpointId > 0) {
-        if (! $canonDb instanceof \Razy\Database
-            || ! \oaaoai\chat\ChatRoutingSelectableProfiles::isRunnableId($canonDb, $chatEndpointId)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid chat completion profile']);
+        ChatSendValidator::assertRunnableChatEndpoint(
+            $canonDb instanceof \Razy\Database ? $canonDb : null,
+            $chatEndpointId,
+        );
 
-            return;
+        $binding = null;
+        $internalBase = '';
+        if ($canonDb instanceof \Razy\Database) {
+            $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
+                'stage'        => ChatSendOrchestratorStage::BIND,
+                'canonical_db' => $canonDb,
+            ]);
+            $binding = $sendCtx->binding;
+            $internalBase = $sendCtx->internalBase;
         }
-    }
 
-    /** @var array{profile: array<string, mixed>, endpoint: array<string, mixed>, endpoint_id: int, temperature: float}|null $binding */
-    $binding = null;
-    $internalBase = '';
-    if ($canonDb instanceof \Razy\Database) {
-        $sendPipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $sendCtx, [
-            'stage'        => ChatSendOrchestratorStage::BIND,
-            'canonical_db' => $canonDb,
-        ]);
-        $binding = $sendCtx->binding;
-        $internalBase = $sendCtx->internalBase;
-    }
+        $orchReady = $sendCtx->orchReady;
+        $assistantInsertContent = $orchReady ? '' : $assistantStub;
 
-    $orchReady = $sendCtx->orchReady;
-    $assistantInsertContent = $orchReady ? '' : $assistantStub;
-
-    try {
         $persist = ChatSendPersist::execute(
             pipeline: $sendPipeline,
             ctx: $sendCtx,
@@ -190,7 +139,7 @@ return function (): void {
             isBubbleChat: $isBubbleChat,
             bubbleThread: $bubbleThread,
             conversationId: $conversationId,
-            content: $content,
+            content: $sendCtx->content,
             appendAssistantTurn: $appendAssistantTurn,
             continueAssistantId: $continueAssistantId,
             inputPlannerMode: $inputPlannerMode,
@@ -199,21 +148,10 @@ return function (): void {
             chatEndpointId: $chatEndpointId,
             orchReady: $orchReady,
             assistantInsertContent: $assistantInsertContent,
-            attachmentIds: $attachmentIds,
-            hasPublishedSlideTemplate: $hasPublishedSlideTemplate,
-            slideTemplateLabel: $slideTemplateLabel,
+            attachmentIds: $sendCtx->attachmentIds,
+            hasPublishedSlideTemplate: $sendCtx->hasPublishedSlideTemplate,
+            slideTemplateLabel: $sendCtx->slideTemplateLabel,
         );
-
-        $conversationId = $persist->conversationId;
-        $conversationCreated = $persist->conversationCreated;
-        $bubbleThread = $persist->bubbleThread;
-        $conversationModeId = $persist->conversationModeId;
-        $plannerModeId = $persist->plannerModeId;
-        $userMsgId = $persist->userMsgId;
-        $asstMsgId = $persist->asstMsgId;
-        $assistantInsertContent = $persist->assistantInsertContent;
-        $conversationTitleOut = $persist->conversationTitleOut;
-        $inferenceSnapshot = $persist->inferenceSnapshot;
 
         $run = ChatSendRunStarter::start(
             pipeline: $sendPipeline,
@@ -225,40 +163,39 @@ return function (): void {
             authApi: $authApi,
             uid: $uid,
             wid: $wid,
-            conversationId: (int) $conversationId,
-            asstMsgId: $asstMsgId,
+            conversationId: $persist->conversationId,
+            asstMsgId: $persist->asstMsgId,
             continueAssistantId: $continueAssistantId,
-            orchestratorUserContent: $orchestratorUserContent,
-            conversationModeId: $conversationModeId,
-            plannerModeId: $plannerModeId,
-            bubbleThread: $bubbleThread,
-            conversationCreated: $conversationCreated,
+            orchestratorUserContent: $sendCtx->orchestratorUserContent,
+            conversationModeId: $persist->conversationModeId,
+            plannerModeId: $persist->plannerModeId,
+            bubbleThread: $persist->bubbleThread,
+            conversationCreated: $persist->conversationCreated,
             orchReady: $orchReady,
             binding: $binding,
             internalBase: $internalBase,
             chatEndpointId: $chatEndpointId,
-            attachmentIds: $attachmentIds,
+            attachmentIds: $sendCtx->attachmentIds,
             input: $input,
-            assistantOut: $assistantInsertContent,
+            assistantOut: $persist->assistantInsertContent,
         );
 
         ChatSendResponder::emit($sendPipeline, $sendCtx, new ChatSendRespondInput(
-            conversationId: (int) $conversationId,
-            userMsgId: $userMsgId,
-            asstMsgId: $asstMsgId,
+            conversationId: $persist->conversationId,
+            userMsgId: $persist->userMsgId,
+            asstMsgId: $persist->asstMsgId,
             assistantOut: $run->assistantOut,
             streamUrl: $run->streamUrl,
             runId: $run->runId,
             streamToken: $run->streamToken,
             orchReady: $orchReady,
             workspaceId: $wid,
-            conversationTitleOut: $conversationTitleOut,
+            conversationTitleOut: $persist->conversationTitleOut,
             autoCompactApplied: $run->autoCompactApplied,
-            inferenceSnapshot: $inferenceSnapshot,
+            inferenceSnapshot: $persist->inferenceSnapshot,
         ));
     } catch (ChatSendAbort $abort) {
-        http_response_code($abort->httpStatus);
-        echo json_encode($abort->payload, JSON_UNESCAPED_UNICODE);
+        ChatSendHttp::emitAbort($abort);
 
         return;
     } catch (\Throwable $e) {

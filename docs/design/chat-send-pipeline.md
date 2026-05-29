@@ -61,6 +61,7 @@ Phases run in order when using `ChatSendPipeline::runMany()`. Migration is **inc
 | `ChatSendPersist` | Adjunct SQLite TX (`execute()` + `ChatSendPersistResult`) |
 | `ChatSendRunStarter` | Post-persist orchestrator run (`start()` + `ChatSendRunResult`) |
 | `ChatSendResponder` | Browser JSON envelope (`emit()` + `ChatSendRespondInput`) |
+| `ChatSendValidator` | Early HTTP validation (session, continue, length, endpoint profile) |
 | `ChatSendAbort` | Early JSON exit (HTTP status + payload) |
 | `ChatSendComposer` | Chat-owned input parsing (web search, attachments) |
 

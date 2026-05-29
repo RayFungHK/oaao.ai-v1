@@ -109,6 +109,8 @@ def test_chat_send_pipeline_library_exists() -> None:
     assert "ChatSendPersist::execute" in send_text
     assert "ChatSendRunStarter::start" in send_text
     assert "ChatSendResponder::emit" in send_text
+    assert "ChatSendValidator::assertAuthenticatedUser" in send_text
+    assert (OAao / "chat" / "default" / "library" / "ChatSendValidator.php").is_file()
     assert "startOrchestratorChatRun" not in send_text
     assert "UserPersonalization" not in send_text
     assert "ChatConversationMaterial" not in send_text
