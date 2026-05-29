@@ -63,6 +63,10 @@ const OAAO_I18N_BASE = {
         'access.invite.link_copied': 'Link copied.',
         'access.invite.copy_failed': 'Could not copy — select the URL manually.',
         'access.invite.link_dialog_title': 'Share invitation link',
+        'access.invite.none_pending':
+            'No pending invitations. Use Send invitation to invite by email.',
+        'access.invite.resend': 'Resend invitation',
+        'access.invite.resent': 'Invitation resent. Check the invitee inbox.',
         'auth.invite_required':
             'Public signup is disabled. Ask your administrator for an invitation link.',
         'auth.register.title': 'Complete registration',
@@ -1221,6 +1225,9 @@ const OAAO_I18N_BASE = {
         'access.invite.link_copied': '已複製連結。',
         'access.invite.copy_failed': '無法複製，請手動選取網址。',
         'access.invite.link_dialog_title': '分享邀請連結',
+        'access.invite.none_pending': '目前沒有待處理邀請。請使用「Send invitation」以電郵邀請。',
+        'access.invite.resend': '重新發送邀請',
+        'access.invite.resent': '已重新發送邀請，請留意收件匣。',
         'auth.invite_required': '已關閉公開註冊，請向管理員索取邀請連結。',
         'auth.register.title': '完成註冊',
         'auth.register.checking': '正在驗證邀請連結…',

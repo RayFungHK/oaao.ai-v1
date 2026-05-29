@@ -61,6 +61,8 @@ return function (): void {
         if ($pdo instanceof \PDO) {
             require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
             oaao_auth_ensure_credit_schema($pdo);
+            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_user_invitation_schema.php';
+            oaao_auth_ensure_user_invitation_schema($pdo);
         }
 
         $userQuery = $db->prepare()
@@ -132,12 +134,43 @@ return function (): void {
 
         $totalPages = $pageSize > 0 ? (int) max(1, (int) ceil($total / $pageSize)) : 1;
 
+        /** @var list<array<string, mixed>> $invitations */
+        $invitations = [];
+        $nowIso = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+        $invTid = $tid > 0 ? $tid : 1;
+        $invRows = $db->prepare()
+            ->select('invitation_id, email, role, status, expires_at, created_at, invited_by_user_id, permission_group_id')
+            ->from('user_invitation')
+            ->where('tenant_id=:tid, status=:st, expires_at>:ts')
+            ->assign(['tid' => $invTid, 'st' => 'pending', 'ts' => $nowIso])
+            ->order('created_at DESC')
+            ->query()
+            ->fetchAll();
+        if (\is_array($invRows)) {
+            foreach ($invRows as $invRow) {
+                if (! \is_array($invRow)) {
+                    continue;
+                }
+                $invitations[] = [
+                    'invitation_id'       => (int) ($invRow['invitation_id'] ?? 0),
+                    'email'               => (string) ($invRow['email'] ?? ''),
+                    'role'                => (string) ($invRow['role'] ?? 'user'),
+                    'status'              => (string) ($invRow['status'] ?? ''),
+                    'expires_at'          => (string) ($invRow['expires_at'] ?? ''),
+                    'created_at'          => (string) ($invRow['created_at'] ?? ''),
+                    'invited_by_user_id'  => (int) ($invRow['invited_by_user_id'] ?? 0),
+                    'permission_group_id' => isset($invRow['permission_group_id']) ? (int) $invRow['permission_group_id'] : null,
+                ];
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'data'    => [
-                'users'      => $out,
-                'groups'     => $groups,
-                'pagination' => [
+                'users'       => $out,
+                'groups'      => $groups,
+                'invitations' => $invitations,
+                'pagination'  => [
                     'page'        => $page,
                     'page_size'   => $pageSize,
                     'total'       => $total,

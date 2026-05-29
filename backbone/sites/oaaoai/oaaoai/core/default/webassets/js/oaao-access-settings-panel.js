@@ -59,24 +59,37 @@ async function mountUsersPanel(host, ctx, page = 1) {
             }),
         );
 
-        let invitations = [];
-        try {
-            const invRes = await fetch('/user/api/users_invitations_list', { credentials: 'same-origin' });
-            const invJson = await invRes.json();
-            if (invRes.ok && invJson?.success) {
-                invitations = Array.isArray(invJson.data?.invitations) ? invJson.data.invitations : [];
+        let invitations = Array.isArray(json.data?.invitations) ? json.data.invitations : [];
+        if (invitations.length === 0) {
+            try {
+                const invRes = await fetch('/user/api/users_invitations_list', { credentials: 'same-origin' });
+                const invJson = await invRes.json();
+                if (invRes.ok && invJson?.success) {
+                    invitations = Array.isArray(invJson.data?.invitations) ? invJson.data.invitations : [];
+                }
+            } catch {
+                invitations = [];
             }
-        } catch {
-            invitations = [];
         }
 
+        host.append(sectionTitle('Pending invitations', 'mt-md'));
         if (invitations.length > 0) {
-            host.append(sectionTitle('Pending invitations', 'mt-md'));
             host.append(buildInvitationsTable(invitations, ctx, () => mountUsersPanel(host, ctx, pagination.page)));
+        } else {
+            host.append(
+                hint(
+                    oaaoT(
+                        'access.invite.none_pending',
+                        'No pending invitations. Use Send invitation to invite by email.',
+                    ),
+                    'mb-md',
+                ),
+            );
         }
 
         if (users.length === 0) {
-            host.append(hint('No active users yet.', 'mt-md'));
+            host.append(sectionTitle('Active users', 'mt-md'));
+            host.append(hint('No active users yet.', 'mb-md'));
             host.append(buildPaginationBar(pagination, (p) => mountUsersPanel(host, ctx, p)));
             return;
         }
@@ -811,7 +824,11 @@ async function openInviteDialog(groups, ctx, reload) {
                         if (!res.ok || !json?.success) {
                             status.classList.remove('fg-[var(--grid-ink-muted)]');
                             status.classList.add('fg-[var(--grid-danger)]');
-                            status.textContent = json?.message || `Invite failed (${res.status})`;
+                            const msg = json?.message || `Invite failed (${res.status})`;
+                            status.textContent = msg;
+                            if (res.status === 409 && String(msg).toLowerCase().includes('pending')) {
+                                await showPendingInviteActions(body.email, status, ctx);
+                            }
                             return false;
                         }
                         if (!json?.mail_sent && json?.register_url) {
@@ -842,6 +859,70 @@ async function openInviteDialog(groups, ctx, reload) {
  * @param {string} registerUrl
  * @param {string} [email]
  */
+/**
+ * @param {string} email
+ * @param {HTMLElement} statusEl
+ * @param {Record<string, unknown>} ctx
+ */
+async function showPendingInviteActions(email, statusEl, ctx) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized) return;
+    let invitations = [];
+    try {
+        const invRes = await fetch('/user/api/users_invitations_list', { credentials: 'same-origin' });
+        const invJson = await invRes.json();
+        if (invRes.ok && invJson?.success) {
+            invitations = Array.isArray(invJson.data?.invitations) ? invJson.data.invitations : [];
+        }
+    } catch {
+        return;
+    }
+    const row = invitations.find(
+        (inv) => String(inv?.email || '').trim().toLowerCase() === normalized,
+    );
+    if (!row) return;
+    const iid = Number(row.invitation_id ?? 0);
+    if (iid < 1) return;
+
+    const actions = document.createElement('div');
+    actions.className = 'flex flex-wrap gap-2 mt-2';
+    const resendBtn = document.createElement('button');
+    resendBtn.type = 'button';
+    resendBtn.textContent = oaaoT('access.invite.resend', 'Resend invitation');
+    resendBtn.className =
+        'rounded-[8px] px-3 py-1.5 text-[0.75rem] fw-medium fg-[var(--grid-accent)] bg-transparent border-[1px] border-solid border-[var(--grid-line)] cursor-pointer font-inherit hover:bg-[var(--grid-line)]/20';
+    resendBtn.addEventListener('click', () => {
+        void (async () => {
+            resendBtn.disabled = true;
+            try {
+                const res = await fetch('/user/api/users_invite_resend', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invitation_id: iid }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok || !json?.success) {
+                    statusEl.textContent = json?.message || 'Resend failed';
+                    return;
+                }
+                if (!json?.mail_sent && json?.register_url) {
+                    openInviteRegisterLinkDialog(String(json.register_url), normalized);
+                } else {
+                    statusEl.textContent = oaaoT(
+                        'access.invite.resent',
+                        'Invitation resent. Check the invitee inbox.',
+                    );
+                }
+            } finally {
+                resendBtn.disabled = false;
+            }
+        })();
+    });
+    statusEl.after(actions);
+    actions.append(resendBtn);
+}
+
 function openInviteRegisterLinkDialog(registerUrl, email = '') {
     const wrap = document.createElement('div');
     wrap.className = 'flex flex-col gap-3 min-w-0';

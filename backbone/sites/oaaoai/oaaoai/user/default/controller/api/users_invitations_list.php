@@ -16,14 +16,14 @@ return function (): void {
     $db = $ctx['db'];
     $tid = $ctx['tenant_id'];
 
-    $rows = $db->prepare()
+    $nowIso = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $invQuery = $db->prepare()
         ->select('invitation_id, email, role, status, expires_at, created_at, invited_by_user_id, permission_group_id')
         ->from('user_invitation')
-        ->where('tenant_id=:tid, status=:st')
-        ->assign(['tid' => $tid, 'st' => 'pending'])
-        ->order('created_at DESC')
-        ->query()
-        ->fetchAll();
+        ->where('tenant_id=:tid, status=:st, expires_at>:ts')
+        ->assign(['tid' => $tid, 'st' => 'pending', 'ts' => $nowIso])
+        ->order('created_at DESC');
+    $rows = $invQuery->query()->fetchAll();
 
     $items = [];
     if (\is_array($rows)) {
