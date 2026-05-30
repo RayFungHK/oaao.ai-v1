@@ -88,38 +88,44 @@ final class ChatBubbleConversation
     }
 
     /**
-     * Keep bubble thread after productivity confirm — sidebar + Open chat links.
+     * Bubble threads are ephemeral — productivity rows must not link back to them.
      */
-    public static function promoteToPersistent(\Razy\Database $splitDb, int $conversationId, int $uid): bool
-    {
-        if ($conversationId < 1 || $uid < 1) {
+    public static function omitProductivityChatLinkage(
+        ?\Razy\Database $splitDb,
+        int $uid,
+        int $conversationId,
+    ): bool {
+        if ($conversationId < 1 || $uid < 1 || ! $splitDb instanceof \Razy\Database) {
             return false;
         }
-        $row = $splitDb->prepare()
-            ->select('params_json')
-            ->from('conversation')
-            ->where('id=?,user_id=?')
-            ->assign(['id' => $conversationId, 'user_id' => $uid])
-            ->limit(1)
-            ->query()
-            ->fetch();
-        if (! \is_array($row) || ! self::isBubbleRow($row)) {
-            return false;
-        }
-        $params = self::paramsFromRow($row);
-        unset($params['kind'], $params['expires_at']);
-        $params['promoted_from_bubble_at'] = date('c');
-        $splitDb->update('conversation', ['params_json', 'updated_at'])
-            ->where('id=?,user_id=?')
-            ->assign([
-                'params_json' => json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                'updated_at'  => date('Y-m-d H:i:s'),
-                'id'          => $conversationId,
-                'user_id'     => $uid,
-            ])
-            ->query();
+        $conv = ChatConversationScope::findOwnedByUser($splitDb, $uid, $conversationId, 'id, params_json');
 
-        return true;
+        return $conv !== null && self::isBubbleRow($conv);
+    }
+
+    /**
+     * Hide Open chat when the linked thread is gone or still an ephemeral bubble.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, mixed>
+     */
+    public static function stripEphemeralChatLinkageFromRow(
+        array $row,
+        ?\Razy\Database $splitDb,
+        int $uid,
+    ): array {
+        $cid = (int) ($row['conversation_id'] ?? 0);
+        if ($cid < 1 || $uid < 1 || ! $splitDb instanceof \Razy\Database) {
+            return $row;
+        }
+        $conv = ChatConversationScope::findOwnedByUser($splitDb, $uid, $cid, 'id, params_json');
+        if ($conv === null || self::isBubbleRow($conv)) {
+            $row['conversation_id'] = null;
+            $row['message_id'] = null;
+        }
+
+        return $row;
     }
 
     public static function touchExpiry(\Razy\Database $splitDb, int $conversationId, int $uid): void

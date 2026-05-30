@@ -15,7 +15,7 @@ import { wireWorkspaceNotifications } from './notification-panel.js';
 import { wireWorkspaceTodos } from './todos-panel.js';
 import { openWhatsNewDialog } from './whats-new-dialog.js';
 
-const BUBBLE_FROST_SHIM_REV = '20260530-bubble-persist-v234';
+const BUBBLE_FROST_SHIM_REV = '20260530-bubble-ephemeral-v236';
 const BUBBLE_FROST_STYLE_ID = 'oaao-bubble-chat-frost-shim';
 
 /** @param {HTMLElement} backdrop */

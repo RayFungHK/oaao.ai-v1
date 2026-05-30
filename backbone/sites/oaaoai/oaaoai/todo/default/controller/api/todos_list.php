@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatBubbleConversation;
+
 /**
  * GET /todo/api/todos_list?status=open|done|all&workspace_id=&conversation_id=
  */
@@ -56,6 +58,16 @@ return function (): void {
     $st = $ctx['pdo']->prepare($sql);
     $st->execute($params);
     $rows = $st->fetchAll(\PDO::FETCH_ASSOC);
+
+    $splitDb = $ctx['auth']->getDBSplit();
+    if (\is_array($rows)) {
+        foreach ($rows as $i => $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            $rows[$i] = ChatBubbleConversation::stripEphemeralChatLinkageFromRow($row, $splitDb, $uid);
+        }
+    }
 
     $openCount = 0;
     if (\is_array($rows)) {

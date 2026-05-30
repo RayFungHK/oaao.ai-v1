@@ -7,7 +7,7 @@
 import { fromLibraryBlocks, toLibraryBlocks } from './library-block-adapter.js';
 import { openLibraryEditorHelpDialog } from './library-editor-help.js';
 import { installLibraryBlockEditorInteraction } from './library-block-editor-interaction.js';
-import { oaaoT } from '../../../core/default/webassets/js/oaao-i18n.js';
+import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
 
 const LIBRARY_HELP_ICON_SVG =
     '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>';

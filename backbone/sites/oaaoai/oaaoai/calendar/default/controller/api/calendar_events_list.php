@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatBubbleConversation;
+
 /**
  * GET /calendar/api/calendar_events_list?workspace_id=&from=&to=
  */
@@ -57,6 +59,17 @@ return function (): void {
     $st = $ctx['pdo']->prepare($sql);
     $st->execute($params);
     $rows = $st->fetchAll(\PDO::FETCH_ASSOC);
+
+    $uid = (int) $ctx['uid'];
+    $splitDb = $ctx['auth']->getDBSplit();
+    if (\is_array($rows)) {
+        foreach ($rows as $i => $row) {
+            if (! \is_array($row)) {
+                continue;
+            }
+            $rows[$i] = ChatBubbleConversation::stripEphemeralChatLinkageFromRow($row, $splitDb, $uid);
+        }
+    }
 
     echo json_encode([
         'success' => true,

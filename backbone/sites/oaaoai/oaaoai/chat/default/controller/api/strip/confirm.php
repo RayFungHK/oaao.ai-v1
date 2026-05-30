@@ -127,7 +127,6 @@ return function (): void {
 
         if (! \array_key_exists($actionId, $meta) || $meta[$actionId] === null) {
             if (ChatStripConfirm::isAlreadyResolved($meta, $actionId)) {
-                ChatBubbleConversation::promoteToPersistent($splitDb, $cid, $uid);
                 echo json_encode([
                     'success'    => true,
                     'action_id'  => $actionId,
@@ -165,7 +164,13 @@ return function (): void {
             return;
         }
 
-        $result = ChatStripConfirm::execute($this, $uid, $convWid ?? 0, $claims, $payload);
+        $executeClaims = $claims;
+        if (ChatBubbleConversation::omitProductivityChatLinkage($splitDb, $uid, $cid)) {
+            $executeClaims['conversation_id'] = 0;
+            $executeClaims['message_id'] = 0;
+        }
+
+        $result = ChatStripConfirm::execute($this, $uid, $convWid ?? 0, $executeClaims, $payload);
         if (empty($result['success'])) {
             $http = (int) ($result['http'] ?? 500);
             http_response_code($http > 0 ? $http : 500);
@@ -178,7 +183,6 @@ return function (): void {
         }
 
         ChatProductivityFence::archiveAction($meta, $actionId, 'confirmed', $cid, $content);
-        ChatBubbleConversation::promoteToPersistent($splitDb, $cid, $uid);
         $splitDb->update('message', ['meta_json'])
             ->where('id=?,conversation_id=?')
             ->assign([

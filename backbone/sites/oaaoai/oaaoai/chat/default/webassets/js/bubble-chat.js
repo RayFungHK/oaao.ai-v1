@@ -15,7 +15,7 @@ import {
 } from './chat-composer-editor.js?v=20260528-nl91';
 
 /** Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat-panel.js + core.main.php */
-const BUBBLE_CHAT_ASSET_REV = '20260530-bubble-persist-v234';
+const BUBBLE_CHAT_ASSET_REV = '20260530-bubble-ephemeral-v236';
 
 const SESSION_KEY = 'oaao_bubble_chat_v1';
 const CHAT_PROFILE_STORAGE_KEY = 'oaao.workspace.chat_endpoint_id';
@@ -282,6 +282,20 @@ function setBubbleComposerInteractive(composerMount, inputEl, sendBtn, interacti
     }
 }
 
+async function dismissBubbleConversation(conversationId) {
+    if (!conversationId || conversationId < 1) return;
+    try {
+        await bubbleFetchJson(chatApiUrl('conversation_delete'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conversation_id: conversationId, ...workspaceScopeFields() }),
+        });
+    } catch {
+        /* ignore */
+    }
+    clearSession();
+}
+
 async function refreshContextUsageRing(conversationId) {
     if (!conversationId || conversationId < 1) return;
     globalThis.__oaaoStartChatContextUsagePoll?.();
@@ -450,8 +464,10 @@ export async function openBubbleChat() {
         conversationId = 0;
         if (cid > 0) {
             chatPanelMod.unregisterBubbleConversationMount(cid);
+            void dismissBubbleConversation(cid);
+        } else {
+            clearSession();
         }
-        clearSession();
         overlay.remove();
         activeOverlay = null;
         closeBubbleChatFn = null;
