@@ -13,8 +13,102 @@ import { oaaoMountLoadingLogo } from './oaao-loading-logo.js';
 import { openWorkspaceSettingsDialog } from './settings-dialog.js';
 import { wireWorkspaceNotifications } from './notification-panel.js';
 import { wireWorkspaceTodos } from './todos-panel.js';
-import { wireWorkspaceBubbleChat } from '../../../chat/default/js/bubble-chat.js';
 import { openWhatsNewDialog } from './whats-new-dialog.js';
+
+const BUBBLE_FROST_SHIM_REV = '20260530-bubble-persist-v234';
+const BUBBLE_FROST_STYLE_ID = 'oaao-bubble-chat-frost-shim';
+
+/** @param {HTMLElement} backdrop */
+function applyBubbleChatBackdropStyles(backdrop) {
+    backdrop.style.setProperty('position', 'fixed');
+    backdrop.style.setProperty('inset', '0');
+    backdrop.style.setProperty('z-index', '0');
+    backdrop.style.setProperty('pointer-events', 'none');
+    backdrop.style.setProperty('background', 'rgba(0, 0, 0, 0.75)', 'important');
+    backdrop.style.setProperty('background-image', 'none', 'important');
+    backdrop.style.setProperty('backdrop-filter', 'blur(24px)', 'important');
+    backdrop.style.setProperty('-webkit-backdrop-filter', 'blur(24px)', 'important');
+}
+
+/** Patch stale cached bubble-chat.js — opaque #070f1c gradient → frosted scrim. */
+function ensureBubbleChatFrostScrimStyles() {
+    if (typeof document === 'undefined') return;
+    let style = document.getElementById(BUBBLE_FROST_STYLE_ID);
+    if (!(style instanceof HTMLStyleElement)) {
+        style = document.createElement('style');
+        style.id = BUBBLE_FROST_STYLE_ID;
+        document.head.append(style);
+    }
+    if (style.dataset.oaaoRev === BUBBLE_FROST_SHIM_REV) return;
+    style.dataset.oaaoRev = BUBBLE_FROST_SHIM_REV;
+    style.textContent = `
+#oaao-bubble-chat-overlay.oaao-bubble-chat-overlay {
+    background: transparent !important;
+    background-image: none !important;
+}
+.oaao-bubble-chat-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.75) !important;
+    background-image: none !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+}
+.oaao-bubble-chat-topbar,
+.oaao-bubble-chat-main {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+}`.trim();
+}
+
+/** @param {HTMLElement} overlay */
+function patchBubbleChatOverlayFrostScrim(overlay) {
+    overlay.style.background = 'transparent';
+    overlay.style.backgroundImage = 'none';
+    const existing = overlay.querySelector('.oaao-bubble-chat-backdrop');
+    if (existing instanceof HTMLElement) {
+        applyBubbleChatBackdropStyles(existing);
+        return;
+    }
+    const backdrop = document.createElement('div');
+    backdrop.className = 'oaao-bubble-chat-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    applyBubbleChatBackdropStyles(backdrop);
+    overlay.insertBefore(backdrop, overlay.firstChild);
+}
+
+function wireBubbleChatFrostScrimShim() {
+    ensureBubbleChatFrostScrimStyles();
+    const obs = new MutationObserver(() => {
+        const overlay = document.getElementById('oaao-bubble-chat-overlay');
+        if (overlay instanceof HTMLElement) patchBubbleChatOverlayFrostScrim(overlay);
+    });
+    obs.observe(document.body, { childList: true });
+    const existing = document.getElementById('oaao-bubble-chat-overlay');
+    if (existing instanceof HTMLElement) patchBubbleChatOverlayFrostScrim(existing);
+}
+
+/** Always request bubble-chat with its own rev — do not inherit stale {@code data-oaao-shell-esm-v}. */
+function bubbleChatShellModuleUrl() {
+    return resolveShellRegistryUrl(
+        `/webassets/chat/default/js/bubble-chat.js?v=${encodeURIComponent(BUBBLE_FROST_SHIM_REV)}`,
+    );
+}
+
+/** Dynamic import with {@code ?v=} — static {@code @oaao/chat-js/} can resolve to unversioned fallback. */
+async function wireWorkspaceBubbleChatFromShell() {
+    try {
+        const m = await import(/* webpackIgnore: true */ bubbleChatShellModuleUrl());
+        if (typeof m.wireWorkspaceBubbleChat === 'function') {
+            m.wireWorkspaceBubbleChat();
+        }
+    } catch (err) {
+        console.warn('[oaao] bubble-chat wire failed', err);
+    }
+}
 
 /**
  * @param {string} value
@@ -2004,7 +2098,8 @@ export function initWorkspaceShell() {
 
     wireWorkspaceNotifications();
     wireWorkspaceTodos();
-    wireWorkspaceBubbleChat();
+    wireBubbleChatFrostScrimShim();
+    void wireWorkspaceBubbleChatFromShell();
 
     if (!document.body.dataset.oaaoNavigateCalendarBound) {
         document.body.dataset.oaaoNavigateCalendarBound = '1';

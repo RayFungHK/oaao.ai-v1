@@ -217,9 +217,11 @@ export function resolveShellRegistryUrl(spec) {
  * @param {string} url from {@link resolveShellRegistryUrl}
  * @returns {string}
  */
-export function oaaoAppendShellEsmV(url) {
+export function oaaoAppendShellEsmV(url, fallbackRev = '') {
     const u = String(url ?? '').trim();
-    const v = (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim() ?? '';
+    const v =
+        (typeof document !== 'undefined' && document.body?.dataset?.oaaoShellEsmV)?.trim()
+        ?? String(fallbackRev ?? '').trim();
     if (!u || !v) return u;
     const join = u.includes('?') ? '&' : '?';
 

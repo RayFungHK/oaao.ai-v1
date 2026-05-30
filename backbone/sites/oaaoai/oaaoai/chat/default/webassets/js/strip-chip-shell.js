@@ -219,6 +219,65 @@ async function fireStripToast(msg, kind = 'warning') {
     }
 }
 
+/**
+ * @param {StripItem | Record<string, unknown>} item
+ */
+function stripItemShowsConfirmButton(item) {
+    const confirmation = item.confirmation !== false && item.confirmation !== 'false';
+    const confirmLabel = String(item.confirm_label ?? '').trim();
+    return confirmation || confirmLabel !== '';
+}
+
+/**
+ * @param {string} actionId
+ * @param {boolean} idempotent
+ */
+function stripConfirmSuccessMessage(actionId, idempotent) {
+    if (idempotent) {
+        return pt('productivity.strip.already_done', 'Already added.');
+    }
+    const id = String(actionId ?? '').trim();
+    if (id === 'todo_resolve_suggested') {
+        return pt('productivity.todo.resolved', 'Todo marked complete.');
+    }
+    if (id.startsWith('todo_')) {
+        return pt('productivity.strip.todos_added', 'Todos added.');
+    }
+    if (id.includes('calendar')) {
+        return pt('productivity.strip.calendar_added', 'Added to calendar.');
+    }
+    return pt('productivity.strip.confirmed', 'Done.');
+}
+
+/**
+ * @param {HTMLElement} chip
+ * @param {boolean} loading
+ */
+function setStripConfirmLoading(chip, loading) {
+    const confirmBtn = chip.querySelector('[data-oaao-strip-confirm]');
+    if (confirmBtn instanceof HTMLButtonElement) {
+        if (loading) {
+            if (!confirmBtn.dataset.oaaoStripConfirmLabel) {
+                confirmBtn.dataset.oaaoStripConfirmLabel = confirmBtn.textContent ?? '';
+            }
+            confirmBtn.disabled = true;
+            confirmBtn.dataset.oaaoStripConfirmLoading = '1';
+            confirmBtn.textContent = pt('productivity.common.loading', 'Working…');
+            confirmBtn.setAttribute('aria-busy', 'true');
+        } else if (confirmBtn.dataset.oaaoStripConfirmLoading === '1') {
+            confirmBtn.disabled = false;
+            confirmBtn.dataset.oaaoStripConfirmLoading = '';
+            const label = confirmBtn.dataset.oaaoStripConfirmLabel;
+            if (label) confirmBtn.textContent = label;
+            confirmBtn.removeAttribute('aria-busy');
+        }
+    }
+    const dismissBtn = chip.querySelector('[data-oaao-strip-dismiss]');
+    if (dismissBtn instanceof HTMLButtonElement) {
+        dismissBtn.disabled = loading;
+    }
+}
+
 /** @type {Promise<typeof import('../../../core/default/webassets/razyui/component/Dialog.js').default>|null} */
 let dialogCtorPromise = null;
 
@@ -564,7 +623,8 @@ export function mountProductivityFenceStripActions(fenceHost, item, conversation
     confirmBtn.dataset.oaaoStripConfirm = '1';
     confirmBtn.className = 'oaao-productivity-fence-confirm';
     confirmBtn.textContent = confirmLabel;
-    if (!confirmation) {
+    const showConfirmBtn = stripItemShowsConfirmButton(item);
+    if (!showConfirmBtn) {
         confirmBtn.hidden = true;
         confirmBtn.setAttribute('aria-hidden', 'true');
     }
@@ -713,7 +773,8 @@ export function createStripChipElement(item, conversationId, messageId) {
     confirmBtn.className =
         'oaao-strip-chip__confirm relative z-[1] shrink-0 rounded-[6px] h-6 px-2 text-[0.6875rem] fw-medium whitespace-nowrap border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit pointer-events-auto';
     confirmBtn.textContent = confirmLabel;
-    if (!confirmation) {
+    const showConfirmBtn = stripItemShowsConfirmButton(item);
+    if (!showConfirmBtn) {
         confirmBtn.hidden = true;
         confirmBtn.setAttribute('aria-hidden', 'true');
     }
@@ -852,8 +913,9 @@ function upgradeStripChipFromItem(chip, item) {
     if (confirmBtn instanceof HTMLButtonElement) {
         const confirmLabel = String(item.confirm_label ?? '').trim();
         if (confirmLabel) confirmBtn.textContent = confirmLabel;
-        confirmBtn.hidden = !confirmation;
-        confirmBtn.toggleAttribute('aria-hidden', !confirmation);
+        const showConfirmBtn = stripItemShowsConfirmButton({ ...item, confirmation });
+        confirmBtn.hidden = !showConfirmBtn;
+        confirmBtn.toggleAttribute('aria-hidden', !showConfirmBtn);
     }
 
     if (item.payload && typeof item.payload === 'object') {
@@ -991,14 +1053,7 @@ async function postStripConfirm(chip, item, ctx = {}) {
     }
 
     const idempotent = Boolean(body.idempotent);
-    void fireStripToast(
-        idempotent
-            ? pt('productivity.strip.already_done', 'Already added.')
-            : actionId.startsWith('todo_')
-              ? pt('productivity.strip.todos_added', 'Todos added.')
-              : pt('productivity.strip.calendar_added', 'Added to calendar.'),
-        'success',
-    );
+    void fireStripToast(stripConfirmSuccessMessage(actionId, idempotent), 'success');
 
     return { ok: true, data: body, idempotent };
 }
@@ -1009,11 +1064,16 @@ async function postStripConfirm(chip, item, ctx = {}) {
  * @param {StripShellContext} [ctx]
  */
 async function runStripConfirm(chip, item, ctx = {}) {
-    const result = await postStripConfirm(chip, parseStripItemFromChip(chip, item), ctx);
-    if (!result.ok && result.reason === 'missing_hash') {
-        fireStripWaitReadyToast();
+    setStripConfirmLoading(chip, true);
+    try {
+        const result = await postStripConfirm(chip, parseStripItemFromChip(chip, item), ctx);
+        if (!result.ok && result.reason === 'missing_hash') {
+            fireStripWaitReadyToast();
+        }
+        return result;
+    } finally {
+        setStripConfirmLoading(chip, false);
     }
-    return result;
 }
 
 /**
@@ -1086,7 +1146,13 @@ export async function confirmStripChip(chip, item, ctx = {}) {
 
     if (needsPreview) {
         if (!String(chip.dataset.oaaoStripHash ?? merged.strip_hash ?? '').trim()) {
-            const ready = await waitForStripHash(chip, shellCtx);
+            setStripConfirmLoading(chip, true);
+            let ready = false;
+            try {
+                ready = await waitForStripHash(chip, shellCtx);
+            } finally {
+                setStripConfirmLoading(chip, false);
+            }
             if (!ready) {
                 fireStripWaitReadyToast();
                 return { ok: false, reason: 'missing_hash' };

@@ -308,8 +308,9 @@ return function (): void {
     };
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
-     *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
-    $oaaoShellEsmRev = '20260530-bubble-strip-fix-v215';
+     *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js.
+     *  Prod: if {@code OAAO_SHELL_ESM_V} is pinned in Docker, it overrides this — update or remove that env on deploy. */
+    $oaaoShellEsmRev = '20260530-bubble-persist-v234';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)
@@ -449,6 +450,9 @@ return function (): void {
         $chatJsScopePrefix = $chatJsPublicPrefix . '/';
         $chatJsScope = $oaaoBuildCoreJsImportScope($chatJsDiskRoot, $chatJsPublicPrefix, $oaao_shell_esm_v);
         $chatJsVersionedImports = $oaaoBuildCoreJsVersionedImports($chatJsDiskRoot, $chatJsPublicPrefix, $oaao_shell_esm_v);
+        $chatBubbleJsQv = '?v=' . \rawurlencode($oaao_shell_esm_v);
+        $chatJsVersionedImports['@oaao/chat-js/bubble-chat.js'] =
+            \rtrim($chatJsPublicPrefix, '/') . '/bubble-chat.js' . $chatBubbleJsQv;
         $razyuiPublicPrefix = \rtrim($oaaoPrefixedWebPath('/webassets/core/default/razyui', $oaaoMountPrefix), '/');
         $razyuiDiskRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'webassets' . DIRECTORY_SEPARATOR . 'razyui';
         $razyuiScopePrefix = $razyuiPublicPrefix . '/';

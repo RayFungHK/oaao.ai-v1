@@ -7,6 +7,7 @@
 import { fromLibraryBlocks, toLibraryBlocks } from './library-block-adapter.js';
 import { openLibraryEditorHelpDialog } from './library-editor-help.js';
 import { installLibraryBlockEditorInteraction } from './library-block-editor-interaction.js';
+import { oaaoT } from '../../../core/default/webassets/js/oaao-i18n.js';
 
 const LIBRARY_HELP_ICON_SVG =
     '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>';
@@ -408,6 +409,49 @@ function listHostFromMount(_editorHost) {
 }
 
 /**
+ * @returns {Promise<boolean>}
+ */
+async function confirmDeleteLibraryDocument() {
+    const fallbackMessage = oaaoT(
+        'library.delete.confirm',
+        'Delete this document? This cannot be undone.',
+    );
+    try {
+        const Dialog = await loadLibraryDialogCtor();
+        if (!Dialog || typeof Dialog.confirm !== 'function') {
+            return window.confirm(fallbackMessage);
+        }
+
+        const title = oaaoT('library.delete.confirm_title', 'Delete document?');
+        const wrap = document.createElement('div');
+        wrap.className = 'flex flex-col gap-2 text-[0.875rem]';
+        const p = document.createElement('p');
+        p.className = 'm-0 leading-snug fg-[var(--rui-text)]';
+        p.textContent = fallbackMessage;
+        wrap.append(p);
+
+        return Dialog.confirm(title, wrap, {
+            size: 'sm',
+            overlayClose: false,
+            buttons: [
+                {
+                    text: oaaoT('productivity.common.cancel', 'Cancel'),
+                    color: 'muted',
+                    role: 'cancel',
+                },
+                {
+                    text: oaaoT('library.action.delete', 'Delete'),
+                    color: 'danger',
+                    role: 'confirm',
+                },
+            ],
+        });
+    } catch {
+        return window.confirm(fallbackMessage);
+    }
+}
+
+/**
  * @param {number} documentId
  * @param {HTMLElement} editorHost
  * @param {HTMLElement|null} listHost
@@ -415,7 +459,7 @@ function listHostFromMount(_editorHost) {
 async function deleteLibraryDocument(documentId, editorHost, listHost) {
     const id = Math.floor(Number(documentId));
     if (id < 1) return;
-    if (!window.confirm('Delete this document? This cannot be undone.')) return;
+    if (!(await confirmDeleteLibraryDocument())) return;
     const { res, data } = await libraryFetchJson('library_document_delete', {
         method: 'POST',
         body: JSON.stringify({ document_id: id }),
@@ -792,7 +836,7 @@ async function loadLibraryDialogCtor() {
         }
         const loaded = await razyui.load('Dialog');
         const Dialog = loaded?.default ?? loaded;
-        return typeof Dialog?.open === 'function' ? Dialog : null;
+        return typeof Dialog?.open === 'function' || typeof Dialog?.confirm === 'function' ? Dialog : null;
     } catch (err) {
         console.error('[library-panel] Dialog load failed', err);
         return null;

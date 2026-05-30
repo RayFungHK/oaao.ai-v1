@@ -2628,7 +2628,27 @@
     flex-shrink: 0;
 }
 
-/* Bubble Chat fullscreen — see oaao-bubble-chat.css (loaded by bubble-chat.js). */
+/* Bubble Chat frosted scrim — also in oaao-bubble-chat.css; duplicated here for stale-module fallback. */
+#oaao-bubble-chat-overlay.oaao-bubble-chat-overlay {
+    background: transparent !important;
+    background-image: none !important;
+}
+.oaao-bubble-chat-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.75) !important;
+    background-image: none !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+}
+.oaao-bubble-chat-topbar,
+.oaao-bubble-chat-main {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+}
 
 /*
  * Thread toolbar — sticky top-right inside {@code thread-wrap} scrollport.

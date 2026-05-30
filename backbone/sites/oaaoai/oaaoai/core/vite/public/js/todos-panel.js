@@ -4,6 +4,46 @@
 
 import { oaaoT } from './oaao-i18n.js';
 
+/** @type {Promise<((msg: string, kind?: string) => void) | null> | null} */
+let todoToastFirePromise = null;
+
+/**
+ * @param {string} msg
+ * @param {'success' | 'error' | 'info' | 'warning'} [kind]
+ */
+async function fireTodoToast(msg, kind = 'success') {
+    if (!todoToastFirePromise) {
+        const prefix = mountPrefix();
+        const url = `${prefix}/webassets/core/default/js/oaao-razy-toast.js`.replace(/\/{2,}/g, '/');
+        todoToastFirePromise = import(/* webpackIgnore: true */ url)
+            .then((m) => (typeof m.oaaoRazyToastFire === 'function' ? m.oaaoRazyToastFire : null))
+            .catch(() => null);
+    }
+    const fire = await todoToastFirePromise;
+    if (typeof fire === 'function') {
+        fire(msg, kind);
+    }
+}
+
+/**
+ * @param {HTMLButtonElement} btn
+ * @param {boolean} loading
+ * @param {string} idleLabel
+ */
+function setTodoActionButtonLoading(btn, loading, idleLabel) {
+    if (loading) {
+        btn.disabled = true;
+        btn.dataset.oaaoTodoActionLoading = '1';
+        btn.textContent = oaaoT('productivity.common.loading', 'Working…');
+        btn.setAttribute('aria-busy', 'true');
+    } else {
+        btn.disabled = false;
+        btn.dataset.oaaoTodoActionLoading = '';
+        btn.textContent = idleLabel;
+        btn.removeAttribute('aria-busy');
+    }
+}
+
 function mountPrefix() {
     return (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
 }
@@ -123,14 +163,45 @@ function renderTodoList(panel, badge, rows) {
                 doneBtn.className =
                     'text-[0.75rem] px-2 py-0.5 rounded border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit';
                 doneBtn.textContent = oaaoT('todos.action.done', 'Done');
+                const doneLabel = doneBtn.textContent;
                 const todoId = Number(row.todo_id ?? 0);
                 doneBtn.addEventListener('click', () => {
+                    if (doneBtn.disabled || doneBtn.dataset.oaaoTodoActionLoading === '1') return;
+                    setTodoActionButtonLoading(doneBtn, true, doneLabel);
                     void fetch(todoApiUrl('todos_resolve'), {
                         method: 'POST',
                         credentials: 'include',
                         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                         body: JSON.stringify({ todo_id: todoId }),
-                    }).then(() => refreshTodos(panel, badge));
+                    })
+                        .then(async (res) => {
+                            let data = null;
+                            try {
+                                data = await res.json();
+                            } catch {
+                                /* ignore */
+                            }
+                            if (!res.ok || data?.success !== true) {
+                                void fireTodoToast(
+                                    oaaoT('productivity.todo.resolve_failed', 'Could not mark todo complete.'),
+                                    'error',
+                                );
+                                setTodoActionButtonLoading(doneBtn, false, doneLabel);
+                                return;
+                            }
+                            void fireTodoToast(
+                                oaaoT('productivity.todo.resolved', 'Todo marked complete.'),
+                                'success',
+                            );
+                            void refreshTodos(panel, badge);
+                        })
+                        .catch(() => {
+                            void fireTodoToast(
+                                oaaoT('productivity.todo.resolve_failed', 'Could not mark todo complete.'),
+                                'error',
+                            );
+                            setTodoActionButtonLoading(doneBtn, false, doneLabel);
+                        });
                 });
                 actions.append(doneBtn);
             } else if (String(row.status || '') === 'done') {

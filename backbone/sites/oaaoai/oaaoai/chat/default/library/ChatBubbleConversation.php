@@ -87,6 +87,41 @@ final class ChatBubbleConversation
         return $params;
     }
 
+    /**
+     * Keep bubble thread after productivity confirm — sidebar + Open chat links.
+     */
+    public static function promoteToPersistent(\Razy\Database $splitDb, int $conversationId, int $uid): bool
+    {
+        if ($conversationId < 1 || $uid < 1) {
+            return false;
+        }
+        $row = $splitDb->prepare()
+            ->select('params_json')
+            ->from('conversation')
+            ->where('id=?,user_id=?')
+            ->assign(['id' => $conversationId, 'user_id' => $uid])
+            ->limit(1)
+            ->query()
+            ->fetch();
+        if (! \is_array($row) || ! self::isBubbleRow($row)) {
+            return false;
+        }
+        $params = self::paramsFromRow($row);
+        unset($params['kind'], $params['expires_at']);
+        $params['promoted_from_bubble_at'] = date('c');
+        $splitDb->update('conversation', ['params_json', 'updated_at'])
+            ->where('id=?,user_id=?')
+            ->assign([
+                'params_json' => json_encode($params, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                'updated_at'  => date('Y-m-d H:i:s'),
+                'id'          => $conversationId,
+                'user_id'     => $uid,
+            ])
+            ->query();
+
+        return true;
+    }
+
     public static function touchExpiry(\Razy\Database $splitDb, int $conversationId, int $uid): void
     {
         if ($conversationId < 1 || $uid < 1) {

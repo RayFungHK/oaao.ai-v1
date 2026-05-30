@@ -9,9 +9,49 @@
 import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
 import { todoApiUrl } from './conversation-todo-suggest.js';
 
+/** @type {Promise<((msg: string, kind?: string) => void) | null> | null} */
+let todoToastFirePromise = null;
+
 /** @param {string} key @param {string} fallback */
 function pt(key, fallback) {
     return oaaoT(key, fallback);
+}
+
+/**
+ * @param {string} msg
+ * @param {'success' | 'error' | 'info' | 'warning'} [kind]
+ */
+async function fireTodoToast(msg, kind = 'success') {
+    if (!todoToastFirePromise) {
+        const prefix = (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
+        const url = `${prefix}/webassets/core/default/js/oaao-razy-toast.js`.replace(/\/{2,}/g, '/');
+        todoToastFirePromise = import(/* webpackIgnore: true */ url)
+            .then((m) => (typeof m.oaaoRazyToastFire === 'function' ? m.oaaoRazyToastFire : null))
+            .catch(() => null);
+    }
+    const fire = await todoToastFirePromise;
+    if (typeof fire === 'function') {
+        fire(msg, kind);
+    }
+}
+
+/**
+ * @param {HTMLButtonElement} btn
+ * @param {boolean} loading
+ * @param {string} idleLabel
+ */
+function setTodoResolveButtonLoading(btn, loading, idleLabel) {
+    if (loading) {
+        btn.disabled = true;
+        btn.dataset.oaaoTodoResolveLoading = '1';
+        btn.textContent = pt('productivity.common.loading', 'Working…');
+        btn.setAttribute('aria-busy', 'true');
+    } else {
+        btn.disabled = false;
+        btn.dataset.oaaoTodoResolveLoading = '';
+        btn.textContent = idleLabel;
+        btn.removeAttribute('aria-busy');
+    }
 }
 
 /**
@@ -128,18 +168,44 @@ export async function refreshThreadTodoStrip(mount, conversationId) {
                 'shrink-0 inline-flex items-center justify-center w-7 h-7 rounded border border-solid border-[var(--grid-line)] bg-[var(--grid-paper)] cursor-pointer font-inherit fg-[var(--grid-caption)] hover:fg-[var(--grid-ink)]';
             doneBtn.setAttribute('aria-label', pt('productivity.todo.resolve', 'Resolve'));
             doneBtn.title = pt('productivity.todo.resolve', 'Resolve');
-            doneBtn.textContent = '✓';
+            const idleLabel = '✓';
+            doneBtn.textContent = idleLabel;
             const todoId = Number(row.todo_id ?? 0);
             doneBtn.addEventListener('click', () => {
+                if (doneBtn.disabled || doneBtn.dataset.oaaoTodoResolveLoading === '1') return;
+                setTodoResolveButtonLoading(doneBtn, true, idleLabel);
                 void fetch(todoApiUrl('todos_resolve'), {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ todo_id: todoId }),
-                }).then(() => {
-                    document.dispatchEvent(new CustomEvent('oaao:todos-changed'));
-                    void refreshThreadTodoStrip(mount, cid);
-                });
+                })
+                    .then(async (res) => {
+                        let data = null;
+                        try {
+                            data = await res.json();
+                        } catch {
+                            /* ignore */
+                        }
+                        if (!res.ok || data?.success !== true) {
+                            void fireTodoToast(
+                                pt('productivity.todo.resolve_failed', 'Could not mark todo complete.'),
+                                'error',
+                            );
+                            setTodoResolveButtonLoading(doneBtn, false, idleLabel);
+                            return;
+                        }
+                        void fireTodoToast(pt('productivity.todo.resolved', 'Todo marked complete.'), 'success');
+                        document.dispatchEvent(new CustomEvent('oaao:todos-changed'));
+                        void refreshThreadTodoStrip(mount, cid);
+                    })
+                    .catch(() => {
+                        void fireTodoToast(
+                            pt('productivity.todo.resolve_failed', 'Could not mark todo complete.'),
+                            'error',
+                        );
+                        setTodoResolveButtonLoading(doneBtn, false, idleLabel);
+                    });
             });
             item.append(lbl, doneBtn);
             list.append(item);

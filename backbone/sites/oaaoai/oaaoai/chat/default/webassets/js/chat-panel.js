@@ -2435,7 +2435,7 @@ async function confirmDeleteChatDialog(opts = {}) {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260530-bubble-strip-fix-v215';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260530-rescore-soft-skip-v216';
 
 /** Post-turn calendar/todo workers run after {@code system/end} — hydrate must outlive LLM classify latency. */
 const PRODUCTIVITY_HYDRATE_MAX_ATTEMPTS = 60;
@@ -9600,6 +9600,12 @@ function applyAccsReflectionMarkerToRow(outer, turnScore) {
     marker.classList.toggle('oaao-chat-accs-reflection-marker--pending', !consumed);
 }
 
+/** @type {Map<number, number>} */
+const turnScoresRescoreCooldownUntilByConversation = new Map();
+
+const TURN_SCORES_RESCORE_COOLDOWN_MS = 90_000;
+const TURN_SCORES_RESCORE_EMPTY_COOLDOWN_MS = 45_000;
+
 /**
  * Fire-and-forget background rescore when turns lack or stale IQS/ACCS — pills appear on next open after queue completes.
  *
@@ -9608,22 +9614,46 @@ function applyAccsReflectionMarkerToRow(outer, turnScore) {
 async function triggerTurnScoresRescoreIfNeeded(conversationId) {
     const cid = Number(conversationId);
     if (!Number.isFinite(cid) || cid < 1) return;
+    const now = Date.now();
+    const cooldownUntil = turnScoresRescoreCooldownUntilByConversation.get(cid) ?? 0;
+    if (now < cooldownUntil) return;
+
     const { res, data } = await chatFetchJson(chatApiUrl('turn_scores_rescore'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversation_id: cid, ...chatScopeBodyFieldsForConversation(cid) }),
     });
-    if (!data?.success) {
-        console.warn(
-            '[oaao-chat] turn_scores_rescore failed',
-            cid,
-            data?.message || res.status,
-            data?.orchestrator_detail || '',
-            data?.orchestrator_status || '',
-        );
+
+    if (data?.skipped === true) {
+        turnScoresRescoreCooldownUntilByConversation.set(cid, now + TURN_SCORES_RESCORE_COOLDOWN_MS);
         return;
     }
-    console.info('[oaao-chat] turn_scores_rescore queued', cid, data?.queued ?? 0, data?.already_running ? '(already running)' : '');
+
+    if (!data?.success) {
+        turnScoresRescoreCooldownUntilByConversation.set(cid, now + TURN_SCORES_RESCORE_COOLDOWN_MS);
+        if (res.status >= 500) {
+            console.warn(
+                '[oaao-chat] turn_scores_rescore unavailable',
+                cid,
+                data?.message || res.status,
+                data?.orchestrator_detail || '',
+            );
+        }
+        return;
+    }
+
+    const queued = Number(data?.queued ?? 0);
+    if (queued < 1 && !data?.already_running) {
+        turnScoresRescoreCooldownUntilByConversation.set(cid, now + TURN_SCORES_RESCORE_EMPTY_COOLDOWN_MS);
+        return;
+    }
+
+    console.info(
+        '[oaao-chat] turn_scores_rescore queued',
+        cid,
+        queued,
+        data?.already_running ? '(already running)' : '',
+    );
 }
 
 /**

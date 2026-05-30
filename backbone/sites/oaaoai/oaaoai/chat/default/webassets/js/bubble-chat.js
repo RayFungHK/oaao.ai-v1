@@ -15,13 +15,82 @@ import {
 } from './chat-composer-editor.js?v=20260528-nl91';
 
 /** Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat-panel.js + core.main.php */
-const BUBBLE_CHAT_ASSET_REV = '20260530-bubble-strip-fix-v215';
+const BUBBLE_CHAT_ASSET_REV = '20260530-bubble-persist-v234';
 
 const SESSION_KEY = 'oaao_bubble_chat_v1';
 const CHAT_PROFILE_STORAGE_KEY = 'oaao.workspace.chat_endpoint_id';
 const BUBBLE_SHELL_CSS_ID = 'oaao-bubble-chat-shell-css';
 const BUBBLE_THEME_CSS_ID = 'oaao-bubble-chat-theme-css';
+const BUBBLE_INLINE_STYLE_ID = 'oaao-bubble-chat-inline-styles';
 
+/** Frosted scrim + info/state readability — inlined so stale cached CSS cannot win. */
+const BUBBLE_BACKDROP_CSS = `
+#oaao-bubble-chat-overlay.oaao-bubble-chat-overlay {
+    background: transparent !important;
+    background-image: none !important;
+    --grid-ink: #f0f4fb;
+    --grid-ink-muted: #c7d4e8;
+    --grid-caption: #e2eaf5;
+    --grid-panel-bright: rgba(12, 18, 28, 0.72);
+    --grid-line: rgba(255, 255, 255, 0.16);
+    --grid-accent: #60a5fa;
+}
+.oaao-bubble-chat-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.75) !important;
+    background-image: none !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+}
+.oaao-bubble-chat-topbar,
+.oaao-bubble-chat-main {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+}
+.oaao-bubble-chat-overlay .oaao-chat-turn-score-pill--pending {
+    opacity: 1 !important;
+}
+.oaao-bubble-chat-overlay .oaao-chat-info-pill--pending {
+    color: #f8fafc !important;
+    background: rgba(255, 255, 255, 0.24) !important;
+    border-color: rgba(255, 255, 255, 0.48) !important;
+}
+.oaao-bubble-chat-overlay .oaao-chat-info-pill--pending .oaao-chat-info-pill__icon {
+    animation: none !important;
+    opacity: 1 !important;
+}
+.oaao-bubble-chat-overlay .oaao-chat-assistant-summary-text,
+.oaao-bubble-chat-overlay [data-oaao-chat='assistant-summary'] {
+    color: #f0f4fb !important;
+    font-size: 0.8125rem !important;
+}
+.oaao-bubble-chat-overlay .oaao-chat-run-meta-info,
+.oaao-bubble-chat-overlay [data-oaao-chat='run-meta-info'] {
+    color: #93c5fd !important;
+    font-size: 0.8125rem !important;
+    font-weight: 600;
+}
+.oaao-bubble-chat-overlay .oaao-bubble-chat-composer [data-oaao-chat='composer-inner'],
+.oaao-bubble-chat-overlay .oaao-bubble-chat-composer [data-oaao-chat='composer-card-wrap'] {
+    background: #fff !important;
+}
+`.trim();
+
+/** @param {HTMLElement} backdrop */
+function applyBubbleChatBackdropStyles(backdrop) {
+    backdrop.style.setProperty('position', 'fixed');
+    backdrop.style.setProperty('inset', '0');
+    backdrop.style.setProperty('z-index', '0');
+    backdrop.style.setProperty('pointer-events', 'none');
+    backdrop.style.setProperty('background', 'rgba(0, 0, 0, 0.75)', 'important');
+    backdrop.style.setProperty('background-image', 'none', 'important');
+    backdrop.style.setProperty('backdrop-filter', 'blur(24px)', 'important');
+    backdrop.style.setProperty('-webkit-backdrop-filter', 'blur(24px)', 'important');
+}
 /** @type {HTMLElement | null} */
 let activeOverlay = null;
 /** @type {(() => void) | null} */
@@ -81,8 +150,22 @@ function getChatEndpointId() {
     }
 }
 
+function ensureBubbleChatInlineStyles() {
+    if (typeof document === 'undefined') return;
+    let style = document.getElementById(BUBBLE_INLINE_STYLE_ID);
+    if (!(style instanceof HTMLStyleElement)) {
+        style = document.createElement('style');
+        style.id = BUBBLE_INLINE_STYLE_ID;
+        document.head.append(style);
+    }
+    if (style.dataset.oaaoRev === BUBBLE_CHAT_ASSET_REV) return;
+    style.dataset.oaaoRev = BUBBLE_CHAT_ASSET_REV;
+    style.textContent = BUBBLE_BACKDROP_CSS;
+}
+
 function ensureBubbleChatAssets() {
     if (typeof document === 'undefined') return;
+    ensureBubbleChatInlineStyles();
     if (!document.getElementById(BUBBLE_SHELL_CSS_ID)) {
         const link = document.createElement('link');
         link.id = BUBBLE_SHELL_CSS_ID;
@@ -199,20 +282,6 @@ function setBubbleComposerInteractive(composerMount, inputEl, sendBtn, interacti
     }
 }
 
-async function dismissBubbleConversation(conversationId) {
-    if (!conversationId || conversationId < 1) return;
-    try {
-        await bubbleFetchJson(chatApiUrl('conversation_delete'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ conversation_id: conversationId, ...workspaceScopeFields() }),
-        });
-    } catch {
-        /* ignore */
-    }
-    clearSession();
-}
-
 async function refreshContextUsageRing(conversationId) {
     if (!conversationId || conversationId < 1) return;
     globalThis.__oaaoStartChatContextUsagePoll?.();
@@ -256,9 +325,15 @@ export async function openBubbleChat() {
     const overlay = document.createElement('div');
     overlay.id = 'oaao-bubble-chat-overlay';
     overlay.className = 'oaao-bubble-chat-overlay';
+    overlay.style.background = 'transparent';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', oaaoT('bubble_chat.title', 'Bubble Chat'));
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'oaao-bubble-chat-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    applyBubbleChatBackdropStyles(backdrop);
 
     const topbar = document.createElement('header');
     topbar.className = 'oaao-bubble-chat-topbar';
@@ -305,7 +380,7 @@ export async function openBubbleChat() {
     chatMount.append(msgsHost);
     column.append(chatMount, statusEl, composerHost);
     main.append(column);
-    overlay.append(topbar, main);
+    overlay.append(backdrop, topbar, main);
 
     /** @type {typeof import('./chat-panel.js')} */
     let chatPanelMod;
@@ -375,10 +450,8 @@ export async function openBubbleChat() {
         conversationId = 0;
         if (cid > 0) {
             chatPanelMod.unregisterBubbleConversationMount(cid);
-            void dismissBubbleConversation(cid);
-        } else {
-            clearSession();
         }
+        clearSession();
         overlay.remove();
         activeOverlay = null;
         closeBubbleChatFn = null;

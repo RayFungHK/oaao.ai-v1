@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatBubbleConversation;
 use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatProductivityFence;
 use oaaoai\chat\ChatProductivityInlineParse;
@@ -126,6 +127,7 @@ return function (): void {
 
         if (! \array_key_exists($actionId, $meta) || $meta[$actionId] === null) {
             if (ChatStripConfirm::isAlreadyResolved($meta, $actionId)) {
+                ChatBubbleConversation::promoteToPersistent($splitDb, $cid, $uid);
                 echo json_encode([
                     'success'    => true,
                     'action_id'  => $actionId,
@@ -176,6 +178,7 @@ return function (): void {
         }
 
         ChatProductivityFence::archiveAction($meta, $actionId, 'confirmed', $cid, $content);
+        ChatBubbleConversation::promoteToPersistent($splitDb, $cid, $uid);
         $splitDb->update('message', ['meta_json'])
             ->where('id=?,conversation_id=?')
             ->assign([

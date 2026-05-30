@@ -33,11 +33,22 @@ return function (): void {
         return;
     }
 
+    /** Background rescore is optional — never hard-fail the chat UI when deps are down. */
+    $softSkip = static function (string $reason) use ($cid): void {
+        echo json_encode([
+            'success'         => true,
+            'conversation_id' => $cid,
+            'queued'          => 0,
+            'skipped'         => true,
+            'skip_reason'     => $reason,
+            'scorer_versions' => TurnScorerVersion::payload(),
+        ], JSON_UNESCAPED_UNICODE);
+    };
+
     $auth = $this->api('auth');
     $canonDb = $auth ? $auth->getDB() : null;
     if (! $canonDb instanceof \Razy\Database) {
-        http_response_code(503);
-        echo json_encode(['success' => false, 'message' => 'Canonical database unavailable'], JSON_UNESCAPED_UNICODE);
+        $softSkip('canonical_database_unavailable');
 
         return;
     }
@@ -195,13 +206,15 @@ return function (): void {
             $coachEndpoint = $endpointsApi->resolveOrchestratorUiqePayload();
         }
 
-        $orchBase = ChatOrchestratorApi::internalBase();
+        try {
+            $orchBase = ChatOrchestratorApi::internalBase();
+        } catch (\Throwable) {
+            $softSkip('orchestrator_not_configured');
+
+            return;
+        }
         if ($orchBase === '') {
-            http_response_code(503);
-            echo json_encode([
-                'success' => false,
-                'message' => 'Orchestrator URL not configured (OAAO_ORCHESTRATOR_INTERNAL_URL)',
-            ], JSON_UNESCAPED_UNICODE);
+            $softSkip('orchestrator_url_unconfigured');
 
             return;
         }
@@ -272,13 +285,16 @@ return function (): void {
             return;
         }
 
-        http_response_code(503);
         echo json_encode([
-            'success'             => false,
-            'message'             => 'Orchestrator rescore unavailable',
+            'success'             => true,
+            'conversation_id'     => $cid,
+            'queued'              => 0,
+            'skipped'             => true,
+            'skip_reason'         => 'orchestrator_rescore_unavailable',
             'orchestrator_detail' => $lastDetail,
             'orchestrator_status' => $lastStatus,
             'turns_requested'     => \count($slimQueue),
+            'scorer_versions'     => TurnScorerVersion::payload(),
         ], JSON_UNESCAPED_UNICODE);
     } catch (\Throwable $e) {
         error_log('turn_scores_rescore failed: ' . $e->getMessage());
