@@ -16,7 +16,7 @@ final class InfoWorkerRegister
     protected static array $entries = [];
 
     /**
-     * @param array<string, mixed> $extras pill_kind, post_turn_action_ids, meta_keys, module_code, sort, enabled
+     * @param array<string, mixed> $extras pill_kind, post_turn_action_ids, meta_keys, module_code, sort, enabled, only_last
      */
     public static function add(string $worker_id, string $label, array $extras = []): void
     {
@@ -70,6 +70,10 @@ final class InfoWorkerRegister
             $row['enabled'] = ! empty($extras['enabled']);
         } else {
             $row['enabled'] = true;
+        }
+
+        if (array_key_exists('only_last', $extras)) {
+            $row['only_last'] = ! empty($extras['only_last']);
         }
 
         self::$entries[$worker_id] = $row;

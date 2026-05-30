@@ -5,6 +5,52 @@
  */
 
 /**
+ * Canonical assistant-row order — docs/design/chat-ui-areas.md (top → bottom).
+ *
+ * @param {HTMLElement} outer
+ */
+export function reorderAssistantRowAreas(outer) {
+    if (!(outer instanceof HTMLElement)) return;
+
+    /**
+     * @param {string} selector
+     * @returns {HTMLElement | null}
+     */
+    const pick = (selector) => {
+        const el = outer.querySelector(selector);
+        return el instanceof HTMLElement ? el : null;
+    };
+
+    const info = pick('[data-oaao-chat-area="info"]') ?? pick('[data-oaao-chat="turn-score"]');
+    const state =
+        pick('[data-oaao-chat-area="state"]') ?? pick('[data-oaao-chat="assistant-summary-wrap"]');
+
+    /** @type {(HTMLElement | null)[]} */
+    const candidates = [
+        pick('[data-oaao-chat="assistant-identity"]'),
+        pick('[data-oaao-chat="inline-task-steps"]'),
+        pick('[data-oaao-chat="pipeline-blocks"]'),
+        pick('[data-oaao-chat="pipeline-chrome"]'),
+        pick('[data-oaao-msg-role="assistant"]'),
+        pick('[data-oaao-chat="pipeline-after-blocks"]'),
+        info,
+        state,
+        pick('[data-oaao-chat="assistant-truncation-wrap"]'),
+        pick('[data-oaao-chat="run-retry-banner"]'),
+        pick('[data-oaao-chat-area="strip"]'),
+        pick('.oaao-chat-assistant-toolbar'),
+    ];
+
+    /** @type {Set<HTMLElement>} */
+    const seen = new Set();
+    for (const el of candidates) {
+        if (!(el instanceof HTMLElement) || seen.has(el)) continue;
+        seen.add(el);
+        outer.append(el);
+    }
+}
+
+/**
  * @param {HTMLElement | Document} mount
  * @param {number} messageId
  * @returns {{ outer: HTMLElement | null, msgsHost: HTMLElement | null }}
@@ -35,27 +81,19 @@ export function resolveProductivityOuter(mount, messageId) {
     return { outer: null, msgsHost: null };
 }
 
-/** Insert chip into [strip] area — above [info]/[state], below message/agent blocks. */
+/** Insert chip into [strip] — post-turn area after [info]/[state], before toolbar. */
 export function mountProductivityChip(outer, chip) {
     let strip = outer.querySelector('[data-oaao-chat-area="strip"]');
     if (!(strip instanceof HTMLElement)) {
         strip = document.createElement('div');
         strip.dataset.oaaoChatArea = 'strip';
         strip.dataset.oaaoChat = 'action-strip';
-        strip.className = 'oaao-chat-area oaao-chat-area--strip w-full min-w-0 max-w-full';
-        const anchor =
-            outer.querySelector('[data-oaao-chat-area="info"]') ||
-            outer.querySelector('[data-oaao-chat="turn-score"]') ||
-            outer.querySelector('[data-oaao-chat-area="state"]') ||
-            outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
-            outer.querySelector('.oaao-chat-assistant-toolbar');
-        if (anchor instanceof HTMLElement) {
-            outer.insertBefore(strip, anchor);
-        } else {
-            outer.append(strip);
-        }
+        strip.className =
+            'oaao-chat-area oaao-chat-area--strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 w-full min-w-0 max-w-full';
+        outer.append(strip);
     }
     strip.append(chip);
+    reorderAssistantRowAreas(outer);
     try {
         chip.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch {

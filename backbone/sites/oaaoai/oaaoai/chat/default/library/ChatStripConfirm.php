@@ -12,6 +12,29 @@ namespace oaaoai\chat;
 final class ChatStripConfirm
 {
     /**
+     * @param array<string, mixed> $meta
+     */
+    public static function isAlreadyResolved(array $meta, string $actionId): bool
+    {
+        $actionId = strtolower(trim($actionId));
+        $kind = match (true) {
+            $actionId === 'calendar_event_suggested' => 'calendar',
+            str_starts_with($actionId, 'todo_')       => 'todo',
+            default                                    => null,
+        };
+        if ($kind === null) {
+            return false;
+        }
+        $fences = $meta['productivity_fences'] ?? null;
+        if (! \is_array($fences) || ! isset($fences[$kind]) || ! \is_array($fences[$kind])) {
+            return false;
+        }
+        $state = strtolower(trim((string) ($fences[$kind]['state'] ?? '')));
+
+        return \in_array($state, ['confirmed', 'dismissed'], true);
+    }
+
+    /**
      * @param array<string, mixed> $claims Verified strip_hash claims
      * @param array<string, mixed> $payload Bound suggestion payload from meta_json
      *
@@ -80,6 +103,34 @@ final class ChatStripConfirm
     }
 
     /**
+     * Attach fence preview fields from meta_json for batch todo confirm (digest unchanged).
+     *
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $meta
+     *
+     * @return array<string, mixed>
+     */
+    public static function enrichTodoPayloadFromMeta(array $payload, array $meta): array
+    {
+        $memo = trim((string) ($payload['fence_memo'] ?? ''));
+        if ($memo === '') {
+            $memo = trim((string) ($meta['todo_items_fence_memo'] ?? ''));
+            if ($memo !== '') {
+                $payload['fence_memo'] = $memo;
+            }
+        }
+        $fenceItems = ChatProductivityFence::normalizeFenceItems($payload['fence_items'] ?? null);
+        if ($fenceItems === []) {
+            $fenceItems = ChatProductivityFence::normalizeFenceItems($meta['todo_items_fence_items'] ?? null);
+            if ($fenceItems !== []) {
+                $payload['fence_items'] = $fenceItems;
+            }
+        }
+
+        return $payload;
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     public static function verifyPayloadDigest(array $claims, array $payload): bool
@@ -90,12 +141,86 @@ final class ChatStripConfirm
         }
 
         $actionId = strtolower(trim((string) ($claims['action_id'] ?? '')));
-        $digestPayload = $payload;
-        if ($actionId === 'todo_items_suggested' && isset($payload['items']) && \is_array($payload['items'])) {
-            $digestPayload = $payload['items'];
+        $candidates = [$payload];
+        if ($actionId === 'todo_items_suggested') {
+            if (isset($payload['items']) && \is_array($payload['items'])) {
+                $candidates[] = $payload['items'];
+            }
+            if (array_is_list($payload)) {
+                $candidates[] = ['items' => $payload];
+            }
         }
 
-        return hash_equals($expect, ChatStripHash::payloadDigest($digestPayload));
+        foreach ($candidates as $candidate) {
+            if (! \is_array($candidate)) {
+                continue;
+            }
+            $digestPayload = $candidate;
+            if (
+                $actionId === 'todo_items_suggested'
+                && isset($candidate['items'])
+                && \is_array($candidate['items'])
+                && array_is_list($candidate['items'])
+            ) {
+                $digestPayload = $candidate['items'];
+            }
+            if (hash_equals($expect, ChatStripHash::payloadDigest($digestPayload))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function todoRowsFromPayload(array $payload, string $actionId): array
+    {
+        $actionId = strtolower(trim($actionId));
+        /** @var list<array<string, mixed>> $rows */
+        $rows = [];
+        if ($actionId === 'todo_items_suggested') {
+            $items = $payload['items'] ?? [];
+            if (\is_array($items)) {
+                foreach ($items as $item) {
+                    if (\is_array($item)) {
+                        $rows[] = $item;
+                    }
+                }
+            }
+        } else {
+            $rows[] = $payload;
+        }
+
+        $hasTitle = false;
+        foreach ($rows as $row) {
+            if (trim((string) ($row['title'] ?? '')) !== '') {
+                $hasTitle = true;
+                break;
+            }
+        }
+        if ($hasTitle) {
+            return $rows;
+        }
+
+        $fenceItems = ChatProductivityFence::normalizeFenceItems($payload['fence_items'] ?? null);
+        if ($fenceItems === []) {
+            return $rows;
+        }
+
+        /** @var list<array<string, mixed>> $fromFence */
+        $fromFence = [];
+        foreach ($fenceItems as $text) {
+            $fromFence[] = [
+                'title'    => $text,
+                'priority' => 'normal',
+            ];
+        }
+
+        return $fromFence;
     }
 
     /**
@@ -111,9 +236,9 @@ final class ChatStripConfirm
         array $claims,
         array $payload,
     ): array {
-        require_once dirname(__DIR__, 4) . '/calendar/default/controller/api/_calendar_api_bootstrap.php';
+        require_once dirname(__DIR__, 3) . '/calendar/default/controller/api/_calendar_api_bootstrap.php';
 
-        $ctx = oaao_calendar_require_pg($controller);
+        $ctx = oaao_calendar_require_pg($controller, true);
         if ($ctx === null) {
             return ['success' => false, 'message' => 'Calendar unavailable', 'http' => 503];
         }
@@ -181,9 +306,9 @@ final class ChatStripConfirm
         array $payload,
         string $actionId,
     ): array {
-        require_once dirname(__DIR__, 4) . '/todo/default/controller/api/_todo_api_bootstrap.php';
+        require_once dirname(__DIR__, 3) . '/todo/default/controller/api/_todo_api_bootstrap.php';
 
-        $ctx = oaao_todo_require_pg($controller);
+        $ctx = oaao_todo_require_pg($controller, true);
         if ($ctx === null) {
             return ['success' => false, 'message' => 'Todos unavailable', 'http' => 503];
         }
@@ -192,20 +317,9 @@ final class ChatStripConfirm
         $mid = (int) ($claims['message_id'] ?? 0);
         $wid = $workspaceId > 0 ? $workspaceId : null;
 
-        /** @var list<array<string, mixed>> $rows */
-        $rows = [];
-        if ($actionId === 'todo_items_suggested') {
-            $items = $payload['items'] ?? [];
-            if (! \is_array($items)) {
-                return ['success' => false, 'message' => 'items required', 'http' => 400];
-            }
-            foreach ($items as $item) {
-                if (\is_array($item)) {
-                    $rows[] = $item;
-                }
-            }
-        } else {
-            $rows[] = $payload;
+        $rows = self::todoRowsFromPayload($payload, $actionId);
+        if ($rows === []) {
+            return ['success' => false, 'message' => 'items required', 'http' => 400];
         }
 
         $created = [];
@@ -213,6 +327,13 @@ final class ChatStripConfirm
         $now = date('Y-m-d H:i:s');
         foreach ($rows as $row) {
             $title = trim((string) ($row['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            if (preg_match('/^\*\*(.+)\*\*$/u', $title, $m) === 1) {
+                $title = trim((string) ($m[1] ?? ''));
+            }
+            $title = trim($title, " \t\n\r\0\x0B*");
             if ($title === '') {
                 continue;
             }
@@ -274,9 +395,9 @@ final class ChatStripConfirm
         int $uid,
         array $payload,
     ): array {
-        require_once dirname(__DIR__, 4) . '/todo/default/controller/api/_todo_api_bootstrap.php';
+        require_once dirname(__DIR__, 3) . '/todo/default/controller/api/_todo_api_bootstrap.php';
 
-        $ctx = oaao_todo_require_pg($controller);
+        $ctx = oaao_todo_require_pg($controller, true);
         if ($ctx === null) {
             return ['success' => false, 'message' => 'Todos unavailable', 'http' => 503];
         }

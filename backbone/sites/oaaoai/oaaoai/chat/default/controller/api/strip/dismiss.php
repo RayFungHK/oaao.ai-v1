@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatProductivityFence;
+use oaaoai\chat\ChatProductivityInlineParse;
 use oaaoai\chat\ChatStripHash;
 
 /**
@@ -81,7 +83,7 @@ return function (): void {
         }
 
         $msgRow = $splitDb->prepare()
-            ->select('meta_json')
+            ->select('meta_json, content')
             ->from('message')
             ->where('id=?,conversation_id=?')
             ->assign(['id' => $mid, 'conversation_id' => $cid])
@@ -108,8 +110,13 @@ return function (): void {
             }
         }
 
-        if (array_key_exists($actionId, $meta)) {
-            unset($meta[$actionId]);
+        $content = trim((string) ($msgRow['content'] ?? ''));
+        if ($content !== '') {
+            $meta = ChatProductivityInlineParse::enrichMetaFromContent($meta, $content, $cid) ?? $meta;
+        }
+
+        if (array_key_exists($actionId, $meta) || isset($meta['productivity_fences'])) {
+            ChatProductivityFence::archiveAction($meta, $actionId, 'dismissed', $cid, $content);
             $splitDb->update('message', ['meta_json'])
                 ->where('id=?,conversation_id=?')
                 ->assign([

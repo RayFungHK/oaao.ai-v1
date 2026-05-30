@@ -124,11 +124,7 @@ final class ChatStripHash
 
     private static function sharedSecret(): string
     {
-        $secret = getenv('OAAO_ORCH_SHARED_SECRET');
-
-        return ($secret !== false && trim((string) $secret) !== '')
-            ? trim((string) $secret)
-            : throw new \RuntimeException('OAAO_ORCH_SHARED_SECRET is not set; refusing default secret.');
+        return ChatInternalSecret::require();
     }
 
     private static function b64urlEncode(string $raw): string

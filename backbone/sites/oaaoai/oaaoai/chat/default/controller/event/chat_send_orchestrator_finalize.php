@@ -12,6 +12,8 @@ return function (array $payload): void {
         return;
     }
 
+    $this->api('endpoints')?->ensureFeatureRegistries();
+
     $ctx = $payload['context'] ?? null;
     if (! $ctx instanceof ChatSendContext) {
         return;

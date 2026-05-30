@@ -309,7 +309,7 @@ return function (): void {
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
      *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
-    $oaaoShellEsmRev = '20260529-strip-shell-v163';
+    $oaaoShellEsmRev = '20260530-strip-confirm-v208';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)

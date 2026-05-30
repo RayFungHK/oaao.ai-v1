@@ -8,6 +8,13 @@ use Razy\Database;
 
 /**
  * Aggregated [info] worker payload — turn scores + productivity status + strip items.
+ *
+ * Cal/Todo productivity rows come only from {@link InfoWorkerRegister} (modules via
+ * {@code info_worker.register} during {@link \oaaoai\endpoints\FeatureRegistryBootstrap::collect()}).
+ * API entry points must bootstrap registries before {@see buildPayload()} — not hardcoded here.
+ *
+ * @see docs/design/chat-modular-architecture.md §1 (registries scale without editing chat core)
+ * @see docs/design/chat-ui-areas.md § [info]
  */
 final class ChatInfoWorker
 {
@@ -95,11 +102,21 @@ final class ChatInfoWorker
             }
             $meta = $metaByMid[$mid] ?? null;
             $metaArr = \is_array($meta) ? $meta : [];
+            $content = (string) ($row['content'] ?? '');
+            $metaArr = ChatProductivityInlineParse::enrichMetaFromContent($metaArr, $content, $conversationId)
+                ?? $metaArr;
+            $isLatestAssistant = $latestAssistantId > 0 && $mid === $latestAssistantId;
 
             $stripItems = ChatStripItems::buildItemsFromMeta($userId, $conversationId, $mid, $metaArr);
+            if (! $isLatestAssistant && self::productivityWorkersRequireOnlyLast($productivityWorkers)) {
+                $stripItems = [];
+            }
 
             $productivity = [];
             foreach ($productivityWorkers as $worker) {
+                if (! self::productivityWorkerAppliesToMessage($worker, $isLatestAssistant)) {
+                    continue;
+                }
                 $pillKind = (string) ($worker['pill_kind'] ?? '');
                 /** @var list<string> $metaKeys */
                 $metaKeys = isset($worker['meta_keys']) && \is_array($worker['meta_keys'])
@@ -108,9 +125,15 @@ final class ChatInfoWorker
                 $hasResult = self::metaHasAnyKey($metaArr, $metaKeys);
                 $stripCount = self::countStripForKind($stripItems, $pillKind);
                 $status = 'idle';
-                if ($hasResult || $stripCount > 0) {
+                if (! empty($meta['post_turn_productivity_error'])) {
+                    $status = 'error';
+                } elseif ($hasResult || $stripCount > 0) {
                     $status = 'ready';
-                } elseif (\in_array($mid, $pendingWatchIds, true) && self::productivityStillPending($metaArr)) {
+                } elseif (
+                    $isLatestAssistant
+                    && \in_array($mid, $pendingWatchIds, true)
+                    && self::productivityStillPending($metaArr)
+                ) {
                     $status = 'pending';
                 }
                 $productivity[$pillKind] = [
@@ -121,7 +144,8 @@ final class ChatInfoWorker
 
             $byMessage[(string) $mid] = [
                 'turn_score'   => $scoreByMid[(string) $mid] ?? null,
-                'productivity' => $productivity,
+                // Empty map → JSON `{}` (not `[]`) when no pill workers registered.
+                'productivity' => (object) $productivity,
                 'strip_items'  => $stripItems,
             ];
         }
@@ -191,6 +215,48 @@ final class ChatInfoWorker
     }
 
     /**
+     * @param list<array<string, mixed>> $workers
+     */
+    private static function productivityWorkersRequireOnlyLast(array $workers): bool
+    {
+        foreach ($workers as $worker) {
+            if (! isset($worker['only_last']) || ! empty($worker['only_last'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $worker
+     */
+    private static function productivityWorkerAppliesToMessage(array $worker, bool $isLatestAssistant): bool
+    {
+        $onlyLast = ! isset($worker['only_last']) || ! empty($worker['only_last']);
+
+        return ! $onlyLast || $isLatestAssistant;
+    }
+
+    /**
+     * @param array<string, mixed> $meta
+     */
+    private static function metaHasInlineProductivityResult(array $meta): bool
+    {
+        if (! empty($meta['calendar_event_suggested'])) {
+            return true;
+        }
+        if (! empty($meta['todo_item_suggested'])) {
+            return true;
+        }
+        if (isset($meta['todo_items_suggested']) && \is_array($meta['todo_items_suggested']) && \count($meta['todo_items_suggested']) >= 2) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<string, mixed> $meta
      */
     private static function productivityStillPending(array $meta): bool
@@ -199,6 +265,47 @@ final class ChatInfoWorker
             return false;
         }
 
+        if (! empty($meta['post_turn_productivity_error'])) {
+            return false;
+        }
+
+        if (self::metaHasInlineProductivityResult($meta)) {
+            return false;
+        }
+
+        if (! empty($meta['post_turn_productivity_scanning'])) {
+            return PostTurnActionRegister::forOrchestrator() !== [];
+        }
+
+        // Stream finished but scan marker never landed (legacy run, empty post_turn_actions, or persist gap).
+        if (self::assistantRunLooksPostStreamComplete($meta)) {
+            return false;
+        }
+
         return PostTurnActionRegister::forOrchestrator() !== [];
+    }
+
+    /**
+     * Heuristic: orchestrator already persisted {@code system/end} metrics on the assistant row.
+     *
+     * @param array<string, mixed> $meta
+     */
+    private static function assistantRunLooksPostStreamComplete(array $meta): bool
+    {
+        if (isset($meta['duration_ms']) && is_numeric($meta['duration_ms'])) {
+            return true;
+        }
+
+        $finish = trim((string) ($meta['finish_reason'] ?? ''));
+        if ($finish !== '') {
+            return true;
+        }
+
+        $runStatus = strtolower(trim((string) ($meta['run_status'] ?? '')));
+        if ($runStatus !== '' && \in_array($runStatus, ['done', 'closed', 'complete', 'completed'], true)) {
+            return true;
+        }
+
+        return ! empty($meta['persisted_by_orchestrator']);
     }
 }

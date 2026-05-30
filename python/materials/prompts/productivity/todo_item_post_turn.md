@@ -29,6 +29,18 @@ Rules:
 - `confidence` is 0.0–1.0; use ≥ 0.7 only when the task is explicit.
 - Locale: {{locale}} — use Traditional Chinese titles when the turn is Chinese.
 - Today (UTC): {{current_date}}
+- Do **not** duplicate titles already listed under **open todos** below.
+- Judge **assistant (latest)** — only emit tasks the assistant (not just the user plan) left as actionable checklist items.
+
+---
+
+Upcoming calendar (workspace):
+
+{{upcoming_calendar_events}}
+
+Open todos (this conversation):
+
+{{open_todo_items}}
 
 ---
 

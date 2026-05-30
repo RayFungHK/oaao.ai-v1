@@ -70,6 +70,24 @@ const OAAO_TASK_AGENT_CATALOG_FALLBACK = [
         icon:
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M6 12H2"/><path d="M22 12h-4"/><path d="M12 17a5 5 0 0 0 0-10 5 5 0 0 0 0 10Z"/></svg>',
     },
+    {
+        id: 'calendar_schedule',
+        labelKey: 'settings.planner.agent.calendar_schedule',
+        descKey: 'workspace.task.agent_desc.calendar_schedule',
+        fallbackLabel: 'Calendar',
+        fallbackDesc: 'Suggest calendar events from chat',
+        icon:
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>',
+    },
+    {
+        id: 'todo_extract',
+        labelKey: 'settings.planner.agent.todo_extract',
+        descKey: 'workspace.task.agent_desc.todo_extract',
+        fallbackLabel: 'Todos',
+        fallbackDesc: 'Extract todos from chat',
+        icon:
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 5 2 2 4-4"/><path d="m3 12 2 2 4-4"/><path d="m3 19 2 2 4-4"/></svg>',
+    },
 ];
 
 const ICON_BY_KIND = Object.fromEntries(OAAO_TASK_AGENT_CATALOG_FALLBACK.map((e) => [e.id, e.icon]));

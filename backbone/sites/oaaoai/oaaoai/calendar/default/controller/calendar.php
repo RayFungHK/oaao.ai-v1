@@ -36,6 +36,7 @@ return new class extends Controller {
         ]);
 
         $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
+        $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_ready');
 
         return true;
     }

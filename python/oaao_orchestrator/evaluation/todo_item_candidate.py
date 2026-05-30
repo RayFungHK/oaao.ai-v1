@@ -16,6 +16,7 @@ from oaao_orchestrator.evaluation.productivity_post_turn import (
     llm_cfg_for_post_turn,
     load_todo_post_turn_prompt,
 )
+from oaao_orchestrator.productivity_context import productivity_template_variables
 from oaao_orchestrator.json_utils import extract_json_object
 
 logger = logging.getLogger(__name__)
@@ -167,25 +168,28 @@ async def _llm_todo_candidates(
     min_confidence: float,
     open_todo_items: list[dict[str, Any]] | None,
     template_ref: str | None = None,
+    chat_request: object | None = None,
 ) -> list[TodoItemCandidate]:
     user_tail = _last_user_text(messages)
     default_snippet = f"{user_tail}\n{assistant_text}".strip()[:_SNIPPET_MAX]
     transcript = format_turn_transcript(messages, assistant_text=assistant_text)
+    ctx_vars = {
+        "locale": locale,
+        "transcript": transcript,
+        "current_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+        **productivity_template_variables(chat_request),
+    }
 
     if template_ref:
         from oaao_orchestrator.prompt_template import load_template_body, prompts_subdir, render_template_text
 
         body = load_template_body(ref=template_ref, search_dirs=(prompts_subdir("productivity"),))
         system = render_template_text(
-            body or load_todo_post_turn_prompt(locale=locale, transcript=transcript),
-            {
-                "locale": locale,
-                "transcript": transcript,
-                "current_date": datetime.now(UTC).strftime("%Y-%m-%d"),
-            },
+            body or load_todo_post_turn_prompt(**ctx_vars),
+            ctx_vars,
         )
     else:
-        system = load_todo_post_turn_prompt(locale=locale, transcript=transcript)
+        system = load_todo_post_turn_prompt(**ctx_vars)
     user = "Return the JSON object for this turn."
 
     try:
@@ -272,6 +276,7 @@ async def classify_todo_item_candidates(
         min_confidence=min_confidence,
         open_todo_items=open_todo_items,
         template_ref=template_ref,
+        chat_request=chat_request,
     )
 
 

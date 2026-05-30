@@ -66,7 +66,20 @@ return function (array $payload): void {
             'module_code'           => 'oaaoai/calendar',
             'post_turn_action_ids'  => ['calendar_event_suggested'],
             'meta_keys'             => ['calendar_event_suggested'],
+            'only_last'             => true,
             'description'           => 'Post-turn calendar classifier — [info] pill + [strip] chip.',
         ],
     ]);
+
+    $chatApi = $this->api('chat');
+    if ($chatApi !== null && method_exists($chatApi, 'setPlannerPrompt')) {
+        $chatApi->setPlannerPrompt(
+            'calendar',
+            'productivity',
+            'When the user schedules focus time or meetings, respect upcoming calendar rows in the planner appendix; '
+            . 'never propose events in the past; avoid double-booking the same slot.',
+            true,
+            82,
+        );
+    }
 };

@@ -2,7 +2,7 @@
 
 use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatHistorySettings;
-use oaaoai\chat\ChatStripItems;
+use oaaoai\chat\ChatProductivityInlineParse;
 
 /**
  * GET /chat/api/messages?conversation_id=&workspace_id=&limit=&before_id=
@@ -91,10 +91,23 @@ return function (): void {
             unset($row['meta_json']);
             $row['meta'] = null;
             if (\is_string($mj) && $mj !== '') {
-                $decoded = json_decode($mj, true);
-                $row['meta'] = \is_array($decoded)
-                    ? ChatStripItems::enrichMetaForClient($uid, $cid, $mid, $decoded)
-                    : null;
+                try {
+                    $decoded = json_decode($mj, true, 512, JSON_THROW_ON_ERROR);
+                } catch (\JsonException) {
+                    $decoded = null;
+                }
+                if (\is_array($decoded)) {
+                    try {
+                        $content = (string) ($row['content'] ?? '');
+                        $row['meta'] = ChatProductivityInlineParse::enrichMetaFromContent(
+                            $decoded,
+                            $content,
+                            $cid,
+                        ) ?? $decoded;
+                    } catch (\Throwable) {
+                        $row['meta'] = $decoded;
+                    }
+                }
             }
             $out[] = $row;
         }
@@ -129,14 +142,22 @@ return function (): void {
             }
         }
 
-        echo json_encode([
+        $jsonFlags = JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+        if (\defined('JSON_PARTIAL_OUTPUT_ON_ERROR')) {
+            $jsonFlags |= JSON_PARTIAL_OUTPUT_ON_ERROR;
+        }
+        $payload = json_encode([
             'success'            => true,
             'messages'           => $out,
             'has_older'          => $hasOlder,
             'oldest_message_id'  => $minId,
             'last_message_id'    => $lastMessageId,
             'limit'              => $limit,
-        ]);
+        ], $jsonFlags);
+        if ($payload === false) {
+            throw new \RuntimeException('json_encode failed: ' . json_last_error_msg());
+        }
+        echo $payload;
     } catch (\Throwable $e) {
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Failed to load messages']);

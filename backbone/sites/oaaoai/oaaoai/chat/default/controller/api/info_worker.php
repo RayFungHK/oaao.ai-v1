@@ -6,13 +6,15 @@ use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatInfoWorker;
 use oaaoai\chat\ChatTurnScores;
 use oaaoai\chat\TurnScorerVersion;
-
 /**
  * GET /chat/api/info_worker?conversation_id=&message_ids=324,325
  *
  * Unified [info] payload — turn scores, productivity worker status, strip items.
  * Pass comma-separated {@code message_ids} for assistant rows with pending [info] work.
  * Legacy {@code assistant_message_id} is merged into the list when {@code message_ids} is omitted.
+ *
+ * Registries ({@code info_worker.register}, {@code post_turn_action.register}, strip, …) must be collected
+ * on the **endpoints** emitter ({@code oaaoai/endpoints:collect_feature_registries}) — not the chat controller.
  */
 return function (): void {
     [$splitDb, $user, $pdo] = $this->oaao_chat_require_user();
@@ -28,6 +30,8 @@ return function (): void {
     if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
         return;
     }
+
+    $this->api('endpoints')?->ensureFeatureRegistries();
 
     if ($uid < 1 || $cid < 1) {
         http_response_code(400);

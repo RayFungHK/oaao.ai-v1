@@ -117,6 +117,9 @@ async def execute_chat_run(
     messages_for_llm = list(req.messages)
     _apply_request_material_grounding(req=req, messages_for_llm=messages_for_llm)
     _apply_user_personalization(req=req, messages_for_llm=messages_for_llm)
+    from oaao_orchestrator.productivity_context import apply_productivity_context
+
+    apply_productivity_context(req=req, messages_for_llm=messages_for_llm)
     _apply_corpus_style(req=req, messages_for_llm=messages_for_llm)
     _apply_accs_reflection_context(req=req, messages_for_llm=messages_for_llm)
     run_failed = False

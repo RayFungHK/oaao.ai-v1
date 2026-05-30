@@ -195,6 +195,10 @@ class ChatRunRequest(BaseModel):
         default_factory=list,
         description="CS-6-S7 — open todos for this conversation (todo_id, title) for completion checker.",
     )
+    upcoming_calendar_events: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Upcoming workspace calendar rows (event_id, title, start_at, end_at, location) for conflict checks.",
+    )
     user_personalization: dict[str, Any] | None = Field(
         default=None,
         description="User profile, knowledge, timezone, and region from Preferences → Personalization.",

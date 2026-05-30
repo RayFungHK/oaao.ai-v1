@@ -24,13 +24,14 @@ Each assistant turn is one **`.oaao-chat-assistant-row`**. User turns use a sepa
 
 ```
 ┌─ .oaao-chat-assistant-row ─────────────────────────────┐
+│  (identity) Assistant avatar / endpoint chip           │
 │  [task]     Task / Steps + Ask                         │
 │  [agent]    Pipeline blocks BEFORE bubble (zone:before)│
 │  [message]  Assistant markdown bubble                  │
 │  [agent]    Pipeline blocks AFTER bubble (zone:after)  │
-│  [strip]    Action chips (calendar, todo, …)           │
-│  [info]     IQS · ACCS · Cal · Todo · cite · scope                  │
+│  [info]     IQS · ACCS · Cal · Todo · cite · scope     │
 │  [state]    44.99s · 21.53 tok/s · think · Logging     │
+│  [strip]    Post-turn action chips (calendar, todo, …) │
 │  (toolbar)  Copy · thumbs · materials — not an “area”  │
 └────────────────────────────────────────────────────────┘
 ```
@@ -62,14 +63,15 @@ Target **`data-oaao-chat-area`** attributes on hosts inside `.oaao-chat-assistan
 
 ### Current assistant row order (v150 — target achieved)
 
-1. `[task]` — `data-oaao-chat-area="task"` (`inline-task-steps`)  
-2. `[agent]` before — `data-oaao-chat-area="agent-before"` (`pipeline-blocks`)  
-3. `[message]` — `data-oaao-chat-area="message"` (assistant bubble)  
-4. `[agent]` after — `data-oaao-chat-area="agent-after"` (`pipeline-after-blocks`)  
-5. **[strip]** — `data-oaao-chat-area="strip"` (`action-strip`) — productivity / skill chips  
-6. **[info]** — `data-oaao-chat-area="info"` (`turn-score`) — IQS / ACCS  
+1. (identity) — `data-oaao-chat="assistant-identity"`  
+2. `[task]` — `data-oaao-chat-area="task"` (`inline-task-steps`)  
+3. `[agent]` before — `data-oaao-chat-area="agent-before"` (`pipeline-blocks`)  
+4. `[message]` — `data-oaao-chat-area="message"` (assistant bubble)  
+5. `[agent]` after — `data-oaao-chat-area="agent-after"` (`pipeline-after-blocks`)  
+6. **[info]** — `data-oaao-chat-area="info"` (`turn-score`) — IQS / ACCS / Cal / Todo pills  
 7. **[state]** — `data-oaao-chat-area="state"` (`assistant-summary-wrap`) — tok/s, Logging  
-8. `.oaao-chat-assistant-toolbar` — Copy / feedback (chrome, not an area)
+8. **[strip]** — `data-oaao-chat-area="strip"` (`action-strip`) — **post-turn** productivity / skill chips (after info/state)  
+9. `.oaao-chat-assistant-toolbar` — Copy / feedback (chrome, not an area)
 
 Setup: `ensureAssistantAreaHosts(outer)` in `renderMessages` and stream row creation.
 
@@ -174,7 +176,7 @@ Use this when specifying work to an agent:
 ## 7. Migration checklist (shell hardening)
 
 - [x] Add `[data-oaao-chat-area="task|message|agent|info|state|strip"]` hosts in `renderMessages` / stream row setup
-- [x] Move `[strip]` mount **after** pipeline blocks, **before** `[info]`
+- [x] Move `[strip]` mount **after** `[info]` / `[state]` (post-turn), **before** toolbar
 - [x] Route `mountProductivityChip` → `[data-oaao-chat-area="strip"]` only
 - [ ] Document `turn_score.register` for new `[info]` metrics
 - [x] Split `[agent]` hosts: `pipeline-before` / `pipeline-after` tagged via `data-oaao-chat-area`
@@ -188,9 +190,9 @@ Orchestrator emits **`phase=ui`, `kind=stage`** after the message body is comple
 
 | Stage order | `payload.area` | Payload shape (examples) |
 |-------------|----------------|---------------------------|
-| after `message` / agent blocks | `strip` | `{ area: "strip", calendar_event_suggested: {...}, todo_items_suggested: [...] }` |
 | async worker | `info` | `{ area: "info", iqs, accs, iqs_dims, accs_dims, pending_iqs, pending_acs }` |
 | run_end | `state` | `{ area: "state", duration_ms, tokens_per_sec, pipeline_timing }` |
+| post_turn (after info/state) | `strip` | `{ area: "strip", calendar_event_suggested: {...}, todo_items_suggested: [...] }` |
 
 Legacy **`system/status`** events (`calendar_event_suggested`, turn-score polling) remain supported during migration.
 
@@ -202,6 +204,7 @@ Python helper: `oaao_orchestrator.streaming.ui_stage_stream.emit_ui_stage(run, a
 
 | Date | Change |
 |------|--------|
+| 2026-05-30 | v169: DOM order — identity → task → agent → message → info → state → **strip** → toolbar (`reorderAssistantRowAreas`) |
 | 2026-05-29 | info_worker v160: unified `GET info_worker`, Cal/Todo pending pills in [info], registry `info_worker.register` |
 | 2026-05-29 | UI areas v150: `data-oaao-chat-area` hosts, strip ordering, `ui_stage` SSE scaffold |
 | 2026-05-29 | Initial six-area vocabulary + mapping to current chat-panel DOM |

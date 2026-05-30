@@ -92,6 +92,8 @@ def llm_cfg_for_post_turn(chat_request: object | None, purpose_slot: str) -> dic
 
 def load_todo_post_turn_prompt(**variables: Any) -> str:
     variables.setdefault("current_date", datetime.now(UTC).strftime("%Y-%m-%d"))
+    variables.setdefault("upcoming_calendar_events", "(none)")
+    variables.setdefault("open_todo_items", "(none)")
     body = load_template_body(
         ref=DEFAULT_TODO_POST_TURN_REF,
         search_dirs=(prompts_subdir("productivity"),),
@@ -106,6 +108,8 @@ def load_todo_post_turn_prompt(**variables: Any) -> str:
 
 def load_calendar_post_turn_prompt(**variables: Any) -> str:
     variables.setdefault("current_date", datetime.now(UTC).strftime("%Y-%m-%d"))
+    variables.setdefault("upcoming_calendar_events", "(none)")
+    variables.setdefault("open_todo_items", "(none)")
     body = load_template_body(
         ref=DEFAULT_CALENDAR_POST_TURN_REF,
         search_dirs=(prompts_subdir("productivity"),),

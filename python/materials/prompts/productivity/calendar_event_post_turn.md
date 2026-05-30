@@ -31,6 +31,18 @@ Rules:
 - `title` ≤ 80 characters; `notes` summarizes useful context only (not the full assistant essay).
 - Locale hint: {{locale}} — use Traditional Chinese for title/notes when the turn is Chinese.
 - Today (UTC): {{current_date}}
+- Do **not** suggest events that overlap **upcoming calendar** rows below or times in the past.
+- Compare the **assistant (latest)** reply against the transcript — only emit an action if the assistant committed to a concrete schedule the user can add.
+
+---
+
+Upcoming calendar (workspace):
+
+{{upcoming_calendar_events}}
+
+Open todos (this conversation):
+
+{{open_todo_items}}
 
 ---
 

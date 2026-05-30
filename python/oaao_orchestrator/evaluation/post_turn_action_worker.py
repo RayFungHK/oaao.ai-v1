@@ -49,8 +49,25 @@ def schedule_post_turn_productivity_actions(
 
     actions = post_turn_actions_from_request(req)
     if not actions:
+        logger.info(
+            "post_turn productivity skipped — no actions; marking scanned run_id=%s",
+            run_id,
+        )
+        asyncio.create_task(  # noqa: RUF006
+            _persist_post_turn_productivity_meta(
+                req=req,
+                persist_text=persist_text,
+                metrics_payload=metrics_payload,
+                attached={},
+            )
+        )
         return
 
+    logger.info(
+        "post_turn productivity scheduled run_id=%s action_ids=%s",
+        run_id,
+        sorted({str(a.get("action_id") or "") for a in actions}),
+    )
     asyncio.create_task(  # noqa: RUF006
         _run_post_turn_productivity_actions(
             req=req,
@@ -76,10 +93,35 @@ async def _run_post_turn_productivity_actions(
     conversation_id: int,
     actions: list[dict[str, Any]],
 ) -> None:
-    attached: dict[str, Any] = {}
-    enabled_ids = {str(a.get("action_id") or "").strip() for a in actions if isinstance(a, dict)}
+    await _persist_post_turn_productivity_scanning(
+        req=req,
+        persist_text=persist_text,
+        metrics_payload=metrics_payload,
+    )
 
-    if "calendar_event_suggested" in enabled_ids:
+    from oaao_orchestrator.productivity_inline_extract import (
+        extract_productivity_inline_blocks,
+        inline_satisfied_action_ids,
+    )
+
+    body_for_persist, inline_meta = extract_productivity_inline_blocks(
+        persist_text,
+        conversation_id=conversation_id,
+    )
+    attached: dict[str, Any] = dict(inline_meta)
+    if inline_meta:
+        metrics_payload.update(inline_meta)
+        logger.info(
+            "post_turn productivity inline extracted run_id=%s conversation_id=%s keys=%s",
+            run_id,
+            conversation_id,
+            sorted(inline_meta.keys()),
+        )
+
+    enabled_ids = {str(a.get("action_id") or "").strip() for a in actions if isinstance(a, dict)}
+    skip_ids = inline_satisfied_action_ids(inline_meta)
+
+    if "calendar_event_suggested" in enabled_ids and "calendar_event_suggested" not in skip_ids:
         try:
             from oaao_orchestrator.evaluation.calendar_event_candidate import (
                 classify_calendar_event_candidate,
@@ -114,7 +156,15 @@ async def _run_post_turn_productivity_actions(
                 conversation_id,
             )
 
-    if "todo_items_suggested" in enabled_ids or "todo_item_suggested" in enabled_ids:
+    todo_inline_done = (
+        "todo_item_suggested" in skip_ids or "todo_items_suggested" in skip_ids
+    )
+    if (
+        not todo_inline_done
+        and (
+            "todo_items_suggested" in enabled_ids or "todo_item_suggested" in enabled_ids
+        )
+    ):
         try:
             from oaao_orchestrator.evaluation.todo_item_candidate import (
                 classify_todo_item_candidates,
@@ -194,11 +244,14 @@ async def _run_post_turn_productivity_actions(
                     conversation_id,
                 )
 
+    persist_body = body_for_persist if body_for_persist.strip() else persist_text
+
     if not attached:
-        await _mark_post_turn_productivity_scanned(
+        await _persist_post_turn_productivity_meta(
             req=req,
-            persist_text=persist_text,
+            persist_text=persist_body,
             metrics_payload=metrics_payload,
+            attached={},
         )
         return
 
@@ -241,28 +294,12 @@ async def _run_post_turn_productivity_actions(
             conversation_id,
         )
 
-    try:
-        from oaao_orchestrator.chat_persist import persist_assistant_message
-        from oaao_orchestrator.run_principal import RunPrincipal, verify_token
-
-        principal_raw = getattr(req, "run_principal", None)
-        if isinstance(principal_raw, str) and principal_raw.strip():
-            from oaao_orchestrator._internal_secret import require_internal_secret
-
-            principal = verify_token(principal_raw, secret=require_internal_secret())
-            if isinstance(principal, RunPrincipal):
-        persist_assistant_message(
-            principal=principal,
-            content=persist_text,
-            meta={**metrics_payload, **attached, "post_turn_productivity_scanned": True},
-            append=bool(getattr(req, "append_assistant_content", False)),
-        )
-    except Exception:
-        logger.exception(
-            "post_turn productivity meta attach failed run_id=%s conversation_id=%s",
-            run_id,
-            conversation_id,
-        )
+    await _persist_post_turn_productivity_meta(
+        req=req,
+        persist_text=persist_body,
+        metrics_payload=metrics_payload,
+        attached=attached,
+    )
 
     logger.info(
         "post_turn productivity attached run_id=%s conversation_id=%s keys=%s",
@@ -272,13 +309,15 @@ async def _run_post_turn_productivity_actions(
     )
 
 
-async def _mark_post_turn_productivity_scanned(
+async def _persist_post_turn_productivity_scanning(
     *,
     req: object,
     persist_text: str,
     metrics_payload: dict[str, Any],
 ) -> None:
-    """Persist scan-complete marker so info_worker stops pending [info] pills."""
+    """Mark background classifiers running — PHP info_worker returns pending without calling LLM."""
+    meta: dict[str, Any] = {**metrics_payload, "post_turn_productivity_scanning": True}
+    meta.pop("post_turn_productivity_scanned", None)
     try:
         from oaao_orchestrator.chat_persist import persist_assistant_message
         from oaao_orchestrator.run_principal import RunPrincipal, verify_token
@@ -291,7 +330,6 @@ async def _mark_post_turn_productivity_scanned(
         principal = verify_token(principal_raw, secret=require_internal_secret())
         if not isinstance(principal, RunPrincipal):
             return
-        meta = {**metrics_payload, "post_turn_productivity_scanned": True}
         persist_assistant_message(
             principal=principal,
             content=persist_text,
@@ -299,4 +337,40 @@ async def _mark_post_turn_productivity_scanned(
             append=bool(getattr(req, "append_assistant_content", False)),
         )
     except Exception:
-        logger.exception("post_turn productivity scan marker failed")
+        logger.exception("post_turn productivity scanning marker failed")
+
+
+async def _persist_post_turn_productivity_meta(
+    *,
+    req: object,
+    persist_text: str,
+    metrics_payload: dict[str, Any],
+    attached: dict[str, Any],
+) -> None:
+    """Persist productivity meta + scan marker so info_worker stops pending [info] pills."""
+    meta: dict[str, Any] = {
+        **metrics_payload,
+        **attached,
+        "post_turn_productivity_scanned": True,
+    }
+    meta.pop("post_turn_productivity_scanning", None)
+    try:
+        from oaao_orchestrator.chat_persist import persist_assistant_message
+        from oaao_orchestrator.run_principal import RunPrincipal, verify_token
+
+        principal_raw = getattr(req, "run_principal", None)
+        if not isinstance(principal_raw, str) or not principal_raw.strip():
+            return
+        from oaao_orchestrator._internal_secret import require_internal_secret
+
+        principal = verify_token(principal_raw, secret=require_internal_secret())
+        if not isinstance(principal, RunPrincipal):
+            return
+        persist_assistant_message(
+            principal=principal,
+            content=persist_text,
+            meta=meta,
+            append=bool(getattr(req, "append_assistant_content", False)),
+        )
+    except Exception:
+        logger.exception("post_turn productivity meta persist failed")

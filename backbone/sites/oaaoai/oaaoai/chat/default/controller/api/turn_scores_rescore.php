@@ -220,7 +220,7 @@ return function (): void {
                     'turns'           => $turns,
                     'coach_endpoint'  => $coachEndpoint,
                 ],
-                60,
+                10,
             );
         };
 

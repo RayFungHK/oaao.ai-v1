@@ -79,6 +79,12 @@ const OAAO_SVG_ICONS = {
         '<path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />',
     'thumbs-down':
         '<path d="M17 14V2" /><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />',
+    /** Lucide calendar — Cal info pill ({@see https://lucide.dev/icons/calendar}). */
+    calendar:
+        '<path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" />',
+    /** Lucide list-todo — Todo info pill ({@see https://lucide.dev/icons/list-todo}). */
+    'list-todo':
+        '<rect x="3" y="5" width="6" height="6" rx="1" /><path d="m3 17 2 2 4-4" /><path d="M13 6h8" /><path d="M13 12h8" /><path d="M13 18h8" />',
 };
 
 /** @type {Promise<{ el?: (name: string, opts?: object) => Element | null, registerAll?: (icons: Record<string, string>) => void }> | null} */
@@ -210,6 +216,17 @@ export async function mountRuiIcon(host, name, opts = {}) {
  * @param {{ size?: number, strokeWidth?: number | string, class?: string }} [opts]
  * @returns {HTMLElement | null}
  */
+/**
+ * Sync Lucide SVG from {@link OAAO_SVG_ICONS} (no {@code Icons.js} load).
+ *
+ * @param {string} name
+ * @param {{ size?: number, strokeWidth?: number | string, class?: string }} [opts]
+ * @returns {HTMLElement | null}
+ */
+export function createOaaoEmbeddedLucideIcon(name, opts = {}) {
+    return createEmbeddedSvgIcon(name, opts);
+}
+
 export function mountRuiIconSync(host, name, opts = {}) {
     const el = createEmbeddedSvgIcon(name, opts);
     if (el) {

@@ -20,7 +20,7 @@ function oaaoChatT(_key, fallback) {
 /** @typedef {{ key: string, label: string, tokens: number }} ContextSegment */
 
 const CONTEXT_USAGE_STYLE_ID = 'oaao-chat-context-usage-styles';
-const CONTEXT_USAGE_STYLE_REV = '20260529-ctx-ring-v10-dedupe';
+const CONTEXT_USAGE_STYLE_REV = '20260530-ctx-ring-v11-coalesce';
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let contextUsagePollTimer = null;
@@ -29,6 +29,8 @@ let contextUsageConversationOpenedHandler = null;
 /** @type {Promise<void> | null} */
 let contextUsageRefreshInFlight = null;
 let contextUsageRefreshQueued = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let contextUsageRefreshDebounceTimer = null;
 
 function stopContextUsagePoll() {
     if (contextUsagePollTimer) {
@@ -292,7 +294,7 @@ export function mountChatContextUsage(
         }
         setContextUsageBtnVisible(toolbarHost, slot, btn, true);
         syncComposerExtraToolbarStrip(mount);
-        contextUsageRefreshInFlight = (async () => {
+        const run = (async () => {
             try {
                 const data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId(), getScopeQuery);
                 const pct = Number(data?.percent_full ?? 0);
@@ -330,7 +332,18 @@ export function mountChatContextUsage(
                 }
             }
         })();
-        return contextUsageRefreshInFlight;
+        contextUsageRefreshInFlight = run;
+        return run;
+    }
+
+    function scheduleRefreshRing() {
+        if (contextUsageRefreshDebounceTimer) {
+            clearTimeout(contextUsageRefreshDebounceTimer);
+        }
+        contextUsageRefreshDebounceTimer = setTimeout(() => {
+            contextUsageRefreshDebounceTimer = null;
+            void refreshRing();
+        }, 0);
     }
 
     /** @param {number} cid */
@@ -356,10 +369,6 @@ export function mountChatContextUsage(
             void refreshRing();
         });
     }
-
-    const scheduleRefreshRing = () => {
-        void refreshRing();
-    };
 
     btn.addEventListener('click', () => {
         void openContextDialog();
@@ -548,7 +557,7 @@ export function mountChatContextUsage(
 
     if (getConversationId() > 0) {
         startPoll();
-        void refreshRing();
+        scheduleRefreshRing();
     }
 }
 

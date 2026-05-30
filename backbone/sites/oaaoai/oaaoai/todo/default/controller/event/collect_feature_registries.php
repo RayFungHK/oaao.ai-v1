@@ -108,7 +108,20 @@ return function (array $payload): void {
                 'todo_item_suggested',
                 'todo_resolve_suggested',
             ],
+            'only_last'   => true,
             'description' => 'Post-turn todo classifier — [info] pill + [strip] chips.',
         ],
     ]);
+
+    $chatApi = $this->api('chat');
+    if ($chatApi !== null && method_exists($chatApi, 'setPlannerPrompt')) {
+        $chatApi->setPlannerPrompt(
+            'todo',
+            'productivity',
+            'When the user asks for a checklist or actionable tasks, avoid duplicating open todos listed in the planner appendix; '
+            . 'calendar scheduling is not a todo.',
+            true,
+            83,
+        );
+    }
 };

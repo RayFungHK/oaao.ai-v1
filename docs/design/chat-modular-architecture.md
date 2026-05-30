@@ -126,7 +126,7 @@ Full charter: [sprint-module-boundary-charter.md §2](./sprint-module-boundary-c
 Each assistant turn = one `.oaao-chat-assistant-row` with **six canonical areas**:
 
 ```
-task → agent(before) → message → agent(after) → strip → info → state → toolbar
+identity → task → agent(before) → message → agent(after) → info → state → strip → toolbar
 ```
 
 **Stable selectors:** `data-oaao-chat-area="task|message|agent-before|agent-after|strip|info|state"`  
@@ -151,7 +151,7 @@ Full spec: [chat-ui-areas.md](./chat-ui-areas.md).
 | Vault scope SQL | `chat/ChatVaultScope.php` | `vault/VaultChatScope.php` + `api('vault')->scope*` |
 | Todo open items SQL | `user/UserSendOrchestratorPayload.php` | `todo/TodoOpenItemsForConversation.php` + `api('todo')->openItemsForConversation()` |
 | Calendar/todo in `allowed_agents` | dispatchable rows | `intent_only: true` — excluded from dispatch; `planner_intent_catalog[]` |
-| Strip chip order | before IQS | **strip above info/state** |
+| Strip chip order | before IQS / mixed DOM | **strip after info + state** (post-turn) |
 | Planner prompt API | missing | `api('chat')->setPlannerPrompt()` + `{{planner_prompt_block}}` in planner templates |
 | UI stage SSE | missing | `ui_stage_stream.py` + `applyUiStageEnvelope()` |
 

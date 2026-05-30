@@ -2,12 +2,17 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ChatConversationScope;
+use oaaoai\chat\ChatProductivityFence;
+use oaaoai\chat\ChatProductivityInlineParse;
 use oaaoai\chat\ChatStripConfirm;
 use oaaoai\chat\ChatStripHash;
-use oaaoai\endpoints\FeatureRegistryBootstrap;
 
 /**
  * POST /chat/api/strip/confirm — execute signed strip action and clear assistant meta_json key.
+ *
+ * Registries ({@code strip_action.register}, …) must be collected on the **endpoints** emitter
+ * ({@code oaaoai/endpoints:collect_feature_registries}) — same as {@see info_worker.php}.
  *
  * Body JSON: { "strip_hash": "v1.…", "workspace_id"?: int }
  *
@@ -56,12 +61,8 @@ return function (): void {
     $cid = (int) $claims['conversation_id'];
     $mid = (int) $claims['message_id'];
     $actionId = (string) $claims['action_id'];
-    $wid = $this->oaao_chat_resolve_workspace_id($input);
-    if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
-        return;
-    }
 
-    FeatureRegistryBootstrap::collect($this);
+    $this->api('endpoints')?->ensureFeatureRegistries();
 
     try {
         if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
@@ -69,23 +70,29 @@ return function (): void {
             oaao_auth_upgrade_sqlite_message_meta_json($pdo);
         }
 
-        $conv = $splitDb->prepare()
-            ->select('id')
-            ->from('conversation')
-            ->where('id=?,user_id=?,workspace_id=?')
-            ->assign(['id' => $cid, 'user_id' => $uid, 'workspace_id' => $wid])
-            ->limit(1)
-            ->query()
-            ->fetch();
-        if (! \is_array($conv) || ! isset($conv['id'])) {
+        $conv = ChatConversationScope::findOwnedByUser($splitDb, $uid, $cid, 'id, workspace_id');
+        if ($conv === null) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Conversation not found'], JSON_UNESCAPED_UNICODE);
 
             return;
         }
 
+        $convWid = ChatConversationScope::normalizeWorkspaceId($conv['workspace_id'] ?? null);
+        $requestWid = $this->oaao_chat_resolve_workspace_id($input);
+        if ($requestWid !== null && ! ChatConversationScope::matchesScope($convWid, $requestWid)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Workspace scope mismatch'], JSON_UNESCAPED_UNICODE);
+
+            return;
+        }
+
+        if (! $this->oaao_chat_gate_workspace_scope($uid, $convWid)) {
+            return;
+        }
+
         $msgRow = $splitDb->prepare()
-            ->select('meta_json')
+            ->select('meta_json, content')
             ->from('message')
             ->where('id=?,conversation_id=?')
             ->assign(['id' => $mid, 'conversation_id' => $cid])
@@ -112,18 +119,36 @@ return function (): void {
             }
         }
 
+        $content = trim((string) ($msgRow['content'] ?? ''));
+        if ($content !== '') {
+            $meta = ChatProductivityInlineParse::enrichMetaFromContent($meta, $content, $cid) ?? $meta;
+        }
+
         if (! \array_key_exists($actionId, $meta) || $meta[$actionId] === null) {
+            if (ChatStripConfirm::isAlreadyResolved($meta, $actionId)) {
+                echo json_encode([
+                    'success'    => true,
+                    'action_id'  => $actionId,
+                    'message_id' => $mid,
+                    'idempotent' => true,
+                ], JSON_UNESCAPED_UNICODE);
+
+                return;
+            }
+
+            http_response_code(409);
             echo json_encode([
-                'success'    => true,
-                'action_id'  => $actionId,
-                'message_id' => $mid,
-                'idempotent' => true,
+                'success' => false,
+                'message' => 'Suggestion payload is no longer available',
             ], JSON_UNESCAPED_UNICODE);
 
             return;
         }
 
         $payload = ChatStripConfirm::payloadFromMeta($actionId, $meta[$actionId]);
+        if (\is_array($payload) && str_starts_with(strtolower($actionId), 'todo_')) {
+            $payload = ChatStripConfirm::enrichTodoPayloadFromMeta($payload, $meta);
+        }
         if ($payload === null) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Invalid suggestion payload'], JSON_UNESCAPED_UNICODE);
@@ -138,7 +163,7 @@ return function (): void {
             return;
         }
 
-        $result = ChatStripConfirm::execute($this, $uid, $wid, $claims, $payload);
+        $result = ChatStripConfirm::execute($this, $uid, $convWid ?? 0, $claims, $payload);
         if (empty($result['success'])) {
             $http = (int) ($result['http'] ?? 500);
             http_response_code($http > 0 ? $http : 500);
@@ -150,7 +175,7 @@ return function (): void {
             return;
         }
 
-        unset($meta[$actionId]);
+        ChatProductivityFence::archiveAction($meta, $actionId, 'confirmed', $cid, $content);
         $splitDb->update('message', ['meta_json'])
             ->where('id=?,conversation_id=?')
             ->assign([
