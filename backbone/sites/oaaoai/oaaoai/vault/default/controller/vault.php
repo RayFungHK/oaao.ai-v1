@@ -182,14 +182,97 @@ return new class extends Controller {
         return $out;
     }
 
+    /**
+     * Vault chat scope facade — delegates to {@see \\oaaoai\\vault\\VaultChatScope}.
+     *
+     * @return list<int>
+     */
+    public function scopeVaultIdsForRetrieval(int $uid, ?int $workspaceId): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database || $uid < 1) {
+            return [];
+        }
+
+        return \oaaoai\vault\VaultChatScope::vaultIdsForRetrieval($db, $uid, $workspaceId, $auth);
+    }
+
+    /**
+     * @param list<int> $vaultIds
+     *
+     * @return list<int>
+     */
+    public function scopeFilterVaultIdsWithEmbeddedDocuments(array $vaultIds): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database || $vaultIds === []) {
+            return [];
+        }
+
+        return \oaaoai\vault\VaultChatScope::filterVaultIdsWithEmbeddedDocuments($db, $vaultIds);
+    }
+
+    /**
+     * @return list<array{kind: string, id: int, vault_id: int, name: string}>
+     */
+    public function scopeComposerRefsMatchingMessage(int $uid, ?int $workspaceId, string $message, int $max = 6): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database || $uid < 1 || trim($message) === '') {
+            return [];
+        }
+
+        return \oaaoai\vault\VaultChatScope::composerRefsMatchingMessage($db, $uid, $workspaceId, $message, $max);
+    }
+
+    /**
+     * @param list<array{kind: string, id: int, vault_id: int, name: string}> $refs
+     *
+     * @return array<int, list<int>>
+     */
+    public function scopeDocumentIdsByVaultRefs(array $refs): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database || $refs === []) {
+            return [];
+        }
+
+        return \oaaoai\vault\VaultChatScope::scopedDocumentIdsByVault($db, $refs);
+    }
+
+    /**
+     * @param list<int> $vaultIds
+     *
+     * @return array<string, array{file_name: string, vault_name: string, path: string}>
+     */
+    public function scopeDocumentCitationCatalog(array $vaultIds): array
+    {
+        $auth = $this->api('auth');
+        $db = $auth ? $auth->getDB() : null;
+        if (! $db instanceof Database || $vaultIds === []) {
+            return [];
+        }
+
+        return \oaaoai\vault\VaultChatScope::documentCitationCatalog($db, $vaultIds);
+    }
+
     public function __onInit(Agent $agent): bool
     {
         $agent->addAPICommand([
-            'getVaultDocumentHookRegistry'     => 'getVaultDocumentHookRegistry',
-            'getWorkspaceGlossary'             => 'getWorkspaceGlossary',
-            'saveWorkspaceGlossary'            => 'saveWorkspaceGlossary',
+            'getVaultDocumentHookRegistry'       => 'getVaultDocumentHookRegistry',
+            'getWorkspaceGlossary'               => 'getWorkspaceGlossary',
+            'saveWorkspaceGlossary'              => 'saveWorkspaceGlossary',
             'buildRetrievalProfilesFromVaultIds' => 'buildRetrievalProfilesFromVaultIds',
-            'intersectAccessibleVaultIds'      => 'intersectAccessibleVaultIds',
+            'intersectAccessibleVaultIds'        => 'intersectAccessibleVaultIds',
+            'scopeVaultIdsForRetrieval'          => 'scopeVaultIdsForRetrieval',
+            'scopeFilterVaultIdsWithEmbeddedDocuments' => 'scopeFilterVaultIdsWithEmbeddedDocuments',
+            'scopeComposerRefsMatchingMessage'   => 'scopeComposerRefsMatchingMessage',
+            'scopeDocumentIdsByVaultRefs'        => 'scopeDocumentIdsByVaultRefs',
+            'scopeDocumentCitationCatalog'       => 'scopeDocumentCitationCatalog',
         ]);
 
         $coreApi = $this->api('core');

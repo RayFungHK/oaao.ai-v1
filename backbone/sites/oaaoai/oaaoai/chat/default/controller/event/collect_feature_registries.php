@@ -51,14 +51,13 @@ return function (array $payload): void {
         ],
     ]);
 
-    $this->trigger('micro_skill_provider.register')->resolve([
-        'provider_id' => 'chat.conversation',
-        'kind'        => 'conversation',
-        'label'       => 'Conversation micro skills',
-        'extras'      => [
-            'sort'        => 20,
+    $this->trigger('info_worker.register')->resolve([
+        'worker_id' => 'turn_scores',
+        'label'     => 'Turn scores (IQS / ACCS)',
+        'extras'    => [
+            'sort'        => 10,
             'module_code' => 'oaaoai/chat',
-            'description' => 'User-saved skills from chat analysis (preview markdown, then publish).',
+            'description' => 'Post-stream IQS and ACCS scoring for [info] pills.',
         ],
     ]);
 

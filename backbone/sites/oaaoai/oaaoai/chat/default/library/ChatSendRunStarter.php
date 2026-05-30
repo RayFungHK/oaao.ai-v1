@@ -55,9 +55,7 @@ final class ChatSendRunStarter
             : $internalBase;
         $publicBase = OrchestratorPublicBase::forClientStream($publicBase);
 
-        $canonPdoForPrompt = method_exists($chatController, 'oaao_chat_canonical_pdo')
-            ? $chatController->oaao_chat_canonical_pdo()
-            : null;
+        $canonPdoForPrompt = ChatSendCanonicalPdo::fromAuthApi($authApi);
         $bindingForContext = $binding;
         $contextLimit = ChatContextUsage::resolveContextLimitFromBinding($bindingForContext);
         $tokenizerProfile = ChatTokenEstimator::resolveProfileFromBinding($bindingForContext);
@@ -276,9 +274,7 @@ final class ChatSendRunStarter
             $payload = array_merge($payload, $ctx->drainPayloadFragments());
         }
 
-        $canonPdoForPersonalization = method_exists($chatController, 'oaao_chat_canonical_pdo')
-            ? $chatController->oaao_chat_canonical_pdo()
-            : null;
+        $canonPdoForPersonalization = ChatSendCanonicalPdo::fromAuthApi($authApi);
         $pipeline->run(ChatSendPhase::ORCHESTRATOR_READY, $ctx, [
             'stage'                => ChatSendOrchestratorStage::PERSONALIZE,
             'user'                 => $user,

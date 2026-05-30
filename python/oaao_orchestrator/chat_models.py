@@ -114,6 +114,22 @@ class ChatRunRequest(BaseModel):
         default_factory=list,
         description="Planner hints per agent_kind from PHP PlannerAgentRegister (name, description, planner_hint).",
     )
+    planner_intent_catalog: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Intent-only planner hints (calendar/todo) — not dispatchable agent tasks.",
+    )
+    planner_prompt_block: str | None = Field(
+        default=None,
+        description="Numbered planner prompt injection from PHP PlannerPromptRegister (P1).",
+    )
+    productivity: dict[str, Any] | None = Field(
+        default=None,
+        description="Post-turn classifier LLM bindings: calendar, todo (from productivity.* purpose slots).",
+    )
+    post_turn_actions: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Registry-driven finalize workers (calendar/todo classifiers) from PHP PostTurnActionRegister.",
+    )
     run_planner_mode: str | None = Field(
         default=None,
         description="llm | stub — from Settings → Task planner (planning.* meta); env fallback when omitted.",

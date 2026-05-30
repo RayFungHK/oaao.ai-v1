@@ -22,6 +22,25 @@ final class ChatSendOrchestratorAgents
     }
 
     /**
+     * Prepare-only web search — omit from planner registry unless composer globe is on.
+     * Python may still force-add when {@code planning.intent} scores public-web need.
+     *
+     * @param list<string> $allowedAgents
+     * @return list<string>
+     */
+    public static function filterWebSearchUnlessEnabled(array $allowedAgents, bool $enableWebSearch): array
+    {
+        if ($enableWebSearch) {
+            return $allowedAgents;
+        }
+
+        return array_values(array_filter(
+            $allowedAgents,
+            static fn ($k) => (string) $k !== 'web_search',
+        ));
+    }
+
+    /**
      * @param list<string> $allowedAgents
      * @return list<string>
      */
@@ -30,6 +49,7 @@ final class ChatSendOrchestratorAgents
         bool $bubbleThread,
         string $orchestratorUserContent,
         bool $hasPublishedSlideTemplate,
+        bool $enableWebSearch = false,
     ): array {
         if ($endpointsApi !== null && method_exists($endpointsApi, 'resolveAllowedAgents')) {
             $allowedAgents = $endpointsApi->resolveAllowedAgents();
@@ -38,13 +58,21 @@ final class ChatSendOrchestratorAgents
         }
 
         if ($bubbleThread) {
-            return self::filterForBubbleThread($allowedAgents);
+            return self::filterWebSearchUnlessEnabled(
+                self::filterForBubbleThread(
+                    PlannerAgentRegister::filterDispatchableKinds($allowedAgents),
+                ),
+                $enableWebSearch,
+            );
         }
 
-        return ChatTeachingIntent::ensureSlideDesignerAllowed(
-            $allowedAgents,
-            $orchestratorUserContent,
-            $hasPublishedSlideTemplate,
+        return self::filterWebSearchUnlessEnabled(
+            ChatTeachingIntent::ensureSlideDesignerAllowed(
+                PlannerAgentRegister::filterDispatchableKinds($allowedAgents),
+                $orchestratorUserContent,
+                $hasPublishedSlideTemplate,
+            ),
+            $enableWebSearch,
         );
     }
 

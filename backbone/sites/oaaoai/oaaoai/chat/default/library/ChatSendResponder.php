@@ -65,6 +65,9 @@ final class ChatSendResponder
         if ($input->inferenceSnapshot !== []) {
             $response['inference'] = $input->inferenceSnapshot;
         }
+        if ($input->priorLastMessageId > 0) {
+            $response['prior_last_message_id'] = $input->priorLastMessageId;
+        }
 
         return $response;
     }

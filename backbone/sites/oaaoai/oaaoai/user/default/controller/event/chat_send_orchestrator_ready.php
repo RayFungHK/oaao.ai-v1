@@ -27,12 +27,28 @@ return function (array $payload): void {
     $orchPayload = (isset($payload['orchestrator_payload']) && \is_array($payload['orchestrator_payload']))
         ? $payload['orchestrator_payload']
         : [];
+    $conversationId = (int) ($payload['conversation_id'] ?? 0);
+
+    $openTodoItems = null;
+    $todoApi = $this->api('todo');
+    if ($todoApi && method_exists($todoApi, 'openItemsForConversation') && $canonPdo instanceof \PDO && $conversationId > 0) {
+        $tenantForTodos = isset($orchPayload['tenant_id'])
+            ? (int) $orchPayload['tenant_id']
+            : (int) ($user->tenant_id ?? 0);
+        $openTodoItems = $todoApi->openItemsForConversation(
+            $canonPdo,
+            $tenantForTodos,
+            $ctx->userId,
+            $conversationId,
+        );
+    }
 
     $ctx->mergePayloadFragment('user', UserSendOrchestratorPayload::buildFragment(
         $ctx,
         $orchPayload,
         $user,
         $canonPdo instanceof \PDO ? $canonPdo : null,
-        (int) ($payload['conversation_id'] ?? 0),
+        $conversationId,
+        \is_array($openTodoItems) ? $openTodoItems : null,
     ));
 };

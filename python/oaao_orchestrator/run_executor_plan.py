@@ -89,6 +89,8 @@ def tool_chain_from_plan(plan: RunPlan | None) -> list[str]:
     for task in plan.tasks:
         if task.type == RunTaskType.VAULT_RAG:
             chain.append("vault_rag")
+        elif task.type == RunTaskType.WEB_SEARCH:
+            chain.append("web_search")
         elif task.type == RunTaskType.LLM_STREAM:
             chain.append("llm_stream")
         elif task.type == RunTaskType.AGENT:

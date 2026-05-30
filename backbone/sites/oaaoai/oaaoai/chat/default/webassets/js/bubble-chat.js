@@ -8,6 +8,8 @@
 import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
 import { readOaaoSseStream } from '../../../core/default/js/oaao-sse.js';
 import { oaaoAppendShellEsmV, resolveOrchestratorPublicUrl, resolveShellRegistryUrl } from '../../../core/default/js/shell-registry-url.js';
+import { mountStripFromEnvelope, normalizeStripItemsFromMeta } from './strip-chip-shell.js';
+import { resolveProductivityOuter } from './productivity-strip-host.js';
 import {
     clearChatComposerEditor,
     focusChatComposerEditor,
@@ -27,22 +29,34 @@ const BUBBLE_USER_BUBBLE =
 const BUBBLE_ASSIST_BUBBLE =
     `max-w-full rounded-[14px] ${BUBBLE_BUBBLE_PAD} text-[0.875rem] border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] fg-[var(--grid-ink)] whitespace-pre-wrap oaao-md-bubble`;
 
-/** @type {Array<{ kind: string, payload: Record<string, unknown> }>} */
-let pendingProductivityEvents = [];
+/** @type {Record<string, unknown>} Pending strip meta keys for the current turn (legacy + ui_stage). */
+let pendingStripMeta = {};
 /** Set when SSE / run end hints calendar or todo chips for the current turn. */
 let expectProductivityAfterTurn = false;
 
-/** @type {Promise<{ calMod: typeof import('./conversation-calendar-suggest.js'), todoMod: typeof import('./conversation-todo-suggest.js') }> | null} */
-let productivityModsPromise = null;
+function buildBubbleStripCtx() {
+    return {
+        scopeFields: () => workspaceScopeFields(),
+        onTodoResolve: () => {
+            document.dispatchEvent(new CustomEvent('oaao:todos-changed'));
+        },
+    };
+}
 
-function loadProductivityMods() {
-    if (!productivityModsPromise) {
-        productivityModsPromise = Promise.all([
-            import('./conversation-calendar-suggest.js'),
-            import('./conversation-todo-suggest.js'),
-        ]).then(([calMod, todoMod]) => ({ calMod, todoMod }));
-    }
-    return productivityModsPromise;
+/**
+ * @param {HTMLElement} chatMount
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {Record<string, unknown>} meta
+ */
+function applyBubbleStripMeta(chatMount, conversationId, messageId, meta) {
+    const cid = Math.floor(Number(conversationId));
+    const mid = Math.floor(Number(messageId));
+    if (cid < 1 || mid < 1 || !meta || typeof meta !== 'object') return;
+    if (!normalizeStripItemsFromMeta(meta).length) return;
+    const { outer } = resolveProductivityOuter(chatMount, mid);
+    if (!(outer instanceof HTMLElement)) return;
+    mountStripFromEnvelope(outer, meta, cid, mid, buildBubbleStripCtx());
 }
 
 /** @type {import('../../../core/default/razyui/component/Dialog.js').default | null} */
@@ -188,34 +202,6 @@ function markExpectProductivityAfterTurn() {
     expectProductivityAfterTurn = true;
 }
 
-function queueProductivityFromRunMeta(payload) {
-    if (!payload || typeof payload !== 'object') return;
-    let queued = false;
-    const cal = payload.calendar_event_suggested;
-    if (cal && typeof cal === 'object') {
-        queueProductivityEvent('calendar', /** @type {Record<string, unknown>} */ (cal));
-        queued = true;
-    }
-    const todo = payload.todo_item_suggested;
-    if (todo && typeof todo === 'object') {
-        queueProductivityEvent('todo', /** @type {Record<string, unknown>} */ (todo));
-        queued = true;
-    }
-    const todos = payload.todo_items_suggested;
-    if (Array.isArray(todos) && todos.length >= 2) {
-        queueProductivityEvent('todos', { items: todos });
-        queued = true;
-    }
-    const resolve = payload.todo_resolve_suggested;
-    if (resolve && typeof resolve === 'object') {
-        queueProductivityEvent('todo_resolve', /** @type {Record<string, unknown>} */ (resolve));
-        queued = true;
-    }
-    if (queued) {
-        markExpectProductivityAfterTurn();
-    }
-}
-
 /**
  * @param {HTMLElement} composerMount
  * @param {HTMLElement} inputEl
@@ -258,40 +244,47 @@ function streamEnvelopeText(data) {
 }
 
 function clearPendingProductivity() {
-    pendingProductivityEvents = [];
+    pendingStripMeta = {};
     expectProductivityAfterTurn = false;
 }
 
-function queueProductivityEvent(kind, payload) {
-    if (!payload || typeof payload !== 'object') return;
-    pendingProductivityEvents.push({ kind, payload: /** @type {Record<string, unknown>} */ (payload) });
+function mergePendingStripMeta(meta) {
+    if (!meta || typeof meta !== 'object') return;
+    pendingStripMeta = { ...pendingStripMeta, ...meta };
     markExpectProductivityAfterTurn();
 }
 
-/**
- * @param {HTMLElement} chatMount
- * @param {number} conversationId
- * @param {number} messageId
- * @param {Array<{ kind: string, payload: Record<string, unknown> }>} events
- */
-async function dispatchProductivityEvents(chatMount, conversationId, messageId, events) {
-    const cid = Math.floor(Number(conversationId));
-    const mid = Math.floor(Number(messageId));
-    if (cid < 1 || mid < 1 || !(chatMount instanceof HTMLElement) || events.length < 1) return;
-
-    const scopeFields = () => workspaceScopeFields();
-    const { calMod, todoMod } = await loadProductivityMods();
-
-    for (const ev of events) {
-        if (ev.kind === 'calendar') {
-            calMod.handleCalendarEventSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
-        } else if (ev.kind === 'todo') {
-            todoMod.handleTodoItemSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
-        } else if (ev.kind === 'todos') {
-            todoMod.handleTodoItemsSuggestedStream(chatMount, cid, mid, ev.payload, scopeFields);
-        } else if (ev.kind === 'todo_resolve') {
-            todoMod.handleTodoResolveSuggestedStream(chatMount, cid, mid, ev.payload);
-        }
+function queueProductivityFromRunMeta(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    /** @type {Record<string, unknown>} */
+    const meta = {};
+    let queued = false;
+    const cal = payload.calendar_event_suggested;
+    if (cal && typeof cal === 'object') {
+        meta.calendar_event_suggested = cal;
+        queued = true;
+    }
+    const todo = payload.todo_item_suggested;
+    if (todo && typeof todo === 'object') {
+        meta.todo_item_suggested = todo;
+        queued = true;
+    }
+    const todos = payload.todo_items_suggested;
+    if (Array.isArray(todos) && todos.length >= 2) {
+        meta.todo_items_suggested = todos;
+        queued = true;
+    }
+    const resolve = payload.todo_resolve_suggested;
+    if (resolve && typeof resolve === 'object') {
+        meta.todo_resolve_suggested = resolve;
+        queued = true;
+    }
+    if (Array.isArray(payload.items) && payload.items.length > 0) {
+        meta.items = payload.items;
+        queued = true;
+    }
+    if (queued) {
+        mergePendingStripMeta(meta);
     }
 }
 
@@ -336,27 +329,23 @@ function appendUserBubble(host, content) {
  * @param {number} messageId
  */
 async function applyBubbleProductivityChips(chatMount, conversationId, messageId) {
-    if (pendingProductivityEvents.length < 1) return;
-    const events = pendingProductivityEvents.slice();
-    await dispatchProductivityEvents(chatMount, conversationId, messageId, events);
+    if (!pendingStripMeta || typeof pendingStripMeta !== 'object') return;
+    if (!normalizeStripItemsFromMeta(pendingStripMeta).length) return;
+    applyBubbleStripMeta(chatMount, conversationId, messageId, { ...pendingStripMeta });
     clearPendingProductivity();
 }
 
 /**
- * Live SSE productivity chips — same as main chat thread (before reload).
+ * Live SSE strip chips — same hard shell as main chat thread.
  *
  * @param {HTMLElement} chatMount
  * @param {number} conversationId
  * @param {number} messageId
  */
 async function applyBubbleProductivityChipsLive(chatMount, conversationId, messageId) {
-    if (pendingProductivityEvents.length < 1) return;
-    await dispatchProductivityEvents(
-        chatMount,
-        conversationId,
-        messageId,
-        pendingProductivityEvents.slice(),
-    );
+    if (!pendingStripMeta || typeof pendingStripMeta !== 'object') return;
+    if (!normalizeStripItemsFromMeta(pendingStripMeta).length) return;
+    applyBubbleStripMeta(chatMount, conversationId, messageId, { ...pendingStripMeta });
 }
 
 /**
@@ -367,8 +356,6 @@ async function applyBubbleProductivityChipsLive(chatMount, conversationId, messa
 async function hydrateProductivityFromMessageMeta(chatMount, conversationId, rows) {
     const cid = Math.floor(Number(conversationId));
     if (cid < 1) return;
-    const { calMod, todoMod } = await loadProductivityMods();
-    const scopeFields = () => workspaceScopeFields();
 
     for (const row of rows) {
         if (String(row?.role || '').toLowerCase() !== 'assistant') continue;
@@ -376,43 +363,7 @@ async function hydrateProductivityFromMessageMeta(chatMount, conversationId, row
         if (mid < 1) continue;
         const meta = row.meta;
         if (!meta || typeof meta !== 'object') continue;
-        const m = /** @type {Record<string, unknown>} */ (meta);
-        if (m.calendar_event_suggested && typeof m.calendar_event_suggested === 'object') {
-            calMod.renderCalendarSuggestChip(
-                chatMount,
-                cid,
-                mid,
-                /** @type {Record<string, unknown>} */ (m.calendar_event_suggested),
-                scopeFields,
-            );
-        }
-        if (m.todo_item_suggested && typeof m.todo_item_suggested === 'object') {
-            todoMod.renderTodoSuggestChip(
-                chatMount,
-                cid,
-                mid,
-                /** @type {Record<string, unknown>} */ (m.todo_item_suggested),
-                scopeFields,
-            );
-        }
-        const batch = m.todo_items_suggested;
-        if (Array.isArray(batch) && batch.length >= 2) {
-            todoMod.renderTodoItemsSuggestChip(
-                chatMount,
-                cid,
-                mid,
-                { items: batch },
-                scopeFields,
-            );
-        }
-        if (m.todo_resolve_suggested && typeof m.todo_resolve_suggested === 'object') {
-            todoMod.renderTodoResolveChip(
-                chatMount,
-                cid,
-                mid,
-                /** @type {Record<string, unknown>} */ (m.todo_resolve_suggested),
-            );
-        }
+        applyBubbleStripMeta(chatMount, cid, mid, /** @type {Record<string, unknown>} */ (meta));
     }
 }
 
@@ -555,20 +506,30 @@ async function consumeBubbleStream(streamUrl, runId, opts) {
                     return;
                 }
 
+                if (phase === 'ui' && kind === 'stage' && payload && typeof payload === 'object') {
+                    const stage = /** @type {Record<string, unknown>} */ (payload);
+                    const area = String(stage.area ?? text ?? '').toLowerCase();
+                    if (area === 'strip' && assistantMsgId > 0) {
+                        mergePendingStripMeta(stage);
+                        maybeApplyLiveProductivity();
+                    }
+                    return;
+                }
+
                 if (phase !== 'system' || kind !== 'status' || !text) return;
                 if (!payload || typeof payload !== 'object') return;
 
                 if (text === 'calendar_event_suggested') {
-                    queueProductivityEvent('calendar', /** @type {Record<string, unknown>} */ (payload));
+                    mergePendingStripMeta({ calendar_event_suggested: payload });
                     maybeApplyLiveProductivity();
                 } else if (text === 'todo_item_suggested') {
-                    queueProductivityEvent('todo', /** @type {Record<string, unknown>} */ (payload));
+                    mergePendingStripMeta({ todo_item_suggested: payload });
                     maybeApplyLiveProductivity();
                 } else if (text === 'todo_items_suggested') {
-                    queueProductivityEvent('todos', /** @type {Record<string, unknown>} */ (payload));
+                    mergePendingStripMeta({ todo_items_suggested: payload });
                     maybeApplyLiveProductivity();
                 } else if (text === 'todo_resolve_suggested') {
-                    queueProductivityEvent('todo_resolve', /** @type {Record<string, unknown>} */ (payload));
+                    mergePendingStripMeta({ todo_resolve_suggested: payload });
                     maybeApplyLiveProductivity();
                 }
             },
@@ -623,21 +584,8 @@ async function loadDialogCtor() {
  */
 async function refreshContextUsageRing(conversationId, mount) {
     if (!conversationId || conversationId < 1) return;
-    try {
-        const mod = await import('./chat-context-usage.js');
-        if (typeof mod.mountChatContextUsage !== 'function') return;
-        mod.purgeComposerContextUsageOrphans?.(mount);
-        mod.mountChatContextUsage(
-            mount,
-            () => conversationId,
-            () => getChatEndpointId() ?? 0,
-            chatApiBase(),
-            async () => {},
-            () => workspaceScopeFields(),
-        );
-    } catch {
-        /* ignore */
-    }
+    globalThis.__oaaoStartChatContextUsagePoll?.();
+    globalThis.__oaaoRefreshChatContextUsage?.();
 }
 
 function setBubbleTriggerPressed(on) {
@@ -756,7 +704,7 @@ export async function openBubbleChat() {
     const reloadMessagesAfterTurn = async (attempts = 8) => {
         let rows = await reloadMessages();
         const shouldWaitForProductivity =
-            expectProductivityAfterTurn || pendingProductivityEvents.length > 0;
+            expectProductivityAfterTurn || normalizeStripItemsFromMeta(pendingStripMeta).length > 0;
         if (!shouldWaitForProductivity) {
             return rows;
         }
@@ -767,7 +715,7 @@ export async function openBubbleChat() {
                 const mid = Math.floor(Number(row.id ?? row.message_id ?? 0));
                 return mid > 0;
             });
-            if (hasAssistantAnchor && (hasProdMeta || pendingProductivityEvents.length > 0)) {
+            if (hasAssistantAnchor && (hasProdMeta || normalizeStripItemsFromMeta(pendingStripMeta).length > 0)) {
                 break;
             }
             await new Promise((r) => setTimeout(r, 400 * i));

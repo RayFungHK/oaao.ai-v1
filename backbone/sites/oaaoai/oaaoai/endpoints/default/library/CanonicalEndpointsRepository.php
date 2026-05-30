@@ -461,6 +461,34 @@ final class CanonicalEndpointsRepository
     }
 
     /**
+     * Post-turn calendar classifier LLM ({@code productivity.calendar.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null
+     */
+    public function resolveProductivityCalendarBinding(): ?array
+    {
+        return $this->resolveVaultPurposeBinding(
+            'productivity.calendar',
+            'productivity.calendar.primary',
+            'productivity.calendar',
+        );
+    }
+
+    /**
+     * Post-turn todo classifier LLM ({@code productivity.todo.*}).
+     *
+     * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string}|null
+     */
+    public function resolveProductivityTodoBinding(): ?array
+    {
+        return $this->resolveVaultPurposeBinding(
+            'productivity.todo',
+            'productivity.todo.primary',
+            'productivity.todo',
+        );
+    }
+
+    /**
      * Resolve chat run task planner LLM ({@code planning.*} — Settings → Task planner).
      *
      * @return array{purpose_key: string, base_url: string, model: string, api_key_ref: string, purpose_meta: array<string, mixed>}|null

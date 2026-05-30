@@ -2,6 +2,7 @@
 
 use oaaoai\chat\ChatConversationScope;
 use oaaoai\chat\ChatHistorySettings;
+use oaaoai\chat\ChatStripItems;
 
 /**
  * GET /chat/api/messages?conversation_id=&workspace_id=&limit=&before_id=
@@ -91,7 +92,9 @@ return function (): void {
             $row['meta'] = null;
             if (\is_string($mj) && $mj !== '') {
                 $decoded = json_decode($mj, true);
-                $row['meta'] = \is_array($decoded) ? $decoded : null;
+                $row['meta'] = \is_array($decoded)
+                    ? ChatStripItems::enrichMetaForClient($uid, $cid, $mid, $decoded)
+                    : null;
             }
             $out[] = $row;
         }
@@ -109,11 +112,29 @@ return function (): void {
             $hasOlder = \is_array($older) && isset($older['id']);
         }
 
+        $lastMessageId = null;
+        if ($beforeId < 1) {
+            $lastRow = $splitDb->prepare()
+                ->select('id')
+                ->from('message')
+                ->where('conversation_id=?')
+                ->assign(['conversation_id' => $cid])
+                ->order('-id')
+                ->limit(1)
+                ->query()
+                ->fetch();
+            if (\is_array($lastRow)) {
+                $lastId = (int) ($lastRow['id'] ?? 0);
+                $lastMessageId = $lastId > 0 ? $lastId : null;
+            }
+        }
+
         echo json_encode([
             'success'            => true,
             'messages'           => $out,
             'has_older'          => $hasOlder,
             'oldest_message_id'  => $minId,
+            'last_message_id'    => $lastMessageId,
             'limit'              => $limit,
         ]);
     } catch (\Throwable $e) {

@@ -105,6 +105,7 @@ def _planner_system_prompt(
     max_tasks: int,
     agent_guide: str,
     planner_payload: dict[str, Any] | None = None,
+    planner_prompt_block: str = "",
 ) -> str:
     """Load planner system text from purpose ``prompt.system_ref`` (markdown only)."""
     from oaao_orchestrator.planning_prompt import render_planner_system_prompt
@@ -114,6 +115,7 @@ def _planner_system_prompt(
         max_tasks=max_tasks,
         agent_guide=agent_guide,
         planner_payload=planner_payload,
+        planner_prompt_block=planner_prompt_block,
     )
 
 
@@ -271,6 +273,15 @@ def _normalize_tasks(
         seen.add(tid)
         title = (d.title or "").strip() or tid
         agent_kind = (d.agent_kind or "").strip() or None
+        if t == RunTaskType.WEB_SEARCH or (t == RunTaskType.AGENT and agent_kind == "web_search"):
+            specs.append(
+                RunTaskSpec(
+                    id=tid,
+                    title=title or "Search the web",
+                    type=RunTaskType.WEB_SEARCH,
+                )
+            )
+            continue
         if t == RunTaskType.AGENT:  # noqa: SIM102
             if not agent_kind or (allowed_set and agent_kind not in allowed_set):
                 continue
@@ -330,12 +341,32 @@ def _normalize_tasks(
         specs = [s for i, s in enumerate(specs) if s.type != RunTaskType.VAULT_RAG or i == keep]
 
     specs = _dedupe_agent_kind_tasks(specs)
+    specs = normalize_web_search_prepare_tasks(specs)
+    return specs
 
-    total = len(specs)
-    for idx, spec in enumerate(specs, start=1):
+
+def normalize_web_search_prepare_tasks(specs: list[RunTaskSpec]) -> list[RunTaskSpec]:
+    """Coerce legacy ``type=agent web_search`` rows to prepare-only ``RunTaskType.WEB_SEARCH``."""
+    out: list[RunTaskSpec] = []
+    seen = False
+    for spec in specs:
+        kind = (spec.agent_kind or "").strip()
+        if spec.type == RunTaskType.AGENT and kind == "web_search":
+            if seen:
+                continue
+            seen = True
+            out.append(spec.model_copy(update={"type": RunTaskType.WEB_SEARCH, "agent_kind": None}))
+            continue
+        if spec.type == RunTaskType.WEB_SEARCH:
+            if seen:
+                continue
+            seen = True
+        out.append(spec)
+    total = len(out)
+    for idx, spec in enumerate(out, start=1):
         spec.index = idx
         spec.total = total
-    return specs
+    return out
 
 
 def _slide_resume_project_id(slide_designer_cfg: dict[str, Any] | None) -> str | None:
@@ -591,35 +622,26 @@ def _plan_signals_handbook_vol_teaching(specs: list[RunTaskSpec]) -> bool:
 def inject_web_search_for_planner_intent(
     specs: list[RunTaskSpec],
     *,
-    allowed_agents: list[str],
+    allowed_agents: list[str] | None = None,
     needs_web_search: bool,
 ) -> list[RunTaskSpec]:
+    """Insert prepare-only web search before ``llm_stream`` when public-web is needed."""
+    _ = allowed_agents
+    specs = normalize_web_search_prepare_tasks(specs)
     if not needs_web_search:
         return specs
-    allowed_set = {a.strip() for a in allowed_agents if a.strip()}
-    if "web_search" not in allowed_set:
-        return specs
-    if any(
-        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "web_search"
-        for s in specs
-    ):
+    if any(s.type == RunTaskType.WEB_SEARCH for s in specs):
         return specs
     streams = [i for i, s in enumerate(specs) if s.type == RunTaskType.LLM_STREAM]
     insert_at = streams[0] if streams else len(specs)
     task = RunTaskSpec(
         id="rt-web-search",
         title="Search the web",
-        type=RunTaskType.AGENT,
-        agent_kind="web_search",
-        params={"requires_ask": False},
+        type=RunTaskType.WEB_SEARCH,
     )
     out = list(specs)
     out.insert(insert_at, task)
-    total = len(out)
-    for idx, spec in enumerate(out, start=1):
-        spec.index = idx
-        spec.total = total
-    return out
+    return normalize_web_search_prepare_tasks(out)
 
 
 def enrich_composer_web_search_plan(
@@ -636,14 +658,8 @@ def enrich_composer_web_search_plan(
     """
     if not bool(getattr(req, "enable_web_search", False)):
         return plan
-    allowed_set = {a.strip() for a in allowed_agents if a.strip()}
-    if "web_search" not in allowed_set:
-        return plan
 
-    has_web = any(
-        s.type == RunTaskType.AGENT and (s.agent_kind or "").strip() == "web_search"
-        for s in plan.tasks
-    )
+    has_web = any(s.type == RunTaskType.WEB_SEARCH for s in plan.tasks)
     tasks = list(plan.tasks)
     if not has_web:
         tasks = inject_web_search_for_planner_intent(
@@ -1058,6 +1074,7 @@ async def plan_run_with_llm(
         max_tasks=max_tasks,
         agent_guide=agent_guide,
         planner_payload=planner_payload if isinstance(planner_payload, dict) else None,
+        planner_prompt_block=str(getattr(req, "planner_prompt_block", "") or "").strip(),
     )
     style_append = preference_style_planner_append(getattr(req, "user_personalization", None))
     if style_append:

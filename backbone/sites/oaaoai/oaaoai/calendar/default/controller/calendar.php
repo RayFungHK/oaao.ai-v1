@@ -35,6 +35,8 @@ return new class extends Controller {
             ],
         ]);
 
+        $agent->listen('oaaoai/endpoints:collect_feature_registries', 'event/collect_feature_registries');
+
         return true;
     }
 };

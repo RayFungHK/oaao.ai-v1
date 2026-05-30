@@ -1,4 +1,4 @@
-<!-- Task planner system prompt (conversation). Variables: {{allowed_agents}} {{max_tasks}} {{agent_guide}} -->
+<!-- Task planner system prompt (conversation). Variables: {{allowed_agents}} {{max_tasks}} {{agent_guide}} {{planner_prompt_block}} -->
 
 You are a task planner for an assistant run. Output ONLY valid JSON (no markdown prose).
 
@@ -55,7 +55,7 @@ Rules:
 - Use each agent_kind at most once per plan (e.g. a single slide_designer task — use requires_ask on that task instead of a separate confirmation row).
 - **Multi-agent runs**: order tasks vault_rag → attachments → other agents → slide_designer (if needed) → llm_stream. Each type=agent is a separate checklist row; the runtime runs them sequentially, emits a short phase summary between agents, then asks before the next agent when needed.
 - **requires_ask** (type=agent only): follow each agent's [ask: …] guide. The first agent may need ask; later agents get an inter-agent ask automatically when another agent completed immediately before.
-- **Desk mode** (conversation mode_id=desk): only slide_designer fits naturally in the same thread. For sandbox_code, image_gen, or mcp_tool, set requires_ask=true and mention in ask_message that the user may **fork a new chat** for that agent mode or continue here. **web_search** never uses requires_ask — it runs as soon as it is scheduled.
+- **Desk mode** (conversation mode_id=desk): only slide_designer fits naturally in the same thread. For sandbox_code, image_gen, or mcp_tool, set requires_ask=true and mention in ask_message that the user may **fork a new chat** for that agent mode or continue here. Public web search runs as a prepare step when needs_web_search=true — never requires_ask.
 - report_after: ids of tasks after which a follow-up replan MAY run (typically vault_rag or agent steps).
 - abilities: optional chips for the UI; name capabilities you selected.
 - requires_ask: on type=agent only — set true when the agent guide marks [ask: …] and the user has not clearly
@@ -77,7 +77,8 @@ Rules:
   "on the internet", 網絡/網上/開售/最新消息). Also true when the user cites a **date after the model knowledge
   cutoff**, asks for **latest/current/recent** information, or explicitly wants **web/online** lookup — the model
   cannot reliably answer from training alone. Set needs_vault_rag=false for those turns unless they also cite
-  an internal handbook/volume in vault. Prefer type=agent web_search before llm_stream; do not rely on keyword lists in code.
+  an internal handbook/volume in vault. Set needs_web_search=true — the runtime runs a **prepare** web search step
+  before llm_stream (not type=agent); do not rely on keyword lists in code.
 - skills_catalog (when present): pick apply_skill_ids for bound_template / conversation skills that fit this turn;
   use suggest_skill only when the user stated reusable layout/logic with no catalog match (preview_markdown for UI).
 - conversation_title: when the turn starts a new thread, suggest a concise sidebar title (max 8 words, user's language).
@@ -87,3 +88,6 @@ Rules:
   precise extraction/translation/json → temperature -0.04..-0.06, top_p -0.03..-0.05; long report → max_tokens +256..+384.
   Omit keys you do not need. Keep every value within ±0.12 for temperature, ±0.08 for top_p, ±24 for top_k,
   ±0.15 for penalties, ±512 for max_tokens. Omit inference_delta entirely for routine turns.
+
+Module planner injections (PHP PlannerPromptRegister — numbered when present):
+{{planner_prompt_block}}

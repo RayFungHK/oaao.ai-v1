@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use oaaoai\chat\ChatConversationHealth;
 use oaaoai\chat\ChatInferenceAutoTune;
+use oaaoai\chat\ChatInternalPrincipalGate;
 use oaaoai\chat\TurnScorerVersion;
 
 /**
@@ -34,6 +35,13 @@ return function (): void {
             'success' => false,
             'message' => 'conversation_id, assistant_message_id, plugin (iqs|accs) required',
         ], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
+    if (! ChatInternalPrincipalGate::verifyOptional($input, $cid, $mid)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Invalid run_principal'], JSON_UNESCAPED_UNICODE);
 
         return;
     }

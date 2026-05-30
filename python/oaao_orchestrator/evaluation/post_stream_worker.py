@@ -22,6 +22,8 @@ def _tool_chain_from_plan(plan: RunPlan | None) -> list[str]:
     for task in plan.tasks:
         if task.type == RunTaskType.VAULT_RAG:
             chain.append("vault_rag")
+        elif task.type == RunTaskType.WEB_SEARCH:
+            chain.append("web_search")
         elif task.type == RunTaskType.LLM_STREAM:
             chain.append("llm_stream")
         elif task.type == RunTaskType.AGENT:
@@ -43,6 +45,7 @@ def evolution_post_stream_enabled() -> bool:
 def schedule_evolution_post_stream(
     *,
     req: Any,
+    run: Any,
     metrics_payload: dict[str, Any],
     assistant_text: str,
     messages_for_llm: list[Any],
@@ -61,6 +64,7 @@ def schedule_evolution_post_stream(
     asyncio.create_task(  # noqa: RUF006
         _run_evolution_post_stream(
             req=req,
+            run=run,
             metrics_payload=metrics_payload,
             assistant_text=assistant_text,
             messages_for_llm=messages_for_llm,
@@ -77,6 +81,7 @@ def schedule_evolution_post_stream(
 async def _run_evolution_post_stream(
     *,
     req: Any,
+    run: Any,
     metrics_payload: dict[str, Any],
     assistant_text: str,
     messages_for_llm: list[Any],
@@ -157,8 +162,10 @@ async def _run_evolution_post_stream(
                 )
 
         if run_failed or not (assistant_text or "").strip():
+            await _emit_ui_stage_turn_scores(run=run, iqs_snap=iqs_snap, accs_result=None)
             return
         if iqs_snap and iqs_snap.get("iqs_action") in ("clarify", "hard_clarify"):
+            await _emit_ui_stage_turn_scores(run=run, iqs_snap=iqs_snap, accs_result=None)
             return
 
         from oaao_orchestrator.evaluation.accs import score_accs
@@ -277,6 +284,7 @@ async def _run_evolution_post_stream(
             accs_result.score,
             ts,
         )
+        await _emit_ui_stage_turn_scores(run=run, iqs_snap=iqs_snap, accs_result=accs_result)
         from oaao_orchestrator.evaluation.evolution_store import (
             record_evolution_run,
             record_low_score_case,
@@ -333,6 +341,51 @@ async def _run_evolution_post_stream(
             meta.get("conversation_id"),
             meta.get("assistant_message_id"),
         )
+
+
+async def _emit_ui_stage_turn_scores(
+    *,
+    run: Any,
+    iqs_snap: dict[str, Any] | None,
+    accs_result: Any | None = None,
+) -> None:
+    if run is None or getattr(run, "cancelled", False):
+        return
+    body: dict[str, Any] = {}
+    if isinstance(iqs_snap, dict):
+        iqs_raw = iqs_snap.get("iqs_score")
+        if iqs_raw is not None:
+            try:
+                iqs_val = float(iqs_raw)
+            except (TypeError, ValueError):
+                iqs_val = 0.0
+            if iqs_val > 0:
+                body["iqs"] = iqs_val
+                dims = iqs_snap.get("iqs_dimensions")
+                if isinstance(dims, dict):
+                    body["iqs_dims"] = dims
+                body["iqs_reasons"] = {
+                    "action": str(iqs_snap.get("iqs_action") or ""),
+                    "source": str(iqs_snap.get("iqs_source") or ""),
+                }
+    if accs_result is not None and not getattr(accs_result, "skipped", True):
+        try:
+            accs_val = float(getattr(accs_result, "score", 0) or 0)
+        except (TypeError, ValueError):
+            accs_val = 0.0
+        if accs_val > 0:
+            body["accs"] = accs_val
+            factors = getattr(accs_result, "factors", None)
+            if isinstance(factors, dict):
+                body["accs_dims"] = factors
+    if not body:
+        return
+    try:
+        from oaao_orchestrator.streaming.ui_stage_stream import emit_ui_stage
+
+        await emit_ui_stage(run, "info", body)
+    except Exception:
+        logger.exception("ui_stage info emit failed")
 
 
 async def _persist_iqs_snap(iqs_snap: dict[str, Any] | None, meta: dict[str, Any]) -> bool:

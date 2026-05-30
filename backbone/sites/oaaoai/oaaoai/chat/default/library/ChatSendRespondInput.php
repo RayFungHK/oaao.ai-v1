@@ -23,6 +23,7 @@ final class ChatSendRespondInput
         public readonly ?string $conversationTitleOut,
         public readonly bool $autoCompactApplied,
         public readonly array $inferenceSnapshot,
+        public readonly int $priorLastMessageId = 0,
     ) {
     }
 }

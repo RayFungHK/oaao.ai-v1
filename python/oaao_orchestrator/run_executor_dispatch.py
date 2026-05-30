@@ -20,6 +20,7 @@ from oaao_orchestrator.run_executor_llm_stream import (
     handle_llm_stream_task,
 )
 from oaao_orchestrator.run_executor_vault_rag import handle_vault_rag_task
+from oaao_orchestrator.run_executor_web_search import handle_web_search_task
 from oaao_orchestrator.streaming.events import PHASE_SYSTEM, StreamEnvelope
 from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskStatus, RunTaskType
 from oaao_orchestrator.tasks.stream_emit import emit_run_task_end
@@ -94,6 +95,21 @@ async def dispatch_run_task(
             messages_for_llm=messages_for_llm,
             pipeline_snap=pipeline_snap,
         )
+
+    elif run_task.type == RunTaskType.WEB_SEARCH:
+        messages_for_llm, pipeline_snap, ws_failed = await handle_web_search_task(
+            req=req,
+            run=run,
+            run_task=run_task,
+            plan=plan,
+            run_ctx=run_ctx,
+            allowed_agents=allowed_agents,
+            pipeline_snap=pipeline_snap,
+            messages_for_llm=messages_for_llm,
+        )
+        if ws_failed:
+            task_failed = True
+            run_failed = True
 
     elif run_task.type == RunTaskType.AGENT:
         (

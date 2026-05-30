@@ -309,7 +309,7 @@ return function (): void {
 
     /** Bump when shell ESM / dynamic import graph changes. Dev override: {@code OAAO_SHELL_ESM_V} env.
      *  Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat/default/webassets/js/chat-panel.js. */
-    $oaaoShellEsmRev = '20260529-productivity-classifier-v131';
+    $oaaoShellEsmRev = '20260529-strip-shell-v163';
     $envShellEsmV = getenv('OAAO_SHELL_ESM_V');
     $oaao_shell_esm_v = ($envShellEsmV !== false && trim((string) $envShellEsmV) !== '')
         ? trim((string) $envShellEsmV)
@@ -449,6 +449,10 @@ return function (): void {
         $chatJsScopePrefix = $chatJsPublicPrefix . '/';
         $chatJsScope = $oaaoBuildCoreJsImportScope($chatJsDiskRoot, $chatJsPublicPrefix, $oaao_shell_esm_v);
         $chatJsVersionedImports = $oaaoBuildCoreJsVersionedImports($chatJsDiskRoot, $chatJsPublicPrefix, $oaao_shell_esm_v);
+        $razyuiPublicPrefix = \rtrim($oaaoPrefixedWebPath('/webassets/core/default/razyui', $oaaoMountPrefix), '/');
+        $razyuiDiskRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'webassets' . DIRECTORY_SEPARATOR . 'razyui';
+        $razyuiScopePrefix = $razyuiPublicPrefix . '/';
+        $razyuiScope = $oaaoBuildCoreJsImportScope($razyuiDiskRoot, $razyuiPublicPrefix, $oaao_shell_esm_v);
         $razyuiUrl = $oaaoPrefixedWebPath('/webassets/core/default/razyui/razyui.js', $oaaoMountPrefix)
             . '?v=' . \rawurlencode($oaao_shell_esm_v);
         $oaao_import_map = [
@@ -463,8 +467,9 @@ return function (): void {
                 ],
             ),
             'scopes' => [
-                $coreJsScopePrefix => $coreJsScope,
-                $chatJsScopePrefix => $chatJsScope,
+                $coreJsScopePrefix  => $coreJsScope,
+                $chatJsScopePrefix  => $chatJsScope,
+                $razyuiScopePrefix  => $razyuiScope,
             ],
         ];
         $oaao_importmap_json = json_encode(

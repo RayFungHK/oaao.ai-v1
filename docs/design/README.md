@@ -4,6 +4,23 @@
 > **Product backlog:** [OAAO_Content_Studio_Epics.md](../OAAO_Content_Studio_Epics.md) · Jira CSV: [OAAO_Content_Studio_Jira_Import.csv](../OAAO_Content_Studio_Jira_Import.csv)  
 > **Deferred (pre-GTM):** Redis canary, Vault ingest SSE phase 2, load-test go/no-go, dead-code retirement — see each pack §Out of scope.
 
+## Chat modular architecture (platform — read first)
+
+| Doc | Purpose |
+|-----|---------|
+| [**chat-modular-architecture.md**](./chat-modular-architecture.md) | **Hub** — 模組化目的, PHP/Python/UI roles, dual pipelines |
+| [sprint-module-boundary-charter.md](./sprint-module-boundary-charter.md) | Boundary rules, module matrix, P0–P4 backlog |
+| [chat-send-pipeline.md](./chat-send-pipeline.md) | PHP `chat.send.*` phases + orchestrator stream |
+| [chat-ui-areas.md](./chat-ui-areas.md) | Six UI areas, `data-oaao-chat-area`, `ui_stage` SSE |
+| [module-hooks-registry.md](./module-hooks-registry.md) | Boot registries + per-module inventory |
+| [productivity-agents.md](./productivity-agents.md) | Calendar / Todo three-layer hooks |
+| [strip-chip-shell.md](./strip-chip-shell.md) | Unified `[strip]` hard shell + `strip_hash` API |
+| [run-footprint-contract.md](./run-footprint-contract.md) | `run_principal` token + Python→PHP permission audit |
+
+---
+
+## Feature packs
+
 | Pack | Status | Sprint | Stories |
 |------|--------|--------|---------|
 | [user-invitation.md](./user-invitation.md) | **implemented** | CS-W1–W3 | PLAT-2-S1…S7 ✅ · Settings invite UI |

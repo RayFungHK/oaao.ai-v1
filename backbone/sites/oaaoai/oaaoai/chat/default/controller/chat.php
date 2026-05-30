@@ -4,8 +4,11 @@ namespace Module\oaao\chat;
 
 use oaaoai\chat\ChatOrchestratorApi;
 use oaaoai\chat\ChatPipelineRegister;
+use oaaoai\chat\ChatSendCanonicalPdo;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\PlannerAgentRegister;
+use oaaoai\chat\PlannerPromptRegister;
+use oaaoai\chat\PostTurnActionRegister;
 use oaaoai\vault\VaultQdrantCollectionResolver;
 use oaaoai\vault\VaultRetrievalProfiles;
 use oaaoai\user\UserDisplayPreferences;
@@ -130,13 +133,7 @@ return new class extends Controller {
      */
     protected function oaao_chat_canonical_pdo(): ?\PDO
     {
-        $auth = $this->api('auth');
-        if (! $auth) {
-            return null;
-        }
-        $pdo = $auth->getDB()?->getDBAdapter();
-
-        return $pdo instanceof \PDO ? $pdo : null;
+        return ChatSendCanonicalPdo::fromAuthApi($this->api('auth'));
     }
 
     /**
@@ -449,6 +446,28 @@ return new class extends Controller {
         $this->api('endpoints')?->ensureFeatureRegistries();
 
         return PlannerAgentRegister::allSorted();
+    }
+
+    /**
+     * Post-turn action hooks (Calendar / Todo classifiers) — forwarded on chat run bootstrap.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getPostTurnActionRegistry(): array
+    {
+        $this->api('endpoints')?->ensureFeatureRegistries();
+
+        return PostTurnActionRegister::forOrchestrator();
+    }
+
+    public function setPlannerPrompt(string $module, string $slot, string $content, bool $numbered = true, int $sort = 500): void
+    {
+        PlannerPromptRegister::add($module, $slot, $content, $numbered, $sort);
+    }
+
+    public function getPlannerPromptBlock(): string
+    {
+        return PlannerPromptRegister::numberedBlock();
     }
 
     public function getOrchestratorInternalBase(): string
@@ -813,8 +832,6 @@ return new class extends Controller {
         $agent->listen('oaaoai/chat:chat.send.gate', 'event/chat_send_gate');
         $agent->listen('oaaoai/chat:chat.send.conversation_settle', 'event/chat_send_conversation_settle');
         $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_ready');
-        $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_core');
-        $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_finalize');
         $agent->listen('oaaoai/chat:chat.send.persist', 'event/chat_send_persist');
         $agent->listen('oaaoai/chat:chat.send.run_start', 'event/chat_send_run_start');
         $agent->listen('oaaoai/chat:chat.send.respond', 'event/chat_send_respond');
@@ -822,6 +839,9 @@ return new class extends Controller {
         $agent->addAPICommand([
             'getChatPipelineRegistry'              => 'getChatPipelineRegistry',
             'getPlannerAgentRegistry'              => 'getPlannerAgentRegistry',
+            'setPlannerPrompt'                       => 'setPlannerPrompt',
+            'getPlannerPromptBlock'                  => 'getPlannerPromptBlock',
+            'getPostTurnActionRegistry'              => 'getPostTurnActionRegistry',
             'getOrchestratorInternalBase'          => 'getOrchestratorInternalBase',
             'getOrchestratorSharedSecret'          => 'getOrchestratorSharedSecret',
             'postOrchestratorInternalJson'         => 'postOrchestratorInternalJson',
@@ -852,6 +872,7 @@ return new class extends Controller {
                 'GET chat_preferences'       => 'chat_preferences',
                 'POST chat_preferences'      => 'chat_preferences',
                 'GET turn_scores'            => 'turn_scores',
+                'GET info_worker'            => 'info_worker',
                 'GET conversation_health'    => 'conversation_health',
                 'GET conversation_fork_suggestions' => 'conversation_fork_suggestions',
                 'GET evolution_queue_status' => 'evolution_queue_status',
@@ -879,6 +900,10 @@ return new class extends Controller {
                 'GET inference_defaults'   => 'inference_defaults',
                 'POST conversation_share'    => 'conversation_share',
                 'POST message_feedback'      => 'message_feedback',
+                'strip' => [
+                    'POST dismiss' => 'dismiss',
+                    'POST confirm' => 'confirm',
+                ],
                 'GET task_artifacts'        => 'task_artifacts',
                 'GET message_materials'    => 'message_materials',
                 'GET materials_zip'        => 'materials_zip',

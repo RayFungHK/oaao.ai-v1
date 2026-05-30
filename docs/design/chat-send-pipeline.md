@@ -2,7 +2,7 @@
 
 Thin orchestration for `POST /chat/api/send` — replace inline cross-module logic in `send.php` with **chainable Razy hook phases**.
 
-**Related:** [Audit_Report.md](../Audit_Report.md) §6 (cross-module coupling) · [razy-module-autoload.md](./razy-module-autoload.md) · [bubble-chat.md](./bubble-chat.md)
+**Related:** [chat-modular-architecture.md](./chat-modular-architecture.md) · [module-hooks-registry.md](./module-hooks-registry.md) (per-module hook inventory + isolation audit) · [chat-ui-areas.md](./chat-ui-areas.md) · [Audit_Report.md](../Audit_Report.md) §6 (cross-module coupling) · [razy-module-autoload.md](./razy-module-autoload.md) · [bubble-chat.md](./bubble-chat.md)
 
 ---
 
@@ -148,3 +148,64 @@ When editing chat send behavior:
 2. Never `require_once` another module's library from `send.php`.
 3. Expose cross-module data via `$this->api('module')` or listener mutation of `ChatSendContext`.
 4. Keep `send.php` as wiring only — if a change needs >10 lines of domain logic, it belongs in a hook.
+
+---
+
+## 10. Orchestrator stream pipeline (Python → UI)
+
+After `run_start` POSTs to `/v1/runs/chat`, the browser opens SSE. This is the **second pipeline** — distinct from PHP `chat.send.*`.
+
+See [chat-modular-architecture.md §3.2](./chat-modular-architecture.md#32-orchestrator-stream-pipeline-one-run) and [chat-ui-areas.md §8](./chat-ui-areas.md#8-sse-ui_stage-contract-pipeline-order).
+
+### 10.1 Stream phase → UI area
+
+| Order | Stream | UI area | Persist |
+|:-----:|--------|---------|---------|
+| 1 | `task` * | `task` | `meta.tasks` |
+| 2 | `agent` / `rag` / … | `agent` | `oaao_pipeline.blocks` |
+| 3 | `llm` delta | `message` | `content` |
+| 4 | `system` end + metrics | `state` | run meta |
+| 5 | post_stream_worker | `info` | turn_score API |
+| 6 | post_turn_action_worker | `strip` | meta productivity keys |
+
+\* Task frames may arrive before/during LLM depending on planner mode.
+
+### 10.2 `ui_stage` envelope (canonical attach path)
+
+```json
+{
+  "phase": "ui",
+  "kind": "stage",
+  "text": "strip",
+  "payload": {
+    "area": "strip",
+    "calendar_event_suggested": { "title": "…", "confidence": 0.8 }
+  }
+}
+```
+
+- **Emitter:** `python/oaao_orchestrator/streaming/ui_stage_stream.py`
+- **Router:** `applyUiStageEnvelope()` in `chat-panel.js`
+- **Legacy:** `system/status` + `calendar_event_suggested` etc. still handled during migration
+
+### 10.3 Orchestrator payload fields (PHP → Python)
+
+Added or clarified on `ChatRunRequest` (2026-05-29):
+
+| Field | Source (PHP) |
+|-------|----------------|
+| `allowed_agents` | `PlannerAgentRegister::filterDispatchableKinds()` |
+| `agent_catalog` | dispatchable planner hints only |
+| `planner_intent_catalog` | `intent_only` rows (calendar/todo) |
+| `planner_prompt_block` | `PlannerPromptRegister::numberedBlock()` |
+| `post_turn_actions[]` | `PostTurnActionRegister::forOrchestrator()` |
+| `open_todo_items` | `api('todo')->openItemsForConversation()` |
+
+---
+
+## 11. Change log
+
+| Date | Change |
+|------|--------|
+| 2026-05-29 | Add orchestrator stream pipeline, `ui_stage`, payload field table |
+| 2026-05-29 | Initial send pipeline doc |

@@ -38,12 +38,17 @@ import {
 } from './task-materials-dialog.js';
 import { oaaoLoadingLogoElement, oaaoMountLoadingLogo } from '@oaao/core-js/oaao-loading-logo.js';
 import { handleSkillSuggestedStream, handleSkillUpgradeSuggestedStream } from './conversation-skill-suggest.js';
-import { handleCalendarEventSuggestedStream } from './conversation-calendar-suggest.js';
+import { resolveProductivityOuter } from './productivity-strip-host.js';
+import { mountStripFromEnvelope, normalizeStripItemsFromMeta } from './strip-chip-shell.js';
 import {
-    handleTodoItemSuggestedStream,
-    handleTodoItemsSuggestedStream,
-    handleTodoResolveSuggestedStream,
-} from './conversation-todo-suggest.js';
+    applyInfoWorkerPendingPills,
+    cancelInfoWorkerPoll,
+    clearPendingInfoMessages,
+    getPendingInfoMessageIds,
+    infoWorkerPollIsActive,
+    registerPendingInfoMessage,
+    scheduleInfoWorkerPoll,
+} from './chat-info-worker.js';
 import { refreshThreadTodoStrip } from './conversation-todo-thread.js';
 import {
     mountComposerModelParams,
@@ -2265,7 +2270,13 @@ async function confirmDeleteChatDialog(opts = {}) {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260529-productivity-classifier-v131';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260529-strip-shell-v163';
+
+/** Post-turn calendar/todo workers run after {@code system/end} — hydrate must outlive LLM classify latency. */
+const PRODUCTIVITY_HYDRATE_MAX_ATTEMPTS = 60;
+const PRODUCTIVITY_HYDRATE_INTERVAL_MS = 2000;
+const POST_TURN_STREAM_TAIL_MS = 120_000;
+const POST_TURN_STREAM_TAIL_INTERVAL_MS = 2500;
 
 /** @type {Promise<Record<string, unknown>> | null} */
 let chatContextUsageModPromise = null;
@@ -2370,6 +2381,45 @@ let chatComposerSeedPromptFn = null;
 
 /** @type {Map<number, { hasOlder: boolean, oldestId: number | null, loadingOlder: boolean }>} */
 const messagePageStateByConversation = new Map();
+
+/** Server-authoritative tail message id — synced on {@link loadMessages} and send append. */
+/** @type {Map<number, number | null>} */
+const uiLastMessageIdByConversation = new Map();
+
+/**
+ * @param {number} conversationId
+ * @returns {number | null}
+ */
+function getConversationUiLastMessageId(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    if (cid < 1) return null;
+    const v = uiLastMessageIdByConversation.get(cid);
+    return v != null && Number(v) > 0 ? Math.floor(Number(v)) : null;
+}
+
+/**
+ * @param {number} conversationId
+ * @param {number | null | undefined} messageId
+ */
+function setConversationUiLastMessageId(conversationId, messageId) {
+    const cid = Math.floor(Number(conversationId));
+    if (cid < 1) return;
+    const mid = coercePositiveInt(messageId);
+    uiLastMessageIdByConversation.set(cid, mid);
+}
+
+/**
+ * @param {number} conversationId
+ * @param {Array<Record<string, unknown>>} rows
+ */
+function syncConversationUiLastMessageIdFromRows(conversationId, rows) {
+    let max = null;
+    for (const m of rows) {
+        const id = coercePositiveInt(m?.id);
+        if (id !== null && (max === null || id > max)) max = id;
+    }
+    setConversationUiLastMessageId(conversationId, max);
+}
 
 let messageHistoryScrollBound = false;
 
@@ -3158,6 +3208,7 @@ function getOrCreateAssistantInlineStepsHost(outer) {
     if (!(host instanceof HTMLElement)) {
         host = document.createElement('div');
         host.dataset.oaaoChat = 'inline-task-steps';
+        host.dataset.oaaoChatArea = 'task';
         host.className = 'oaao-chat-inline-task-steps w-full min-w-0 max-w-full';
         host.setAttribute('aria-live', 'polite');
         host.hidden = true;
@@ -3175,6 +3226,106 @@ function getOrCreateAssistantInlineStepsHost(outer) {
         }
     }
     return host;
+}
+
+/**
+ * Canonical assistant-row area hosts — see docs/design/chat-ui-areas.md
+ *
+ * @param {HTMLElement} outer
+ */
+function ensureAssistantAreaHosts(outer) {
+    if (!(outer instanceof HTMLElement)) return;
+    const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
+    if (bubble instanceof HTMLElement) {
+        bubble.dataset.oaaoChatArea = 'message';
+    }
+    const taskHost = outer.querySelector('[data-oaao-chat="inline-task-steps"]');
+    if (taskHost instanceof HTMLElement) {
+        taskHost.dataset.oaaoChatArea = 'task';
+    }
+    const agentBefore = outer.querySelector('[data-oaao-chat="pipeline-blocks"]');
+    if (agentBefore instanceof HTMLElement) {
+        agentBefore.dataset.oaaoChatArea = 'agent-before';
+    }
+    const agentAfter = outer.querySelector('[data-oaao-chat="pipeline-after-blocks"]');
+    if (agentAfter instanceof HTMLElement) {
+        agentAfter.dataset.oaaoChatArea = 'agent-after';
+    }
+    let strip = outer.querySelector('[data-oaao-chat-area="strip"]');
+    if (!(strip instanceof HTMLElement)) {
+        strip = document.createElement('div');
+        strip.dataset.oaaoChatArea = 'strip';
+        strip.dataset.oaaoChat = 'action-strip';
+        strip.className = 'oaao-chat-area oaao-chat-area--strip w-full min-w-0 max-w-full';
+        const anchor =
+            outer.querySelector('[data-oaao-chat-area="info"]') ||
+            outer.querySelector('[data-oaao-chat="turn-score"]') ||
+            outer.querySelector('[data-oaao-chat-area="state"]') ||
+            outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
+            outer.querySelector('.oaao-chat-assistant-toolbar');
+        if (anchor instanceof HTMLElement) {
+            outer.insertBefore(strip, anchor);
+        } else if (bubble instanceof HTMLElement) {
+            bubble.insertAdjacentElement('afterend', strip);
+        } else {
+            outer.append(strip);
+        }
+    }
+}
+
+/**
+ * Set by {@link mountShellPanel} — module-level {@link applyUiStageEnvelope} routes strip here.
+ *
+ * @type {((mountEl: HTMLElement | Document, conversationId: number, messageId: number, meta: Record<string, unknown>, opts?: { skipStash?: boolean }) => void) | null}
+ */
+let applyProductivityChipsHook = null;
+/** @type {((mountEl: HTMLElement, conversationId: number) => Record<string, unknown>) | null} */
+let buildStripShellContextHook = null;
+
+/**
+ * Route orchestrator ``phase=ui, kind=stage`` envelopes to canonical chat areas.
+ *
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {Record<string, unknown>} envelope
+ */
+function applyUiStageEnvelope(mount, conversationId, messageId, envelope) {
+    const payload =
+        envelope.payload && typeof envelope.payload === 'object'
+            ? /** @type {Record<string, unknown>} */ (envelope.payload)
+            : null;
+    if (!payload) return;
+    const area = String(payload.area ?? envelope.text ?? '').toLowerCase();
+
+    // Strip uses applyProductivityChipsFromRunMeta stash/retry — do not require outer here
+    // (post_turn ui_stage often arrives before assistant row is queryable).
+    if (area === 'strip' && conversationId > 0 && messageId > 0) {
+        applyProductivityChipsHook?.(
+            mount instanceof HTMLElement ? mount : document,
+            conversationId,
+            messageId,
+            payload,
+        );
+        return;
+    }
+
+    // Turn-score info may arrive before assistant row exists — merge cache + retry DOM apply.
+    if (area === 'info' && conversationId > 0 && messageId > 0) {
+        mergeTurnScorePayloadIntoCache(conversationId, messageId, payload);
+        const row =
+            turnScoreCacheByConversation.get(conversationId)?.get(messageId) ?? payload;
+        applyTurnScoreToMessageWithRetry(mount, conversationId, messageId, row);
+        return;
+    }
+
+    const { outer } = resolveProductivityOuter(mount, messageId);
+    if (!(outer instanceof HTMLElement)) return;
+    ensureAssistantAreaHosts(outer);
+    if (area === 'state') {
+        applyAssistantRunSummaryToRow(outer, payload);
+        return;
+    }
 }
 
 /**
@@ -9012,10 +9163,10 @@ function turnScorePendingFromRow(row) {
     }
     const iqs = Number(row.iqs);
     const accs = Number(row.accs);
-    const pendingIqs = Boolean(row.needs_iqs_rescore) || !(Number.isFinite(iqs) && iqs > 0);
+    // Display pending only when score is missing — needs_*_rescore drives background rescore, not poll/UI.
+    const pendingIqs = !(Number.isFinite(iqs) && iqs > 0);
     const accsExpected = turnScoreAccsExpected(row, null);
     const accsHasScore = Number.isFinite(accs) && accs > 0;
-    // Score present → show pill; needs_accs_rescore only drives background rescore, not "…" UI.
     const pendingAccs = accsExpected && !accsHasScore;
     return { pendingIqs, pendingAccs };
 }
@@ -9037,7 +9188,6 @@ function formatTurnScoreDimTooltip(dims) {
         .join('\n');
 }
 
-/** ACCS is skipped for clarify / hard_clarify turns — do not show a pending ACCS pill. */
 function turnScoreAccsExpected(turnScore, runMeta) {
     const fromMeta =
         runMeta && typeof runMeta === 'object'
@@ -9134,6 +9284,14 @@ function renderTurnScorePill(wrap, kind, score, dims, opts = {}) {
 }
 
 /**
+ * @param {HTMLElement | null | undefined} wrap
+ */
+function infoWrapHasVisiblePills(wrap) {
+    if (!(wrap instanceof HTMLElement)) return false;
+    return Boolean(wrap.querySelector('[data-oaao-turn-score-pill], [data-oaao-info-pill]'));
+}
+
+/**
  * IQS / ACCS pills — show pending state while background scoring runs.
  *
  * @param {Record<string, unknown> | null | undefined} turnScore
@@ -9143,13 +9301,18 @@ function applyAssistantTurnScoreToRow(outer, turnScore) {
     const { pendingIqs, pendingAccs } = turnScorePendingFromRow(turnScore);
     const iqs = Number(turnScore.iqs);
     const accs = Number(turnScore.accs);
-    const iqsReady = Number.isFinite(iqs) && iqs > 0 && !pendingIqs;
+    const iqsReady = Number.isFinite(iqs) && iqs > 0;
     const accsExpected = turnScoreAccsExpected(turnScore, null);
-    const accsReady = accsExpected && Number.isFinite(accs) && accs > 0 && !pendingAccs;
+    const accsReady = accsExpected && Number.isFinite(accs) && accs > 0;
     const showIqs = iqsReady || pendingIqs;
     const showAccs = accsExpected && (accsReady || pendingAccs);
     if (!showIqs && !showAccs) {
-        outer.querySelector('[data-oaao-chat="turn-score"]')?.remove();
+        const scoreWrap = outer.querySelector('[data-oaao-chat="turn-score"]');
+        if (infoWrapHasVisiblePills(scoreWrap)) {
+            scoreWrap?.querySelectorAll('[data-oaao-turn-score-pill]').forEach((el) => el.remove());
+        } else {
+            scoreWrap?.remove();
+        }
         applyAccsReflectionMarkerToRow(outer, turnScore);
         return;
     }
@@ -9157,26 +9320,29 @@ function applyAssistantTurnScoreToRow(outer, turnScore) {
     if (!(wrap instanceof HTMLElement)) {
         wrap = document.createElement('div');
         wrap.dataset.oaaoChat = 'turn-score';
-        wrap.className = 'oaao-chat-turn-score-pills';
+        wrap.dataset.oaaoChatArea = 'info';
+        wrap.className = 'oaao-chat-area oaao-chat-area--info oaao-chat-turn-score-pills';
         wrap.setAttribute('aria-label', 'Turn quality scores');
-        const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
-        if (bubble instanceof HTMLElement) {
-            bubble.insertAdjacentElement('afterend', wrap);
+        ensureAssistantAreaHosts(outer);
+        const strip = outer.querySelector('[data-oaao-chat-area="strip"]');
+        const stateAnchor =
+            outer.querySelector('[data-oaao-chat-area="state"]') ||
+            outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
+            outer.querySelector('.oaao-chat-assistant-toolbar');
+        if (stateAnchor instanceof HTMLElement) {
+            outer.insertBefore(wrap, stateAnchor);
+        } else if (strip instanceof HTMLElement) {
+            strip.insertAdjacentElement('afterend', wrap);
         } else {
-            const summary =
-                outer.querySelector('[data-oaao-chat="assistant-summary-wrap"]') ||
-                outer.querySelector('[data-oaao-chat="assistant-summary"]');
-            if (summary instanceof HTMLElement) {
-                summary.insertAdjacentElement('afterend', wrap);
+            const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
+            if (bubble instanceof HTMLElement) {
+                bubble.insertAdjacentElement('afterend', wrap);
             } else {
-                const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
-                if (toolbar instanceof HTMLElement) {
-                    outer.insertBefore(wrap, toolbar);
-                } else {
-                    outer.append(wrap);
-                }
+                outer.append(wrap);
             }
         }
+    } else if (!wrap.dataset.oaaoChatArea) {
+        wrap.dataset.oaaoChatArea = 'info';
     }
     renderTurnScorePill(
         wrap,
@@ -9192,7 +9358,7 @@ function applyAssistantTurnScoreToRow(outer, turnScore) {
         accsReady ? /** @type {Record<string, unknown>} */ (turnScore).accs_dims : null,
         { pending: accsExpected && pendingAccs && !accsReady },
     );
-    if (!wrap.querySelector('[data-oaao-turn-score-pill]')) {
+    if (!wrap.querySelector('[data-oaao-turn-score-pill]') && !infoWrapHasVisiblePills(wrap)) {
         wrap.remove();
     }
     applyAccsReflectionMarkerToRow(outer, turnScore);
@@ -9672,6 +9838,7 @@ function cancelTurnScorePoll(conversationId) {
         clearTimeout(timer);
         turnScorePollTimerByConversation.delete(cid);
     }
+    cancelInfoWorkerPoll(cid);
 }
 
 /**
@@ -9691,6 +9858,184 @@ function turnScoreRowIsReady(row) {
     const { pendingIqs, pendingAccs } = turnScorePendingFromRow(row);
     const accsExpected = turnScoreAccsExpected(row, null);
     return !pendingIqs && (!accsExpected || !pendingAccs);
+}
+
+/**
+ * Prefer non-zero scores from stream/ui_stage over stale API rows (iqs=0 during persist lag).
+ *
+ * @param {Record<string, unknown> | null | undefined} existing
+ * @param {Record<string, unknown> | null | undefined} incoming
+ * @returns {Record<string, unknown>}
+ */
+function mergeTurnScoreRows(existing, incoming) {
+    if (!existing || typeof existing !== 'object') {
+        return incoming && typeof incoming === 'object' ? { ...incoming } : {};
+    }
+    if (!incoming || typeof incoming !== 'object') {
+        return { ...existing };
+    }
+    /** @type {Record<string, unknown>} */
+    const out = { ...existing, ...incoming };
+    const iqsA = Number(existing.iqs);
+    const iqsB = Number(incoming.iqs);
+    if (Number.isFinite(iqsB) && iqsB > 0) {
+        out.iqs = iqsB;
+    } else if (Number.isFinite(iqsA) && iqsA > 0) {
+        out.iqs = iqsA;
+    }
+    const accsA = Number(existing.accs);
+    const accsB = Number(incoming.accs);
+    if (Number.isFinite(accsB) && accsB > 0) {
+        out.accs = accsB;
+    } else if (Number.isFinite(accsA) && accsA > 0) {
+        out.accs = accsA;
+    }
+    for (const key of ['iqs_dims', 'accs_dims', 'iqs_reasons', 'accs_reasons']) {
+        const inc = incoming[key];
+        if (inc && typeof inc === 'object') {
+            out[key] = inc;
+        }
+    }
+    const mid = coercePositiveInt(incoming.assistant_message_id ?? existing.assistant_message_id);
+    if (mid !== null) {
+        out.assistant_message_id = mid;
+    }
+    return out;
+}
+
+/**
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {Record<string, unknown>} payload
+ */
+function mergeTurnScorePayloadIntoCache(conversationId, messageId, payload) {
+    const cid = Math.floor(Number(conversationId));
+    const mid = Math.floor(Number(messageId));
+    if (cid < 1 || mid < 1 || !payload || typeof payload !== 'object') return;
+    let map = turnScoreCacheByConversation.get(cid);
+    if (!(map instanceof Map)) {
+        map = new Map();
+        turnScoreCacheByConversation.set(cid, map);
+    }
+    map.set(mid, mergeTurnScoreRows(map.get(mid), payload));
+}
+
+/**
+ * @param {HTMLElement | null | undefined} pill
+ */
+function turnScorePillShowsNumericScore(pill) {
+    if (!(pill instanceof HTMLElement)) return false;
+    const t = pill.querySelector('.oaao-chat-turn-score-pill__main')?.textContent ?? '';
+    return /\d+\.\d+/.test(t);
+}
+
+/**
+ * @param {HTMLElement | Document} mount
+ * @param {number} messageId
+ * @returns {HTMLElement | null}
+ */
+function getAssistantRowForMessage(mount, messageId) {
+    const mid = coercePositiveInt(messageId);
+    if (mid === null) return null;
+    const bubble = getAssistantBubbleForMessage(mount, mid);
+    const outer = bubble?.closest('.oaao-chat-assistant-row');
+    return outer instanceof HTMLElement ? outer : null;
+}
+
+/**
+ * @param {HTMLElement | null | undefined} outer
+ * @param {Record<string, unknown> | null | undefined} row
+ */
+function turnScoreDomReadyForRow(outer, row) {
+    if (!(outer instanceof HTMLElement) || !row || typeof row !== 'object') return false;
+    if (!turnScoreRowIsReady(row)) return false;
+    const { pendingAccs } = turnScorePendingFromRow(row);
+    const accsExpected = turnScoreAccsExpected(row, null);
+    const iqsPill = outer.querySelector('[data-oaao-turn-score-pill="iqs"]');
+    if (!turnScorePillShowsNumericScore(iqsPill)) return false;
+    if (accsExpected && !pendingAccs) {
+        const accsPill = outer.querySelector('[data-oaao-turn-score-pill="accs"]');
+        if (!turnScorePillShowsNumericScore(accsPill)) return false;
+    }
+    return true;
+}
+
+/**
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ * @param {number | null} [assistantMessageId]
+ */
+function turnScoresDomReadyInThread(mount, conversationId, assistantMessageId = null) {
+    const cid = Math.floor(Number(conversationId));
+    const mid =
+        assistantMessageId != null && Number(assistantMessageId) > 0
+            ? Math.floor(Number(assistantMessageId))
+            : null;
+    const map = turnScoreCacheByConversation.get(cid);
+    if (!(map instanceof Map) || map.size < 1) return false;
+    if (mid) {
+        const row = map.get(mid);
+        const outer = getAssistantRowForMessage(mount, mid);
+        return turnScoreDomReadyForRow(outer, row);
+    }
+    for (const [msgId, row] of map.entries()) {
+        const outer = getAssistantRowForMessage(mount, msgId);
+        if (!turnScoreDomReadyForRow(outer, row)) return false;
+    }
+    return true;
+}
+
+/**
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {Record<string, unknown>} row
+ */
+function applyTurnScoreToMessageRow(mount, conversationId, messageId, row) {
+    const outer = getAssistantRowForMessage(mount, messageId);
+    if (!(outer instanceof HTMLElement)) return false;
+    applyAssistantTurnScoreToRow(outer, row);
+    return true;
+}
+
+/**
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {Record<string, unknown>} row
+ */
+function applyTurnScoreToMessageWithRetry(mount, conversationId, messageId, row) {
+    const cid = Math.floor(Number(conversationId));
+    const mid = Math.floor(Number(messageId));
+    if (cid < 1 || mid < 1 || !row || typeof row !== 'object') return;
+    const tryApply = () => applyTurnScoreToMessageRow(mount, cid, mid, row);
+    if (tryApply()) return;
+    requestAnimationFrame(() => {
+        tryApply();
+    });
+    for (const delayMs of [320, 900, 2200]) {
+        setTimeout(() => {
+            tryApply();
+        }, delayMs);
+    }
+}
+
+/**
+ * @param {number} conversationId
+ * @param {number | null} [assistantMessageId]
+ */
+function turnScoresDisplayReadyInCache(conversationId, assistantMessageId = null) {
+    const map = turnScoreCacheByConversation.get(Number(conversationId));
+    if (!(map instanceof Map) || map.size < 1) return false;
+    const mid =
+        assistantMessageId != null && Number(assistantMessageId) > 0
+            ? Math.floor(Number(assistantMessageId))
+            : null;
+    if (mid) {
+        const row = map.get(mid);
+        return Boolean(row && turnScoreRowIsReady(row));
+    }
+    return [...map.values()].every((row) => turnScoreRowIsReady(row));
 }
 
 /**
@@ -9714,10 +10059,7 @@ function mergeProvisionalTurnScoresFromRunMeta(conversationId, assistantMessageI
     }
     const prev = map.get(mid);
     /** @type {Record<string, unknown>} */
-    const row =
-        prev && typeof prev === 'object'
-            ? { .../** @type {Record<string, unknown>} */ (prev) }
-            : { assistant_message_id: mid };
+    const row = mergeTurnScoreRows(prev, { assistant_message_id: mid });
 
     const iqs = Number(runMeta.iqs_score);
     if (Number.isFinite(iqs) && iqs > 0) {
@@ -9797,7 +10139,25 @@ function applyTurnScoresFromCacheToDom(conversationId, mount) {
 }
 
 /**
- * Poll turn_scores after stream end / rescore — apply IQS / ACCS pills in place when ready.
+ * Seed [info] pending pills on the watched assistant row — returns false until row + IQS pill exist.
+ *
+ * @param {HTMLElement | Document} mount
+ * @param {number} conversationId
+ * @param {number} messageId
+ */
+function ensureInfoWorkerWatchRowReady(mount, conversationId, messageId) {
+    const cid = Math.floor(Number(conversationId));
+    const mid = Math.floor(Number(messageId));
+    if (cid < 1 || mid < 1) return false;
+    const outer = getAssistantRowForMessage(mount, mid);
+    if (!(outer instanceof HTMLElement)) return false;
+    applyTurnScoresFromCacheToDom(cid, mount);
+    applyInfoWorkerPendingPills(outer, cid, mid, applyAssistantTurnScoreToRow);
+    return Boolean(outer.querySelector('[data-oaao-turn-score-pill="iqs"]'));
+}
+
+/**
+ * Poll unified info_worker after stream end — IQS/ACCS + calendar/todo [info] pills + strip items.
  *
  * @param {number} conversationId
  * @param {HTMLElement | Document} mount
@@ -9813,54 +10173,48 @@ function scheduleTurnScorePoll(conversationId, mount, opts = {}) {
         opts.assistantMessageId != null && Number(opts.assistantMessageId) > 0
             ? Math.floor(Number(opts.assistantMessageId))
             : null;
-    const triggerRescore = opts.triggerRescore !== false;
-    let attempts = 0;
-    let rescoreTriggered = false;
 
-    const tick = async () => {
-        turnScorePollTimerByConversation.delete(cid);
-        if (activeConversationId !== cid) return;
+    if (assistantMessageId) {
+        registerPendingInfoMessage(cid, assistantMessageId);
+        ensureInfoWorkerWatchRowReady(mount, cid, assistantMessageId);
+    }
 
-        if (conversationHasOpenRunTasks(cid)) {
-            if (attempts >= TURN_SCORE_POLL_MAX_ATTEMPTS) return;
-            const deferTimer = setTimeout(() => void tick(), TURN_SCORE_POLL_INTERVAL_MS);
-            turnScorePollTimerByConversation.set(cid, deferTimer);
-            return;
+    const scoreMap = turnScoreCacheByConversation.get(cid);
+    if (scoreMap instanceof Map) {
+        for (const [mid, row] of scoreMap.entries()) {
+            if (row && typeof row === 'object' && !turnScoreRowIsReady(row)) {
+                registerPendingInfoMessage(cid, mid);
+            }
         }
+    }
 
-        attempts += 1;
-        const scorePack = await loadTurnScoresForConversation(cid);
-        applyTurnScoresFromCacheToDom(cid, mount);
+    if (getPendingInfoMessageIds(cid).length < 1) return;
 
-        if (triggerRescore && !rescoreTriggered && scorePack.rescorePending > 0) {
-            rescoreTriggered = true;
-            void triggerTurnScoresRescoreIfNeeded(cid);
-        } else if (
-            triggerRescore &&
-            rescoreTriggered &&
-            scorePack.rescorePending > 0 &&
-            attempts % 10 === 0
-        ) {
-            void triggerTurnScoresRescoreIfNeeded(cid);
-        }
-
-        let done = false;
-        if (assistantMessageId) {
-            const row = scorePack.map.get(assistantMessageId);
-            done = Boolean(row && turnScoreRowIsReady(row));
-        } else if (scorePack.map.size > 0) {
-            done = [...scorePack.map.values()].every((row) => turnScoreRowIsReady(row));
-        }
-
-        if (done || attempts >= TURN_SCORE_POLL_MAX_ATTEMPTS) {
-            return;
-        }
-
-        const timer = setTimeout(() => void tick(), TURN_SCORE_POLL_INTERVAL_MS);
-        turnScorePollTimerByConversation.set(cid, timer);
-    };
-
-    void tick();
+    scheduleInfoWorkerPoll(cid, mount, {
+        chatApiUrl,
+        getScopeQuery: () => chatScopeParamsForConversation(cid),
+        getAssistantRow: getAssistantRowForMessage,
+        applyTurnScore: applyAssistantTurnScoreToRow,
+        ensureWatchRowReady: (mid) => ensureInfoWorkerWatchRowReady(mount, cid, mid),
+        getPendingMessageIds: getPendingInfoMessageIds,
+        resolveTurnScoreRow: (c, mid, apiRow) => {
+            const map = turnScoreCacheByConversation.get(Math.floor(Number(c)));
+            return mergeTurnScoreRows(map instanceof Map ? map.get(Math.floor(Number(mid))) : null, apiRow);
+        },
+        buildStripCtx: (mountEl, c) =>
+            buildStripShellContextHook?.(mountEl, c) ?? {
+                mountEl,
+                scopeFields: () => chatScopeBodyFieldsForConversation(c),
+            },
+        mergeTurnScoreIntoCache: (c, mid, row) => {
+            mergeTurnScorePayloadIntoCache(c, mid, row);
+        },
+        onRescorePending: (c) => {
+            void triggerTurnScoresRescoreIfNeeded(c);
+        },
+        activeConversationId: () => activeConversationId,
+        triggerRescore: opts.triggerRescore !== false,
+    });
 }
 
 /**
@@ -9904,8 +10258,10 @@ function attachTurnScoresToMessageRows(rows, conversationId) {
  * @returns {Promise<{ map: Map<number, Record<string, unknown>>, scorerVersions: Record<string, string> | null, rescorePending: number }>}
  */
 async function loadTurnScoresForConversation(conversationId) {
-    const map = new Map();
     const cid = Number(conversationId);
+    const prevMap = turnScoreCacheByConversation.get(cid);
+    /** @type {Map<number, Record<string, unknown>>} */
+    const map = new Map();
     if (!Number.isFinite(cid) || cid < 1) {
         return { map, scorerVersions: null, rescorePending: 0 };
     }
@@ -9916,7 +10272,12 @@ async function loadTurnScoresForConversation(conversationId) {
         if (data?.success === false && data?.message) {
             console.warn('[oaao-chat] turn_scores failed', cid, data.message);
         }
-        return { map, scorerVersions: null, rescorePending: 0 };
+        const fallback =
+            prevMap instanceof Map && prevMap.size > 0 ? new Map(prevMap) : map;
+        if (fallback.size > 0) {
+            turnScoreCacheByConversation.set(cid, fallback);
+        }
+        return { map: fallback, scorerVersions: null, rescorePending: 0 };
     }
     const scorerVersions =
         data.scorer_versions && typeof data.scorer_versions === 'object'
@@ -9926,7 +10287,15 @@ async function loadTurnScoresForConversation(conversationId) {
         if (!raw || typeof raw !== 'object') continue;
         const mid = coercePositiveInt(raw.assistant_message_id);
         if (mid !== null) {
-            map.set(mid, /** @type {Record<string, unknown>} */ (raw));
+            const merged = mergeTurnScoreRows(prevMap instanceof Map ? prevMap.get(mid) : null, raw);
+            map.set(mid, merged);
+        }
+    }
+    if (prevMap instanceof Map) {
+        for (const [mid, row] of prevMap.entries()) {
+            if (!map.has(mid)) {
+                map.set(mid, row);
+            }
         }
     }
     turnScoreCacheByConversation.set(cid, map);
@@ -10154,27 +10523,45 @@ function applyAssistantRunSummaryToRow(outer, meta) {
     if (!(wrap instanceof HTMLElement)) {
         wrap = document.createElement('div');
         wrap.dataset.oaaoChat = 'assistant-summary-wrap';
-        wrap.className = 'oaao-chat-assistant-summary-wrap';
+        wrap.dataset.oaaoChatArea = 'state';
+        wrap.className = 'oaao-chat-area oaao-chat-area--state oaao-chat-assistant-summary-wrap';
         const textEl = document.createElement('span');
         textEl.dataset.oaaoChat = 'assistant-summary';
         textEl.className =
             'oaao-chat-assistant-summary-text text-[0.7rem] leading-snug fg-[var(--grid-caption)] font-mono tabular-nums';
         wrap.append(textEl);
         wrap.setAttribute('aria-label', 'Response metrics');
-        const legacy = outer.querySelector('[data-oaao-chat="assistant-summary"]');
+        ensureAssistantAreaHosts(outer);
+        const infoAnchor =
+            outer.querySelector('[data-oaao-chat-area="info"]') ||
+            outer.querySelector('[data-oaao-chat="turn-score"]');
         const toolbar = outer.querySelector('.oaao-chat-assistant-toolbar');
+        const legacy = outer.querySelector('[data-oaao-chat="assistant-summary"]');
         const bubble = outer.querySelector('[data-oaao-msg-role="assistant"]');
         if (legacy instanceof HTMLElement && legacy.parentElement !== wrap) {
             legacy.replaceWith(wrap);
             wrap.querySelector('[data-oaao-chat="assistant-summary"]')?.remove();
             wrap.prepend(textEl);
-        } else if (toolbar) {
+        } else if (toolbar instanceof HTMLElement) {
             outer.insertBefore(wrap, toolbar);
-        } else if (bubble) {
+        } else if (infoAnchor instanceof HTMLElement) {
+            infoAnchor.insertAdjacentElement('afterend', wrap);
+        } else if (bubble instanceof HTMLElement) {
             bubble.insertAdjacentElement('afterend', wrap);
         } else {
             outer.append(wrap);
         }
+    } else if (!wrap.dataset.oaaoChatArea) {
+        wrap.dataset.oaaoChatArea = 'state';
+    }
+
+    let textEl = wrap.querySelector('[data-oaao-chat="assistant-summary"]');
+    if (!(textEl instanceof HTMLElement)) {
+        textEl = document.createElement('span');
+        textEl.dataset.oaaoChat = 'assistant-summary';
+        textEl.className =
+            'oaao-chat-assistant-summary-text text-[0.7rem] leading-snug fg-[var(--grid-caption)] font-mono tabular-nums';
+        wrap.append(textEl);
     }
 
     const pt = meta.pipeline_timing;
@@ -10183,7 +10570,6 @@ function applyAssistantRunSummaryToRow(outer, meta) {
             ? formatPipelineTimingTooltip(/** @type {Record<string, unknown>} */ (pt), meta.duration_ms)
             : '';
 
-    const textEl = wrap.querySelector('[data-oaao-chat="assistant-summary"]');
     if (textEl instanceof HTMLElement) {
         textEl.textContent = tip ? `${line} · ` : line;
     }
@@ -10522,10 +10908,13 @@ function releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId) {
         activeConversationId === conversationId &&
         !conversationHasOpenRunTasks(conversationId)
     ) {
-        scheduleTurnScorePoll(conversationId, mount, {
-            assistantMessageId: streamingMsgId && streamingMsgId > 0 ? streamingMsgId : null,
-            triggerRescore: true,
-        });
+        const streamMid = streamingMsgId && streamingMsgId > 0 ? streamingMsgId : null;
+        if (!turnScoresDomReadyInThread(mount, conversationId, streamMid)) {
+            scheduleTurnScorePoll(conversationId, mount, {
+                assistantMessageId: streamMid,
+                triggerRescore: true,
+            });
+        }
         releaseThreadHealthBannerAfterStream(mount, conversationId);
     }
 }
@@ -11143,6 +11532,76 @@ async function readSseStream(reader, onEvent) {
     if (tail) dispatchFrame(tail);
 }
 
+/**
+ * @param {HTMLElement | Document} mount
+ * @param {number} messageId
+ */
+function productivityStripVisibleForMessage(mount, messageId) {
+    const mid = Math.floor(Number(messageId));
+    if (mid < 1) return false;
+    const root =
+        mount instanceof HTMLElement && mount.matches('[data-module="oaao-chat"]')
+            ? mount
+            : mount instanceof HTMLElement
+              ? mount.querySelector('[data-module="oaao-chat"]')
+              : document.querySelector('[data-module="oaao-chat"]');
+    if (!(root instanceof HTMLElement)) return false;
+    return Boolean(root.querySelector(`[data-oaao-strip-chip][data-oaao-message-id="${mid}"]`));
+}
+
+/**
+ * Replay orchestrator stream after {@code system/end} — post_turn strip arrives after {@link StreamRun.mark_done}.
+ *
+ * @param {{
+ *   streamUrl: string,
+ *   runId: string,
+ *   conversationId: number,
+ *   sinceSeq: number,
+ *   messageId: number,
+ *   mount: HTMLElement,
+ *   onStreamEvent: (ev: { seq: number, eventName: string, data: Record<string, unknown> }) => void,
+ * }} opts
+ */
+async function tailStreamForPostTurnProductivity(opts) {
+    const cid = Math.floor(Number(opts.conversationId));
+    const mid = Math.floor(Number(opts.messageId));
+    let cursor = Math.floor(Number(opts.sinceSeq));
+    if (cid < 1 || mid < 1 || cursor < 1) return;
+
+    const deadline = Date.now() + POST_TURN_STREAM_TAIL_MS;
+    while (Date.now() < deadline && activeConversationId === cid) {
+        if (productivityStripVisibleForMessage(opts.mount, mid)) return;
+        await new Promise((resolve) => {
+            setTimeout(resolve, POST_TURN_STREAM_TAIL_INTERVAL_MS);
+        });
+        if (activeConversationId !== cid || productivityStripVisibleForMessage(opts.mount, mid)) {
+            return;
+        }
+        try {
+            const tailUrl = new URL(
+                await resolveChatOrchestratorStreamUrl(opts.streamUrl),
+                window.location.href,
+            );
+            tailUrl.searchParams.set('run_id', opts.runId);
+            tailUrl.searchParams.set('since_seq', String(cursor));
+            const sameOrigin = tailUrl.origin === window.location.origin;
+            const tailRes = await fetch(tailUrl.href, {
+                method: 'GET',
+                mode: 'cors',
+                credentials: sameOrigin ? 'include' : 'omit',
+                headers: { Accept: 'text/event-stream' },
+            });
+            if (!tailRes.ok || !tailRes.body) continue;
+            await readSseStream(tailRes.body.getReader(), (ev) => {
+                if (ev.seq > cursor) cursor = ev.seq;
+                opts.onStreamEvent(ev);
+            });
+        } catch {
+            /* retry until deadline */
+        }
+    }
+}
+
 /** SVG namespace — DOM-built icons match rail ({@code workspace.tpl}) and avoid icon-font / {@code innerHTML} pitfalls in the chat shell. */
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -11702,6 +12161,8 @@ export async function mountShellPanel(mount) {
             const cid = Number(activeConversationId);
             if (!Number.isFinite(cid) || cid < 1) return;
             if (conversationHasOpenRunTasks(cid)) return;
+            if (turnScoresDisplayReadyInCache(cid)) return;
+            if (infoWorkerPollIsActive(cid)) return;
             scheduleTurnScorePoll(cid, mount, { triggerRescore: true });
         },
         { signal },
@@ -12537,6 +12998,167 @@ export async function mountShellPanel(mount) {
         activityEl.scrollTop = activityEl.scrollHeight;
     }
 
+    /** @type {Map<string, Record<string, unknown>>} */
+    const pendingProductivityMetaByMessage = new Map();
+    /** @type {Set<string>} */
+    const productivityHydrateInFlight = new Set();
+
+    /**
+     * @param {number} conversationId
+     * @param {number} messageId
+     */
+    function productivityPendingKey(conversationId, messageId) {
+        return `${Math.floor(Number(conversationId))}:${Math.floor(Number(messageId))}`;
+    }
+
+    /**
+     * @param {Record<string, unknown> | null | undefined} meta
+     */
+    function productivityMetaHasChips(meta) {
+        if (!meta || typeof meta !== 'object') return false;
+        if (Array.isArray(meta.items) && meta.items.length > 0) return true;
+        const todos = meta.todo_items_suggested;
+        return Boolean(
+            meta.calendar_event_suggested ||
+                meta.todo_item_suggested ||
+                meta.todo_resolve_suggested ||
+                (Array.isArray(todos) && todos.length >= 2),
+        );
+    }
+
+    /**
+     * Build strip shell context — preview + POST /chat/api/strip/confirm.
+     *
+     * @param {HTMLElement} mountEl
+     * @param {number} conversationId
+     */
+    function buildStripShellContext(mountEl, conversationId) {
+        const cid = Math.floor(Number(conversationId));
+        return {
+            mountEl,
+            scopeFields: () =>
+                cid > 0 ? chatScopeBodyFieldsForConversation(cid) : workspaceChatBodyFields(),
+            onTodoResolve: () => {
+                if (cid > 0) void refreshThreadTodoStrip(mountEl, cid);
+            },
+        };
+    }
+
+    /**
+     * Calendar / todo suggestion chips — from SSE status, {@code system/end} metrics, or persisted message meta.
+     *
+     * @param {HTMLElement} mountEl
+     * @param {number} conversationId
+     * @param {number} messageId
+     * @param {Record<string, unknown>} meta
+     * @param {{ skipStash?: boolean }} [opts]
+     */
+    function applyProductivityChipsFromRunMeta(mountEl, conversationId, messageId, meta, opts = {}) {
+        const cid = Math.floor(Number(conversationId));
+        const mid = Math.floor(Number(messageId));
+        if (cid < 1 || mid < 1 || !meta || typeof meta !== 'object') return;
+        if (!productivityMetaHasChips(meta) && !normalizeStripItemsFromMeta(meta).length) return;
+
+        const stripCtx = buildStripShellContext(mountEl, cid);
+
+        const tryApply = () => {
+            const { outer } = resolveProductivityOuter(mountEl, mid);
+            if (!(outer instanceof HTMLElement)) {
+                if (!opts.skipStash) {
+                    pendingProductivityMetaByMessage.set(productivityPendingKey(cid, mid), { ...meta });
+                }
+                return false;
+            }
+
+            mountStripFromEnvelope(outer, meta, cid, mid, stripCtx);
+            pendingProductivityMetaByMessage.delete(productivityPendingKey(cid, mid));
+            return true;
+        };
+
+        tryApply();
+        requestAnimationFrame(() => {
+            tryApply();
+        });
+        for (const delayMs of [320, 900, 2200]) {
+            setTimeout(() => {
+                tryApply();
+            }, delayMs);
+        }
+    }
+
+    applyProductivityChipsHook = applyProductivityChipsFromRunMeta;
+    buildStripShellContextHook = buildStripShellContext;
+
+    /**
+     * @param {HTMLElement} mountEl
+     * @param {number} conversationId
+     */
+    function flushPendingProductivityChips(mountEl, conversationId) {
+        const cid = Math.floor(Number(conversationId));
+        if (cid < 1) return;
+        const prefix = `${cid}:`;
+        for (const [key, meta] of pendingProductivityMetaByMessage.entries()) {
+            if (!key.startsWith(prefix)) continue;
+            const mid = Math.floor(Number(key.split(':')[1]));
+            applyProductivityChipsFromRunMeta(mountEl, cid, mid, meta, { skipStash: true });
+        }
+    }
+
+    /**
+     * Apply registry-driven post-turn meta; re-fetch from server when worker attaches after {@code system/end}.
+     *
+     * @param {HTMLElement} mountEl
+     * @param {number} conversationId
+     * @param {number} messageId
+     * @param {Record<string, unknown> | null} runMeta
+     */
+    function applyProductivityChipsWithFallback(mountEl, conversationId, messageId, runMeta) {
+        const cid = Math.floor(Number(conversationId));
+        const mid = Math.floor(Number(messageId));
+        if (cid < 1 || mid < 1) return;
+
+        if (runMeta && typeof runMeta === 'object' && productivityMetaHasChips(runMeta)) {
+            applyProductivityChipsFromRunMeta(mountEl, cid, mid, runMeta);
+        }
+
+        registerPendingInfoMessage(cid, mid);
+        ensureInfoWorkerWatchRowReady(mountEl, cid, mid);
+        if (!infoWorkerPollIsActive(cid)) {
+            scheduleTurnScorePoll(cid, mountEl, { assistantMessageId: mid, triggerRescore: false });
+        }
+    }
+
+    /**
+     * Append user + assistant rows after send without refetching {@code GET messages}.
+     *
+     * @param {number} conversationId
+     * @param {number} userMsgId
+     * @param {string} userContent
+     * @param {number} assistantMsgId
+     */
+    function appendSendTurnToCachedMessages(conversationId, userMsgId, userContent, assistantMsgId) {
+        const cid = Math.floor(Number(conversationId));
+        const uid = Math.floor(Number(userMsgId));
+        const amid = Math.floor(Number(assistantMsgId));
+        if (cid < 1 || uid < 1 || amid < 1) return;
+
+        const emptyHint = messagesEl.querySelector('p.text-sm.fg-\\[var\\(--grid-ink-muted\\)\\]');
+        if (emptyHint?.textContent?.includes('No messages yet')) {
+            emptyHint.remove();
+        }
+
+        cachedMessageRows = [
+            ...cachedMessageRows,
+            { id: uid, role: 'user', content: userContent },
+            { id: amid, role: 'assistant', content: '', meta: null },
+        ];
+        setConversationUiLastMessageId(cid, amid);
+        renderMessages(cachedMessageRows, 'bottom');
+        bindOaaoTaskListStripToConversation(mount, cid, cachedMessageRows);
+        registerPendingInfoMessage(cid, amid);
+        ensureInfoWorkerWatchRowReady(mount, cid, amid);
+    }
+
     /**
      * @param {string} streamUrl
      * @param {string} runId
@@ -12876,6 +13498,16 @@ export async function mountShellPanel(mount) {
                             );
                         }
                     }
+                    if (phase === 'ui' && kind === 'stage' && envelope.payload && typeof envelope.payload === 'object') {
+                        if (streamingMsgId && streamingMsgId > 0) {
+                            applyUiStageEnvelope(
+                                mount,
+                                conversationId,
+                                streamingMsgId,
+                                /** @type {Record<string, unknown>} */ (envelope),
+                            );
+                        }
+                    }
                     if (
                         phase === 'system' &&
                         kind === 'status' &&
@@ -12885,19 +13517,9 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        const calPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
-                        if (isStreamConversationVisible()) {
-                            handleCalendarEventSuggestedStream(
-                                mount,
-                                conversationId,
-                                streamingMsgId,
-                                calPayload,
-                                () =>
-                                    conversationId && conversationId > 0
-                                        ? chatScopeBodyFieldsForConversation(conversationId)
-                                        : workspaceChatBodyFields(),
-                            );
-                        }
+                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                            calendar_event_suggested: envelope.payload,
+                        });
                     }
                     if (
                         phase === 'system' &&
@@ -12908,19 +13530,9 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        const todoPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
-                        if (isStreamConversationVisible()) {
-                            handleTodoItemSuggestedStream(
-                                mount,
-                                conversationId,
-                                streamingMsgId,
-                                todoPayload,
-                                () =>
-                                    conversationId && conversationId > 0
-                                        ? chatScopeBodyFieldsForConversation(conversationId)
-                                        : workspaceChatBodyFields(),
-                            );
-                        }
+                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                            todo_item_suggested: envelope.payload,
+                        });
                     }
                     if (
                         phase === 'system' &&
@@ -12931,19 +13543,9 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        const batchPayload = /** @type {Record<string, unknown>} */ (envelope.payload);
-                        if (isStreamConversationVisible()) {
-                            handleTodoItemsSuggestedStream(
-                                mount,
-                                conversationId,
-                                streamingMsgId,
-                                batchPayload,
-                                () =>
-                                    conversationId && conversationId > 0
-                                        ? chatScopeBodyFieldsForConversation(conversationId)
-                                        : workspaceChatBodyFields(),
-                            );
-                        }
+                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                            todo_items_suggested: envelope.payload,
+                        });
                     }
                     if (
                         phase === 'system' &&
@@ -12954,14 +13556,10 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        const resolvePayload = /** @type {Record<string, unknown>} */ (envelope.payload);
+                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                            todo_resolve_suggested: envelope.payload,
+                        });
                         if (isStreamConversationVisible()) {
-                            handleTodoResolveSuggestedStream(
-                                mount,
-                                conversationId,
-                                streamingMsgId,
-                                resolvePayload,
-                            );
                             void refreshThreadTodoStrip(mount, conversationId);
                         }
                     }
@@ -13122,13 +13720,7 @@ export async function mountShellPanel(mount) {
                             clearActivityLog();
                             hideActivityLog();
                         }
-                        releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId);
-                        if (
-                            streamingMsgId &&
-                            streamingMsgId > 0 &&
-                            runMeta &&
-                            isStreamConversationVisible()
-                        ) {
+                        if (streamingMsgId && streamingMsgId > 0 && runMeta && isStreamConversationVisible()) {
                             applyProvisionalStreamScoresToDom(
                                 conversationId,
                                 mount,
@@ -13136,6 +13728,7 @@ export async function mountShellPanel(mount) {
                                 runMeta,
                             );
                         }
+                        releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId);
                         if (isStreamConversationVisible()) {
                             flushMdBubbleNow({ finalize: true });
                             if (!orchestratorOwnsPersist && streamingMsgId && streamingMsgId > 0) {
@@ -13313,6 +13906,14 @@ export async function mountShellPanel(mount) {
                 }
             }
             if (!isStreamConversationVisible()) {
+                if (streamingMsgId && streamingMsgId > 0 && runMeta) {
+                    applyProductivityChipsWithFallback(
+                        mount,
+                        conversationId,
+                        streamingMsgId,
+                        runMeta,
+                    );
+                }
                 return;
             }
             if (streamingMsgId && streamingMsgId > 0 && msgsHost) {
@@ -13355,23 +13956,37 @@ export async function mountShellPanel(mount) {
                             );
                             void refreshConversations(conversationId, { silent: true });
                         }
+                        applyProductivityChipsWithFallback(
+                            mount,
+                            conversationId,
+                            streamingMsgId,
+                            runMeta,
+                        );
                     }
+                    applyTurnScoresFromCacheToDom(conversationId, mount);
                     if (acc.trim()) {
                         applyAssistantMarkdown(bubble, acc);
                         await hydrateInlineCitesForBubble(bubble);
                     } else if (sawRunEnd && !assistantBubbleHasVisibleContent(bubble)) {
-                        const fromServer = await hydrateAssistantBubbleFromServer(
-                            conversationId,
-                            streamingMsgId,
-                            bubble,
-                        );
-                        if (fromServer) acc = fromServer;
+                        const fallback = resolveAssistantDisplayText('', runMeta);
+                        if (fallback && bubble instanceof HTMLElement) {
+                            applyAssistantMarkdown(bubble, fallback);
+                            acc = fallback;
+                        }
                     }
-                } else if (sawRunEnd) {
-                    await loadMessages(conversationId, 'auto');
+                } else if (sawRunEnd && streamingMsgId && streamingMsgId > 0) {
+                    registerPendingInfoMessage(conversationId, streamingMsgId);
+                    scheduleTurnScorePoll(conversationId, mount, {
+                        assistantMessageId: streamingMsgId,
+                        triggerRescore: true,
+                    });
                 }
             } else if (sawRunEnd && streamingMsgId && streamingMsgId > 0) {
-                await loadMessages(conversationId, 'auto');
+                registerPendingInfoMessage(conversationId, streamingMsgId);
+                scheduleTurnScorePoll(conversationId, mount, {
+                    assistantMessageId: streamingMsgId,
+                    triggerRescore: true,
+                });
             }
         }
     }
@@ -13488,15 +14103,17 @@ export async function mountShellPanel(mount) {
         renderSidebar();
         const scroll = opts.scroll ?? (next ? 'bottom' : 'auto');
         updateChatLayout();
-        await loadMessages(activeConversationId, scroll);
+        if (opts.skipLoadMessages !== true) {
+            await loadMessages(activeConversationId, scroll);
+        } else {
+            syncComposerBusyForActiveView(mount);
+        }
         if (next) {
             void refreshThreadTodoStrip(mount, next);
             await resumeStreamIfAny(next);
             globalThis.__oaaoStartChatContextUsagePoll?.();
-            globalThis.__oaaoRefreshChatContextUsage?.();
         } else {
             globalThis.__oaaoStopChatContextUsagePoll?.();
-            globalThis.__oaaoRefreshChatContextUsage?.();
         }
         syncComposerBusyForActiveView(mount);
         updateChatLayout();
@@ -14065,6 +14682,7 @@ export async function mountShellPanel(mount) {
             }
 
             applyAssistantIdentityHeader(outer, metaObj);
+            ensureAssistantAreaHosts(outer);
             const tasksMeta = metaObj?.tasks;
             if (
                 tasksMeta &&
@@ -14138,7 +14756,11 @@ export async function mountShellPanel(mount) {
             }
             outer.append(toolbar);
             messagesEl.append(outer);
+            if (mid !== null && cid && metaObj) {
+                applyProductivityChipsFromRunMeta(mount, cid, mid, metaObj);
+            }
         });
+        flushPendingProductivityChips(mount, activeConversationId ?? 0);
         if (
             !deferScroll &&
             (scrollMode === 'bottom' || (scrollMode === 'auto' && pinnedBefore))
@@ -14223,9 +14845,9 @@ export async function mountShellPanel(mount) {
             scrollElBeforeLoad instanceof HTMLElement &&
             messagesPinnedToBottom(scrollElBeforeLoad);
         resetMessagePageState(conversationId);
-        turnScoreCacheByConversation.delete(conversationId);
         forkSuggestionsCacheByConversation.delete(conversationId);
         cancelTurnScorePoll(conversationId);
+        clearPendingInfoMessages(conversationId);
         cancelConversationHealthPoll(conversationId);
         if (messagesEl instanceof HTMLElement) {
             oaaoMountLoadingLogo(messagesEl, { fill: true, label: 'Loading messages…' });
@@ -14248,6 +14870,12 @@ export async function mountShellPanel(mount) {
             conversationId,
         );
         cachedMessageRows = rows;
+        const serverLast = coercePositiveInt(data.last_message_id);
+        if (serverLast !== null) {
+            setConversationUiLastMessageId(conversationId, serverLast);
+        } else {
+            syncConversationUiLastMessageIdFromRows(conversationId, rows);
+        }
         renderMessages(rows, scrollMode, renderOpts);
         bindOaaoTaskListStripToConversation(mount, conversationId, rows);
         refreshChatComposerSlideDeckContext(conversationId);
@@ -14260,8 +14888,7 @@ export async function mountShellPanel(mount) {
         await reconcileInterruptedRunsAfterLoad(conversationId, rows);
         const needsScorePoll =
             !conversationHasOpenRunTasks(conversationId) &&
-            (scorePack.rescorePending > 0 ||
-                [...scorePack.map.values()].some((row) => !turnScoreRowIsReady(row)));
+            !turnScoresDomReadyInThread(mount, conversationId);
         if (needsScorePoll) {
             scheduleTurnScorePoll(conversationId, mount, {
                 triggerRescore: scorePack.rescorePending > 0,
@@ -14593,7 +15220,30 @@ export async function mountShellPanel(mount) {
                 }
                 syncChatComposerChips(mount);
                 await refreshConversations(nextCid);
-                await openConversation(nextCid, { replaceUrl: nextCid === prevCid });
+                const userMsgId = coercePositiveInt(data.user_message_id);
+                const assistantMsgId = coercePositiveInt(data.assistant_message_id);
+                const uiLast = getConversationUiLastMessageId(nextCid);
+                const priorLast = coercePositiveInt(data.prior_last_message_id);
+                if (priorLast !== null && uiLast !== null && priorLast !== uiLast) {
+                    toastOaao(
+                        oaaoChatT(
+                            'chat.thread_out_of_sync',
+                            'Thread may be out of sync with the server. Sending anyway.',
+                        ),
+                    );
+                }
+                const sameConversation =
+                    Number(prevCid) > 0 && Number(nextCid) === Number(prevCid) && userMsgId && assistantMsgId;
+                if (sameConversation) {
+                    appendSendTurnToCachedMessages(nextCid, userMsgId, body, assistantMsgId);
+                    await openConversation(nextCid, {
+                        replaceUrl: true,
+                        skipLoadMessages: true,
+                        scroll: 'bottom',
+                    });
+                } else {
+                    await openConversation(nextCid, { replaceUrl: nextCid === prevCid, scroll: 'bottom' });
+                }
                 const rid = typeof data.run_id === 'string' ? data.run_id.trim() : '';
                 const su = typeof data.stream_url === 'string' ? data.stream_url.trim() : '';
                 const amid = coercePositiveInt(data.assistant_message_id);

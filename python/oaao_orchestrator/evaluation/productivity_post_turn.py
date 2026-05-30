@@ -58,10 +58,42 @@ def llm_cfg_from_chat_request(chat_request: object | None) -> dict[str, Any]:
     return cfg
 
 
+def llm_cfg_from_productivity_purpose(chat_request: object | None, slot: str) -> dict[str, Any]:
+    """Dedicated productivity classifier endpoint ({@code productivity.calendar|todo} on payload)."""
+    if chat_request is None:
+        return {}
+    root = getattr(chat_request, "productivity", None)
+    if not isinstance(root, dict):
+        return {}
+    row = root.get(str(slot or "").strip())
+    if not isinstance(row, dict):
+        return {}
+    base_url = str(row.get("base_url") or "").strip()
+    model = str(row.get("model") or "").strip()
+    if not base_url or not model:
+        return {}
+    cfg: dict[str, Any] = {"base_url": base_url, "model": model}
+    api_key_env = row.get("api_key_env")
+    if isinstance(api_key_env, str) and api_key_env.strip():
+        cfg["api_key_env"] = api_key_env.strip()
+    purpose_key = str(row.get("purpose_key") or "").strip()
+    if purpose_key:
+        cfg["purpose_key"] = purpose_key
+    return cfg
+
+
+def llm_cfg_for_post_turn(chat_request: object | None, purpose_slot: str) -> dict[str, Any]:
+    """Prefer productivity purpose slot; fall back to main chat endpoint."""
+    cfg = llm_cfg_from_productivity_purpose(chat_request, purpose_slot)
+    if cfg.get("base_url") and cfg.get("model"):
+        return cfg
+    return llm_cfg_from_chat_request(chat_request)
+
+
 def load_todo_post_turn_prompt(**variables: Any) -> str:
     variables.setdefault("current_date", datetime.now(UTC).strftime("%Y-%m-%d"))
     body = load_template_body(
-        DEFAULT_TODO_POST_TURN_REF,
+        ref=DEFAULT_TODO_POST_TURN_REF,
         search_dirs=(prompts_subdir("productivity"),),
     )
     if not body.strip():
@@ -75,7 +107,7 @@ def load_todo_post_turn_prompt(**variables: Any) -> str:
 def load_calendar_post_turn_prompt(**variables: Any) -> str:
     variables.setdefault("current_date", datetime.now(UTC).strftime("%Y-%m-%d"))
     body = load_template_body(
-        DEFAULT_CALENDAR_POST_TURN_REF,
+        ref=DEFAULT_CALENDAR_POST_TURN_REF,
         search_dirs=(prompts_subdir("productivity"),),
     )
     if not body.strip():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -12,7 +13,7 @@ import httpx
 from oaao_orchestrator.corpus.llm import chat_completion_text
 from oaao_orchestrator.evaluation.productivity_post_turn import (
     format_turn_transcript,
-    llm_cfg_from_chat_request,
+    llm_cfg_for_post_turn,
     load_todo_post_turn_prompt,
 )
 from oaao_orchestrator.json_utils import extract_json_object
@@ -34,15 +35,6 @@ _META_ASSISTANT_MARKERS = (
     "pipeline task",
 )
 
-_CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]\]\s+(.+)$", re.MULTILINE)
-_BULLET_TASK = re.compile(
-    r"^\s*(?:[-*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.{4,200})$",
-    re.MULTILINE,
-)
-_LIST_INTRO = re.compile(
-    r"(?:包含|包括|待辦(?:清單)?|清單如下|tasks?)[：:]\s*([^\n。.!；;]+)",
-    re.IGNORECASE,
-)
 _MD_BOLD = re.compile(r"\*\*([^*]+)\*\*")
 
 
@@ -95,57 +87,6 @@ def _clean_title(raw: str) -> str:
     return s
 
 
-def _split_enumerated_tasks(text: str) -> list[str]:
-    """User lists like 「包含：A、B、C」."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for m in _LIST_INTRO.finditer(text):
-        chunk = m.group(1).strip()
-        for part in re.split(r"[、,，;；]\s*", chunk):
-            t = _clean_title(part)
-            if len(t) < 4:
-                continue
-            key = t.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(t)
-    return out
-
-
-def _extract_bullet_tasks(text: str) -> list[str]:
-    lines: list[str] = []
-    for m in _CHECKBOX.finditer(text):
-        t = _clean_title(m.group(1))
-        if t:
-            lines.append(t)
-    if lines:
-        return lines[:_MAX_ITEMS]
-    for m in _BULLET_TASK.finditer(text):
-        t = _clean_title(m.group(1))
-        if len(t) < 6:
-            continue
-        lower = t.lower()
-        if re.search(r"[\u4e00-\u9fff]", t) or any(
-            k in lower
-            for k in (
-                "todo",
-                "task",
-                "send",
-                "review",
-                "draft",
-                "email",
-                "整理",
-                "撰寫",
-                "寄",
-                "提交",
-                "完成",
-            )
-        ):
-            lines.append(t)
-    return lines[:_MAX_ITEMS]
-
-
 def _todo_title_duplicates_open(title: str, open_todo_items: list[dict[str, Any]] | None) -> bool:
     needle = title.strip().lower()
     if len(needle) < 4 or not open_todo_items:
@@ -156,7 +97,7 @@ def _todo_title_duplicates_open(title: str, open_todo_items: list[dict[str, Any]
         existing = str(row.get("title") or "").strip().lower()
         if len(existing) < 4:
             continue
-        if needle == existing or needle in existing or existing in needle:
+        if needle == existing:
             return True
     return False
 
@@ -207,52 +148,6 @@ def _candidate_from_action(
     )
 
 
-def _heuristic_todo_candidates(
-    *,
-    conversation_id: int,
-    messages: list[dict[str, Any]],
-    assistant_text: str,
-    min_confidence: float,
-    open_todo_items: list[dict[str, Any]] | None,
-) -> list[TodoItemCandidate]:
-    user_tail = _last_user_text(messages)
-    combined = f"{user_tail}\n{assistant_text}".strip() if user_tail else assistant_text
-    if len(combined) < 16:
-        return []
-
-    titles: list[str] = []
-    seen: set[str] = set()
-    for source in (user_tail, combined):
-        for t in _split_enumerated_tasks(source):
-            key = t.lower()
-            if key not in seen:
-                seen.add(key)
-                titles.append(t)
-    if not titles:
-        titles = _extract_bullet_tasks(assistant_text)
-    if not titles and user_tail:
-        titles = _split_enumerated_tasks(combined)
-
-    snippet = combined[:_SNIPPET_MAX].strip()
-    out: list[TodoItemCandidate] = []
-    for title in titles[:_MAX_ITEMS]:
-        if _todo_title_duplicates_open(title, open_todo_items):
-            continue
-        out.append(
-            TodoItemCandidate(
-                title=title,
-                context_snippet=snippet,
-                confidence=0.72,
-                conversation_id=conversation_id,
-            )
-        )
-    if not out:
-        return []
-    if len(out) == 1 and out[0].confidence < min_confidence:
-        return []
-    return out
-
-
 def _todo_actions_from_parsed(parsed: dict[str, Any]) -> list[dict[str, Any]]:
     actions = parsed.get("actions")
     if isinstance(actions, list):
@@ -271,14 +166,26 @@ async def _llm_todo_candidates(
     locale: str,
     min_confidence: float,
     open_todo_items: list[dict[str, Any]] | None,
+    template_ref: str | None = None,
 ) -> list[TodoItemCandidate]:
     user_tail = _last_user_text(messages)
     default_snippet = f"{user_tail}\n{assistant_text}".strip()[:_SNIPPET_MAX]
+    transcript = format_turn_transcript(messages, assistant_text=assistant_text)
 
-    system = load_todo_post_turn_prompt(
-        locale=locale,
-        transcript=format_turn_transcript(messages, assistant_text=assistant_text),
-    )
+    if template_ref:
+        from oaao_orchestrator.prompt_template import load_template_body, prompts_subdir, render_template_text
+
+        body = load_template_body(ref=template_ref, search_dirs=(prompts_subdir("productivity"),))
+        system = render_template_text(
+            body or load_todo_post_turn_prompt(locale=locale, transcript=transcript),
+            {
+                "locale": locale,
+                "transcript": transcript,
+                "current_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+            },
+        )
+    else:
+        system = load_todo_post_turn_prompt(locale=locale, transcript=transcript)
     user = "Return the JSON object for this turn."
 
     try:
@@ -330,8 +237,9 @@ async def classify_todo_item_candidates(
     llm_cfg: dict[str, Any] | None = None,
     locale: str = "",
     chat_request: object | None = None,
+    template_ref: str | None = None,
 ) -> list[TodoItemCandidate]:
-    """Post-stream classifier — zero or more todos (LLM JSON actions, else heuristic split)."""
+    """Post-stream classifier — LLM JSON only (registry template via ``post_turn_action.register``)."""
     assistant = (assistant_text or "").strip()
     if _is_tool_meta_turn(assistant):
         return []
@@ -347,26 +255,23 @@ async def classify_todo_item_candidates(
         if not loc:
             loc = "en"
 
-    cfg = llm_cfg if _llm_ready(llm_cfg) else llm_cfg_from_chat_request(chat_request)
-    if _llm_ready(cfg):
-        llm_out = await _llm_todo_candidates(
-            conversation_id=conversation_id,
-            messages=messages,
-            assistant_text=assistant,
-            llm_cfg=cfg or {},
-            locale=loc,
-            min_confidence=min_confidence,
-            open_todo_items=open_todo_items,
+    cfg = llm_cfg if _llm_ready(llm_cfg) else llm_cfg_for_post_turn(chat_request, "todo")
+    if not _llm_ready(cfg):
+        logger.debug(
+            "todo_item_post_turn skipped — no LLM endpoint conversation_id=%s",
+            conversation_id,
         )
-        if llm_out:
-            return llm_out
+        return []
 
-    return _heuristic_todo_candidates(
+    return await _llm_todo_candidates(
         conversation_id=conversation_id,
         messages=messages,
         assistant_text=assistant,
+        llm_cfg=cfg or {},
+        locale=loc,
         min_confidence=min_confidence,
         open_todo_items=open_todo_items,
+        template_ref=template_ref,
     )
 
 
@@ -377,6 +282,9 @@ def classify_todo_item_candidate(
     assistant_text: str,
     min_confidence: float = 0.58,
     open_todo_items: list[dict[str, Any]] | None = None,
+    llm_cfg: dict[str, Any] | None = None,
+    chat_request: object | None = None,
+    template_ref: str | None = None,
 ) -> TodoItemCandidate | None:
     """Sync helper — first candidate only (tests / legacy)."""
     import asyncio
@@ -388,6 +296,9 @@ def classify_todo_item_candidate(
             assistant_text=assistant_text,
             min_confidence=min_confidence,
             open_todo_items=open_todo_items,
+            llm_cfg=llm_cfg,
+            chat_request=chat_request,
+            template_ref=template_ref,
         )
     )
     return items[0] if items else None

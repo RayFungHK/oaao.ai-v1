@@ -205,9 +205,7 @@ final class ChatSendPersist
                     );
                 }
                 $userMpSeed = [];
-                $canonPdoSeed = method_exists($chatController, 'oaao_chat_canonical_pdo')
-                    ? $chatController->oaao_chat_canonical_pdo()
-                    : null;
+                $canonPdoSeed = ChatSendCanonicalPdo::fromCanonDb($canonDb);
                 if ($canonPdoSeed instanceof \PDO) {
                     $userMpSeed = UserModelParams::activeOverrides(
                         UserModelParams::loadForUser($canonPdoSeed, $uid),
@@ -238,9 +236,7 @@ final class ChatSendPersist
             $attRows = ChatAttachmentStorage::loadRowsForIds($splitDb, (int) $conversationId, $uid, $attachmentIds);
         }
 
-        $canonicalPdo = method_exists($chatController, 'oaao_chat_canonical_pdo')
-            ? $chatController->oaao_chat_canonical_pdo()
-            : null;
+        $canonicalPdo = ChatSendCanonicalPdo::fromCanonDb($canonDb);
 
         try {
             $pipeline->run(ChatSendPhase::CONVERSATION_SETTLE, $ctx, [
@@ -273,6 +269,19 @@ final class ChatSendPersist
         if ($userMeta !== null) {
             $userCols[] = 'meta_json';
             $userAssign['meta_json'] = $userMeta;
+        }
+        $priorLastMessageId = 0;
+        if ((int) $conversationId > 0) {
+            $priorRow = $splitDb->prepare()
+                ->select('id')
+                ->from('message')
+                ->where('conversation_id=?')
+                ->assign(['conversation_id' => (int) $conversationId])
+                ->order('-id')
+                ->limit(1)
+                ->query()
+                ->fetch();
+            $priorLastMessageId = \is_array($priorRow) ? (int) ($priorRow['id'] ?? 0) : 0;
         }
         $splitDb->insert('message', $userCols)->assign($userAssign)->query();
         $userMsgId = (int) $splitDb->lastID();
@@ -333,6 +342,7 @@ final class ChatSendPersist
             assistantInsertContent: $assistantInsertContent,
             conversationTitleOut: $conversationTitleOut,
             inferenceSnapshot: $inferenceSnapshot,
+            priorLastMessageId: $priorLastMessageId,
         );
     }
 

@@ -42,24 +42,37 @@ final class ChatSendGate
                 'payload'    => ['success' => false, 'message' => 'Authentication unavailable'],
             ];
         }
-        $db = method_exists($authApi, 'getDB') ? $authApi->getDB() : null;
+
+        try {
+            $db = $authApi->getDB();
+        } catch (\Throwable) {
+            $db = null;
+        }
         if (! $db instanceof \Razy\Database) {
             return [
                 'httpStatus' => 503,
                 'payload'    => ['success' => false, 'message' => 'Database unavailable'],
             ];
         }
-        if (method_exists($authApi, 'ensurePgCoreTables')) {
+
+        try {
             $authApi->ensurePgCoreTables($db);
+        } catch (\Throwable) {
+            /* optional when auth API unavailable */
         }
-        if (method_exists($authApi, 'databaseIsPgsql') && ! $authApi->databaseIsPgsql($db)) {
-            return [
-                'httpStatus' => 503,
-                'payload'    => [
-                    'success' => false,
-                    'message' => 'Team workspaces require PostgreSQL as the canonical database.',
-                ],
-            ];
+
+        try {
+            if (! $authApi->databaseIsPgsql($db)) {
+                return [
+                    'httpStatus' => 503,
+                    'payload'    => [
+                        'success' => false,
+                        'message' => 'Team workspaces require PostgreSQL as the canonical database.',
+                    ],
+                ];
+            }
+        } catch (\Throwable) {
+            /* fall through — membership check below */
         }
         $pdo = $db->getDBAdapter();
         if (! $pdo instanceof \PDO) {
@@ -68,8 +81,10 @@ final class ChatSendGate
                 'payload'    => ['success' => false, 'message' => 'Database unavailable'],
             ];
         }
-        if (method_exists($authApi, 'ensurePgWorkspaceTables')) {
+        try {
             $authApi->ensurePgWorkspaceTables($pdo);
+        } catch (\Throwable) {
+            /* optional when auth API unavailable */
         }
         require_once dirname(__DIR__, 2) . '/controller/api/_workspace_membership.php';
         if (! \oaao_chat_user_has_workspace_access($db, $uid, $workspaceId)) {

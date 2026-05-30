@@ -1,4 +1,4 @@
-"""Public-web routing — Auto Source must not schedule vault_rag ahead of web_search."""
+"""Public-web routing — Auto Source must not schedule vault_rag ahead of web_search prepare."""
 
 from __future__ import annotations
 
@@ -11,7 +11,21 @@ from oaao_orchestrator.planner import (
     finalize_public_web_plan,
     strip_vault_rag_for_public_web,
 )
-from oaao_orchestrator.tasks.models import RunTaskType
+from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec, RunTaskType
+
+
+def _has_web_prepare(tasks: list[RunTaskSpec]) -> bool:
+    return any(t.type == RunTaskType.WEB_SEARCH for t in tasks)
+
+
+def _prepare_and_agent_kinds(plan: RunPlan) -> list[str]:
+    out: list[str] = []
+    for t in plan.tasks:
+        if t.type == RunTaskType.WEB_SEARCH:
+            out.append("web_search")
+        elif t.agent_kind:
+            out.append(str(t.agent_kind))
+    return out
 
 
 def test_composer_web_fast_plan_omits_vault_rag_with_auto_source() -> None:
@@ -25,7 +39,7 @@ def test_composer_web_fast_plan_omits_vault_rag_with_auto_source() -> None:
     plan = build_composer_web_fast_plan(req)
     types = [t.type for t in plan.tasks]
     assert RunTaskType.VAULT_RAG not in types
-    assert any(t.type == RunTaskType.AGENT and t.agent_kind == "web_search" for t in plan.tasks)
+    assert _has_web_prepare(plan.tasks)
 
 
 def test_strip_vault_when_turn_intent_web() -> None:
@@ -35,8 +49,6 @@ def test_strip_vault_when_turn_intent_web() -> None:
         turn_intent={"needs_web_search": True},
         allowed_agents=["web_search"],
     )
-    from oaao_orchestrator.tasks.models import RunTaskSpec
-
     specs = [
         RunTaskSpec(id="rt-vault-rag", title="Search knowledge base", type=RunTaskType.VAULT_RAG),
         RunTaskSpec(id="rt-llm-stream", title="Compose reply", type=RunTaskType.LLM_STREAM),
@@ -46,8 +58,6 @@ def test_strip_vault_when_turn_intent_web() -> None:
 
 
 def test_finalize_public_web_injects_web_search_with_vault_scope_and_globe() -> None:
-    from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec
-
     req = SimpleNamespace(
         enable_web_search=True,
         turn_intent={"needs_web_search": True},
@@ -60,12 +70,10 @@ def test_finalize_public_web_injects_web_search_with_vault_scope_and_globe() -> 
         abilities=[],
     )
     out = finalize_public_web_plan(plan, req, allowed_agents=["web_search"])
-    assert any(t.agent_kind == "web_search" for t in out.tasks)
+    assert _has_web_prepare(out.tasks)
 
 
 def test_finalize_public_web_injects_web_search() -> None:
-    from oaao_orchestrator.tasks.models import RunPlan, RunTaskSpec
-
     req = SimpleNamespace(
         enable_web_search=True,
         allowed_agents=["web_search"],
@@ -79,19 +87,14 @@ def test_finalize_public_web_injects_web_search() -> None:
     )
     out = finalize_public_web_plan(plan, req, allowed_agents=["web_search"])
     assert not any(t.type == RunTaskType.VAULT_RAG for t in out.tasks)
-    assert any(t.agent_kind == "web_search" for t in out.tasks)
+    assert _has_web_prepare(out.tasks)
 
 
-def test_ensure_web_search_allowed_when_intent_needs_web() -> None:
+def test_ensure_web_search_allowed_is_noop_prepare_only() -> None:
     req = SimpleNamespace(turn_intent={"needs_web_search": True})
     out = ensure_web_search_allowed_for_public_web(req, ["slide_designer"])
-    assert "web_search" in out
-
-
-def test_ensure_web_search_allowed_when_globe_on() -> None:
-    req = SimpleNamespace(enable_web_search=True)
-    out = ensure_web_search_allowed_for_public_web(req, ["slide_designer"])
-    assert "web_search" in out
+    assert out == ["slide_designer"]
+    assert "web_search" not in out
 
 
 def test_composer_web_fast_plan_injects_slide_designer_when_intent_needs_slide() -> None:
@@ -105,7 +108,7 @@ def test_composer_web_fast_plan_injects_slide_designer_when_intent_needs_slide()
         slide_designer=None,
     )
     plan = build_composer_web_fast_plan(req)
-    kinds = [t.agent_kind for t in plan.tasks if t.agent_kind]
+    kinds = _prepare_and_agent_kinds(plan)
     assert kinds.index("web_search") < kinds.index("slide_designer")
     slide_tasks = [t for t in plan.tasks if t.agent_kind == "slide_designer"]
     assert len(slide_tasks) >= 1
@@ -150,7 +153,7 @@ def test_build_run_plan_web_fast_includes_slide_when_globe_and_intent(monkeypatc
             endpoint=SimpleNamespace(knowledge_cutoff="2025-01-01", config={}),
         )
         plan = await build_run_plan(req, chat_completions_url="http://x/v1", api_key=None, model="x")
-        assert any(t.agent_kind == "web_search" for t in plan.tasks)
+        assert _has_web_prepare(plan.tasks)
         assert any(t.agent_kind == "slide_designer" for t in plan.tasks)
         assert req.turn_intent["needs_slide_designer"] is True
 
@@ -168,7 +171,7 @@ def test_composer_web_fast_plan_injects_slide_on_globe_and_slide_message() -> No
         slide_designer=None,
     )
     plan = build_composer_web_fast_plan(req)
-    kinds = [t.agent_kind for t in plan.tasks if t.agent_kind]
+    kinds = _prepare_and_agent_kinds(plan)
     assert "web_search" in kinds
     assert "slide_designer" in kinds
     assert kinds.index("web_search") < kinds.index("slide_designer")
@@ -213,7 +216,7 @@ def test_build_run_plan_globe_injects_slide_without_intent_llm(monkeypatch) -> N
             endpoint=SimpleNamespace(knowledge_cutoff="2025-01-01", config={}),
         )
         plan = await build_run_plan(req, chat_completions_url="http://x/v1", api_key=None, model="x")
-        assert any(t.agent_kind == "web_search" for t in plan.tasks)
+        assert _has_web_prepare(plan.tasks)
         assert any(t.agent_kind == "slide_designer" for t in plan.tasks)
         assert req.turn_intent["needs_slide_designer"] is True
 
@@ -249,7 +252,7 @@ def test_build_run_plan_routes_web_on_temporal_gap_without_intent_llm(monkeypatc
             ),
         )
         plan = await build_run_plan(req, chat_completions_url="http://x/v1", api_key=None, model="x")
-        assert any(t.agent_kind == "web_search" for t in plan.tasks)
+        assert _has_web_prepare(plan.tasks)
         assert req.turn_intent["needs_web_search"] is True
         assert req.turn_intent["temporal_knowledge_gap"] is True
 
@@ -284,6 +287,6 @@ def test_build_run_plan_routes_web_when_intent_llm_scores_high(monkeypatch) -> N
             endpoint=SimpleNamespace(knowledge_cutoff="2026-05-28", config={}),
         )
         plan = await build_run_plan(req, chat_completions_url="http://x/v1", api_key=None, model="x")
-        assert any(t.agent_kind == "web_search" for t in plan.tasks)
+        assert _has_web_prepare(plan.tasks)
 
     asyncio.run(_run())

@@ -107,6 +107,8 @@ return new class extends Controller {
         $agent->listen('oaaoai/chat:chat.send.message', 'event/chat_send_message');
         $agent->listen('oaaoai/chat:chat.send.conversation_settle', 'event/chat_send_conversation_settle');
         $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_ready');
+
+        $agent->addAPICommand([
             'resolvePublishedTemplate'           => 'resolvePublishedTemplate',
             'orchestratorSlideDesignerBase'      => 'orchestratorSlideDesignerBase',
             'listBoundTemplateSkillsForPlanner'  => 'listBoundTemplateSkillsForPlanner',

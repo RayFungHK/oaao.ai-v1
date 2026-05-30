@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use oaaoai\chat\ChatInferenceControl;
+use oaaoai\chat\ChatInternalPrincipalGate;
 
 /**
  * POST /chat/api/inference_turn_apply — orchestrator internal: persist per-turn applied sampling.
@@ -28,6 +29,13 @@ return function (): void {
     if ($cid < 1 || $mid < 1) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'conversation_id and assistant_message_id required'], JSON_UNESCAPED_UNICODE);
+
+        return;
+    }
+
+    if (! ChatInternalPrincipalGate::verifyOptional($input, $cid, $mid)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Invalid run_principal'], JSON_UNESCAPED_UNICODE);
 
         return;
     }

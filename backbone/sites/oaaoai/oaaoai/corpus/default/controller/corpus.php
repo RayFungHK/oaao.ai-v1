@@ -76,6 +76,8 @@ return new class extends Controller {
             ],
         ]);
 
+        $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_finalize');
+
         return true;
     }
 };

@@ -28,7 +28,7 @@ DEFAULT_INTENT_TEMPLATE_REF = "materials/prompts/planning/turn_agent_intent.md"
 DEFAULT_WEB_THRESHOLD = 0.65
 DEFAULT_SLIDE_THRESHOLD = 0.65
 
-# Task types — not scored on the intent hook (planner decides directly).
+# Task types / prepare steps — not scored on the intent hook (planner decides directly).
 _INTENT_HOOK_SKIP: frozenset[str] = frozenset({"vault_rag", "attachments", "llm_stream", "llm_call", "emit"})
 
 # Agent kinds always eligible for planning.intent scoring (union with allowed_agents).
@@ -188,6 +188,9 @@ def render_turn_agent_intent_prompt(
             agent_kinds,
             req=req,
         ),
+        "planner_prompt_block": str(getattr(req, "planner_prompt_block", "") or "").strip()
+        if req is not None
+        else "",
     }
     variables.update(gap_vars)
     return render_template_text(body, variables)

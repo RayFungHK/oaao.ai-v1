@@ -14,7 +14,7 @@ from oaao_orchestrator.corpus.llm import chat_completion_text
 from oaao_orchestrator.evaluation.calendar_event_planner import summarize_calendar_notes
 from oaao_orchestrator.evaluation.productivity_post_turn import (
     format_turn_transcript,
-    llm_cfg_from_chat_request,
+    llm_cfg_for_post_turn,
     load_calendar_post_turn_prompt,
 )
 from oaao_orchestrator.json_utils import extract_json_object
@@ -168,11 +168,19 @@ async def _llm_classify_calendar_event(
     llm_cfg: dict[str, Any],
     locale: str,
     min_confidence: float,
+    template_ref: str | None = None,
 ) -> CalendarEventCandidate | None:
-    system = load_calendar_post_turn_prompt(
-        locale=locale,
-        transcript=format_turn_transcript(messages, assistant_text=assistant_text),
-    )
+    transcript = format_turn_transcript(messages, assistant_text=assistant_text)
+    if template_ref:
+        from oaao_orchestrator.prompt_template import load_template_body, prompts_subdir, render_template_text
+
+        body = load_template_body(ref=template_ref, search_dirs=(prompts_subdir("productivity"),))
+        system = render_template_text(
+            body or load_calendar_post_turn_prompt(locale=locale, transcript=transcript),
+            {"locale": locale, "transcript": transcript, "current_date": datetime.now(UTC).strftime("%Y-%m-%d")},
+        )
+    else:
+        system = load_calendar_post_turn_prompt(locale=locale, transcript=transcript)
     user = "Return the JSON object for this turn."
 
     try:
@@ -212,14 +220,11 @@ async def classify_calendar_event_candidate(
     llm_cfg: dict[str, Any] | None = None,
     locale: str = "",
     chat_request: object | None = None,
+    template_ref: str | None = None,
 ) -> CalendarEventCandidate | None:
-    """Post-stream classifier — one LLM hook call; no regex field extraction."""
+    """Post-stream classifier — LLM JSON only (registry template via ``post_turn_action.register``)."""
     assistant = (assistant_text or "").strip()
     if len(assistant) < 12 or _is_tool_meta_turn(assistant):
-        return None
-
-    cfg = llm_cfg if _llm_ready(llm_cfg) else llm_cfg_from_chat_request(chat_request)
-    if not _llm_ready(cfg):
         return None
 
     loc = (locale or "").strip()
@@ -233,6 +238,14 @@ async def classify_calendar_event_candidate(
         if not loc:
             loc = "en"
 
+    cfg = llm_cfg if _llm_ready(llm_cfg) else llm_cfg_for_post_turn(chat_request, "calendar")
+    if not _llm_ready(cfg):
+        logger.debug(
+            "calendar_event_post_turn skipped — no LLM endpoint conversation_id=%s",
+            conversation_id,
+        )
+        return None
+
     return await _llm_classify_calendar_event(
         conversation_id=conversation_id,
         messages=messages,
@@ -240,4 +253,5 @@ async def classify_calendar_event_candidate(
         llm_cfg=cfg or {},
         locale=loc,
         min_confidence=min_confidence,
+        template_ref=template_ref,
     )

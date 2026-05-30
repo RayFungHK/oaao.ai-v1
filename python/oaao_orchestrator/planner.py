@@ -98,18 +98,9 @@ def _turn_intent_needs_slide(req: object) -> bool:
 
 
 def ensure_web_search_allowed_for_public_web(req: object, allowed_agents: list[str]) -> list[str]:
-    """Globe or planning.intent may require web_search even when Task planner omits it from allowed_agents."""
-    if not _public_web_turn(req):
-        return allowed_agents
-    out = list(allowed_agents)
-    if "web_search" not in out:
-        logger.info(
-            "public_web_force_web_search_allowed globe=%s intent=%s",
-            bool(getattr(req, "enable_web_search", False)),
-            _turn_intent_needs_web(req),
-        )
-        out.append("web_search")
-    return out
+    """Prepare-only web search — no longer force-adds ``web_search`` to allowed_agents."""
+    _ = req
+    return list(allowed_agents)
 
 
 # Backward-compatible alias
@@ -203,17 +194,17 @@ def finalize_public_web_plan(plan: RunPlan, req: object, *, allowed_agents: list
         plan.abilities = ability_hints_for(
             [t.agent_kind for t in plan.tasks if t.agent_kind] or ["web_search"],
         )
-    if any(t.agent_kind == "web_search" for t in plan.tasks):
+    if any(t.type == RunTaskType.WEB_SEARCH for t in plan.tasks):
         logger.info(
-            "public_web_plan_ready web_search=yes vault_scope=%s globe=%s",
+            "public_web_plan_ready web_search_prepare=yes vault_scope=%s globe=%s",
             _explicit_vault_scope(req),
             bool(getattr(req, "enable_web_search", False)),
         )
-    else:
+    elif _public_web_turn(req):
         logger.warning(
-            "public_web_plan_missing_web_search vault_scope=%s allowed=%s",
+            "public_web_plan_missing_web_search_prepare vault_scope=%s globe=%s",
             _explicit_vault_scope(req),
-            allowed_agents,
+            bool(getattr(req, "enable_web_search", False)),
         )
     return plan
 

@@ -16,6 +16,7 @@ final class UserSendOrchestratorPayload
 {
     /**
      * @param array<string, mixed> $payload Existing orchestrator payload (for tenant_id)
+     * @param list<array{todo_id: int, title: string}>|null $openTodoItems Pre-fetched via {@code api('todo')->openItemsForConversation()}
      * @return array<string, mixed>
      */
     public static function buildFragment(
@@ -24,33 +25,13 @@ final class UserSendOrchestratorPayload
         object $user,
         ?\PDO $canonPdo,
         int $conversationId,
+        ?array $openTodoItems = null,
     ): array {
         $fragment = [];
         $uid = $ctx->userId;
 
-        if ($canonPdo instanceof \PDO) {
-            require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_todo_schema.php';
-            oaao_auth_ensure_todo_schema($canonPdo);
-            $tenantForTodos = isset($payload['tenant_id']) ? (int) $payload['tenant_id'] : (int) ($user->tenant_id ?? 0);
-            $stTodos = $canonPdo->prepare(
-                'SELECT todo_id, title FROM oaao_todo_item
-                 WHERE tenant_id = ? AND user_id = ? AND status = ? AND conversation_id = ?
-                 ORDER BY updated_at DESC LIMIT 20',
-            );
-            $stTodos->execute([$tenantForTodos, $uid, 'open', $conversationId]);
-            $openTodos = [];
-            while ($row = $stTodos->fetch(\PDO::FETCH_ASSOC)) {
-                if (! \is_array($row)) {
-                    continue;
-                }
-                $openTodos[] = [
-                    'todo_id' => (int) ($row['todo_id'] ?? 0),
-                    'title'   => (string) ($row['title'] ?? ''),
-                ];
-            }
-            if ($openTodos !== []) {
-                $fragment['open_todo_items'] = $openTodos;
-            }
+        if ($canonPdo instanceof \PDO && \is_array($openTodoItems) && $openTodoItems !== []) {
+            $fragment['open_todo_items'] = $openTodoItems;
         }
 
         $persPayload = UserPersonalization::forOrchestratorPayload(

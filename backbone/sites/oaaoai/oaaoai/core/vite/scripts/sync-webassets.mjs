@@ -2,6 +2,7 @@
  * Mirrors the old `vite build` deploy without re-bundling RazyUI.
  * RazyUI’s dist layout (`razyui.js` + `chunks/` + `component/`) must stay intact so
  * `import("../component/JIT.js")` and modulepreload URLs resolve from `chunks/index-*.js`.
+ * After `npm run build:all` in RazyUI-v2, bump {@code OAAO_SHELL_ESM_V} / {@code $oaaoShellEsmRev} so browsers drop stale chunk hashes.
  */
 import fs from 'node:fs';
 import path from 'node:path';

@@ -6,6 +6,16 @@
 | **Agent kind** | `office_generate` |
 | **Module registration** | `oaaoai/corpus` → `PlannerAgentRegister` |
 
+## Task-action alignment (P3)
+
+Per [sprint-module-boundary-charter.md](./sprint-module-boundary-charter.md), **`office_generate` is a single planner task action**, not a long-lived agent loop:
+
+- Planner emits one `RunTaskSpec` with `type=agent`, `agent_kind=office_generate`.
+- `OfficeGenerateAgent` runs once, returns artifacts, then the plan continues (typically `llm_stream`).
+- Registration stays on **corpus** (`PlannerAgentRegister`); chat must not import corpus finalize helpers.
+
+Future: move registration emit to a corpus `chat_send_orchestrator_ready` listener (same pattern as vault/todo boundaries).
+
 ## Tool contract (planner JSON)
 
 Planner selects `office_generate` via `RunTaskSpec.params`:

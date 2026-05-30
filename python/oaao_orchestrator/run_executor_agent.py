@@ -57,6 +57,22 @@ async def handle_agent_task(
     task_failed = False
     run_failed = False
 
+    kind = (run_task.agent_kind or "").strip()
+    if kind == "web_search":
+        logger.warning(
+            "legacy agent web_search task %s — should be RunTaskType.WEB_SEARCH prepare step",
+            run_task.id,
+        )
+        run_task.status = RunTaskStatus.SKIPPED
+        await emit_run_task_end(
+            run,
+            plan,
+            run_task,
+            allowed_agents=allowed_agents,
+            pipeline_snap=pipeline_snap,
+        )
+        return messages_for_llm, pipeline_snap, task_failed, run_failed, slide_project_meta, True
+
     needs_ask, ask_msg, ask_meta = resolve_agent_ask_prompt(
         run_task,
         req,

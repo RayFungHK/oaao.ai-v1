@@ -205,83 +205,6 @@ async def finalize_run(
             except Exception:
                 logger.exception("skill_usage_record_failed run_id=%s", run_id)
 
-        if cid_skill > 0 and persist_text and not run.cancelled:
-            try:
-                from oaao_orchestrator.evaluation.calendar_event_candidate import (
-                    classify_calendar_event_candidate,
-                )
-                from oaao_orchestrator.evaluation.calendar_event_suggested_stream import (
-                    emit_calendar_event_suggested_status,
-                )
-
-                cal_candidate = await classify_calendar_event_candidate(
-                    conversation_id=cid_skill,
-                    messages=messages_for_llm,
-                    assistant_text=persist_text,
-                    chat_request=req,
-                )
-                if cal_candidate is not None:
-                    payload_cal = cal_candidate.to_dict()
-                    metrics_payload["calendar_event_suggested"] = payload_cal
-                    await emit_calendar_event_suggested_status(run, payload_cal)
-            except Exception:
-                logger.exception("calendar_event_suggested_emit_failed run_id=%s", run_id)
-
-        if cid_skill > 0 and persist_text and not run.cancelled:
-            try:
-                from oaao_orchestrator.evaluation.todo_item_candidate import (
-                    classify_todo_item_candidates,
-                )
-                from oaao_orchestrator.evaluation.todo_item_suggested_stream import (
-                    emit_todo_item_suggested_status,
-                    emit_todo_items_suggested_status,
-                )
-
-                open_todos_for_dedupe = getattr(req, "open_todo_items", None) or []
-                todo_candidates = await classify_todo_item_candidates(
-                    conversation_id=cid_skill,
-                    messages=messages_for_llm,
-                    assistant_text=persist_text,
-                    open_todo_items=open_todos_for_dedupe if isinstance(open_todos_for_dedupe, list) else [],
-                    chat_request=req,
-                )
-                if len(todo_candidates) >= 2:
-                    item_payloads = [c.to_dict() for c in todo_candidates]
-                    metrics_payload["todo_items_suggested"] = item_payloads
-                    await emit_todo_items_suggested_status(
-                        run,
-                        conversation_id=cid_skill,
-                        items=item_payloads,
-                    )
-                elif len(todo_candidates) == 1:
-                    payload_todo = todo_candidates[0].to_dict()
-                    metrics_payload["todo_item_suggested"] = payload_todo
-                    await emit_todo_item_suggested_status(run, payload_todo)
-            except Exception:
-                logger.exception("todo_item_suggested_emit_failed run_id=%s", run_id)
-
-        open_todos = getattr(req, "open_todo_items", None) or []
-        if cid_skill > 0 and persist_text and not run.cancelled and open_todos:
-            try:
-                from oaao_orchestrator.evaluation.todo_completion_checker import (
-                    classify_todo_resolve_hint,
-                )
-                from oaao_orchestrator.evaluation.todo_resolve_suggested_stream import (
-                    emit_todo_resolve_suggested_status,
-                )
-
-                resolve_hint = classify_todo_resolve_hint(
-                    conversation_id=cid_skill,
-                    assistant_text=persist_text,
-                    open_todos=open_todos if isinstance(open_todos, list) else [],
-                )
-                if resolve_hint is not None:
-                    payload_resolve = resolve_hint.to_dict()
-                    metrics_payload["todo_resolve_suggested"] = payload_resolve
-                    await emit_todo_resolve_suggested_status(run, payload_resolve)
-            except Exception:
-                logger.exception("todo_resolve_suggested_emit_failed run_id=%s", run_id)
-
     if not run.cancelled and not skip_ephemeral_hooks:
         try:
             from oaao_orchestrator.conversation_title import (
@@ -305,6 +228,29 @@ async def finalize_run(
 
     metrics_payload["pipeline_timing"] = pipeline_timing
     metrics_payload["run_status"] = "complete"
+
+    if not run.cancelled:
+        try:
+            from oaao_orchestrator.streaming.ui_stage_stream import emit_ui_stage
+
+            state_payload = {
+                k: metrics_payload[k]
+                for k in (
+                    "duration_ms",
+                    "generation_ms",
+                    "tokens_per_sec",
+                    "tokens_estimated",
+                    "pipeline_timing",
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "tokens_out",
+                )
+                if k in metrics_payload
+            }
+            if state_payload:
+                await emit_ui_stage(run, "state", state_payload)
+        except Exception:
+            logger.exception("ui_stage state emit failed run_id=%s", run_id)
 
     end_text = "run_cancelled" if run.cancelled else "run_closed"
     await run.append(
@@ -359,6 +305,7 @@ async def finalize_run(
 
                 schedule_evolution_post_stream(
                     req=req,
+                    run=run,
                     metrics_payload=metrics_payload,
                     assistant_text=assistant_text,
                     messages_for_llm=messages_for_llm,
@@ -382,6 +329,18 @@ async def finalize_run(
                     await enqueue_post_stream_jobs_for_chat(
                         req=req, metrics_payload=metrics_payload
                     )
+                from oaao_orchestrator.evaluation.post_turn_action_worker import (
+                    schedule_post_turn_productivity_actions,
+                )
+
+                schedule_post_turn_productivity_actions(
+                    req=req,
+                    run=run,
+                    metrics_payload=metrics_payload,
+                    messages_for_llm=messages_for_llm,
+                    persist_text=persist_text,
+                    run_id=run_id,
+                )
             await _report_usage_to_php(
                 tenant_id=req.tenant_id,
                 event_kind="chat.completion",

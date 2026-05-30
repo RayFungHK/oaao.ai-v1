@@ -62,6 +62,10 @@ async def upsert_turn_score(
         if topic_shift is not None:
             body["topic_shift"] = 1 if int(topic_shift) else 0
 
+    principal = meta.get("run_principal")
+    if isinstance(principal, str) and principal.strip():
+        body["run_principal"] = principal.strip()
+
     url = f"{php_chat_api_base()}/turn_score_upsert"
     assert_php_http_allowed(url, context="turn_score_upsert")
     secret = _shared_secret()
@@ -129,6 +133,9 @@ async def apply_inference_turn(
         "assistant_message_id": int(mid) if mid.isdigit() else mid,
         "inference": inference,
     }
+    principal = meta.get("run_principal")
+    if isinstance(principal, str) and principal.strip():
+        body["run_principal"] = principal.strip()
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
             r = await client.post(

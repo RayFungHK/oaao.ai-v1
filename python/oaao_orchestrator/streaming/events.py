@@ -24,6 +24,7 @@ PHASE_RAG = "rag"
 PHASE_WEB = "web_search"
 PHASE_LLM = "llm"
 PHASE_SYSTEM = "system"
+PHASE_UI = "ui"
 PHASE_LIVE = "live"
 
 KIND_LIVE_TRANSCRIPT = "live_transcript"
@@ -41,6 +42,7 @@ PHASES: tuple[str, ...] = (
     PHASE_WEB,
     PHASE_LLM,
     PHASE_SYSTEM,
+    PHASE_UI,
     PHASE_LIVE,
 )
 
@@ -50,6 +52,7 @@ KIND_START = "start"
 KIND_END = "end"
 KIND_ERROR = "error"
 KIND_PROGRESS = "progress"
+KIND_STAGE = "stage"
 
 KindStatus = Literal["status", "delta", "start", "end", "error", "progress"]
 

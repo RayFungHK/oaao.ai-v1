@@ -1,6 +1,6 @@
 <!-- Per-turn agent intent (command_template — no chat history).
      Variables: {{user_input}} {{llm_knowledge_cutoff}} {{current_date}} {{knowledge_gap_detected}}
-                {{agent_registry_list}} {{agent_analysis_schema}} -->
+                {{agent_registry_list}} {{agent_analysis_schema}} {{planner_prompt_block}} -->
 
 
 
@@ -27,6 +27,10 @@ When temporal knowledge gap is "yes", score web_search at 1.00.
 
 
 {{agent_analysis_schema}}
+
+
+
+{{planner_prompt_block}}
 
 
 

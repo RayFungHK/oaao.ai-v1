@@ -10,6 +10,7 @@ require_once __DIR__ . '/../library/AsrLivePurposeConfig.php';
 require_once __DIR__ . '/../library/UiqePurposeConfig.php';
 require_once __DIR__ . '/../library/MmPurposeConfig.php';
 require_once __DIR__ . '/../library/LlmOrchestratorPayload.php';
+require_once __DIR__ . '/../library/MmModuleSettings.php';
 
 use oaaoai\endpoints\AsrLivePurposeConfig;
 use oaaoai\endpoints\AsrPurposeConfig;
@@ -19,8 +20,10 @@ use oaaoai\endpoints\FeatureRegistryBootstrap;
 use oaaoai\endpoints\LlmOrchestratorPayload;
 use oaaoai\endpoints\PurposeAllocationRegister;
 use oaaoai\endpoints\KnowledgeRefreshPurposeConfig;
+use oaaoai\endpoints\ProductivityPurposeConfig;
 use oaaoai\endpoints\UiqePurposeConfig;
 use oaaoai\endpoints\MmPurposeConfig;
+use oaaoai\endpoints\MmModuleSettings;
 use oaaoai\endpoints\AsrUserPreferenceRegister;
 use oaaoai\endpoints\MediaCapabilityRegister;
 use oaaoai\endpoints\MmPythonModuleRegister;
@@ -397,6 +400,38 @@ return new class extends Controller {
     }
 
     /**
+     * Post-turn productivity classifiers ({@code productivity.calendar.*}, {@code productivity.todo.*}).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function resolveOrchestratorProductivityPayload(): ?array
+    {
+        $db = $this->oaao_endpoints_canonical_db();
+        if (! $db) {
+            return null;
+        }
+        $repo = new CanonicalEndpointsRepository($db, $this->api('core'));
+        $calBind = $repo->resolveProductivityCalendarBinding();
+        $todoBind = $repo->resolveProductivityTodoBinding();
+        if ($calBind === null && $todoBind === null) {
+            return null;
+        }
+        $chat = $this->api('chat');
+        $infer = $chat
+            ? static fn (string $ref): ?string => $chat->inferOrchestratorApiKeyEnv($ref)
+            : static fn (string $ref): ?string => null;
+        $out = [];
+        if ($calBind !== null) {
+            $out['calendar'] = ProductivityPurposeConfig::jobPayloadFromBinding($calBind, $infer);
+        }
+        if ($todoBind !== null) {
+            $out['todo'] = ProductivityPurposeConfig::jobPayloadFromBinding($todoBind, $infer);
+        }
+
+        return $out !== [] ? $out : null;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function resolveOrchestratorPlannerPayload(): ?array
@@ -659,7 +694,6 @@ return new class extends Controller {
      */
     private function resolveOrchestratorMmAxisPayload(string $axis): ?array
     {
-        require_once __DIR__ . '/../library/MmModuleSettings.php';
         $this->ensureFeatureRegistries();
 
         return MmModuleSettings::orchestratorPayloadForAxis($axis);
@@ -681,6 +715,7 @@ return new class extends Controller {
             'resolveRunPlannerMode'               => 'resolveRunPlannerMode',
             'resolveOrchestratorPolishPayload'    => 'resolveOrchestratorPolishPayload',
             'resolveOrchestratorUiqePayload'      => 'resolveOrchestratorUiqePayload',
+            'resolveOrchestratorProductivityPayload' => 'resolveOrchestratorProductivityPayload',
             'resolveOrchestratorPlannerPayload'       => 'resolveOrchestratorPlannerPayload',
             'resolveOrchestratorPlannerIntentPayload' => 'resolveOrchestratorPlannerIntentPayload',
             'resolveOrchestratorMmUnderstandPayload' => 'resolveOrchestratorMmUnderstandPayload',
@@ -695,6 +730,9 @@ return new class extends Controller {
         $purposeAllocationListener = 'event/purpose_allocation_register_listener';
         $chatPipelineListener = 'event/chat_pipeline_register_listener';
         $plannerAgentListener = 'event/planner_agent_register_listener';
+        $postTurnActionListener = 'event/post_turn_action_register_listener';
+        $stripActionListener = 'event/strip_action_register_listener';
+        $infoWorkerListener = 'event/info_worker_register_listener';
         $mmPythonModuleListener = 'event/mm_python_module_register_listener';
         $asrUserPreferenceListener = 'event/asr_user_preference_register_listener';
         $microSkillProviderListener = 'event/micro_skill_provider_register_listener';
@@ -721,6 +759,19 @@ return new class extends Controller {
             'oaaoai/endpoints:planner_agent.register'      => $plannerAgentListener,
             'oaaoai/sandbox-coder:planner_agent.register'  => $plannerAgentListener,
             'oaaoai/slide-designer:planner_agent.register' => $plannerAgentListener,
+            'oaaoai/calendar:planner_agent.register'     => $plannerAgentListener,
+            'oaaoai/todo:planner_agent.register'         => $plannerAgentListener,
+            'oaaoai/calendar:purpose_allocation.register' => $purposeAllocationListener,
+            'oaaoai/todo:purpose_allocation.register'    => $purposeAllocationListener,
+            'oaaoai/chat:post_turn_action.register'           => $postTurnActionListener,
+            'oaaoai/calendar:post_turn_action.register'       => $postTurnActionListener,
+            'oaaoai/todo:post_turn_action.register'           => $postTurnActionListener,
+            'oaaoai/chat:strip_action.register'               => $stripActionListener,
+            'oaaoai/calendar:strip_action.register'           => $stripActionListener,
+            'oaaoai/todo:strip_action.register'               => $stripActionListener,
+            'oaaoai/chat:info_worker.register'                => $infoWorkerListener,
+            'oaaoai/calendar:info_worker.register'            => $infoWorkerListener,
+            'oaaoai/todo:info_worker.register'                => $infoWorkerListener,
             'oaaoai/slide-designer:chat_pipeline.register' => $chatPipelineListener,
             'oaaoai/chat:micro_skill_provider.register'       => $microSkillProviderListener,
             'oaaoai/slide-designer:micro_skill_provider.register' => $microSkillProviderListener,

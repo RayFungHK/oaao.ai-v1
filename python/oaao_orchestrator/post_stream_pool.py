@@ -146,6 +146,9 @@ def build_post_stream_plugin_ctx_meta(
             meta["workspace_id"] = int(wid)
         except (TypeError, ValueError):
             pass
+    principal = getattr(req, "run_principal", None)
+    if isinstance(principal, str) and principal.strip():
+        meta["run_principal"] = principal.strip()
     if isinstance(metrics_payload, dict):
         mats = metrics_payload.get("materials")
         if isinstance(mats, list):

@@ -20,7 +20,32 @@ function oaaoChatT(_key, fallback) {
 /** @typedef {{ key: string, label: string, tokens: number }} ContextSegment */
 
 const CONTEXT_USAGE_STYLE_ID = 'oaao-chat-context-usage-styles';
-const CONTEXT_USAGE_STYLE_REV = '20260529-ctx-ring-v9-tight';
+const CONTEXT_USAGE_STYLE_REV = '20260529-ctx-ring-v10-dedupe';
+
+/** @type {ReturnType<typeof setInterval> | null} */
+let contextUsagePollTimer = null;
+/** @type {(() => void) | null} */
+let contextUsageConversationOpenedHandler = null;
+/** @type {Promise<void> | null} */
+let contextUsageRefreshInFlight = null;
+let contextUsageRefreshQueued = false;
+
+function stopContextUsagePoll() {
+    if (contextUsagePollTimer) {
+        clearInterval(contextUsagePollTimer);
+        contextUsagePollTimer = null;
+    }
+}
+
+/**
+ * @param {() => void} refreshRing
+ */
+function startContextUsagePoll(refreshRing) {
+    stopContextUsagePoll();
+    contextUsagePollTimer = setInterval(() => {
+        refreshRing();
+    }, 120_000);
+}
 
 const SEGMENT_COLORS = {
     system_prompt: 'var(--grid-caption,#9ca3af)',
@@ -261,38 +286,51 @@ export function mountChatContextUsage(
             syncComposerExtraToolbarStrip(mount);
             return;
         }
+        if (contextUsageRefreshInFlight) {
+            contextUsageRefreshQueued = true;
+            return contextUsageRefreshInFlight;
+        }
         setContextUsageBtnVisible(toolbarHost, slot, btn, true);
         syncComposerExtraToolbarStrip(mount);
-        try {
-            const data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId(), getScopeQuery);
-            const pct = Number(data?.percent_full ?? 0);
-            const used = Number(data?.used_tokens ?? 0);
-            const limit = Number(data?.context_limit_tokens ?? 0);
-            btn.innerHTML = ringSvg(pct);
-            btn.title = oaaoChatT(
-                'chat.context_usage.ring_title',
-                '{pct}% · ~{used} / {limit} tokens',
-            )
-                .replace('{pct}', String(pct))
-                .replace('{used}', formatTokenK(used))
-                .replace('{limit}', formatTokenK(limit));
-            btn.dataset.oaaoContextPct = String(pct);
-            const canCompact = Boolean(data?.can_compact);
-            if (pct >= 85 && canCompact && canCompactSuggest(cid)) {
-                document.dispatchEvent(
-                    new CustomEvent('oaao-toast', {
-                        detail: {
-                            message: oaaoChatT(
-                                'chat.context_usage.suggest_compact',
-                                'Context is nearly full — open Context to compact this thread (CIT/CMT).',
-                            ),
-                        },
-                    }),
-                );
+        contextUsageRefreshInFlight = (async () => {
+            try {
+                const data = await fetchContextUsage(chatApiBase, cid, getChatEndpointId(), getScopeQuery);
+                const pct = Number(data?.percent_full ?? 0);
+                const used = Number(data?.used_tokens ?? 0);
+                const limit = Number(data?.context_limit_tokens ?? 0);
+                btn.innerHTML = ringSvg(pct);
+                btn.title = oaaoChatT(
+                    'chat.context_usage.ring_title',
+                    '{pct}% · ~{used} / {limit} tokens',
+                )
+                    .replace('{pct}', String(pct))
+                    .replace('{used}', formatTokenK(used))
+                    .replace('{limit}', formatTokenK(limit));
+                btn.dataset.oaaoContextPct = String(pct);
+                const canCompact = Boolean(data?.can_compact);
+                if (pct >= 85 && canCompact && canCompactSuggest(cid)) {
+                    document.dispatchEvent(
+                        new CustomEvent('oaao-toast', {
+                            detail: {
+                                message: oaaoChatT(
+                                    'chat.context_usage.suggest_compact',
+                                    'Context is nearly full — open Context to compact this thread (CIT/CMT).',
+                                ),
+                            },
+                        }),
+                    );
+                }
+            } catch {
+                btn.innerHTML = ringSvg(0);
+            } finally {
+                contextUsageRefreshInFlight = null;
+                if (contextUsageRefreshQueued) {
+                    contextUsageRefreshQueued = false;
+                    void refreshRing();
+                }
             }
-        } catch {
-            btn.innerHTML = ringSvg(0);
-        }
+        })();
+        return contextUsageRefreshInFlight;
     }
 
     /** @param {number} cid */
@@ -308,19 +346,20 @@ export function mountChatContextUsage(
     }
 
     function stopPoll() {
-        if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-        }
+        pollTimer = null;
+        stopContextUsagePoll();
     }
 
     function startPoll() {
         stopPoll();
-        void refreshRing();
-        pollTimer = setInterval(() => {
+        startContextUsagePoll(() => {
             void refreshRing();
-        }, 120_000);
+        });
     }
+
+    const scheduleRefreshRing = () => {
+        void refreshRing();
+    };
 
     btn.addEventListener('click', () => {
         void openContextDialog();
@@ -497,18 +536,19 @@ export function mountChatContextUsage(
         }
     }
 
-    globalThis.__oaaoRefreshChatContextUsage = () => {
-        void refreshRing();
-    };
+    globalThis.__oaaoRefreshChatContextUsage = scheduleRefreshRing;
     globalThis.__oaaoStartChatContextUsagePoll = startPoll;
     globalThis.__oaaoStopChatContextUsagePoll = stopPoll;
 
-    document.addEventListener('oaao-conversation-opened', () => {
-        void refreshRing();
-    });
+    if (contextUsageConversationOpenedHandler) {
+        document.removeEventListener('oaao-conversation-opened', contextUsageConversationOpenedHandler);
+    }
+    contextUsageConversationOpenedHandler = scheduleRefreshRing;
+    document.addEventListener('oaao-conversation-opened', contextUsageConversationOpenedHandler);
 
     if (getConversationId() > 0) {
         startPoll();
+        void refreshRing();
     }
 }
 

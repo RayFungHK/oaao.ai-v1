@@ -62,6 +62,12 @@ final class EndpointsSendOrchestratorPayload
                 $fragment['uiqe'] = $uiqe;
             }
         }
+        if (method_exists($endpointsApi, 'resolveOrchestratorProductivityPayload')) {
+            $productivity = $endpointsApi->resolveOrchestratorProductivityPayload();
+            if ($productivity !== null) {
+                $fragment['productivity'] = $productivity;
+            }
+        }
         if (method_exists($endpointsApi, 'resolveOrchestratorPlannerPayload')) {
             $planner = $endpointsApi->resolveOrchestratorPlannerPayload();
             if ($planner !== null) {

@@ -17,3 +17,6 @@ require_once __DIR__ . '/SlideTemplateStorage.php';
 require_once __DIR__ . '/SlideChatEndpoint.php';
 require_once __DIR__ . '/SlideTemplateLlm.php';
 require_once __DIR__ . '/SlideOrchestrator.php';
+require_once __DIR__ . '/SlideSendScope.php';
+require_once __DIR__ . '/SlideSendTemplateSlug.php';
+require_once __DIR__ . '/SlideSendOrchestratorPayload.php';

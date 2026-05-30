@@ -19,6 +19,7 @@ final class ChatSendPersistResult
         public readonly ?string $conversationTitleOut,
         /** @var array<string, mixed> */
         public readonly array $inferenceSnapshot,
+        public readonly int $priorLastMessageId = 0,
     ) {
     }
 }

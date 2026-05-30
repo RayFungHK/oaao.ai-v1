@@ -40,6 +40,7 @@ class RunTaskType(StrEnum):
 
     EMIT = "emit"
     VAULT_RAG = "vault_rag"
+    WEB_SEARCH = "web_search"
     ATTACHMENTS = "attachments"
     LLM_STREAM = "llm_stream"
     LLM_CALL = "llm_call"

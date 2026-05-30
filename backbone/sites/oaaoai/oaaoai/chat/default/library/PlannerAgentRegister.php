@@ -51,6 +51,9 @@ final class PlannerAgentRegister
         if (! empty($extras['deprecated'])) {
             $row['deprecated'] = true;
         }
+        if (! empty($extras['intent_only'])) {
+            $row['intent_only'] = true;
+        }
 
         if (! empty($extras['ask_enabled'])) {
             $row['ask_enabled'] = true;
@@ -120,7 +123,7 @@ final class PlannerAgentRegister
         $out = [];
         foreach (self::allSorted() as $row) {
             $kind = (string) ($row['agent_kind'] ?? '');
-            if ($kind === '' || ! isset($allow[$kind])) {
+            if ($kind === '' || ! isset($allow[$kind]) || ! empty($row['intent_only'])) {
                 continue;
             }
             $hint = trim((string) ($row['planner_hint'] ?? ''));
@@ -150,6 +153,106 @@ final class PlannerAgentRegister
                 }
             }
             $out[] = $entry;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param list<string> $allowedKinds
+     *
+     * @return list<string> Kinds the run planner may dispatch (excludes {@code intent_only}).
+     */
+    public static function filterDispatchableKinds(array $allowedKinds): array
+    {
+        $allow = [];
+        foreach ($allowedKinds as $k) {
+            $key = strtolower(trim((string) $k));
+            if ($key !== '') {
+                $allow[$key] = true;
+            }
+        }
+        if ($allow === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach (self::allSorted() as $row) {
+            $kind = (string) ($row['agent_kind'] ?? '');
+            if ($kind === '' || ! isset($allow[$kind]) || ! empty($row['intent_only'])) {
+                continue;
+            }
+            $out[] = $kind;
+        }
+
+        if ($out === []) {
+            foreach (array_keys($allow) as $kind) {
+                if (! self::isIntentOnlyKind($kind)) {
+                    $out[] = $kind;
+                }
+            }
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    public static function isIntentOnlyKind(string $agentKind): bool
+    {
+        $key = strtolower(trim($agentKind));
+        if ($key === '') {
+            return false;
+        }
+        $row = self::$entries[$key] ?? null;
+
+        return \is_array($row) && ! empty($row['intent_only']);
+    }
+
+    /**
+     * Planner intent hints — not dispatchable agent tasks ({@code intent_only} registry rows).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function catalogForIntentHints(): array
+    {
+        $out = [];
+        foreach (self::allSorted() as $row) {
+            if (empty($row['intent_only'])) {
+                continue;
+            }
+            $kind = (string) ($row['agent_kind'] ?? '');
+            if ($kind === '') {
+                continue;
+            }
+            $hint = trim((string) ($row['planner_hint'] ?? ''));
+            if ($hint === '') {
+                $hint = trim((string) ($row['description'] ?? ''));
+            }
+            $out[] = [
+                'agent_kind'   => $kind,
+                'name'         => (string) ($row['name'] ?? $kind),
+                'description'  => (string) ($row['description'] ?? ''),
+                'planner_hint' => $hint,
+                'intent_only'  => true,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<string> Dispatchable kinds for settings UI (excludes {@code intent_only}).
+     */
+    public static function dispatchableKinds(): array
+    {
+        $out = [];
+        foreach (self::allSorted() as $row) {
+            if (! empty($row['intent_only'])) {
+                continue;
+            }
+            $kind = (string) ($row['agent_kind'] ?? '');
+            if ($kind !== '') {
+                $out[] = $kind;
+            }
         }
 
         return $out;

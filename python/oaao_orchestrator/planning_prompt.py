@@ -82,18 +82,21 @@ def render_planner_system_prompt(
     max_tasks: int,
     agent_guide: str,
     planner_payload: dict[str, Any] | None = None,
+    planner_prompt_block: str = "",
 ) -> str:
     """Conversation system prompt for ``planning.primary``."""
     agents_s = ", ".join(allowed_agents) if allowed_agents else "(none)"
     guide_block = agent_guide.strip() if agent_guide.strip() else "(none)"
     ref = _system_ref_from_planner_payload(planner_payload)
     body = load_planner_system_body(ref=ref)
+    block = (planner_prompt_block or "").strip()
     return render_template_text(
         body,
         {
             "allowed_agents": agents_s,
             "max_tasks": str(max_tasks),
             "agent_guide": guide_block,
+            "planner_prompt_block": block,
         },
     )
 

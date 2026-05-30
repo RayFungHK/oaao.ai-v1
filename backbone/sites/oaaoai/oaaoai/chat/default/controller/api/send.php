@@ -193,6 +193,7 @@ return function (): void {
             conversationTitleOut: $persist->conversationTitleOut,
             autoCompactApplied: $run->autoCompactApplied,
             inferenceSnapshot: $persist->inferenceSnapshot,
+            priorLastMessageId: $persist->priorLastMessageId,
         ));
     } catch (ChatSendAbort $abort) {
         ChatSendHttp::emitAbort($abort);

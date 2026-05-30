@@ -19,7 +19,7 @@ final class ChatAllowedAgentsPurposeConfig
      */
     public static function allKinds(): array
     {
-        $fromRegistry = PlannerAgentRegister::allKinds();
+        $fromRegistry = PlannerAgentRegister::dispatchableKinds();
 
         return $fromRegistry !== [] ? $fromRegistry : self::LEGACY_KINDS;
     }

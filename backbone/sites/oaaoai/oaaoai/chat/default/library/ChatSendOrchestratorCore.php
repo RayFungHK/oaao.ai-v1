@@ -96,9 +96,7 @@ final class ChatSendOrchestratorCore
         }
 
         ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, $conversationId, $attachmentIds);
-        $canonPdoForAtt = method_exists($chatController, 'oaao_chat_canonical_pdo')
-            ? $chatController->oaao_chat_canonical_pdo()
-            : null;
+        $canonPdoForAtt = ChatSendCanonicalPdo::fromController($chatController);
         $tenantIdForAtt = 0;
         if ($canonPdoForAtt instanceof \PDO && method_exists($chatController, 'api')) {
             $coreApiAtt = $chatController->api('core');
