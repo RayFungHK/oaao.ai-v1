@@ -75,6 +75,12 @@ final class ChatSendOrchestratorFinalize
 
         $fragment['post_turn_actions'] = PostTurnActionRegister::forOrchestrator();
 
+        $merged = array_merge($payload, $ctx->mergedPayloadFragments());
+        $modulePrompts = ModulePromptPayload::build($merged, $fragment['post_turn_actions']);
+        if ($modulePrompts !== []) {
+            $fragment['module_prompts'] = $modulePrompts;
+        }
+
         return $fragment;
     }
 }

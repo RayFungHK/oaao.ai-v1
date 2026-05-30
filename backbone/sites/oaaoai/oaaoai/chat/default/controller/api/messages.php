@@ -29,6 +29,7 @@ return function (): void {
         : (int) $limitRaw;
     $limit = ChatHistorySettings::clampPageSize($limit);
     $beforeId = (int) ($_GET['before_id'] ?? 0);
+    $includePromptDebug = filter_var($_GET['include_prompt_debug'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     if (! $this->oaao_chat_gate_workspace_scope($uid, $wid)) {
         return;
@@ -106,6 +107,12 @@ return function (): void {
                         ) ?? $decoded;
                     } catch (\Throwable) {
                         $row['meta'] = $decoded;
+                    }
+                    if ($includePromptDebug
+                        && ($row['role'] ?? '') === 'assistant'
+                        && isset($decoded['orchestrator_prompt_debug'])
+                        && \is_array($decoded['orchestrator_prompt_debug'])) {
+                        $row['prompt_debug'] = $decoded['orchestrator_prompt_debug'];
                     }
                 }
             }

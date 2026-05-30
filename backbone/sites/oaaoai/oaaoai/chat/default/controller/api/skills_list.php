@@ -36,6 +36,8 @@ return function (): void {
         return;
     }
 
+    $this->ensureMicroSkillSchema($pdo);
+
     $wid = isset($_GET['workspace_id']) ? (int) $_GET['workspace_id'] : null;
     $templateId = isset($_GET['template_id']) ? trim((string) $_GET['template_id']) : null;
 

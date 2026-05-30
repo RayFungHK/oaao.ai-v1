@@ -36,6 +36,9 @@ return function (): void {
         return;
     }
 
+    $this->ensureConversationAttachmentSchema($pdo);
+    $this->ensureMicroSkillSchema($pdo);
+
     $uid = (int) ($user->user_id ?? 0);
     $authApi = $this->api('auth');
     $canonDbEarly = $authApi ? $authApi->getDB() : null;

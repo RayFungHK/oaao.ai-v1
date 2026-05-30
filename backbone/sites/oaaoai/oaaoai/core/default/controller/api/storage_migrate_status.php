@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../library/AdjunctSqlite.php';
 require_once __DIR__ . '/_storage_admin.php';
 require_once __DIR__ . '/../../library/TenantStorageConfig.php';
 require_once __DIR__ . '/../../library/StorageMigrationRepository.php';
 
+use Oaaoai\Core\AdjunctSqlite;
 use Oaaoai\Core\StorageMigrationRepository;
 use Oaaoai\Core\TenantStorageConfig;
 
@@ -23,6 +25,19 @@ return function (): void {
     $ctx = oaao_core_storage_require_admin($this);
     if ($ctx === null) {
         return;
+    }
+
+    $adj = AdjunctSqlite::openPdo();
+    if ($adj instanceof \PDO) {
+        $chat = $this->api('chat');
+        if ($chat) {
+            $chat->ensureConversationAttachmentSchema($adj);
+            $chat->ensureConversationMaterialSchema($adj);
+        }
+        $slide = $this->api('slide_designer');
+        if ($slide) {
+            $slide->ensureSlideProjectSchema($adj);
+        }
     }
 
     $config = TenantStorageConfig::load($ctx['pdo'], $ctx['tenant_id']);

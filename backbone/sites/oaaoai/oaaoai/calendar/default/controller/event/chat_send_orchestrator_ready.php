@@ -38,7 +38,21 @@ return function (array $payload): void {
     $wid = $ctx->workspaceId;
     $workspaceId = $wid !== null && $wid > 0 ? $wid : null;
 
-    $events = CalendarUpcomingForSend::listForSend($canonPdo, $tenantId, $workspaceId);
+    $auth = $this->api('auth');
+    if ($auth) {
+        try {
+            $auth->ensureCalendarSchema($canonPdo);
+        } catch (\Throwable) {
+            /* schema ensure failed — still inject planner prompt; skip DB reads */
+        }
+    }
+
+    $events = [];
+    try {
+        $events = CalendarUpcomingForSend::listForSend($canonPdo, $tenantId, $workspaceId);
+    } catch (\Throwable) {
+        $events = [];
+    }
     if ($events !== []) {
         $ctx->mergePayloadFragment('calendar', ['upcoming_calendar_events' => $events]);
     }

@@ -20,8 +20,6 @@ final class MicroSkillStorage
         ?int $workspaceId,
         array $input,
     ): ?array {
-        require_once dirname(__DIR__, 1) . '/controller/api/_ensure_micro_skill_schema.php';
-        oaao_chat_ensure_micro_skill_schema($pdo);
 
         $title = trim((string) ($input['title'] ?? ''));
         if ($title === '') {
@@ -132,8 +130,6 @@ final class MicroSkillStorage
      */
     public static function recordUsage(\PDO $pdo, int $userId, array $skillIds): array
     {
-        require_once dirname(__DIR__, 1) . '/controller/api/_ensure_micro_skill_schema.php';
-        oaao_chat_ensure_micro_skill_schema($pdo);
 
         $ids = [];
         foreach ($skillIds as $sid) {

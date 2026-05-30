@@ -14,9 +14,8 @@ return function (): void {
     }
 
     try {
-        require_once __DIR__ . '/_ensure_pg_core_tables.php';
-        if (oaao_auth_database_is_pgsql($db)) {
-            oaao_auth_ensure_pg_core_tables($db);
+        if ($this->databaseIsPgsql()) {
+            $this->ensurePgCoreTables($db);
         }
     } catch (\Throwable $e) {
         error_log('oaaoai/auth register ensure PG: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());

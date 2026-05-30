@@ -7,6 +7,7 @@ use oaaoai\chat\ChatPipelineRegister;
 use oaaoai\chat\ChatSendCanonicalPdo;
 use oaaoai\chat\ChatVaultScope;
 use oaaoai\chat\PlannerAgentRegister;
+use oaaoai\chat\ComposePromptRegister;
 use oaaoai\chat\PlannerPromptRegister;
 use oaaoai\chat\PostTurnActionRegister;
 use oaaoai\vault\VaultQdrantCollectionResolver;
@@ -465,6 +466,11 @@ return new class extends Controller {
         PlannerPromptRegister::add($module, $slot, $content, $numbered, $sort);
     }
 
+    public function setComposePrompt(string $module, string $slot, string $content, int $sort = 500): void
+    {
+        ComposePromptRegister::add($module, $slot, $content, $sort);
+    }
+
     public function getPlannerPromptBlock(): string
     {
         return PlannerPromptRegister::numberedBlock();
@@ -836,10 +842,22 @@ return new class extends Controller {
         $agent->listen('oaaoai/chat:chat.send.run_start', 'event/chat_send_run_start');
         $agent->listen('oaaoai/chat:chat.send.respond', 'event/chat_send_respond');
 
-        $agent->addAPICommand([
+        $schemaDualCommands = [
+            'ensureConversationAttachmentSchema' => 'api/ensure_conversation_attachment_schema',
+            'ensureConversationMaterialSchema'   => 'api/ensure_conversation_material_schema',
+            'ensureMicroSkillSchema'             => 'api/ensure_micro_skill_schema',
+            'ensureChatProfileTables'            => 'api/ensure_chat_profile_tables',
+        ];
+        $prefixedSchemaCommands = [];
+        foreach ($schemaDualCommands as $name => $path) {
+            $prefixedSchemaCommands['#' . $name] = $path;
+        }
+
+        $agent->addAPICommand($prefixedSchemaCommands + [
             'getChatPipelineRegistry'              => 'getChatPipelineRegistry',
             'getPlannerAgentRegistry'              => 'getPlannerAgentRegistry',
             'setPlannerPrompt'                       => 'setPlannerPrompt',
+            'setComposePrompt'                       => 'setComposePrompt',
             'getPlannerPromptBlock'                  => 'getPlannerPromptBlock',
             'getPostTurnActionRegistry'              => 'getPostTurnActionRegistry',
             'getOrchestratorInternalBase'          => 'getOrchestratorInternalBase',
@@ -869,6 +887,8 @@ return new class extends Controller {
                 'GET conversations'           => 'conversations',
                 'GET conversation'           => 'conversation',
                 'GET messages'               => 'messages',
+                'GET message_prompt_debug'   => 'message_prompt_debug',
+                'GET registry_probe'         => 'registry_probe',
                 'GET chat_preferences'       => 'chat_preferences',
                 'POST chat_preferences'      => 'chat_preferences',
                 'GET turn_scores'            => 'turn_scores',

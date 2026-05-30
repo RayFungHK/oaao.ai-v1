@@ -32,6 +32,11 @@ return function (array $payload): void {
     if ($stage === ChatSendOrchestratorStage::AGENTS) {
         $bubbleThread = (bool) ($payload['bubble_thread'] ?? false);
         $endpointsApi = $payload['endpoints_api'] ?? null;
+        // Module planner lines (calendar/todo setPlannerPrompt) register in collect_feature_registries —
+        // must run before numberedBlock(); FINALIZE stage alone is too late for planning.
+        if (\is_object($endpointsApi) && method_exists($endpointsApi, 'ensureFeatureRegistries')) {
+            $endpointsApi->ensureFeatureRegistries();
+        }
         $allowedAgents = ChatSendOrchestratorAgents::resolveAllowedAgents(
             \is_object($endpointsApi) ? $endpointsApi : null,
             $bubbleThread,

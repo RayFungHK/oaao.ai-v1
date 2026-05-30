@@ -54,6 +54,31 @@ return new class extends Controller {
         $config = $this->getModuleConfig();
         $this->installed = (bool) ($config['installed'] ?? false);
 
+        /** {@code #command} on addAPICommand → cross-module API + internal {@code $this} bind (CommandRegistry). */
+        $schemaDualCommands = [
+            'ensurePgCoreTables'          => 'api/ensure_pg_core_tables',
+            'ensurePgExtensionSchemas'    => 'api/ensure_pg_extension_schemas',
+            'ensurePgStorageSchema'       => 'api/ensure_pg_storage_schema',
+            'ensureTenantSchema'          => 'api/ensure_tenant_schema',
+            'ensurePermissionGroupSchema' => 'api/ensure_permission_group_schema',
+            'ensureCreditSchema'          => 'api/ensure_credit_schema',
+            'ensureResearchSchema'        => 'api/ensure_research_schema',
+            'ensureMineSchema'            => 'api/ensure_mine_schema',
+            'ensureUserInvitationSchema'  => 'api/ensure_user_invitation_schema',
+            'ensureCorpusSchema'          => 'api/ensure_corpus_schema',
+            'ensureLibrarySchema'         => 'api/ensure_library_schema',
+            'ensureReleasePostSchema'     => 'api/ensure_release_post_schema',
+            'ensureStorageSchema'         => 'api/ensure_storage_schema',
+            'ensureNotificationSchema'    => 'api/ensure_notification_schema',
+            'ensureCalendarSchema'        => 'api/ensure_calendar_schema',
+            'ensureTodoSchema'            => 'api/ensure_todo_schema',
+            'ensureChatEndpointTables'    => 'api/ensure_chat_endpoint_tables',
+        ];
+        $prefixedSchemaCommands = [];
+        foreach ($schemaDualCommands as $name => $path) {
+            $prefixedSchemaCommands['#' . $name] = $path;
+        }
+
         $agent->addAPICommand([
             'restrict'                     => 'api/restrict',
             'getUser'                      => 'getUser',
@@ -67,13 +92,10 @@ return new class extends Controller {
             'loadModel'                    => 'loadModel',
             'isInstalled'                  => 'isInstalled',
             'databaseIsPgsql'              => 'databaseIsPgsql',
-            'ensurePgCoreTables'           => 'ensurePgCoreTables',
             'ensurePgWorkspaceTables'      => 'ensurePgWorkspaceTables',
             'installSqliteLocalSchema'     => 'installSqliteLocalSchema',
             'upgradeSqliteLocalAdjunct'    => 'upgradeSqliteLocalAdjunct',
-            'ensureTenantSchema'           => 'ensureTenantSchema',
-            'ensurePermissionGroupSchema'  => 'ensurePermissionGroupSchema',
-        ]);
+        ] + $prefixedSchemaCommands);
 
         $agent->addLazyRoute([
             'GET status' => 'api/status',
@@ -209,9 +231,12 @@ return new class extends Controller {
                             oaao_auth_seed_sqlite_migration_rows($pdo);
                         }
                         oaao_auth_upgrade_sqlite_core_schema($pdo);
+                        try {
+                            $this->ensurePermissionGroupSchema($pdo);
+                        } catch (\Throwable) {
+                        }
                     } elseif (($this->db->getDriverType() ?? '') === 'pgsql') {
-                        require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
-                        oaao_auth_ensure_pg_core_tables($this->db);
+                        $this->ensurePgCoreTables($this->db);
                     }
 
                     try {
@@ -355,8 +380,7 @@ return new class extends Controller {
                 }
 
                 $ldb->setPrefix($prefix);
-                require_once __DIR__ . '/api/_install_sqlite_local_schema.php';
-                oaao_auth_install_sqlite_local_schema($ldb->getDBAdapter());
+                $this->installSqliteLocalSchema($ldb->getDBAdapter());
                 $this->dbLocal = $ldb;
                 $this->adjunctSqliteLastError = '';
 
@@ -479,16 +503,6 @@ return new class extends Controller {
         return oaao_auth_database_is_pgsql($db);
     }
 
-    public function ensurePgCoreTables(?\Razy\Database $database = null): void
-    {
-        $db = $database ?? $this->db;
-        if (! $db instanceof \Razy\Database) {
-            return;
-        }
-        require_once __DIR__ . '/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_core_tables($db);
-    }
-
     public function ensurePgWorkspaceTables(\PDO $pdo): void
     {
         require_once __DIR__ . '/api/_install_pg_core_schema.php';
@@ -499,6 +513,15 @@ return new class extends Controller {
     {
         require_once __DIR__ . '/api/_install_sqlite_local_schema.php';
         oaao_auth_install_sqlite_local_schema($pdo);
+        $chat = $this->api('chat');
+        if ($chat) {
+            $chat->ensureConversationMaterialSchema($pdo);
+            $chat->ensureConversationAttachmentSchema($pdo);
+        }
+        $slide = $this->api('slide_designer');
+        if ($slide) {
+            $slide->ensureSlideProjectSchema($pdo);
+        }
     }
 
     public function upgradeSqliteLocalAdjunct(\PDO $pdo): void
@@ -506,18 +529,6 @@ return new class extends Controller {
         require_once __DIR__ . '/api/_install_sqlite_local_schema.php';
         oaao_auth_upgrade_sqlite_local_adjunct($pdo);
         oaao_auth_upgrade_sqlite_message_meta_json($pdo);
-    }
-
-    public function ensureTenantSchema(\PDO $pdo): void
-    {
-        require_once __DIR__ . '/api/_ensure_tenant_schema.php';
-        oaao_auth_ensure_tenant_schema($pdo);
-    }
-
-    public function ensurePermissionGroupSchema(\PDO $pdo): void
-    {
-        require_once __DIR__ . '/api/_ensure_permission_group_schema.php';
-        oaao_auth_ensure_permission_group_schema($pdo);
     }
 
     public function getDB()

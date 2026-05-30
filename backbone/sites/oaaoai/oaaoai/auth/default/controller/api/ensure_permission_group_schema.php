@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * Idempotent DDL for permission group columns ({@code oaao_group}, {@code oaao_user}).
- */
-function oaao_auth_ensure_permission_group_schema(\PDO $pdo): void
-{
+/** Permission group columns on {@code oaao_group} / {@code oaao_user} ({@see auth} {@code ensurePermissionGroupSchema}). */
+return function (\PDO $pdo): void {
     $driver = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
 
     if ($driver === 'pgsql') {
@@ -55,4 +52,4 @@ function oaao_auth_ensure_permission_group_schema(\PDO $pdo): void
     $ensureCol($pdo, 'oaao_group', 'limits_json', 'ALTER TABLE oaao_group ADD COLUMN limits_json TEXT DEFAULT NULL');
     $ensureCol($pdo, 'oaao_group', 'disabled', 'ALTER TABLE oaao_group ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0');
     $ensureCol($pdo, 'oaao_user', 'permission_group_id', 'ALTER TABLE oaao_user ADD COLUMN permission_group_id INTEGER DEFAULT NULL');
-}
+};

@@ -163,7 +163,12 @@ final class ChatContextUsage
         ?string $tokenizerProfile = null,
     ): array {
         try {
-            FeatureRegistryBootstrap::collect($controller);
+            $endpointsApi = $controller->api('endpoints');
+            if ($endpointsApi !== null) {
+                $endpointsApi->ensureFeatureRegistries();
+            } else {
+                FeatureRegistryBootstrap::collect($controller);
+            }
         } catch (\Throwable) {
             /* registry optional for usage estimate */
         }

@@ -122,6 +122,10 @@ class ChatRunRequest(BaseModel):
         default=None,
         description="Numbered planner prompt injection from PHP PlannerPromptRegister (P1).",
     )
+    module_prompts: dict[str, Any] | None = Field(
+        default=None,
+        description="PHP-owned prompt injections by stage: planner, compose_assistant, after_turn.",
+    )
     productivity: dict[str, Any] | None = Field(
         default=None,
         description="Post-turn classifier LLM bindings: calendar, todo (from productivity.* purpose slots).",

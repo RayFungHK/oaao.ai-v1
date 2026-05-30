@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+use oaaoai\calendar\CalendarComposePrompt;
+use oaaoai\chat\ComposePromptRegister;
+use oaaoai\chat\PlannerPromptRegister;
+
+require_once dirname(__DIR__, 4) . '/chat/default/library/ComposePromptRegister.php';
+require_once dirname(__DIR__, 4) . '/chat/default/library/PlannerPromptRegister.php';
+
 /** Lazy registry wiring for {@code oaaoai/calendar}. */
 return function (array $payload): void {
     $this->trigger('planner_agent.register')->resolve([
@@ -71,15 +78,13 @@ return function (array $payload): void {
         ],
     ]);
 
-    $chatApi = $this->api('chat');
-    if ($chatApi !== null && method_exists($chatApi, 'setPlannerPrompt')) {
-        $chatApi->setPlannerPrompt(
-            'calendar',
-            'productivity',
-            'When the user schedules focus time or meetings, respect upcoming calendar rows in the planner appendix; '
-            . 'never propose events in the past; avoid double-booking the same slot.',
-            true,
-            82,
-        );
-    }
+    PlannerPromptRegister::add(
+        'calendar',
+        'productivity',
+        'When the user schedules focus time or meetings, respect upcoming calendar rows in the planner appendix; '
+        . 'never propose events in the past; avoid double-booking the same slot.',
+        true,
+        82,
+    );
+    ComposePromptRegister::add('calendar', 'calendar', CalendarComposePrompt::body(), 82);
 };

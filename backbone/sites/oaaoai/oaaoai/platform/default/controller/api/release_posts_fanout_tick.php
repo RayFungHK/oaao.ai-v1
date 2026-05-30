@@ -37,6 +37,9 @@ return function (): void {
         return;
     }
 
+    $this->api('auth')->ensureReleasePostSchema($pdo);
+    $this->api('auth')->ensureNotificationSchema($pdo);
+
     $fanout = new ReleasePostFanout($pdo);
     $fanout->ensureSchema();
     $result = $fanout->processBatch($postId);

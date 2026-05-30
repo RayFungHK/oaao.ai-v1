@@ -159,8 +159,7 @@ return function (): void {
         }
 
         if ($pdo instanceof \PDO && array_key_exists('credit_balance', $body)) {
-            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-            oaao_auth_ensure_credit_schema($pdo);
+            $this->api('auth')->ensureCreditSchema($pdo);
             $cb = null;
             if ($creditBalanceRaw !== null && $creditBalanceRaw !== '' && is_numeric($creditBalanceRaw)) {
                 $cb = (float) $creditBalanceRaw;

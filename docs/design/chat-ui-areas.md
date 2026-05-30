@@ -58,7 +58,7 @@ Target **`data-oaao-chat-area`** attributes on hosts inside `.oaao-chat-assistan
 | `agent-before` | `[data-oaao-chat-area="agent-before"]` | `syncAssistantMessageBlocks` (before zone) |
 | `agent-after` | `[data-oaao-chat-area="agent-after"]` | `syncAssistantAfterBlocks` |
 | `strip` | `[data-oaao-chat-area="strip"]` | `mountProductivityChip`, skill suggest handlers |
-| `info` | `[data-oaao-chat-area="info"]` | `GET /chat/api/info_worker` → `applyAssistantTurnScoreToRow` + productivity pills |
+| `info` | `[data-oaao-chat-area="info"]` | `GET /chat/api/info_worker` → IQS/ACCS + **queued worker status** (Cal/Todo pending pills) + strip items when ready |
 | `state` | `[data-oaao-chat-area="state"]` | `applyAssistantRunSummaryToRow(outer, meta)` |
 
 ### Current assistant row order (v150 — target achieved)
@@ -167,9 +167,9 @@ Use this when specifying work to an agent:
 | `task` | planner in payload; task list in run meta | planner + agent runners | SSE during run |
 | `message` | persist content | stream tokens | stream + reload |
 | `agent` | pipeline block registry | `oaao_pipeline.blocks` | syncAssistantMessageBlocks |
-| `info` | — | post_stream + post_turn workers | `info_worker` API | `chat-info-worker.js` poll |
-| `state` | — | run_end metrics | applyAssistantRunSummaryToRow |
-| `strip` | `post_turn_actions[]` | post_turn_action_worker | SSE + hydrate meta → strip mount |
+| `info` | — | **queued:** `post_stream_worker` + `post_turn_action_worker` | **`info_worker` API poll** | `chat-info-worker.js` — IQS, ACCS, Cal/Todo pending |
+| `state` | — | run_end metrics | applyAssistantRunSummaryToRow | tok/s after compose |
+| `strip` | `post_turn_actions[]` | **queued:** `post_turn_action_worker` | `info_worker` poll + SSE hydrate | strip chips when meta ready |
 
 ---
 
@@ -190,9 +190,9 @@ Orchestrator emits **`phase=ui`, `kind=stage`** after the message body is comple
 
 | Stage order | `payload.area` | Payload shape (examples) |
 |-------------|----------------|---------------------------|
-| async worker | `info` | `{ area: "info", iqs, accs, iqs_dims, accs_dims, pending_iqs, pending_acs }` |
+| async worker | `info` | `{ area: "info", iqs, accs, productivity: { calendar: { pending, … }, todo: { … } } }` |
 | run_end | `state` | `{ area: "state", duration_ms, tokens_per_sec, pipeline_timing }` |
-| post_turn (after info/state) | `strip` | `{ area: "strip", calendar_event_suggested: {...}, todo_items_suggested: [...] }` |
+| post_turn (queued, after compose) | `strip` | `{ area: "strip", items: [...], strip_hash }` — may also appear via **`info_worker`** poll |
 
 Legacy **`system/status`** events (`calendar_event_suggested`, turn-score polling) remain supported during migration.
 
@@ -204,7 +204,7 @@ Python helper: `oaao_orchestrator.streaming.ui_stage_stream.emit_ui_stage(run, a
 
 | Date | Change |
 |------|--------|
-| 2026-05-30 | v169: DOM order — identity → task → agent → message → info → state → **strip** → toolbar (`reorderAssistantRowAreas`) |
+| 2026-05-30 | Post-turn = queued jobs; `info_worker` poll for info + strip hydration |
 | 2026-05-29 | info_worker v160: unified `GET info_worker`, Cal/Todo pending pills in [info], registry `info_worker.register` |
 | 2026-05-29 | UI areas v150: `data-oaao-chat-area` hosts, strip ordering, `ui_stage` SSE scaffold |
 | 2026-05-29 | Initial six-area vocabulary + mapping to current chat-panel DOM |

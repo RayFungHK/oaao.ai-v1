@@ -19,8 +19,7 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_release_post_schema.php';
-    oaao_auth_ensure_release_post_schema($pdo);
+    $this->api('auth')->ensureReleasePostSchema($pdo);
 
     $st = $pdo->query(
         'SELECT release_post_id, slug, post_type, locale, version, build_id, title, body_md, status,

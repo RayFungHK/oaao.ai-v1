@@ -35,6 +35,15 @@ return function (array $payload): void {
         return;
     }
 
+    $auth = $this->api('auth');
+    if ($auth) {
+        try {
+            $auth->ensureTodoSchema($canonPdo);
+        } catch (\Throwable) {
+            /* schema ensure failed — still inject planner prompt; skip DB reads */
+        }
+    }
+
     /** @var array<string, mixed> $orchPayload */
     $orchPayload = (isset($payload['orchestrator_payload']) && \is_array($payload['orchestrator_payload']))
         ? $payload['orchestrator_payload']
@@ -56,12 +65,16 @@ return function (array $payload): void {
         }
     }
     if ($openItems === []) {
-        $openItems = TodoOpenItemsForConversation::listForConversation(
-            $canonPdo,
-            $tenantId,
-            $uid,
-            $conversationId,
-        );
+        try {
+            $openItems = TodoOpenItemsForConversation::listForConversation(
+                $canonPdo,
+                $tenantId,
+                $uid,
+                $conversationId,
+            );
+        } catch (\Throwable) {
+            $openItems = [];
+        }
     }
     if ($openItems !== []) {
         $ctx->mergePayloadFragment('todo', ['open_todo_items' => $openItems]);

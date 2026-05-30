@@ -25,10 +25,8 @@ return function (): void {
     $isPgsql = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql';
 
     if ($isPgsql) {
-        require_once __DIR__ . '/../../../../auth/default/controller/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_core_tables($db);
-        require_once __DIR__ . '/../../../../chat/default/controller/api/_ensure_chat_profile_tables.php';
-        oaao_chat_ensure_profile_tables($db);
+        $this->api('auth')->ensurePgCoreTables($db);
+        $this->api('chat')->ensureChatProfileTables($db);
     }
 
     $tenantId = 0;

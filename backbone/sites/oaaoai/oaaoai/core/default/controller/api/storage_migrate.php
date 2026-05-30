@@ -33,6 +33,19 @@ return function (): void {
         return;
     }
 
+    $adj = AdjunctSqlite::openPdo();
+    if ($adj instanceof \PDO) {
+        $chat = $this->api('chat');
+        if ($chat) {
+            $chat->ensureConversationAttachmentSchema($adj);
+            $chat->ensureConversationMaterialSchema($adj);
+        }
+        $slide = $this->api('slide_designer');
+        if ($slide) {
+            $slide->ensureSlideProjectSchema($adj);
+        }
+    }
+
     $input = json_decode(file_get_contents('php://input'), true);
     if (! \is_array($input)) {
         http_response_code(400);

@@ -92,6 +92,8 @@ return function (): void {
         return;
     }
 
+    $this->ensureConversationMaterialSchema($pdo);
+
     $syncWarnings = [];
 
     try {

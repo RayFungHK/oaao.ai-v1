@@ -1,0 +1,197 @@
+/**
+ * Bubble Chat — fullscreen ephemeral thread (768px column, dark blue, dashed bubbles).
+ * Loaded by bubble-chat.js — rev synced with {@code OAAO_CHAT_SHELL_ASSET_REV}.
+ */
+
+.oaao-bubble-chat-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    color: #e8eef7;
+    background: linear-gradient(165deg, #070f1c 0%, #0b1f3d 42%, #0a1628 100%);
+    overscroll-behavior: contain;
+}
+
+.oaao-bubble-chat-overlay.oaao-bubble-chat-overlay--hidden {
+    display: none;
+}
+
+.oaao-bubble-chat-topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    padding: 0.75rem 1rem 0.25rem;
+    box-sizing: border-box;
+}
+
+.oaao-bubble-chat-title {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: rgba(232, 238, 247, 0.88);
+}
+
+.oaao-bubble-chat-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px dashed rgba(120, 170, 255, 0.35);
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(232, 238, 247, 0.9);
+    cursor: pointer;
+    font: inherit;
+    transition: background 150ms ease, border-color 150ms ease;
+}
+
+.oaao-bubble-chat-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(120, 170, 255, 0.55);
+}
+
+.oaao-bubble-chat-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.oaao-bubble-chat-column {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-width: 48rem;
+    padding: 0 1rem 1rem;
+    box-sizing: border-box;
+}
+
+.oaao-bubble-chat-thread {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+}
+
+.oaao-bubble-chat-overlay [data-oaao-chat='messages'] {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 0.5rem 0 1rem;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+}
+
+.oaao-bubble-chat-status {
+    flex: none;
+    margin: 0;
+    min-height: 1.125rem;
+    font-size: 0.75rem;
+    color: rgba(180, 200, 230, 0.75);
+}
+
+.oaao-bubble-chat-status:empty,
+.oaao-bubble-chat-status.oaao-bubble-chat-status--hidden {
+    display: none;
+}
+
+.oaao-bubble-chat-composer {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    padding-top: 0.5rem;
+}
+
+/* User / assistant — dashed conversation boxes only */
+.oaao-bubble-chat-overlay .oaao-chat-user-msg-row,
+.oaao-bubble-chat-overlay .oaao-chat-user-msg-stack {
+    justify-content: flex-end;
+}
+
+.oaao-bubble-chat-overlay .oaao-chat-user-msg-actions {
+    display: none !important;
+}
+
+.oaao-bubble-chat-overlay .oaao-chat-user-msg-bubble {
+    max-width: min(100%, 36rem);
+    padding: 0.75rem 1rem;
+    border: 1px dashed rgba(120, 170, 255, 0.42);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #eef3fb;
+    box-shadow: none;
+}
+
+.oaao-bubble-chat-overlay .oaao-chat-assistant-row {
+    gap: 0.5rem;
+}
+
+.oaao-bubble-chat-overlay .oaao-chat-assistant-identity,
+.oaao-bubble-chat-overlay .oaao-chat-assistant-toolbar {
+    display: none !important;
+}
+
+.oaao-bubble-chat-overlay .oaao-chat-assistant-row [data-oaao-msg-role='assistant'] {
+    max-width: min(100%, 36rem);
+    padding: 0.75rem 1rem;
+    border: 1px dashed rgba(120, 170, 255, 0.38);
+    border-radius: 14px;
+    background: rgba(8, 20, 40, 0.55);
+    color: #eef3fb;
+    box-shadow: none;
+}
+
+.oaao-bubble-chat-overlay .oaao-chat-assistant-row [data-oaao-chat-area='info'],
+.oaao-bubble-chat-overlay .oaao-chat-assistant-row [data-oaao-chat-area='state'],
+.oaao-bubble-chat-overlay .oaao-chat-assistant-row [data-oaao-chat-area='strip'],
+.oaao-bubble-chat-overlay .oaao-chat-assistant-row [data-oaao-chat-area='task'] {
+    max-width: min(100%, 36rem);
+}
+
+.oaao-bubble-chat-overlay .oaao-md-bubble,
+.oaao-bubble-chat-overlay .oaao-md-bubble p,
+.oaao-bubble-chat-overlay .oaao-md-bubble li {
+    color: inherit;
+}
+
+.oaao-bubble-chat-overlay .oaao-md-bubble a {
+    color: #8ec5ff;
+}
+
+/* Composer — light card on dark stage */
+.oaao-bubble-chat-overlay [data-oaao-chat='composer-card-wrap'] {
+    border: 1px dashed rgba(120, 170, 255, 0.28) !important;
+    background: rgba(255, 255, 255, 0.97) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35) !important;
+}
+
+.oaao-bubble-chat-overlay [data-oaao-chat='composer-extra-toolbar-wrap'] {
+    border-top-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+body.oaao-bubble-chat-open {
+    overflow: hidden;
+}

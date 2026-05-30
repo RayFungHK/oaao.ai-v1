@@ -60,8 +60,16 @@ function oaao_calendar_require_pg(\Razy\Controller $controller, bool $quiet = fa
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_calendar_schema.php';
-    oaao_auth_ensure_calendar_schema($pdo);
+    try {
+        $auth->ensureCalendarSchema($pdo);
+    } catch (\Throwable) {
+        if (! $quiet) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Calendar schema unavailable']);
+        }
+
+        return null;
+    }
 
     return [
         'auth'      => $auth,

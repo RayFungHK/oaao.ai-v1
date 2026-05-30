@@ -79,6 +79,8 @@ return function (): void {
         return;
     }
 
+    $this->ensureMicroSkillSchema($pdo);
+
     $rows = MicroSkillStorage::recordUsage($pdo, $uid, $skillIds);
     echo json_encode(['success' => true, 'data' => ['skills' => $rows]], JSON_UNESCAPED_UNICODE);
 };

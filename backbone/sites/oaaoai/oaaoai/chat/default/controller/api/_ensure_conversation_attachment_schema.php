@@ -1,28 +1,23 @@
-<?php
-
-declare(strict_types=1);
-
-/**
- * Adjunct SQLite — ephemeral chat attachments (per conversation, disposed after turn).
- */
-function oaao_chat_ensure_conversation_attachment_schema(\PDO $pdo): void
-{
-    $pdo->exec('CREATE TABLE IF NOT EXISTS oaao_conversation_attachment (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        conversation_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
-        file_name TEXT NOT NULL,
-        mime_type TEXT DEFAULT NULL,
-        storage_path TEXT NOT NULL,
-        byte_size INTEGER NOT NULL DEFAULT 0,
-        extract_status TEXT NOT NULL DEFAULT "pending",
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        expires_at TEXT DEFAULT NULL
-    )');
-    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_conv_attachment_conv ON oaao_conversation_attachment(conversation_id)');
-
-    try {
-        $pdo->exec('ALTER TABLE oaao_conversation_attachment ADD COLUMN storage_locator_json TEXT DEFAULT NULL');
-    } catch (\Throwable) {
-    }
-}
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Legacy procedural entry — prefer {@code api('chat')->ensureConversationAttachmentSchema($pdo)}.
+ *
+ * @see api/ensure_conversation_attachment_schema.php Razy closure (bound via chat {@code addAPICommand})
+ */
+function oaao_chat_ensure_conversation_attachment_schema(\PDO $pdo): void
+{
+    /** @var \Closure(\PDO): void|null $ensure */
+    static $ensure = null;
+    if ($ensure === null) {
+        $loaded = require __DIR__ . '/ensure_conversation_attachment_schema.php';
+        if (! $loaded instanceof \Closure) {
+            throw new \RuntimeException('ensure_conversation_attachment_schema.php must return a Closure');
+        }
+        $ensure = $loaded;
+    }
+    $ensure($pdo);
+}
+

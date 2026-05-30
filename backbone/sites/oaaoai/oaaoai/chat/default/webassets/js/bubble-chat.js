@@ -1,15 +1,12 @@
 /**
- * Bubble Chat — single ephemeral dialog thread (short TTL, not in sidebar).
- * Reuses the main chat composer (context ring, planner mode, web search, vault).
+ * Bubble Chat — fullscreen ephemeral thread (768px column, dark blue, dashed bubbles).
+ * Same send/stream/render pipeline as workspace chat via {@link getChatPanelBridge} + `bubble: true`.
  *
  * @module bubble-chat
  */
 
 import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
-import { readOaaoSseStream } from '../../../core/default/js/oaao-sse.js';
-import { oaaoAppendShellEsmV, resolveOrchestratorPublicUrl, resolveShellRegistryUrl } from '../../../core/default/js/shell-registry-url.js';
-import { mountStripFromEnvelope, normalizeStripItemsFromMeta } from './strip-chip-shell.js';
-import { resolveProductivityOuter } from './productivity-strip-host.js';
+import { oaaoAppendShellEsmV, resolveShellRegistryUrl } from '../../../core/default/js/shell-registry-url.js';
 import {
     clearChatComposerEditor,
     focusChatComposerEditor,
@@ -17,58 +14,20 @@ import {
     isChatComposerEditorEl,
 } from './chat-composer-editor.js?v=20260528-nl91';
 
+/** Keep in sync with {@code OAAO_CHAT_SHELL_ASSET_REV} in chat-panel.js + core.main.php */
+const BUBBLE_CHAT_ASSET_REV = '20260530-bubble-strip-fix-v215';
+
 const SESSION_KEY = 'oaao_bubble_chat_v1';
 const CHAT_PROFILE_STORAGE_KEY = 'oaao.workspace.chat_endpoint_id';
 const BUBBLE_SHELL_CSS_ID = 'oaao-bubble-chat-shell-css';
-/** Flex gap on messages host (JIT + inline fallback). */
-const BUBBLE_MSG_GAP = 'shrink-0';
-const BUBBLE_MSGS_GAP_STYLE = 'display:flex;flex-direction:column;gap:1rem';
-const BUBBLE_BUBBLE_PAD = 'px-4 py-3';
-const BUBBLE_USER_BUBBLE =
-    `max-w-[92%] rounded-[14px] ${BUBBLE_BUBBLE_PAD} text-[0.875rem] bg-[var(--grid-accent)] fg-white whitespace-pre-wrap`;
-const BUBBLE_ASSIST_BUBBLE =
-    `max-w-full rounded-[14px] ${BUBBLE_BUBBLE_PAD} text-[0.875rem] border border-solid border-[var(--grid-line)] bg-[var(--grid-panel-bright)] fg-[var(--grid-ink)] whitespace-pre-wrap oaao-md-bubble`;
+const BUBBLE_THEME_CSS_ID = 'oaao-bubble-chat-theme-css';
 
-/** @type {Record<string, unknown>} Pending strip meta keys for the current turn (legacy + ui_stage). */
-let pendingStripMeta = {};
-/** Set when SSE / run end hints calendar or todo chips for the current turn. */
-let expectProductivityAfterTurn = false;
-
-function buildBubbleStripCtx() {
-    return {
-        scopeFields: () => workspaceScopeFields(),
-        onTodoResolve: () => {
-            document.dispatchEvent(new CustomEvent('oaao:todos-changed'));
-        },
-    };
-}
-
-/**
- * @param {HTMLElement} chatMount
- * @param {number} conversationId
- * @param {number} messageId
- * @param {Record<string, unknown>} meta
- */
-function applyBubbleStripMeta(chatMount, conversationId, messageId, meta) {
-    const cid = Math.floor(Number(conversationId));
-    const mid = Math.floor(Number(messageId));
-    if (cid < 1 || mid < 1 || !meta || typeof meta !== 'object') return;
-    if (!normalizeStripItemsFromMeta(meta).length) return;
-    const { outer } = resolveProductivityOuter(chatMount, mid);
-    if (!(outer instanceof HTMLElement)) return;
-    mountStripFromEnvelope(outer, meta, cid, mid, buildBubbleStripCtx());
-}
-
-/** @type {import('../../../core/default/razyui/component/Dialog.js').default | null} */
-let activeDialog = null;
-/** @type {AbortController | null} */
-let streamAbort = null;
+/** @type {HTMLElement | null} */
+let activeOverlay = null;
+/** @type {(() => void) | null} */
+let closeBubbleChatFn = null;
 /** @type {AbortController | null} */
 let bubbleAbort = null;
-
-function mountPrefix() {
-    return (typeof document !== 'undefined' && document.body?.dataset?.oaaoMountPrefix)?.trim() ?? '';
-}
 
 function chatApiBase() {
     const authBase = (typeof document !== 'undefined' && document.body?.dataset?.authBase || '').trim();
@@ -122,13 +81,33 @@ function getChatEndpointId() {
     }
 }
 
-function ensureBubbleChatShellCss() {
-    if (typeof document === 'undefined' || document.getElementById(BUBBLE_SHELL_CSS_ID)) return;
-    const link = document.createElement('link');
-    link.id = BUBBLE_SHELL_CSS_ID;
-    link.rel = 'stylesheet';
-    link.href = oaaoAppendShellEsmV(resolveShellRegistryUrl('/webassets/chat/default/css/oaao-chat-shell.css'));
-    document.head.append(link);
+function ensureBubbleChatAssets() {
+    if (typeof document === 'undefined') return;
+    if (!document.getElementById(BUBBLE_SHELL_CSS_ID)) {
+        const link = document.createElement('link');
+        link.id = BUBBLE_SHELL_CSS_ID;
+        link.rel = 'stylesheet';
+        link.href = oaaoAppendShellEsmV(
+            resolveShellRegistryUrl(
+                `/webassets/chat/default/css/oaao-chat-shell.css?v=${encodeURIComponent(BUBBLE_CHAT_ASSET_REV)}`,
+            ),
+        );
+        document.head.append(link);
+    }
+    const theme = document.getElementById(BUBBLE_THEME_CSS_ID);
+    if (!theme || theme.dataset.oaaoRev !== BUBBLE_CHAT_ASSET_REV) {
+        theme?.remove();
+        const link = document.createElement('link');
+        link.id = BUBBLE_THEME_CSS_ID;
+        link.rel = 'stylesheet';
+        link.dataset.oaaoRev = BUBBLE_CHAT_ASSET_REV;
+        link.href = oaaoAppendShellEsmV(
+            resolveShellRegistryUrl(
+                `/webassets/chat/default/css/oaao-bubble-chat.css?v=${encodeURIComponent(BUBBLE_CHAT_ASSET_REV)}`,
+            ),
+        );
+        document.head.append(link);
+    }
 }
 
 /**
@@ -177,29 +156,16 @@ function clearSession() {
     }
 }
 
-/** @returns {number} epoch ms, or 0 if none / expired */
-function readSessionExpiresAtMs() {
+function isBubbleSessionExpired() {
     try {
         const raw = sessionStorage.getItem(SESSION_KEY);
-        if (!raw) return 0;
+        if (!raw) return false;
         const o = JSON.parse(raw);
         const exp = Date.parse(String(o?.expiresAt || '').trim());
-        return Number.isFinite(exp) && exp > 0 ? exp : 0;
+        return Number.isFinite(exp) && exp > 0 && exp < Date.now();
     } catch {
-        return 0;
+        return false;
     }
-}
-
-function isBubbleSessionExpired() {
-    const exp = readSessionExpiresAtMs();
-    return exp > 0 && exp < Date.now();
-}
-
-/**
- * @param {Record<string, unknown>} payload
- */
-function markExpectProductivityAfterTurn() {
-    expectProductivityAfterTurn = true;
 }
 
 /**
@@ -233,156 +199,6 @@ function setBubbleComposerInteractive(composerMount, inputEl, sendBtn, interacti
     }
 }
 
-function streamEnvelopeText(data) {
-    if (!data || typeof data !== 'object') return '';
-    const t = /** @type {Record<string, unknown>} */ (data).text;
-    if (typeof t === 'string') return t;
-    if (Array.isArray(t)) {
-        return t.filter((x) => typeof x === 'string').join('');
-    }
-    return '';
-}
-
-function clearPendingProductivity() {
-    pendingStripMeta = {};
-    expectProductivityAfterTurn = false;
-}
-
-function mergePendingStripMeta(meta) {
-    if (!meta || typeof meta !== 'object') return;
-    pendingStripMeta = { ...pendingStripMeta, ...meta };
-    markExpectProductivityAfterTurn();
-}
-
-function queueProductivityFromRunMeta(payload) {
-    if (!payload || typeof payload !== 'object') return;
-    /** @type {Record<string, unknown>} */
-    const meta = {};
-    let queued = false;
-    const cal = payload.calendar_event_suggested;
-    if (cal && typeof cal === 'object') {
-        meta.calendar_event_suggested = cal;
-        queued = true;
-    }
-    const todo = payload.todo_item_suggested;
-    if (todo && typeof todo === 'object') {
-        meta.todo_item_suggested = todo;
-        queued = true;
-    }
-    const todos = payload.todo_items_suggested;
-    if (Array.isArray(todos) && todos.length >= 2) {
-        meta.todo_items_suggested = todos;
-        queued = true;
-    }
-    const resolve = payload.todo_resolve_suggested;
-    if (resolve && typeof resolve === 'object') {
-        meta.todo_resolve_suggested = resolve;
-        queued = true;
-    }
-    if (Array.isArray(payload.items) && payload.items.length > 0) {
-        meta.items = payload.items;
-        queued = true;
-    }
-    if (queued) {
-        mergePendingStripMeta(meta);
-    }
-}
-
-/**
- * @param {HTMLElement} host
- * @param {string} content
- * @param {number} [messageId]
- * @param {{ streaming?: boolean }} [opts]
- * @returns {HTMLElement}
- */
-function appendAssistantBubble(host, content, messageId = 0, opts = {}) {
-    const wrap = document.createElement('div');
-    wrap.className = `flex flex-col items-stretch gap-2 max-w-[92%] ${BUBBLE_MSG_GAP} oaao-chat-assistant-row`;
-    const bubble = document.createElement('div');
-    bubble.className = BUBBLE_ASSIST_BUBBLE;
-    bubble.dataset.oaaoMsgRole = 'assistant';
-    if (messageId > 0) bubble.dataset.oaaoMsgId = String(messageId);
-    if (opts.streaming) bubble.dataset.oaaoBubbleAssistant = '1';
-    bubble.textContent = content;
-    wrap.append(bubble);
-    host.append(wrap);
-    return bubble;
-}
-
-/**
- * @param {HTMLElement} host
- * @param {string} content
- */
-function appendUserBubble(host, content) {
-    const wrap = document.createElement('div');
-    wrap.className = `flex justify-end ${BUBBLE_MSG_GAP}`;
-    const bubble = document.createElement('div');
-    bubble.className = BUBBLE_USER_BUBBLE;
-    bubble.textContent = content;
-    wrap.append(bubble);
-    host.append(wrap);
-}
-
-/**
- * @param {HTMLElement} chatMount
- * @param {number} conversationId
- * @param {number} messageId
- */
-async function applyBubbleProductivityChips(chatMount, conversationId, messageId) {
-    if (!pendingStripMeta || typeof pendingStripMeta !== 'object') return;
-    if (!normalizeStripItemsFromMeta(pendingStripMeta).length) return;
-    applyBubbleStripMeta(chatMount, conversationId, messageId, { ...pendingStripMeta });
-    clearPendingProductivity();
-}
-
-/**
- * Live SSE strip chips — same hard shell as main chat thread.
- *
- * @param {HTMLElement} chatMount
- * @param {number} conversationId
- * @param {number} messageId
- */
-async function applyBubbleProductivityChipsLive(chatMount, conversationId, messageId) {
-    if (!pendingStripMeta || typeof pendingStripMeta !== 'object') return;
-    if (!normalizeStripItemsFromMeta(pendingStripMeta).length) return;
-    applyBubbleStripMeta(chatMount, conversationId, messageId, { ...pendingStripMeta });
-}
-
-/**
- * @param {HTMLElement} chatMount
- * @param {number} conversationId
- * @param {Array<Record<string, unknown>>} rows
- */
-async function hydrateProductivityFromMessageMeta(chatMount, conversationId, rows) {
-    const cid = Math.floor(Number(conversationId));
-    if (cid < 1) return;
-
-    for (const row of rows) {
-        if (String(row?.role || '').toLowerCase() !== 'assistant') continue;
-        const mid = Math.floor(Number(row.id ?? row.message_id ?? 0));
-        if (mid < 1) continue;
-        const meta = row.meta;
-        if (!meta || typeof meta !== 'object') continue;
-        applyBubbleStripMeta(chatMount, cid, mid, /** @type {Record<string, unknown>} */ (meta));
-    }
-}
-
-/** @param {Array<Record<string, unknown>>} rows */
-function messageRowsHaveProductivityMeta(rows) {
-    return rows.some((row) => {
-        if (String(row?.role || '').toLowerCase() !== 'assistant') return false;
-        const meta = row.meta;
-        if (!meta || typeof meta !== 'object') return false;
-        const m = /** @type {Record<string, unknown>} */ (meta);
-        return Boolean(
-            m.calendar_event_suggested ||
-                m.todo_item_suggested ||
-                m.todo_resolve_suggested ||
-                (Array.isArray(m.todo_items_suggested) && m.todo_items_suggested.length >= 2),
-        );
-    });
-}
-
 async function dismissBubbleConversation(conversationId) {
     if (!conversationId || conversationId < 1) return;
     try {
@@ -397,192 +213,7 @@ async function dismissBubbleConversation(conversationId) {
     clearSession();
 }
 
-/**
- * @param {HTMLElement} host
- * @param {Array<{ role?: string, content?: string }>} rows
- */
-/**
- * @param {HTMLElement} host
- * @param {Array<Record<string, unknown>>} rows
- */
-function renderMessages(host, rows) {
-    host.replaceChildren();
-    for (const row of rows) {
-        const role = String(row?.role || '').toLowerCase();
-        const content = String(row?.content || '').trim();
-        const mid = Math.floor(Number(row.id ?? row.message_id ?? 0));
-        if (role === 'user') {
-            if (!content) continue;
-            appendUserBubble(host, content);
-        } else if (role === 'assistant') {
-            // Keep assistant anchor for productivity chips even before orchestrator persist lands.
-            if (!content && mid < 1) continue;
-            appendAssistantBubble(host, content, mid);
-        }
-    }
-    host.scrollTop = host.scrollHeight;
-}
-
-/**
- * @param {HTMLElement} msgsHost
- * @param {string} text
- * @param {number | null} [assistantMsgId]
- */
-function appendAssistantDelta(msgsHost, text, assistantMsgId = null) {
-    let row = msgsHost.querySelector('[data-oaao-bubble-assistant="1"]');
-    if (!(row instanceof HTMLElement)) {
-        const mid = assistantMsgId && Number(assistantMsgId) > 0 ? Math.floor(Number(assistantMsgId)) : 0;
-        row = appendAssistantBubble(msgsHost, '', mid, { streaming: true });
-    }
-    row.textContent = `${row.textContent || ''}${text}`;
-    if (assistantMsgId && !row.dataset.oaaoMsgId) {
-        row.dataset.oaaoMsgId = String(assistantMsgId);
-    }
-    msgsHost.scrollTop = msgsHost.scrollHeight;
-}
-
-/**
- * @param {string} streamUrl
- * @param {string} runId
- * @param {{
- *   chatMount: HTMLElement,
- *   msgsHost: HTMLElement,
- *   getConversationId: () => number,
- *   getAssistantMessageId: () => number,
- * }} opts
- */
-async function consumeBubbleStream(streamUrl, runId, opts) {
-    const { chatMount, msgsHost, getConversationId, getAssistantMessageId } = opts;
-    streamAbort?.abort();
-    streamAbort = new AbortController();
-    const { signal } = streamAbort;
-
-    const resolved = await resolveOrchestratorPublicUrl(streamUrl);
-    const baseUrl = new URL(resolved, window.location.href);
-    baseUrl.searchParams.set('run_id', runId);
-    const sameOrigin = baseUrl.origin === window.location.origin;
-
-    let lastStreamSeq = 0;
-    let sawRunEnd = false;
-
-    const maybeApplyLiveProductivity = () => {
-        const cid = getConversationId();
-        const mid = getAssistantMessageId();
-        if (cid < 1 || mid < 1) return;
-        void applyBubbleProductivityChipsLive(chatMount, cid, mid);
-    };
-
-    /** @param {ReadableStreamDefaultReader<Uint8Array>} reader */
-    const readStream = async (reader) => {
-        await readOaaoSseStream(
-            reader,
-            ({ seq, data }) => {
-                if (Number.isFinite(seq) && seq > 0) {
-                    lastStreamSeq = Math.max(lastStreamSeq, seq);
-                }
-                if (!data || typeof data !== 'object') return;
-                const envelope = /** @type {Record<string, unknown>} */ (data);
-                const phase = String(envelope.phase || '').toLowerCase();
-                const kind = String(envelope.kind || '').toLowerCase();
-                const text = streamEnvelopeText(envelope);
-                const payload = envelope.payload;
-                const assistantMsgId = getAssistantMessageId();
-
-                if (phase === 'llm' && kind === 'delta' && text) {
-                    appendAssistantDelta(
-                        msgsHost,
-                        text,
-                        assistantMsgId > 0 ? assistantMsgId : null,
-                    );
-                    return;
-                }
-
-                if (phase === 'system' && kind === 'end') {
-                    sawRunEnd = true;
-                    if (payload && typeof payload === 'object') {
-                        queueProductivityFromRunMeta(/** @type {Record<string, unknown>} */ (payload));
-                        maybeApplyLiveProductivity();
-                    }
-                    return;
-                }
-
-                if (phase === 'ui' && kind === 'stage' && payload && typeof payload === 'object') {
-                    const stage = /** @type {Record<string, unknown>} */ (payload);
-                    const area = String(stage.area ?? text ?? '').toLowerCase();
-                    if (area === 'strip' && assistantMsgId > 0) {
-                        mergePendingStripMeta(stage);
-                        maybeApplyLiveProductivity();
-                    }
-                    return;
-                }
-
-                if (phase !== 'system' || kind !== 'status' || !text) return;
-                if (!payload || typeof payload !== 'object') return;
-
-                if (text === 'calendar_event_suggested') {
-                    mergePendingStripMeta({ calendar_event_suggested: payload });
-                    maybeApplyLiveProductivity();
-                } else if (text === 'todo_item_suggested') {
-                    mergePendingStripMeta({ todo_item_suggested: payload });
-                    maybeApplyLiveProductivity();
-                } else if (text === 'todo_items_suggested') {
-                    mergePendingStripMeta({ todo_items_suggested: payload });
-                    maybeApplyLiveProductivity();
-                } else if (text === 'todo_resolve_suggested') {
-                    mergePendingStripMeta({ todo_resolve_suggested: payload });
-                    maybeApplyLiveProductivity();
-                }
-            },
-            signal,
-        );
-    };
-
-    const res = await fetch(baseUrl.href, {
-        method: 'GET',
-        credentials: sameOrigin ? 'include' : 'omit',
-        headers: { Accept: 'text/event-stream' },
-        signal,
-    });
-    if (!res.ok || !res.body) {
-        throw new Error(`Stream HTTP ${res.status}`);
-    }
-
-    await readStream(res.body.getReader());
-
-    if (!sawRunEnd && !signal.aborted && lastStreamSeq > 0) {
-        const tailUrl = new URL(baseUrl.href);
-        tailUrl.searchParams.set('since_seq', String(lastStreamSeq));
-        try {
-            const tailRes = await fetch(tailUrl.href, {
-                method: 'GET',
-                credentials: sameOrigin ? 'include' : 'omit',
-                headers: { Accept: 'text/event-stream' },
-                signal,
-            });
-            if (tailRes.ok && tailRes.body) {
-                await readStream(tailRes.body.getReader());
-            }
-        } catch (tailErr) {
-            if (/** @type {{ name?: string }} */ (tailErr)?.name !== 'AbortError') {
-                console.warn('[bubble-chat] stream tail resume failed', tailErr);
-            }
-        }
-    }
-}
-
-async function loadDialogCtor() {
-    const url = oaaoAppendShellEsmV(
-        resolveShellRegistryUrl('/webassets/core/default/razyui/component/Dialog.js'),
-    );
-    const m = await import(/* webpackIgnore: true */ url);
-    return m.default;
-}
-
-/**
- * @param {number} conversationId
- * @param {HTMLElement} mount
- */
-async function refreshContextUsageRing(conversationId, mount) {
+async function refreshContextUsageRing(conversationId) {
     if (!conversationId || conversationId < 1) return;
     globalThis.__oaaoStartChatContextUsagePoll?.();
     globalThis.__oaaoRefreshChatContextUsage?.();
@@ -595,29 +226,26 @@ function setBubbleTriggerPressed(on) {
     }
 }
 
+/** Close the fullscreen bubble thread if open. */
+export function closeBubbleChat() {
+    closeBubbleChatFn?.();
+}
+
+function isBubbleChatOpen() {
+    return activeOverlay instanceof HTMLElement && !activeOverlay.classList.contains('oaao-bubble-chat-overlay--hidden');
+}
+
 /**
- * Open or focus the single Bubble Chat dialog.
+ * Open fullscreen Bubble Chat, or close if already open (toggle).
  */
 export async function openBubbleChat() {
-    if (activeDialog) {
-        try {
-            activeDialog.show?.();
-        } catch {
-            /* ignore */
-        }
-        setBubbleTriggerPressed(true);
+    if (isBubbleChatOpen()) {
+        closeBubbleChat();
         return;
     }
 
-    ensureBubbleChatShellCss();
+    ensureBubbleChatAssets();
 
-    const Dialog = await loadDialogCtor();
-    if (typeof Dialog !== 'function') {
-        window.alert(oaaoT('bubble_chat.error_dialog', 'Dialog unavailable'));
-        return;
-    }
-
-    // Ephemeral: closing the dialog discards the thread; reopen always starts empty.
     clearSession();
     let conversationId = 0;
 
@@ -625,104 +253,59 @@ export async function openBubbleChat() {
     bubbleAbort = new AbortController();
     const { signal } = bubbleAbort;
 
-    const body = document.createElement('div');
-    body.className =
-        'oaao-bubble-chat-body flex flex-col gap-3 min-h-[min(420px,70vh)] max-h-[min(640px,82vh)] w-[min(560px,calc(100vw-2rem))] box-border p-1';
-    body.dataset.module = 'oaao-bubble-chat';
+    const overlay = document.createElement('div');
+    overlay.id = 'oaao-bubble-chat-overlay';
+    overlay.className = 'oaao-bubble-chat-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', oaaoT('bubble_chat.title', 'Bubble Chat'));
 
-    const hint = document.createElement('p');
-    hint.className = 'm-0 px-1 text-[0.75rem] fg-[var(--grid-caption)] shrink-0';
-    hint.textContent = oaaoT(
-        'bubble_chat.hint',
-        'Short-lived chat — not saved to your sidebar. Session expires after inactivity.',
-    );
+    const topbar = document.createElement('header');
+    topbar.className = 'oaao-bubble-chat-topbar';
+
+    const title = document.createElement('p');
+    title.className = 'oaao-bubble-chat-title';
+    title.textContent = oaaoT('bubble_chat.title', 'Bubble Chat');
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'oaao-bubble-chat-close';
+    closeBtn.setAttribute('aria-label', oaaoT('bubble_chat.close', 'Close'));
+    closeBtn.title = oaaoT('bubble_chat.close', 'Close');
+    closeBtn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+
+    topbar.append(title, closeBtn);
+
+    const main = document.createElement('div');
+    main.className = 'oaao-bubble-chat-main';
+
+    const column = document.createElement('div');
+    column.className = 'oaao-bubble-chat-column';
 
     const chatMount = document.createElement('div');
-    chatMount.className = 'flex flex-col flex-1 min-h-0 min-w-0 w-full';
+    chatMount.className = 'oaao-bubble-chat-thread oaao-chat-root';
     chatMount.dataset.module = 'oaao-chat';
     chatMount.dataset.oaaoChatMount = 'bubble';
 
     const msgsHost = document.createElement('div');
     msgsHost.dataset.oaaoChat = 'messages';
-    msgsHost.className =
-        'flex-1 min-h-[200px] overflow-y-auto overscroll-contain px-3 py-3 flex flex-col gap-4 border border-solid border-[var(--grid-line)] rounded-[12px] bg-[var(--grid-paper)]';
-    msgsHost.style.cssText = BUBBLE_MSGS_GAP_STYLE;
-    chatMount.append(msgsHost);
+    msgsHost.className = 'oaao-chat-messages';
+    msgsHost.setAttribute('role', 'log');
+    msgsHost.setAttribute('aria-live', 'polite');
 
     const statusEl = document.createElement('p');
-    statusEl.className = 'm-0 text-[0.75rem] fg-[var(--grid-caption)] hidden shrink-0';
+    statusEl.className = 'oaao-bubble-chat-status oaao-bubble-chat-status--hidden';
     statusEl.setAttribute('aria-live', 'polite');
 
     const composerHost = document.createElement('div');
-    composerHost.className = 'shrink-0 w-full min-w-0';
+    composerHost.className = 'oaao-bubble-chat-composer';
     composerHost.dataset.oaaoBubbleComposer = '1';
 
-    body.append(hint, chatMount, statusEl, composerHost);
-
-    const setBusy = (on) => {
-        setBubbleComposerInteractive(composerMount, inputEl, sendBtn, !on);
-    };
-
-    const setStatus = (text) => {
-        const t = String(text || '').trim();
-        statusEl.textContent = t;
-        statusEl.classList.toggle('hidden', !t);
-    };
-
-    const getBubbleConversationId = () => (conversationId > 0 ? conversationId : null);
-
-    const resetBubbleThread = (statusText = '') => {
-        conversationId = 0;
-        clearSession();
-        clearPendingProductivity();
-        msgsHost.replaceChildren();
-        if (statusText) {
-            setStatus(statusText);
-        }
-    };
-
-    const reloadMessages = async () => {
-        if (!conversationId || conversationId < 1) {
-            msgsHost.replaceChildren();
-            return [];
-        }
-        const { res, data } = await bubbleFetchJson(
-            chatApiUrl('messages', {
-                conversation_id: String(conversationId),
-                limit: '40',
-                ...workspaceScopeFields(),
-            }),
-        );
-        if (!res.ok || data?.success !== true) return [];
-        const rows = Array.isArray(data.messages) ? data.messages : [];
-        renderMessages(msgsHost, rows);
-        await hydrateProductivityFromMessageMeta(chatMount, conversationId, rows);
-        return rows;
-    };
-
-    /** @param {number} [attempts] */
-    const reloadMessagesAfterTurn = async (attempts = 8) => {
-        let rows = await reloadMessages();
-        const shouldWaitForProductivity =
-            expectProductivityAfterTurn || normalizeStripItemsFromMeta(pendingStripMeta).length > 0;
-        if (!shouldWaitForProductivity) {
-            return rows;
-        }
-        for (let i = 1; i < attempts; i += 1) {
-            const hasProdMeta = messageRowsHaveProductivityMeta(rows);
-            const hasAssistantAnchor = rows.some((row) => {
-                if (String(row?.role || '').toLowerCase() !== 'assistant') return false;
-                const mid = Math.floor(Number(row.id ?? row.message_id ?? 0));
-                return mid > 0;
-            });
-            if (hasAssistantAnchor && (hasProdMeta || normalizeStripItemsFromMeta(pendingStripMeta).length > 0)) {
-                break;
-            }
-            await new Promise((r) => setTimeout(r, 400 * i));
-            rows = await reloadMessages();
-        }
-        return rows;
-    };
+    chatMount.append(msgsHost);
+    column.append(chatMount, statusEl, composerHost);
+    main.append(column);
+    overlay.append(topbar, main);
 
     /** @type {typeof import('./chat-panel.js')} */
     let chatPanelMod;
@@ -730,7 +313,17 @@ export async function openBubbleChat() {
         chatPanelMod = await import('./chat-panel.js');
     } catch (err) {
         console.error('[bubble-chat] chat-panel import failed', err);
-        window.alert(oaaoT('bubble_chat.error_dialog', 'Dialog unavailable'));
+        window.alert(oaaoT('bubble_chat.error_unavailable', 'Bubble Chat unavailable'));
+        return;
+    }
+
+    const getBubbleConversationId = () => (conversationId > 0 ? conversationId : null);
+
+    try {
+        await chatPanelMod.ensureChatPanelBridgeForBubble();
+    } catch (err) {
+        console.error('[bubble-chat] chat panel bridge bootstrap failed', err);
+        window.alert(oaaoT('bubble_chat.error_unavailable', 'Bubble Chat unavailable'));
         return;
     }
 
@@ -738,39 +331,86 @@ export async function openBubbleChat() {
         getConversationId: getBubbleConversationId,
     });
     if (!composerWire) {
-        window.alert(oaaoT('bubble_chat.error_dialog', 'Dialog unavailable'));
+        window.alert(oaaoT('bubble_chat.error_unavailable', 'Bubble Chat unavailable'));
+        return;
+    }
+
+    let chatBridge;
+    try {
+        chatBridge = chatPanelMod.getChatPanelBridge();
+    } catch (err) {
+        console.error('[bubble-chat] chat panel bridge unavailable', err);
+        window.alert(oaaoT('bubble_chat.error_unavailable', 'Bubble Chat unavailable'));
         return;
     }
 
     const { formEl, inputEl, sendBtn, mount: composerMount } = composerWire;
 
-    const dialog = new Dialog({
-        title: oaaoT('bubble_chat.title', 'Bubble Chat'),
-        content: body,
-        width: 'auto',
-        closeOnBackdrop: true,
-        onClose: () => {
-            streamAbort?.abort();
-            bubbleAbort?.abort();
-            const cid = conversationId;
-            conversationId = 0;
-            activeDialog = null;
-            setBubbleTriggerPressed(false);
+    const setStatus = (text) => {
+        const t = String(text || '').trim();
+        statusEl.textContent = t;
+        statusEl.classList.toggle('oaao-bubble-chat-status--hidden', !t);
+    };
+
+    const setBusy = (on) => {
+        setBubbleComposerInteractive(composerMount, inputEl, sendBtn, !on);
+    };
+
+    const resetBubbleThread = (statusText = '') => {
+        if (conversationId > 0) {
+            chatPanelMod.unregisterBubbleConversationMount(conversationId);
+        }
+        conversationId = 0;
+        clearSession();
+        msgsHost.replaceChildren();
+        if (statusText) {
+            setStatus(statusText);
+        }
+    };
+
+    const teardown = () => {
+        bubbleAbort?.abort();
+        bubbleAbort = null;
+        const cid = conversationId;
+        conversationId = 0;
+        if (cid > 0) {
+            chatPanelMod.unregisterBubbleConversationMount(cid);
+            void dismissBubbleConversation(cid);
+        } else {
             clearSession();
-            if (cid > 0) {
-                void dismissBubbleConversation(cid);
+        }
+        overlay.remove();
+        activeOverlay = null;
+        closeBubbleChatFn = null;
+        document.body.classList.remove('oaao-bubble-chat-open');
+        setBubbleTriggerPressed(false);
+    };
+
+    closeBubbleChatFn = teardown;
+    closeBtn.addEventListener('click', teardown, { signal });
+    document.addEventListener(
+        'keydown',
+        (ev) => {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                teardown();
             }
         },
-    });
+        { signal },
+    );
 
-    activeDialog = dialog;
+    activeOverlay = overlay;
+    document.body.append(overlay);
+    document.body.classList.add('oaao-bubble-chat-open');
     setBubbleTriggerPressed(true);
-    dialog.show?.();
 
-    if (conversationId > 0) {
-        await reloadMessages();
-        await refreshContextUsageRing(conversationId, composerMount);
+    const JIT = globalThis.JIT;
+    if (JIT?.hydrate) {
+        JIT.hydrate(overlay);
+        JIT.hydrate(chatMount);
     }
+
+    focusChatComposerEditor(inputEl);
 
     formEl.addEventListener(
         'submit',
@@ -802,14 +442,6 @@ export async function openBubbleChat() {
 
             setBusy(true);
             setStatus(oaaoT('bubble_chat.status_sending', 'Sending…'));
-
-            appendUserBubble(msgsHost, content);
-            msgsHost.scrollTop = msgsHost.scrollHeight;
-
-            msgsHost.querySelectorAll('[data-oaao-bubble-assistant="1"]').forEach((el) => {
-                el.closest('.oaao-chat-assistant-row')?.remove();
-            });
-            clearPendingProductivity();
             clearChatComposerEditor(inputEl);
 
             try {
@@ -865,45 +497,46 @@ export async function openBubbleChat() {
                 }
 
                 const cid = Number(data.conversation_id);
+                const userMsgId = Number(data.user_message_id);
+                const amid = Number(data.assistant_message_id);
+                const streamUrl = typeof data.stream_url === 'string' ? data.stream_url.trim() : '';
+                const runId = typeof data.run_id === 'string' ? data.run_id.trim() : '';
+
                 if (cid > 0) {
                     conversationId = cid;
                     const exp = new Date(Date.now() + 5400 * 1000).toISOString();
                     writeSession(cid, exp);
+                    chatPanelMod.registerBubbleConversationMount(cid, chatMount, msgsHost);
                 }
 
-                const streamUrl = typeof data.stream_url === 'string' ? data.stream_url.trim() : '';
-                const runId = typeof data.run_id === 'string' ? data.run_id.trim() : '';
-                const amid = Number(data.assistant_message_id);
+                if (
+                    cid > 0 &&
+                    Number.isFinite(userMsgId) &&
+                    userMsgId > 0 &&
+                    Number.isFinite(amid) &&
+                    amid > 0
+                ) {
+                    chatBridge.appendSendTurnToCachedMessages(cid, userMsgId, content, amid);
+                }
 
-                let assistantMid =
-                    Number.isFinite(amid) && amid > 0 ? Math.floor(amid) : 0;
-
-                if (streamUrl && runId) {
+                if (streamUrl && runId && cid > 0 && amid > 0) {
                     setStatus(oaaoT('bubble_chat.status_streaming', 'Thinking…'));
-                    await consumeBubbleStream(streamUrl, runId, {
-                        chatMount,
-                        msgsHost,
-                        getConversationId: () => conversationId,
-                        getAssistantMessageId: () => assistantMid,
-                    });
+                    await chatBridge.consumeAssistantStream(
+                        streamUrl,
+                        runId,
+                        cid,
+                        0,
+                        amid,
+                        true,
+                        false,
+                    );
                 }
 
-                const rows = await reloadMessagesAfterTurn();
-                if (assistantMid < 1 && rows.length > 0) {
-                    for (let i = rows.length - 1; i >= 0; i -= 1) {
-                        if (String(rows[i]?.role || '').toLowerCase() === 'assistant') {
-                            assistantMid = Math.floor(Number(rows[i].id ?? rows[i].message_id ?? 0));
-                            break;
-                        }
-                    }
+                if (cid > 0 && msgsHost instanceof HTMLElement) {
+                    msgsHost.scrollTop = msgsHost.scrollHeight;
                 }
-                if (assistantMid > 0) {
-                    await applyBubbleProductivityChips(chatMount, conversationId, assistantMid);
-                }
-                msgsHost.querySelectorAll('[data-oaao-bubble-assistant="1"]').forEach((el) => {
-                    el.closest('.oaao-chat-assistant-row')?.remove();
-                });
-                await refreshContextUsageRing(conversationId, composerMount);
+
+                await refreshContextUsageRing(conversationId);
                 setStatus('');
             } catch (err) {
                 console.error('[bubble-chat] send failed', err);
@@ -915,12 +548,6 @@ export async function openBubbleChat() {
         },
         { signal },
     );
-
-    const JIT = globalThis.JIT;
-    if (JIT?.hydrate) {
-        JIT.hydrate(body);
-        JIT.hydrate(chatMount);
-    }
 }
 
 /**

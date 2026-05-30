@@ -71,8 +71,10 @@ import {
     mountProductivityFenceMemos,
     productivityMetaHasFencePreview,
     productivityMetaHasStripChips,
+    renderAssistantContentWithInlineFences,
+    splitMarkdownByProductivityFences,
     stripActionToFenceKind,
-} from './productivity-inline-blocks.js?v=20260530-strip-confirm-v208';
+} from './productivity-inline-blocks.js?v=20260530-fence-actions-v211';
 import { refreshThreadTodoStrip } from './conversation-todo-thread.js';
 import {
     mountComposerModelParams,
@@ -2051,6 +2053,38 @@ function resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId) {
 }
 
 /**
+ * Ensure an assistant bubble exists before SSE tokens / pipeline chrome mount.
+ *
+ * @param {HTMLElement | Document} uiMount
+ * @param {HTMLElement | null | undefined} msgsHost
+ * @param {number} assistantMsgId
+ * @returns {HTMLElement | null}
+ */
+function ensureStreamingAssistantRowDom(uiMount, msgsHost, assistantMsgId) {
+    const mid = coercePositiveInt(assistantMsgId);
+    if (mid === null) return null;
+    const existing = resolveStreamingAssistantBubble(uiMount, msgsHost, mid);
+    if (existing instanceof HTMLElement) return existing;
+    if (!(msgsHost instanceof HTMLElement)) return null;
+
+    const outer = document.createElement('div');
+    outer.className =
+        'oaao-chat-assistant-row self-start flex flex-col gap-2 items-start w-full min-w-0 max-w-full';
+
+    const bubble = document.createElement('div');
+    bubble.dataset.oaaoMsgId = String(mid);
+    bubble.dataset.oaaoMsgRole = 'assistant';
+    bubble.className =
+        'text-[0.875rem] leading-relaxed w-full min-w-0 max-w-full bg-transparent border-none shadow-none rounded-none px-0 py-0 box-border';
+
+    outer.append(bubble);
+    ensureAssistantAreaHosts(outer);
+    msgsHost.append(outer);
+    reorderAssistantRowAreas(outer);
+    return bubble;
+}
+
+/**
  * @param {number} conversationId
  * @param {number} assistantMessageId
  * @param {HTMLElement} bubble
@@ -2188,19 +2222,37 @@ function scrollAssistantStripIntoView(bubble) {
  */
 function renderAssistantBubbleMarkdown(bubble, md, conversationId = 0, runMeta = null) {
     const parsed = extractProductivityInlineBlocks(md, conversationId);
-    applyAssistantMarkdown(bubble, parsed.stripped || md);
     const mergedMeta = mergeProductivityMetaFromContent(
         runMeta && typeof runMeta === 'object' ? runMeta : {},
         parsed.meta,
     );
-    if (productivityMetaHasFencePreview(mergedMeta, conversationId, md)) {
-        mountProductivityFenceMemos(bubble, mergedMeta, {
-            conversationId,
-            assistantContent: md,
-            renderMarkdown: (el, text) => applyAssistantMarkdown(el, text),
-        });
+    const renderMarkdown = (el, text) => applyAssistantMarkdown(el, text);
+    const mid = bubble instanceof HTMLElement ? Math.floor(Number(bubble.dataset.oaaoMsgId ?? 0)) : 0;
+    const mount =
+        bubble instanceof HTMLElement ? bubble.closest('[data-module="oaao-chat"]') : null;
+    const stripHook = globalThis.__oaaoBuildStripShellCtx;
+    const stripShellCtx =
+        typeof stripHook === 'function' && mount instanceof HTMLElement && conversationId > 0
+            ? stripHook(mount, conversationId)
+            : {};
+    const fenceOpts = {
+        conversationId,
+        assistantContent: md,
+        renderMarkdown,
+        messageId: mid,
+        meta: mergedMeta,
+        stripShellCtx,
+    };
+
+    if (splitMarkdownByProductivityFences(md).some((seg) => seg.kind !== 'prose')) {
+        renderAssistantContentWithInlineFences(bubble, md, mergedMeta, fenceOpts);
+    } else if (productivityMetaHasFencePreview(mergedMeta, conversationId, md)) {
+        applyAssistantMarkdown(bubble, parsed.stripped || md);
+        mountProductivityFenceMemos(bubble, mergedMeta, fenceOpts);
     } else {
+        applyAssistantMarkdown(bubble, parsed.stripped || md);
         bubble.querySelector('[data-oaao-productivity-fence-host]')?.remove();
+        bubble.querySelector('[data-oaao-productivity-inline-layout]')?.remove();
     }
     return parsed;
 }
@@ -2383,7 +2435,7 @@ async function confirmDeleteChatDialog(opts = {}) {
 
 /** Bump when pipeline chrome markup/CSS changes — busts browser cache on {@code mountShellPanel}.
  *  MUST also bump {@code $oaaoShellEsmRev} in core/default/controller/core.main.php} so chat-panel.js reloads. */
-const OAAO_CHAT_SHELL_ASSET_REV = '20260530-strip-confirm-v208';
+const OAAO_CHAT_SHELL_ASSET_REV = '20260530-bubble-strip-fix-v215';
 
 /** Post-turn calendar/todo workers run after {@code system/end} — hydrate must outlive LLM classify latency. */
 const PRODUCTIVITY_HYDRATE_MAX_ATTEMPTS = 60;
@@ -3447,7 +3499,11 @@ function resolveOaaoTaskStepsHost(root, conversationId = 0) {
               ? root
               : root.querySelector?.('[data-module="oaao-chat"]') ?? root;
 
-    if (conversationId > 0 && activeConversationId !== conversationId) {
+    if (
+        conversationId > 0 &&
+        activeConversationId !== conversationId &&
+        !isBubbleConversation(conversationId)
+    ) {
         return null;
     }
 
@@ -3462,7 +3518,11 @@ function resolveOaaoTaskStepsHost(root, conversationId = 0) {
     }
 
     const msgs = mount?.querySelector('[data-oaao-chat="messages"]');
-    if (msgs && conversationId > 0 && activeConversationId === conversationId) {
+    if (
+        msgs &&
+        conversationId > 0 &&
+        (activeConversationId === conversationId || isBubbleConversation(conversationId))
+    ) {
         const rows = msgs.querySelectorAll('.oaao-chat-assistant-row');
         for (let i = rows.length - 1; i >= 0; i -= 1) {
             const row = rows[i];
@@ -9766,11 +9826,13 @@ function dismissThreadHealthBannerForSend(mount, conversationId) {
  * @param {Array<Record<string, unknown>>} [rows]
  * @returns {number | null}
  */
-function lastAssistantMessageIdForConversation(conversationId, rows = cachedMessageRows) {
+function lastAssistantMessageIdForConversation(conversationId, rows) {
     const cid = Math.floor(Number(conversationId));
-    if (cid < 1 || !Array.isArray(rows)) return null;
-    for (let i = rows.length - 1; i >= 0; i -= 1) {
-        const row = rows[i];
+    if (cid < 1) return null;
+    const useRows = Array.isArray(rows) ? rows : messageRowsForConversation(cid);
+    if (!Array.isArray(useRows) || useRows.length < 1) return null;
+    for (let i = useRows.length - 1; i >= 0; i -= 1) {
+        const row = useRows[i];
         if (String(row?.role ?? '').toLowerCase() !== 'assistant') continue;
         const mid = coercePositiveInt(row.id);
         if (mid !== null) return mid;
@@ -10427,12 +10489,13 @@ function buildProductivityInfoWorkerPollOpts(mount, conversationId, partial = {}
         getAssistantRow: getAssistantRowForMessage,
         applyTurnScore: applyAssistantTurnScoreToRow,
         ensureWatchRowReady: (mid) => ensureInfoWorkerWatchRowReady(mount, cid, mid),
-        getLatestAssistantMessageId: (c) => lastAssistantMessageIdForConversation(c),
+        getLatestAssistantMessageId: (c) =>
+            lastAssistantMessageIdForConversation(c, messageRowsForConversation(c)),
         getPendingMessageIds: (c, latest) =>
             getProductivityPendingMessageIds(
                 mount,
                 c,
-                latest ?? lastAssistantMessageIdForConversation(c),
+                latest ?? lastAssistantMessageIdForConversation(c, messageRowsForConversation(c)),
             ),
         buildStripCtx: (mountEl, c) =>
             buildStripShellContextHook?.(mountEl, c) ?? {
@@ -10503,7 +10566,8 @@ function scheduleTurnScorePoll(conversationId, mount, opts = {}) {
         getAssistantRow: getAssistantRowForMessage,
         applyTurnScore: applyAssistantTurnScoreToRow,
         ensureWatchRowReady: (mid) => ensureInfoWorkerWatchRowReady(mount, cid, mid),
-        getLatestAssistantMessageId: (c) => lastAssistantMessageIdForConversation(c),
+        getLatestAssistantMessageId: (c) =>
+            lastAssistantMessageIdForConversation(c, messageRowsForConversation(c)),
         getPendingMessageIds: (c, latest) =>
             getProductivityPendingMessageIds(mount, c, latest ?? lastAssistantMessageIdForConversation(c)),
         resolveTurnScoreRow: (c, mid, apiRow) => {
@@ -11756,12 +11820,23 @@ function shouldShowRunStatusWhileStreaming(label, accText) {
  * @param {number} msgId
  * @returns {HTMLElement | null}
  */
-function getAssistantBubbleForMessage(root, msgId) {
+/**
+ * @param {HTMLElement | Document} root
+ * @param {number} msgId
+ * @param {number | null | undefined} [conversationId]
+ * @returns {HTMLElement | null}
+ */
+function getAssistantBubbleForMessage(root, msgId, conversationId = null) {
     if (!msgId || msgId < 1) return null;
-    const host = root.querySelector('[data-oaao-chat="messages"]');
-    if (!(host instanceof HTMLElement)) return null;
-    const bubble = host.querySelector(`[data-oaao-msg-id="${msgId}"][data-oaao-msg-role="assistant"]`);
-    return bubble instanceof HTMLElement ? bubble : null;
+    const cid =
+        conversationId != null && Number(conversationId) > 0 ? Math.floor(Number(conversationId)) : null;
+    for (const searchRoot of collectChatMessageRoots(root instanceof HTMLElement ? root : null, cid)) {
+        const host = searchRoot.querySelector('[data-oaao-chat="messages"]');
+        if (!(host instanceof HTMLElement)) continue;
+        const bubble = host.querySelector(`[data-oaao-msg-id="${msgId}"][data-oaao-msg-role="assistant"]`);
+        if (bubble instanceof HTMLElement) return bubble;
+    }
+    return null;
 }
 
 /**
@@ -12069,6 +12144,199 @@ let showArchivedConversations = false;
 
 /** @type {number | null} */
 let activeConversationId = null;
+
+/** Bubble Chat threads — route stream/render to dialog mount instead of workspace shell. */
+/** @type {Map<number, { mount: HTMLElement, scrollEl: HTMLElement | null }>} */
+const bubbleConversationMounts = new Map();
+/** @type {Map<number, Array<Record<string, unknown>>>} */
+const bubbleMessageRowsByConversation = new Map();
+
+/**
+ * @param {number} conversationId
+ * @param {HTMLElement} bubbleMount
+ * @param {HTMLElement | null} [scrollEl]
+ */
+export function registerBubbleConversationMount(conversationId, bubbleMount, scrollEl = null) {
+    const cid = Math.floor(Number(conversationId));
+    if (cid < 1 || !(bubbleMount instanceof HTMLElement)) return;
+    bubbleConversationMounts.set(cid, {
+        mount: bubbleMount,
+        scrollEl: scrollEl instanceof HTMLElement ? scrollEl : null,
+    });
+}
+
+/** @param {number} conversationId */
+export function unregisterBubbleConversationMount(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    bubbleConversationMounts.delete(cid);
+    bubbleMessageRowsByConversation.delete(cid);
+}
+
+/** @param {number} conversationId */
+function isBubbleConversation(conversationId) {
+    return bubbleConversationMounts.has(Math.floor(Number(conversationId)));
+}
+
+/**
+ * @param {HTMLElement} defaultMount
+ * @param {number} conversationId
+ */
+function resolveMountForConversation(defaultMount, conversationId) {
+    const entry = bubbleConversationMounts.get(Math.floor(Number(conversationId)));
+    return entry?.mount instanceof HTMLElement ? entry.mount : defaultMount;
+}
+
+/**
+ * @param {number} conversationId
+ * @param {HTMLElement | null} defaultScrollEl
+ */
+function resolveScrollElForConversation(conversationId, defaultScrollEl) {
+    const entry = bubbleConversationMounts.get(Math.floor(Number(conversationId)));
+    return entry?.scrollEl instanceof HTMLElement ? entry.scrollEl : defaultScrollEl;
+}
+
+/** @param {HTMLElement} el */
+function isBubbleBridgeBootstrapChatRoot(el) {
+    return (
+        el instanceof HTMLElement &&
+        (el.dataset.oaaoChatMount === 'bubble-bridge' ||
+            Boolean(el.closest(`#${BUBBLE_BRIDGE_HOST_ID}`)))
+    );
+}
+
+/**
+ * Message rows for strip / info_worker "last assistant" — bubble threads use isolated cache.
+ *
+ * @param {number} conversationId
+ * @returns {Array<Record<string, unknown>>}
+ */
+function messageRowsForConversation(conversationId) {
+    const cid = Math.floor(Number(conversationId));
+    if (cid < 1) return [];
+    if (isBubbleConversation(cid)) {
+        const bubbleRows = bubbleMessageRowsByConversation.get(cid);
+        if (Array.isArray(bubbleRows) && bubbleRows.length > 0) {
+            return bubbleRows;
+        }
+    }
+    if (activeConversationId === cid && Array.isArray(cachedMessageRows) && cachedMessageRows.length > 0) {
+        return cachedMessageRows;
+    }
+    return [];
+}
+
+/**
+ * Chat roots to search for assistant bubbles — skip hidden bubble-bridge bootstrap.
+ *
+ * @param {HTMLElement | Document | null | undefined} preferredMount
+ * @param {number | null | undefined} [conversationId]
+ * @returns {HTMLElement[]}
+ */
+function collectChatMessageRoots(preferredMount, conversationId = null) {
+    /** @type {HTMLElement[]} */
+    const roots = [];
+    /** @type {Set<HTMLElement>} */
+    const seen = new Set();
+    const addRoot = (el) => {
+        if (!(el instanceof HTMLElement) || seen.has(el) || isBubbleBridgeBootstrapChatRoot(el)) return;
+        seen.add(el);
+        roots.push(el);
+    };
+
+    const cid =
+        conversationId != null && Number(conversationId) > 0 ? Math.floor(Number(conversationId)) : null;
+    if (cid != null && isBubbleConversation(cid)) {
+        const entry = bubbleConversationMounts.get(cid);
+        if (entry?.mount instanceof HTMLElement) {
+            addRoot(entry.mount);
+        }
+    }
+
+    if (preferredMount instanceof HTMLElement) {
+        addRoot(preferredMount);
+        const closest = preferredMount.closest('[data-module="oaao-chat"]');
+        if (closest instanceof HTMLElement) {
+            addRoot(closest);
+        }
+    }
+
+    document.querySelectorAll('[data-module="oaao-chat"]').forEach((el) => {
+        if (el instanceof HTMLElement) {
+            addRoot(el);
+        }
+    });
+
+    return roots;
+}
+
+/** Stream UI target for workspace or Bubble Chat dialog mount. */
+function uiMountForStream(shellMount, conversationId) {
+    return resolveMountForConversation(shellMount, conversationId);
+}
+
+/**
+ * @param {HTMLElement} shellMount
+ * @param {number} conversationId
+ * @param {HTMLElement | null | undefined} fallbackMsgsHost
+ */
+function uiMsgsHostForStream(shellMount, conversationId, fallbackMsgsHost) {
+    const ui = uiMountForStream(shellMount, conversationId);
+    return ui.querySelector('[data-oaao-chat="messages"]') ?? fallbackMsgsHost ?? ui;
+}
+
+/** @type {{ consumeAssistantStream?: Function, appendSendTurnToCachedMessages?: Function, loadMessagesForBubbleMount?: Function } | null} */
+let chatPanelBridge = null;
+
+/** @returns {NonNullable<typeof chatPanelBridge>} */
+export function getChatPanelBridge() {
+    if (!chatPanelBridge) {
+        throw new Error('Chat panel bridge unavailable — mountShellPanel must run first');
+    }
+    return chatPanelBridge;
+}
+
+const BUBBLE_BRIDGE_HOST_ID = 'oaao-chat-bubble-bridge-bootstrap';
+
+/** Hidden mount — satisfies {@link mountShellPanel} DOM checks for bubble-only bridge bootstrap. */
+const BUBBLE_BRIDGE_BOOTSTRAP_HTML = `
+<section class="oaao-chat-root" data-module="oaao-chat" data-oaao-chat-mount="bubble-bridge" hidden aria-hidden="true">
+  <div data-oaao-chat="messages" class="oaao-chat-messages"></div>
+  <form data-oaao-chat="composer">
+    <div data-oaao-chat="input" contenteditable="true" role="textbox"></div>
+    <button type="submit" data-oaao-chat="send">Send</button>
+  </form>
+</section>`;
+
+/**
+ * Bootstrap stream/render bridge when Bubble Chat opens before the workspace Chat tab.
+ *
+ * @returns {Promise<NonNullable<typeof chatPanelBridge>>}
+ */
+export async function ensureChatPanelBridgeForBubble() {
+    if (chatPanelBridge) {
+        return chatPanelBridge;
+    }
+
+    let host = document.getElementById(BUBBLE_BRIDGE_HOST_ID);
+    if (!host) {
+        host = document.createElement('div');
+        host.id = BUBBLE_BRIDGE_HOST_ID;
+        host.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;overflow:hidden;';
+        host.innerHTML = BUBBLE_BRIDGE_BOOTSTRAP_HTML;
+        document.body.append(host);
+    }
+
+    const mount = host.querySelector('.oaao-chat-root');
+    if (!(mount instanceof HTMLElement)) {
+        throw new Error('Chat panel bridge bootstrap mount missing');
+    }
+
+    await mountShellPanel(mount, { bubbleBridgeOnly: true });
+    if (!chatPanelBridge) {
+        throw new Error('Chat panel bridge unavailable after bootstrap');
+    }
+    return chatPanelBridge;
+}
 
 /** Persist open thread in the location bar — restored on full page reload. */
 const CHAT_CONVERSATION_QUERY_KEY = 'conversation_id';
@@ -12415,8 +12683,14 @@ export function teardownShellPanel(options = {}) {
 
 /**
  * @param {HTMLElement} mount Host from core ({@code #workspace-module-mount}) containing injected panel HTML.
+ * @param {{ bubbleBridgeOnly?: boolean }} [options]
  */
-export async function mountShellPanel(mount) {
+export async function mountShellPanel(mount, options = {}) {
+    const bubbleBridgeOnly = options.bubbleBridgeOnly === true;
+    if (bubbleBridgeOnly && chatPanelBridge) {
+        return;
+    }
+
     globalThis.chatFetchJson = chatFetchJson;
     globalThis.chatApiUrl = chatApiUrl;
     globalThis.chatApiBase = chatApiBase;
@@ -12427,8 +12701,14 @@ export async function mountShellPanel(mount) {
         if (pill instanceof HTMLElement) ensureTurnScorePillFloater(pill);
     }
     void preloadOaaoMilestoneCtor();
-    teardownShellPanel();
-    panelAbort = new AbortController();
+    if (bubbleBridgeOnly) {
+        if (!panelAbort || panelAbort.signal.aborted) {
+            panelAbort = new AbortController();
+        }
+    } else {
+        teardownShellPanel();
+        panelAbort = new AbortController();
+    }
     const { signal } = panelAbort;
     chatComposerVaultAutoRag = readVaultAutoRagPreference();
     chatComposerVaultSourceRefs = readStoredVaultChatSourceRefs();
@@ -13360,7 +13640,7 @@ export async function mountShellPanel(mount) {
      */
     function buildStripShellContext(mountEl, conversationId) {
         const cid = Math.floor(Number(conversationId));
-        const lastAssistantMessageId = cid > 0 ? lastAssistantMessageIdForConversation(cid) : null;
+        const lastAssistantMessageId = cid > 0 ? lastAssistantMessageIdForConversation(cid, messageRowsForConversation(cid)) : null;
         return {
             mountEl,
             lastAssistantMessageId,
@@ -13422,9 +13702,9 @@ export async function mountShellPanel(mount) {
         for (const key of [...pendingProductivityMetaByMessage.keys()]) {
             if (key.startsWith(prefix)) pendingProductivityMetaByMessage.delete(key);
         }
-        const latestMid = lastAssistantMessageIdForConversation(cid);
+        const latestMid = lastAssistantMessageIdForConversation(cid, messageRowsForConversation(cid));
         if (latestMid != null && latestMid > 0) {
-            pruneStaleOnlyLastProductivity(mountEl, cid, latestMid, getAssistantRowForMessage);
+            pruneStaleOnlyLastProductivity(resolveMountForConversation(mount, cid), cid, latestMid, getAssistantRowForMessage);
         }
     };
 
@@ -13441,7 +13721,7 @@ export async function mountShellPanel(mount) {
         const cid = Math.floor(Number(conversationId));
         const mid = Math.floor(Number(messageId));
         if (cid < 1 || mid < 1 || !meta || typeof meta !== 'object') return;
-        const lastAssistantMid = lastAssistantMessageIdForConversation(cid);
+        const lastAssistantMid = lastAssistantMessageIdForConversation(cid, messageRowsForConversation(cid));
         if (lastAssistantMid != null && mid !== lastAssistantMid) {
             if (!opts.skipStash) {
                 pendingProductivityMetaByMessage.set(productivityPendingKey(cid, mid), { ...meta });
@@ -13503,7 +13783,7 @@ export async function mountShellPanel(mount) {
     function flushPendingProductivityChips(mountEl, conversationId) {
         const cid = Math.floor(Number(conversationId));
         if (cid < 1) return;
-        const lastAssistantMid = lastAssistantMessageIdForConversation(cid);
+        const lastAssistantMid = lastAssistantMessageIdForConversation(cid, messageRowsForConversation(cid));
         const prefix = `${cid}:`;
         for (const [key, meta] of pendingProductivityMetaByMessage.entries()) {
             if (!key.startsWith(prefix)) continue;
@@ -13568,15 +13848,30 @@ export async function mountShellPanel(mount) {
         const amid = Math.floor(Number(assistantMsgId));
         if (cid < 1 || uid < 1 || amid < 1) return;
 
-        const emptyHint = messagesEl.querySelector('p.text-sm.fg-\\[var\\(--grid-ink-muted\\)\\]');
+        const renderTargetMount = isBubbleConversation(cid) ? resolveMountForConversation(mount, cid) : mount;
+        const renderMsgsHost =
+            renderTargetMount.querySelector('[data-oaao-chat="messages"]') ?? messagesEl;
+        const emptyHint = renderMsgsHost?.querySelector('p.text-sm.fg-\\[var\\(--grid-ink-muted\\)\\]');
         if (emptyHint?.textContent?.includes('No messages yet')) {
             emptyHint.remove();
         }
 
+        const userRow = { id: uid, role: 'user', content: userContent };
+        const asstRow = { id: amid, role: 'assistant', content: '', meta: null };
+
+        if (isBubbleConversation(cid)) {
+            const prev = bubbleMessageRowsByConversation.get(cid) ?? [];
+            const next = [...prev, userRow, asstRow];
+            bubbleMessageRowsByConversation.set(cid, next);
+            renderMessages(next, 'bottom', { conversationId: cid });
+            registerPendingInfoMessage(cid, amid);
+            return;
+        }
+
         cachedMessageRows = [
             ...cachedMessageRows,
-            { id: uid, role: 'user', content: userContent },
-            { id: amid, role: 'assistant', content: '', meta: null },
+            userRow,
+            asstRow,
         ];
         setConversationUiLastMessageId(cid, amid);
         renderMessages(cachedMessageRows, 'bottom');
@@ -13608,11 +13903,14 @@ export async function mountShellPanel(mount) {
         streamHandlesByConversation.set(conversationId, streamHandle);
         const { signal } = streamController;
 
+        const streamScrollEl = () => resolveScrollElForConversation(conversationId, getChatScrollEl());
+        const streamUiMount = () => uiMountForStream(mount, conversationId);
+        const isStreamConversationVisible = () =>
+            activeConversationId === conversationId || isBubbleConversation(conversationId);
+
         if (activeConversationId === conversationId) {
             setChatComposerStreamingUi(mount, true);
         }
-
-        const isStreamConversationVisible = () => activeConversationId === conversationId;
 
         if (isStreamConversationVisible()) {
             clearActivityLog();
@@ -13630,7 +13928,7 @@ export async function mountShellPanel(mount) {
         const sameOrigin = streamOrigin === window.location.origin;
 
         let streamingMsgId = coercePositiveInt(assistantMessageId);
-        const msgsHost = mount.querySelector('[data-oaao-chat="messages"]') ?? messagesEl;
+        const msgsHost = uiMsgsHostForStream(mount, conversationId, messagesEl);
         if ((!streamingMsgId || streamingMsgId < 1) && msgsHost) {
             const nodes = msgsHost.querySelectorAll('[data-oaao-msg-role="assistant"][data-oaao-msg-id]');
             const lastEl = nodes[nodes.length - 1];
@@ -13640,16 +13938,20 @@ export async function mountShellPanel(mount) {
             oaaoStreamAssistantMsgIdByConv.set(conversationId, streamingMsgId);
         }
 
+        if (isStreamConversationVisible() && streamingMsgId && streamingMsgId > 0 && msgsHost) {
+            ensureStreamingAssistantRowDom(streamUiMount(), msgsHost, streamingMsgId);
+        }
+
         if (isStreamConversationVisible() && streamingMsgId && streamingMsgId > 0) {
             runStatusLabelByConversation.set(conversationId, runStatusLabel);
-            showRunStatusForMessage(mount, streamingMsgId, runStatusLabel);
-            const pinStart = messagesPinnedToBottom(getChatScrollEl());
-            if (pinStart) messagesScrollToBottom(getChatScrollEl());
+            showRunStatusForMessage(uiMountForStream(mount, conversationId), streamingMsgId, runStatusLabel);
+            const pinStart = messagesPinnedToBottom(streamScrollEl());
+            if (pinStart) messagesScrollToBottom(streamScrollEl());
         }
 
         let acc = '';
         if (appendStreamToExisting && streamingMsgId && streamingMsgId > 0 && isStreamConversationVisible()) {
-            const seedBubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+            const seedBubble = resolveStreamingAssistantBubble(uiMountForStream(mount, conversationId), msgsHost, streamingMsgId);
             if (seedBubble instanceof HTMLElement) {
                 const prefix = readAssistantBubblePlainText(seedBubble);
                 if (prefix) {
@@ -13687,7 +13989,10 @@ export async function mountShellPanel(mount) {
                 cancelAnimationFrame(mdBubbleRaf);
                 mdBubbleRaf = 0;
             }
-            const bubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+            const bubble = resolveStreamingAssistantBubble(uiMountForStream(mount, conversationId), msgsHost, streamingMsgId);
+            if (!(bubble instanceof HTMLElement) && streamingMsgId && streamingMsgId > 0) {
+                ensureStreamingAssistantRowDom(uiMountForStream(mount, conversationId), msgsHost, streamingMsgId);
+            }
             let body = String(acc ?? '');
             if (!body.trim() && bubble instanceof HTMLElement) {
                 body = readAssistantBubblePlainText(bubble);
@@ -13705,6 +14010,27 @@ export async function mountShellPanel(mount) {
             }
 
             const streamParsed = extractProductivityInlineBlocks(body, conversationId);
+            const mergedFenceMeta = mergeProductivityMetaFromContent(
+                runMeta && typeof runMeta === 'object' ? runMeta : {},
+                streamParsed.meta,
+            );
+            const fenceOpts = {
+                conversationId,
+                assistantContent: body,
+                renderMarkdown: (el, text) => applyAssistantMarkdown(el, text),
+                messageId: Math.floor(Number(streamingMsgId ?? bubble?.dataset?.oaaoMsgId ?? 0)),
+                meta: mergedFenceMeta,
+                stripShellCtx: buildStripShellContext(
+                    uiMountForStream(mount, conversationId),
+                    conversationId,
+                ),
+            };
+
+            if (splitMarkdownByProductivityFences(body).some((seg) => seg.kind !== 'prose')) {
+                renderAssistantContentWithInlineFences(bubble, body, mergedFenceMeta, fenceOpts);
+                return;
+            }
+
             const displayBody = streamParsed.stripped || body;
 
             let html = '';
@@ -13722,7 +14048,11 @@ export async function mountShellPanel(mount) {
                 bubble.style.whiteSpace = 'pre-wrap';
                 bubble.textContent = displayBody;
             }
-            bubble.querySelector('[data-oaao-productivity-fence-host]')?.remove();
+            if (productivityMetaHasFencePreview(mergedFenceMeta, conversationId, body)) {
+                mountProductivityFenceMemos(bubble, mergedFenceMeta, fenceOpts);
+            } else {
+                bubble.querySelector('[data-oaao-productivity-fence-host]')?.remove();
+            }
         }
 
         function queueMdBubbleRender() {
@@ -13737,9 +14067,9 @@ export async function mountShellPanel(mount) {
                     return;
                 }
                 mdBubbleLastAt = now;
-                const pin = messagesPinnedToBottom(getChatScrollEl());
+                const pin = messagesPinnedToBottom(streamScrollEl());
                 flushMdBubbleNow();
-                if (pin) messagesScrollToBottom(getChatScrollEl());
+                if (pin) messagesScrollToBottom(streamScrollEl());
             });
         }
 
@@ -13806,9 +14136,9 @@ export async function mountShellPanel(mount) {
                               'Stream unavailable (service restarted). Use Retry on the message above.',
                           )
                         : `Could not open assistant stream (HTTP ${res.status}).${detail ? ` ${detail}` : ''}`;
-                    const pinErr = messagesPinnedToBottom(getChatScrollEl());
-                    messagesEl.append(line);
-                    if (pinErr) messagesScrollToBottom(getChatScrollEl());
+                    const pinErr = messagesPinnedToBottom(streamScrollEl());
+                    msgsHost.append(line);
+                    if (pinErr) messagesScrollToBottom(streamScrollEl());
                 }
 
                 return;
@@ -13841,7 +14171,7 @@ export async function mountShellPanel(mount) {
                         runStatusLabel = statusLabel;
                         runStatusLabelByConversation.set(conversationId, runStatusLabel);
                         if (isStreamConversationVisible() && streamingMsgId && streamingMsgId > 0) {
-                            showRunStatusForMessage(mount, streamingMsgId, runStatusLabel);
+                            showRunStatusForMessage(uiMountForStream(mount, conversationId), streamingMsgId, runStatusLabel);
                         }
                     }
                     if (phase === 'system' && kind === 'error') {
@@ -13859,7 +14189,7 @@ export async function mountShellPanel(mount) {
                                 typeof pCancel === 'object' &&
                                 Boolean(/** @type {Record<string, unknown>} */ (pCancel).cancelled));
                         if (cancelledRun) {
-                            markOaaoRunTasksCancelled(mount, conversationId);
+                            markOaaoRunTasksCancelled(uiMountForStream(mount, conversationId), conversationId);
                         }
                     }
                     if (phase === 'system' && kind === 'status' && text === 'llm_truncated') {
@@ -13932,8 +14262,7 @@ export async function mountShellPanel(mount) {
                     }
                     if (phase === 'ui' && kind === 'stage' && envelope.payload && typeof envelope.payload === 'object') {
                         if (streamingMsgId && streamingMsgId > 0) {
-                            applyUiStageEnvelope(
-                                mount,
+                            applyUiStageEnvelope(uiMountForStream(mount, conversationId),
                                 conversationId,
                                 streamingMsgId,
                                 /** @type {Record<string, unknown>} */ (envelope),
@@ -13949,7 +14278,7 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                        applyProductivityChipsFromRunMeta(uiMountForStream(mount, conversationId), conversationId, streamingMsgId, {
                             calendar_event_suggested: envelope.payload,
                         });
                     }
@@ -13962,7 +14291,7 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                        applyProductivityChipsFromRunMeta(uiMountForStream(mount, conversationId), conversationId, streamingMsgId, {
                             todo_item_suggested: envelope.payload,
                         });
                     }
@@ -13975,7 +14304,7 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                        applyProductivityChipsFromRunMeta(uiMountForStream(mount, conversationId), conversationId, streamingMsgId, {
                             todo_items_suggested: envelope.payload,
                         });
                     }
@@ -13988,7 +14317,7 @@ export async function mountShellPanel(mount) {
                         streamingMsgId &&
                         streamingMsgId > 0
                     ) {
-                        applyProductivityChipsFromRunMeta(mount, conversationId, streamingMsgId, {
+                        applyProductivityChipsFromRunMeta(uiMountForStream(mount, conversationId), conversationId, streamingMsgId, {
                             todo_resolve_suggested: envelope.payload,
                         });
                         if (isStreamConversationVisible()) {
@@ -14005,9 +14334,7 @@ export async function mountShellPanel(mount) {
                         streamingMsgId > 0
                     ) {
                         if (isStreamConversationVisible()) {
-                            applyProvisionalStreamScoresToDom(
-                                conversationId,
-                                mount,
+                            applyProvisionalStreamScoresToDom(conversationId, uiMountForStream(mount, conversationId),
                                 streamingMsgId,
                                 /** @type {Record<string, unknown>} */ (envelope.payload),
                             );
@@ -14048,11 +14375,11 @@ export async function mountShellPanel(mount) {
                             typeof pDelta === 'object' &&
                             Boolean(/** @type {Record<string, unknown>} */ (pDelta).replace_prior);
                         if (acc === '' && isStreamConversationVisible()) {
-                            showRunStatusForMessage(mount, streamingMsgId, 'Writing…');
+                            showRunStatusForMessage(uiMountForStream(mount, conversationId), streamingMsgId, 'Writing…');
                         }
                         acc = replacePrior ? text : acc + text;
                         if (acc.trim().length > 0 && isStreamConversationVisible()) {
-                            hideRunStatusForMessage(mount, streamingMsgId);
+                            hideRunStatusForMessage(uiMountForStream(mount, conversationId), streamingMsgId);
                         }
                         queueMdBubbleRender();
                         scheduleFlush();
@@ -14063,7 +14390,7 @@ export async function mountShellPanel(mount) {
                         extractTasksPayloadFromEnvelope(envelope)
                     ) {
                         try {
-                            applyStreamTaskPipelineEnvelope(mount, envelope, conversationId);
+                            applyStreamTaskPipelineEnvelope(uiMountForStream(mount, conversationId), envelope, conversationId);
                         } catch (taskErr) {
                             console.error('oaao task list merge failed', taskErr);
                         }
@@ -14090,7 +14417,7 @@ export async function mountShellPanel(mount) {
                             const planLbl = runStatusLabelByConversation.get(conversationId) || 'Planning…';
                             if (shouldShowRunStatusWhileStreaming(planLbl, acc)) {
                                 runStatusLabelByConversation.set(conversationId, planLbl);
-                                showRunStatusForMessage(mount, streamingMsgId, planLbl);
+                                showRunStatusForMessage(uiMountForStream(mount, conversationId), streamingMsgId, planLbl);
                             }
                         }
                     }
@@ -14107,8 +14434,7 @@ export async function mountShellPanel(mount) {
                         const fp = pipelineSnapshotFingerprint(pipeLive);
                         if (fp !== pipelineFpApplied) {
                             pipelineFpApplied = fp;
-                            const bubbleLive = resolveStreamingAssistantBubble(
-                                mount,
+                            const bubbleLive = resolveStreamingAssistantBubble(uiMountForStream(mount, conversationId),
                                 msgsHost,
                                 streamingMsgId,
                             );
@@ -14120,8 +14446,8 @@ export async function mountShellPanel(mount) {
                                     pipeLive,
                                     conversationId,
                                 );
-                                const pinMs = messagesPinnedToBottom(getChatScrollEl());
-                                if (pinMs) messagesScrollToBottom(getChatScrollEl());
+                                const pinMs = messagesPinnedToBottom(streamScrollEl());
+                                if (pinMs) messagesScrollToBottom(streamScrollEl());
                             }
                         }
                     }
@@ -14153,19 +14479,17 @@ export async function mountShellPanel(mount) {
                             hideActivityLog();
                         }
                         if (streamingMsgId && streamingMsgId > 0 && runMeta && isStreamConversationVisible()) {
-                            applyProvisionalStreamScoresToDom(
-                                conversationId,
-                                mount,
+                            applyProvisionalStreamScoresToDom(conversationId, uiMountForStream(mount, conversationId),
                                 streamingMsgId,
                                 runMeta,
                             );
                         }
-                        releaseChatStreamUiAfterRunEnd(mount, conversationId, streamingMsgId);
+                        releaseChatStreamUiAfterRunEnd(uiMountForStream(mount, conversationId), conversationId, streamingMsgId);
                         if (isStreamConversationVisible()) {
                             flushMdBubbleNow({ finalize: true });
                             if (!orchestratorOwnsPersist && streamingMsgId && streamingMsgId > 0) {
                                 void flushAssistant(
-                                    mergeMaterialsMetaIntoRunMetrics(runMeta, mount, conversationId),
+                                    mergeMaterialsMetaIntoRunMetrics(runMeta, uiMountForStream(mount, conversationId), conversationId),
                                 );
                             }
                         }
@@ -14238,9 +14562,9 @@ export async function mountShellPanel(mount) {
                     note.className = 'text-sm fg-[var(--grid-ink-muted)] self-start max-w-full min-w-0';
                     note.textContent =
                         'Stream closed without events (often a stale resume after the run already finished). Send again if the reply is missing.';
-                    const pinNote = messagesPinnedToBottom(getChatScrollEl());
-                    messagesEl.append(note);
-                    if (pinNote) messagesScrollToBottom(getChatScrollEl());
+                    const pinNote = messagesPinnedToBottom(streamScrollEl());
+                    msgsHost.append(note);
+                    if (pinNote) messagesScrollToBottom(streamScrollEl());
                 }
             }
         } catch (err) {
@@ -14252,9 +14576,9 @@ export async function mountShellPanel(mount) {
                     const line = document.createElement('p');
                     line.className = 'text-sm fg-red-6 self-start max-w-full min-w-0';
                     line.textContent = `(stream error) ${/** @type {Error} */ (err)?.message || String(err)}`;
-                    const pinSe = messagesPinnedToBottom(getChatScrollEl());
-                    messagesEl.append(line);
-                    if (pinSe) messagesScrollToBottom(getChatScrollEl());
+                    const pinSe = messagesPinnedToBottom(streamScrollEl());
+                    msgsHost.append(line);
+                    if (pinSe) messagesScrollToBottom(streamScrollEl());
                 }
             }
         } finally {
@@ -14263,14 +14587,14 @@ export async function mountShellPanel(mount) {
                 streamHandlesByConversation.delete(conversationId);
             }
             if (signal.aborted && !sawRunEnd && !pausedForAsk) {
-                markOaaoRunTasksCancelled(mount, conversationId);
+                markOaaoRunTasksCancelled(uiMountForStream(mount, conversationId), conversationId);
                 runMeta = finalizeRunMetaForPatch(runMeta, { cancelled: true });
             }
             if (activeConversationId === conversationId) {
                 syncComposerBusyForActiveView(mount);
             }
             if (streamingMsgId && streamingMsgId > 0) {
-                hideRunStatusForMessage(mount, streamingMsgId);
+                hideRunStatusForMessage(uiMountForStream(mount, conversationId), streamingMsgId);
             }
             runStatusLabelByConversation.delete(conversationId);
             if (isStreamConversationVisible()) {
@@ -14278,9 +14602,9 @@ export async function mountShellPanel(mount) {
                     clearActivityLog();
                     hideActivityLog();
                 }
-                const pinFlush = messagesPinnedToBottom(getChatScrollEl());
+                const pinFlush = messagesPinnedToBottom(streamScrollEl());
                 flushMdBubbleNow({ finalize: true });
-                if (pinFlush) messagesScrollToBottom(getChatScrollEl());
+                if (pinFlush) messagesScrollToBottom(streamScrollEl());
             }
             if (flushTimer) {
                 clearTimeout(flushTimer);
@@ -14297,7 +14621,7 @@ export async function mountShellPanel(mount) {
                     systemErrors.length > 0
                         ? systemErrors.join('\n')
                         : resolveAssistantDisplayText('', runMeta);
-                const bubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+                const bubble = resolveStreamingAssistantBubble(uiMountForStream(mount, conversationId), msgsHost, streamingMsgId);
                 if (bubble instanceof HTMLElement && acc) {
                     const { meta: fenceMeta } = mergeRunMetaWithInlineFences(runMeta, acc, conversationId);
                     renderAssistantBubbleMarkdown(bubble, acc, conversationId, fenceMeta);
@@ -14305,13 +14629,13 @@ export async function mountShellPanel(mount) {
             } else if (!acc.trim() && sawRunEnd) {
                 const fallback = resolveAssistantDisplayText('', runMeta);
                 if (fallback) acc = fallback;
-                const bubbleFb = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+                const bubbleFb = resolveStreamingAssistantBubble(uiMountForStream(mount, conversationId), msgsHost, streamingMsgId);
                 if (bubbleFb instanceof HTMLElement && acc.trim()) {
                     const { meta: fenceMeta } = mergeRunMetaWithInlineFences(runMeta, acc, conversationId);
                     renderAssistantBubbleMarkdown(bubbleFb, acc, conversationId, fenceMeta);
                 }
             }
-            await flushAssistant(mergeMaterialsMetaIntoRunMetrics(runMeta, mount, conversationId));
+            await flushAssistant(mergeMaterialsMetaIntoRunMetrics(runMeta, uiMountForStream(mount, conversationId), conversationId));
             persistOaaoTaskListStrip(mount, conversationId);
             let taskStateEnd = getOaaoTaskListStateForConversation(conversationId);
             if (taskStateEnd && taskStateEnd.items.size > 0) {
@@ -14345,17 +14669,17 @@ export async function mountShellPanel(mount) {
                 streamingMsgId > 0 &&
                 !conversationHasOpenRunTasks(conversationId)
             ) {
-                revealAssistantInfoAreaForTurn(mount, conversationId, streamingMsgId);
+                revealAssistantInfoAreaForTurn(streamUiMount(), conversationId, streamingMsgId);
             }
             if (!isStreamConversationVisible()) {
                 if (streamingMsgId && streamingMsgId > 0) {
-                    const bubbleOff = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+                    const bubbleOff = resolveStreamingAssistantBubble(streamUiMount(), msgsHost, streamingMsgId);
                     if (bubbleOff instanceof HTMLElement && acc.trim()) {
                         const { meta: fenceMeta } = mergeRunMetaWithInlineFences(runMeta, acc, conversationId);
                         renderAssistantBubbleMarkdown(bubbleOff, acc, conversationId, fenceMeta);
                     }
                     if (runMeta) {
-                        applyProductivityChipsWithFallback(mount, conversationId, streamingMsgId, runMeta, {
+                        applyProductivityChipsWithFallback(streamUiMount(), conversationId, streamingMsgId, runMeta, {
                             rawMarkdown: acc,
                         });
                     }
@@ -14363,7 +14687,7 @@ export async function mountShellPanel(mount) {
                 return;
             }
             if (streamingMsgId && streamingMsgId > 0 && msgsHost) {
-                const bubble = resolveStreamingAssistantBubble(mount, msgsHost, streamingMsgId);
+                const bubble = resolveStreamingAssistantBubble(uiMountForStream(mount, conversationId), msgsHost, streamingMsgId);
                 const outer = bubble?.closest('.oaao-chat-assistant-row');
                 if (!acc.trim() && bubble instanceof HTMLElement) {
                     const fromDom = readAssistantBubblePlainText(bubble);
@@ -14402,11 +14726,11 @@ export async function mountShellPanel(mount) {
                             );
                             refreshSidebarFromCache();
                         }
-                        applyProductivityChipsWithFallback(mount, conversationId, streamingMsgId, runMeta, {
+                        applyProductivityChipsWithFallback(streamUiMount(), conversationId, streamingMsgId, runMeta, {
                             rawMarkdown: acc,
                         });
                     }
-                    applyTurnScoresFromCacheToDom(conversationId, mount);
+                    applyTurnScoresFromCacheToDom(conversationId, streamUiMount());
                     if (acc.trim()) {
                         const { meta: fenceMeta } = mergeRunMetaWithInlineFences(runMeta, acc, conversationId);
                         renderAssistantBubbleMarkdown(bubble, acc, conversationId, fenceMeta);
@@ -14423,8 +14747,8 @@ export async function mountShellPanel(mount) {
                     registerPendingInfoMessage(conversationId, streamingMsgId);
                     scheduleProductivityInfoWorkerPoll(
                         conversationId,
-                        mount,
-                        buildProductivityInfoWorkerPollOpts(mount, conversationId, {
+                        streamUiMount(),
+                        buildProductivityInfoWorkerPollOpts(streamUiMount(), conversationId, {
                             assistantMessageId: streamingMsgId,
                         }),
                     );
@@ -14434,14 +14758,78 @@ export async function mountShellPanel(mount) {
                 registerPendingInfoMessage(conversationId, streamingMsgId);
                 scheduleProductivityInfoWorkerPoll(
                     conversationId,
-                    mount,
-                    buildProductivityInfoWorkerPollOpts(mount, conversationId, {
+                    streamUiMount(),
+                    buildProductivityInfoWorkerPollOpts(streamUiMount(), conversationId, {
                         assistantMessageId: streamingMsgId,
                     }),
                 );
                 queueTurnScoresRescoreBackground(conversationId);
             }
         }
+    }
+
+    /**
+     * Reload bubble thread — same render path as workspace chat, isolated row cache.
+     *
+     * @param {HTMLElement} bubbleMount
+     * @param {number} conversationId
+     * @param {HTMLElement} scrollEl
+     * @param {'auto' | 'bottom' | 'preserve'} [scrollMode]
+     */
+    async function loadMessagesForBubbleMount(
+        bubbleMount,
+        conversationId,
+        scrollEl,
+        scrollMode = 'bottom',
+    ) {
+        const cid = Math.floor(Number(conversationId));
+        if (cid < 1 || !(bubbleMount instanceof HTMLElement)) return [];
+
+        registerBubbleConversationMount(cid, bubbleMount, scrollEl);
+        const { res, data, parseError } = await chatFetchJson(chatMessagesApiUrl(cid));
+        if (!res.ok || !data?.success) {
+            renderMessages([], scrollMode, { conversationId: cid });
+            return [];
+        }
+
+        const rows = attachTurnScoresToMessageRows(
+            /** @type {Array<Record<string, unknown>>} */ (data.messages || []),
+            cid,
+        );
+        bubbleMessageRowsByConversation.set(cid, rows);
+        const renderPending = [];
+        renderMessages(rows, scrollMode, {
+            conversationId: cid,
+            deferScroll: true,
+            pendingTasks: renderPending,
+        });
+        if (renderPending.length) {
+            await Promise.allSettled(renderPending);
+        }
+
+        const lastAid = lastAssistantMessageIdForConversation(cid, rows);
+        if (lastAid != null && lastAid > 0) {
+            registerPendingInfoMessage(cid, lastAid);
+            ensureInfoWorkerPollScheduled(bubbleMount, cid, lastAid);
+            if (assistantBubbleHasVisibleMessageBody(bubbleMount, lastAid)) {
+                revealAssistantInfoAreaForTurn(bubbleMount, cid, lastAid);
+            }
+        }
+
+        if (scrollEl instanceof HTMLElement) {
+            scrollEl.scrollTop = scrollEl.scrollHeight;
+        }
+
+        return rows;
+    }
+
+    if (bubbleBridgeOnly) {
+        chatPanelBridge = {
+            consumeAssistantStream,
+            appendSendTurnToCachedMessages,
+            loadMessagesForBubbleMount,
+        };
+        return;
     }
 
     async function resumeStreamIfAny(conversationId) {
@@ -14910,14 +15298,28 @@ export async function mountShellPanel(mount) {
     /**
      * @param {Array<{ id?: number, role?: string, content?: string, feedback?: string }>} rows
      * @param {'auto' | 'bottom' | 'preserve'} scrollMode
-     * @param {{ deferScroll?: boolean, pendingTasks?: Promise<unknown>[] }} [opts]
+     * @param {{ deferScroll?: boolean, pendingTasks?: Promise<unknown>[], conversationId?: number }} [opts]
      */
     function renderMessages(rows, scrollMode = 'auto', opts = {}) {
         const deferScroll = opts.deferScroll === true;
         const pendingTasks = Array.isArray(opts.pendingTasks) ? opts.pendingTasks : null;
-        const cid = activeConversationId;
+        const renderCid =
+            typeof opts.conversationId === 'number' && opts.conversationId > 0
+                ? Math.floor(opts.conversationId)
+                : activeConversationId;
+        const targetMount =
+            renderCid != null && renderCid > 0
+                ? resolveMountForConversation(mount, renderCid)
+                : mount;
+        const renderMsgsEl =
+            targetMount.querySelector('[data-oaao-chat="messages"]') ?? messagesEl;
+        const renderScrollEl = () =>
+            renderCid != null && renderCid > 0
+                ? resolveScrollElForConversation(renderCid, getChatScrollEl())
+                : getChatScrollEl();
+        const cid = renderCid;
         const preserveScroll = scrollMode === 'preserve';
-        const scrollEl = getChatScrollEl();
+        const scrollEl = renderScrollEl();
         const prevHeight = preserveScroll && scrollEl instanceof HTMLElement ? scrollEl.scrollHeight : 0;
         const prevTop = preserveScroll && scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
         const pinnedBefore =
@@ -14928,26 +15330,26 @@ export async function mountShellPanel(mount) {
             scrollEl instanceof HTMLElement
                 ? messagesPinnedToBottom(scrollEl)
                 : false;
-        messagesEl.textContent = '';
+        renderMsgsEl.textContent = '';
         if (!cid || cid < 1) {
             const hint = document.createElement('p');
             hint.className = 'text-sm fg-[var(--grid-ink-muted)]';
             hint.textContent = 'Select or start a conversation.';
-            messagesEl.append(hint);
+            renderMsgsEl.append(hint);
 
             return;
         }
 
         if (!Array.isArray(rows) || rows.length === 0) {
-            if (shouldUseChatLandingLayout()) {
-                getChatScrollEl().scrollTop = 0;
+            if (shouldUseChatLandingLayout() && !isBubbleConversation(cid)) {
+                renderScrollEl().scrollTop = 0;
                 return;
             }
             const hint = document.createElement('p');
             hint.className = 'text-sm fg-[var(--grid-ink-muted)]';
             hint.textContent = 'No messages yet — send something below.';
-            messagesEl.append(hint);
-            getChatScrollEl().scrollTop = 0;
+            renderMsgsEl.append(hint);
+            renderScrollEl().scrollTop = 0;
 
             return;
         }
@@ -15068,7 +15470,7 @@ export async function mountShellPanel(mount) {
                     normalizeHandoffMarkdownForRender(contentText),
                 );
                 handoffWrap.append(handoffLabel, handoffBody);
-                messagesEl.append(handoffWrap);
+                renderMsgsEl.append(handoffWrap);
                 return;
             }
 
@@ -15163,7 +15565,7 @@ export async function mountShellPanel(mount) {
                     }
                 }
 
-                messagesEl.append(stack);
+                renderMsgsEl.append(stack);
 
                 return;
             }
@@ -15247,7 +15649,6 @@ export async function mountShellPanel(mount) {
             }
 
             applyAssistantIdentityHeader(outer, metaObj);
-            ensureAssistantAreaHosts(outer);
             const tasksMeta = metaObj?.tasks;
             if (
                 tasksMeta &&
@@ -15280,6 +15681,7 @@ export async function mountShellPanel(mount) {
                 }
             }
             outer.append(bubble);
+            ensureAssistantAreaHosts(outer);
             const pipeStored = normalizePipelineFromMeta(
                 metaRaw && typeof metaRaw === 'object' ? /** @type {Record<string, unknown>} */ (metaRaw) : null,
             );
@@ -15321,7 +15723,7 @@ export async function mountShellPanel(mount) {
             }
             outer.append(toolbar);
             reorderAssistantRowAreas(outer);
-            messagesEl.append(outer);
+            renderMsgsEl.append(outer);
             if (
                 mid !== null &&
                 cid &&
@@ -15334,7 +15736,7 @@ export async function mountShellPanel(mount) {
                 );
                 hydrateStripResolvedFromMeta(metaForStrip, cid, mid);
                 if (productivityMetaHasStripChips(metaForStrip)) {
-                    applyProductivityChipsFromRunMeta(mount, cid, mid, metaForStrip);
+                    applyProductivityChipsFromRunMeta(targetMount, cid, mid, metaForStrip);
                 }
                 const rowAfterStrip = getAssistantRowForMessage(mount, mid);
                 if (rowAfterStrip instanceof HTMLElement) {
@@ -15349,10 +15751,10 @@ export async function mountShellPanel(mount) {
                     'chat.messages.render_row_failed',
                     'A message could not be displayed.',
                 );
-                messagesEl.append(errP);
+                renderMsgsEl.append(errP);
             }
         });
-        flushPendingProductivityChips(mount, activeConversationId ?? 0);
+        flushPendingProductivityChips(targetMount, cid ?? 0);
         if (
             !deferScroll &&
             (scrollMode === 'bottom' || (scrollMode === 'auto' && pinnedBefore))
@@ -16060,6 +16462,12 @@ export async function mountShellPanel(mount) {
     if (!activeConversationId) {
         void maybeReplayPipelineFixture(mount, messagesEl);
     }
+
+    chatPanelBridge = {
+        consumeAssistantStream,
+        appendSendTurnToCachedMessages,
+        loadMessagesForBubbleMount,
+    };
 }
 
 /** Bubble Chat / isolated composer — sync {@link #activeConversationId} before send. */

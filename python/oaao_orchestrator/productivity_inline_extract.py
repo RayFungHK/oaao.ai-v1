@@ -2,7 +2,10 @@
 
 Only parses the machine contract fences (``oaao-calendar`` / ``oaao-todo``). Locale headings,
 generic ``json`` blocks, and field aliases are not handled here — the main chat LLM is
-instructed via ``productivity_context``; post-turn classifiers fill gaps when fences are absent.
+instructed via ``module_prompts.compose_assistant`` at compose time.
+
+Fence JSON is the action payload: extract → agent smoke test → inline Confirm/Dismiss.
+Post-turn classifiers fill gaps when fences are absent or fail validation.
 """
 
 from __future__ import annotations

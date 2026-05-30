@@ -237,9 +237,7 @@ final class StorageMigrationRepository
             return [];
         }
 
-        require_once dirname(__DIR__, 3) . '/slide-designer/default/controller/api/_ensure_slide_project_schema.php';
         require_once dirname(__DIR__, 3) . '/slide-designer/default/library/SlideProjectStorage.php';
-        oaao_slide_designer_ensure_schema($adj);
 
         $inUsers = self::sqlInPlaceholders($userIds);
 
@@ -314,9 +312,6 @@ final class StorageMigrationRepository
         if ($userIds === []) {
             return [];
         }
-
-        require_once dirname(__DIR__, 3) . '/chat/default/controller/api/_ensure_conversation_attachment_schema.php';
-        oaao_chat_ensure_conversation_attachment_schema($adj);
 
         require_once dirname(__DIR__, 3) . '/chat/default/library/ChatAttachmentStorage.php';
 
@@ -401,9 +396,6 @@ final class StorageMigrationRepository
         if ($userIds === []) {
             return [];
         }
-
-        require_once dirname(__DIR__, 3) . '/chat/default/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($adj);
 
         $inUsers = self::sqlInPlaceholders($userIds);
 

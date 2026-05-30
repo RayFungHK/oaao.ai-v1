@@ -51,8 +51,7 @@ return function (): void {
     }
 
     if ($pdo instanceof \PDO && $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql') {
-        require_once __DIR__ . '/../../../../auth/default/controller/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_core_tables($db);
+        $this->api('auth')->ensurePgCoreTables($db);
     }
 
     $repo = new CanonicalEndpointsRepository($db, $this->api('core'));

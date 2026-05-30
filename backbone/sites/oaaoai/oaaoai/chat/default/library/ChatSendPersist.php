@@ -230,8 +230,6 @@ final class ChatSendPersist
         /** @var list<array<string, mixed>> $attRows */
         $attRows = [];
         if ($attachmentIds !== []) {
-            require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_attachment_schema.php';
-            oaao_chat_ensure_conversation_attachment_schema($pdo);
             ChatAttachmentStorage::claimDraftAttachments($splitDb, $uid, (int) $conversationId, $attachmentIds);
             $attRows = ChatAttachmentStorage::loadRowsForIds($splitDb, (int) $conversationId, $uid, $attachmentIds);
         }

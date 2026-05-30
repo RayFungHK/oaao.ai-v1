@@ -305,6 +305,19 @@ final class ChatSendRunStarter
         $streamUrl = null;
         $runId = null;
         $streamToken = null;
+        $promptDebug = ChatOrchestratorPromptDebug::fromPayload($payload, null);
+        if ($started !== null) {
+            $runId = $started['run_id'];
+            $promptDebug = ChatOrchestratorPromptDebug::fromPayload($payload, $runId);
+        }
+        if ($promptDebug !== []) {
+            ChatMessageMetaMerge::patchAssistant(
+                $splitDb,
+                $conversationId,
+                $asstMsgId,
+                ['orchestrator_prompt_debug' => $promptDebug],
+            );
+        }
         if ($started === null) {
             $failStub = '*(Sidecar)* Could not start stream — check OAAO_ORCHESTRATOR_INTERNAL_URL and that the orchestrator is running.';
             $splitDb->update('message', ['content'])
@@ -317,7 +330,6 @@ final class ChatSendRunStarter
                 ->query();
             $assistantOut = $failStub;
         } elseif ($publicBase !== '') {
-            $runId = $started['run_id'];
             $streamToken = $started['stream_token'];
             $streamUrl = OrchestratorPublicBase::buildStreamUrl($publicBase, [
                 'run_id' => $runId,

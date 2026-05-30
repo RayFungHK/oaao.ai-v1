@@ -90,8 +90,6 @@ final class SlideProjectMaterial
         int $userId,
         int $limit = 12,
     ): array {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_slide_project_schema.php';
-        oaao_slide_designer_ensure_schema($pdo);
 
         $stmt = $pdo->prepare(
             'SELECT project_id, title, slide_count, status, meta_json, updated_at

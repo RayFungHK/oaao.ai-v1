@@ -24,8 +24,7 @@ return function (): void {
         return;
     }
 
-    require_once __DIR__ . '/../../../../auth/default/controller/api/_ensure_pg_core_tables.php';
-    oaao_auth_ensure_pg_core_tables($db);
+    $this->api('auth')->ensurePgCoreTables($db);
 
     try {
         $repo = new CanonicalEndpointsRepository($db, $this->api('core'));

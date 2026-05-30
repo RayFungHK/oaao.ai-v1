@@ -33,9 +33,6 @@ final class KnowledgePlatformVaultProvisioner
             ];
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_core_tables($db);
-
         $platformTenant = self::resolvePlatformTenant($pdo);
         if ($platformTenant === null) {
             return [

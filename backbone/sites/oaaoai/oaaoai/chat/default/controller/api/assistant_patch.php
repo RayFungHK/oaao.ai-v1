@@ -18,6 +18,8 @@ return function (): void {
         return;
     }
 
+    $this->ensureConversationMaterialSchema($pdo);
+
     $uid = (int) ($user->user_id ?? 0);
     if ($uid < 1) {
         http_response_code(401);

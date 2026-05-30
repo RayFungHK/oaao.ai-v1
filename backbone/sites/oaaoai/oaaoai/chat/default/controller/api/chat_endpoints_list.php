@@ -13,8 +13,7 @@ return function (): void {
         return;
     }
 
-    require_once __DIR__ . '/_ensure_chat_profile_tables.php';
-    oaao_chat_ensure_profile_tables($db);
+    $this->ensureChatProfileTables($db);
 
     try {
         $repo = new ChatEndpointsRepository($db, $this->api('core'));

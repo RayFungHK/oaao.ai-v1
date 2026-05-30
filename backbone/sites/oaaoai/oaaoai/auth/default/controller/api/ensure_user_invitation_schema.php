@@ -2,13 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * Tenant user invitation + password reset tokens (EPIC-PLAT-2).
- *
- * Idempotent PostgreSQL DDL — call from {@see oaao_auth_ensure_pg_extension_schemas}.
- */
-function oaao_auth_ensure_user_invitation_schema(\PDO $pdo): void
-{
+/** Tenant invitations + password reset tokens ({@see auth} {@code ensureUserInvitationSchema}). */
+return function (\PDO $pdo): void {
     if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
         return;
     }
@@ -54,4 +49,4 @@ function oaao_auth_ensure_user_invitation_schema(\PDO $pdo): void
     $pdo->exec(
         'CREATE INDEX IF NOT EXISTS idx_oaao_password_reset_user_status ON oaao_password_reset(user_id, status)',
     );
-}
+};

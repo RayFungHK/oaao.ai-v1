@@ -455,12 +455,6 @@ function oaao_auth_upgrade_sqlite_core_schema(\PDO $pdo): void
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_oaao_group_member_user ON oaao_group_member(user_id)');
     } catch (\Throwable $_) {
     }
-
-    try {
-        require_once __DIR__ . '/_ensure_permission_group_schema.php';
-        oaao_auth_ensure_permission_group_schema($pdo);
-    } catch (\Throwable $_) {
-    }
 }
 
 function oaao_auth_seed_sqlite_migration_rows(\PDO $pdo): void

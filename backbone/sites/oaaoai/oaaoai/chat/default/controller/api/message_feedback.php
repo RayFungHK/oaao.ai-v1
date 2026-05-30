@@ -161,8 +161,7 @@ function oaao_chat_apply_downvote_model_tune(\PDO $pdo, int $userId, int $messag
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-    oaao_auth_ensure_credit_schema($pdo);
+    $this->api('auth')->ensureCreditSchema($pdo);
 
     $stmt = $pdo->prepare('SELECT preferences_json FROM oaao_user WHERE user_id = ? LIMIT 1');
     $stmt->execute([$userId]);
@@ -221,8 +220,7 @@ function oaao_chat_apply_feedback_judge(
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-    oaao_auth_ensure_credit_schema($pdo);
+    $this->api('auth')->ensureCreditSchema($pdo);
 
     $stmt = $pdo->prepare('SELECT preferences_json FROM oaao_user WHERE user_id = ? LIMIT 1');
     $stmt->execute([$userId]);

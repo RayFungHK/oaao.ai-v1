@@ -5,6 +5,7 @@
 
 | Topic | Document |
 |-------|----------|
+| Razy closure API / `#` / schema ensure | [razy-closure-api-bind.md](./razy-closure-api-bind.md) |
 | Module boundaries & sprint backlog | [sprint-module-boundary-charter.md](./sprint-module-boundary-charter.md) |
 | PHP send hook phases | [chat-send-pipeline.md](./chat-send-pipeline.md) |
 | Boot registries & per-module inventory | [module-hooks-registry.md](./module-hooks-registry.md) |
@@ -21,7 +22,7 @@ The chat surface is a **pipeline product**, not a monolith controller. Modulariz
 2. **PHP plans once per send** — a single `ChatRunRequest` JSON is the work sheet. Python must not call back to PHP for MDM mid-run (`php_boundary.py`).
 3. **UI consumes footprints, not text** — the SPA mounts module chrome in **fixed areas** (`task`, `message`, `agent`, `info`, `state`, `strip`) driven by SSE + `meta_json`, never client-side regex on assistant prose.
 4. **Registries scale without editing `send.php`** — new modules emit `{hook}.register` at boot and `chat.send.{phase}` at send time.
-5. **Async work is explicit** — IQS/ACCS and productivity (calendar/todo) run **after** `system/end`, matching user expectation that chips and scores appear when the reply is already readable.
+5. **Async work is explicit** — IQS/ACCS and productivity (calendar/todo) are **queued jobs after compose** (`system/end`). UI polls `info_worker` for status; output may land in **`[info]`**, **`[strip]`**, or both — not blocking the message stream.
 
 **Anti-goals:** cross-module `require`, foreign SQL, inline classifiers in finalize, ad-hoc divs in `chat-panel.js` for one module.
 
@@ -77,7 +78,8 @@ gate → prepare → message → scope → persist → conversation_settle
 | `agent_catalog` | `PlannerAgentRegister::catalogForAllowed()` | Planner hints for dispatchable agents |
 | `planner_intent_catalog` | `PlannerAgentRegister::catalogForIntentHints()` | Calendar/todo intent hints — **not** runnable tasks |
 | `planner_prompt_block` | `PlannerPromptRegister` (P1) | Numbered planner injection lines |
-| `post_turn_actions[]` | `PostTurnActionRegister::forOrchestrator()` | Async workers after `system/end` |
+| **`module_prompts`** | **`ModulePromptPayload::build()`** | **`planner` / `compose_assistant` / `after_turn` — PHP-owned; Python renders templates** |
+| `post_turn_actions[]` | `PostTurnActionRegister::forOrchestrator()` | Async **fallback** workers after `system/end` |
 | `open_todo_items` | `api('todo')->openItemsForConversation()` | Todo resolve classifier context |
 | vault scope | `api('vault')->scope*` / `VaultSendOrchestratorPayload` | RAG profiles, document catalog |
 
@@ -89,10 +91,11 @@ After PHP POSTs the run, Python streams phases in **product order**. The UI maps
 |:------------:|-----------------|-----------|-------|
 | 1 | `task` start/status/end | **`task`** | Planner checklist, agent ask |
 | 2 | `agent` / `rag` / … progress | **`agent`** | Pipeline blocks (`chat_pipeline.register`) |
-| 3 | `llm` delta | **`message`** | Assistant markdown body |
-| 4 | `system` run_end / metrics | **`state`** | tok/s, duration (also `ui_stage` target) |
-| 5 | post_stream_worker | **`info`** | IQS / ACCS pills |
-| 6 | post_turn_action_worker | **`strip`** | Calendar/todo chips (+ `ui_stage strip`) |
+| 3 | `llm` delta | **`message`** | Assistant markdown + **section-adjacent** `oaao-calendar` / `oaao-todo` fences (compose order) |
+| 3b | fence extract + smoke test | **inline fence UI** | **Primary** Confirm/Dismiss — JSON is action payload |
+| 4 | `system` run_end / metrics | **`state`** | tok/s — compose done; **queue** background jobs |
+| 5 | post_stream_worker (queued) | **`info`** | IQS / ACCS — **`info_worker` poll** |
+| 6 | post_turn_action_worker (queued) | **`info`** + **`strip`** | Cal/Todo pending pills + optional strip chips — **`info_worker` poll** |
 
 **`ui_stage` (canonical, migrating):** `phase=ui`, `kind=stage`, `payload.area ∈ {strip, info, state}`.  
 Router: `applyUiStageEnvelope()` in `chat-panel.js`.  
@@ -108,13 +111,13 @@ Legacy **`system/status`** events (`calendar_event_suggested`, turn-score poll) 
 |--------|:-----------:|:-------------------------:|----------------|---------|----------------|
 | **Chat** | — | — | all phases | `message`, shell | hosts registries |
 | **Planner** | dispatches | — | `agents` | `task` | `planner_agent`, `pa-planning` |
-| **Calendar** | **No** (`intent_only`) | **Yes** | — | **`strip`** | `planner_agent`, `post_turn_action`, `pa-productivity-calendar` |
-| **Todo** | **No** (`intent_only`) | **Yes** | personalize via API | **`strip`** | `planner_agent`, `post_turn_action`, `pa-productivity-todo` |
+| **Calendar** | **No** (`intent_only`) | **Yes** (queued) | personalize | **fence** + `[info]` poll + `[strip]` | `post_turn_action`, `info_worker`, `compose_prompt` |
+| **Todo** | **No** (`intent_only`) | **Yes** (queued) | personalize | **fence** + `[info]` poll + `[strip]` | `post_turn_action`, `info_worker`, `compose_prompt` |
 | **Slide designer** | **Yes** | No | prepare, orch | **`agent`** | `planner_agent`, `chat_pipeline` |
 | **Vault** | via `vault_rag` | No | prepare, orch | **`agent`** | vault hooks, `chat_pipeline` |
 | **Web search** | **No** (prepare flag) | No | `prepare` | composer | `enable_web_search` |
 | **Office** | task action only | No | TBD corpus listener | `agent` / task | `office_generate` |
-| **IQS/ACCS** | No | Yes | — | **`info`** | `uiqe.*` purpose |
+| **IQS/ACCS** | No | Yes (queued) | — | **`info`** | `info_worker` (`turn_scores`) |
 | **Skills** | No | post-stream | — | **`strip`** / composer | micro_skill |
 
 Full charter: [sprint-module-boundary-charter.md §2](./sprint-module-boundary-charter.md#2-module-interaction-matrix-target).

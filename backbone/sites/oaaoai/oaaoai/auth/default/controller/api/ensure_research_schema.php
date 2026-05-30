@@ -3,10 +3,58 @@
 declare(strict_types=1);
 
 /**
- * Idempotent PostgreSQL DDL for Article Research watches / sources / runs.
+ * Add columns to existing deployments (CREATE TABLE IF NOT EXISTS does not alter old tables).
  */
-function oaao_auth_ensure_research_schema(\PDO $pdo): void
+function oaao_auth_ensure_research_watch_columns(\PDO $pdo): void
 {
+    $alters = [
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS config_json TEXT DEFAULT NULL',
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMPTZ DEFAULT NULL',
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS interval_minutes INTEGER DEFAULT NULL',
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS schedule_start_time TEXT DEFAULT \'09:00\'',
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS schedule_timezone TEXT DEFAULT \'UTC\'',
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ DEFAULT NULL',
+        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NULL',
+    ];
+
+    foreach ($alters as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (\Throwable) {
+        }
+    }
+
+    $itemAlters = [
+        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS match_confidence REAL DEFAULT NULL',
+        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS match_reason TEXT DEFAULT NULL',
+        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS match_hit SMALLINT DEFAULT NULL',
+        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS needs_refetch SMALLINT NOT NULL DEFAULT 0',
+        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS refetch_error TEXT DEFAULT NULL',
+        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS refetch_started_at TIMESTAMPTZ DEFAULT NULL',
+    ];
+    foreach ($itemAlters as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (\Throwable) {
+        }
+    }
+
+    try {
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_oaao_research_item_refetch
+            ON oaao_research_item(watch_id, needs_refetch)
+            WHERE needs_refetch IN (1, 2)');
+    } catch (\Throwable) {
+    }
+
+    try {
+        $pdo->exec('UPDATE oaao_research_watch SET schedule_start_time = \'09:00\' WHERE schedule_start_time IS NULL');
+        $pdo->exec('UPDATE oaao_research_watch SET schedule_timezone = \'UTC\' WHERE schedule_timezone IS NULL');
+    } catch (\Throwable) {
+    }
+}
+
+/** Article Research watches / sources / runs ({@see auth} {@code ensureResearchSchema}). */
+return function (\PDO $pdo): void {
     $pdo->exec('CREATE TABLE IF NOT EXISTS oaao_research_watch (
         watch_id BIGSERIAL PRIMARY KEY,
         tenant_id BIGINT NOT NULL DEFAULT 1,
@@ -96,57 +144,5 @@ function oaao_auth_ensure_research_schema(\PDO $pdo): void
             ON oaao_research_fetch_job(status, created_at)
             WHERE status IN (\'queued\', \'running\')');
     } catch (\Throwable) {
-        // Best-effort — queue table added after core watch CRUD; do not block schedule columns.
     }
-}
-
-/**
- * Add columns to existing deployments (CREATE TABLE IF NOT EXISTS does not alter old tables).
- */
-function oaao_auth_ensure_research_watch_columns(\PDO $pdo): void
-{
-    $alters = [
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS config_json TEXT DEFAULT NULL',
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMPTZ DEFAULT NULL',
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS interval_minutes INTEGER DEFAULT NULL',
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS schedule_start_time TEXT DEFAULT \'09:00\'',
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS schedule_timezone TEXT DEFAULT \'UTC\'',
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ DEFAULT NULL',
-        'ALTER TABLE oaao_research_watch ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NULL',
-    ];
-
-    foreach ($alters as $sql) {
-        try {
-            $pdo->exec($sql);
-        } catch (\Throwable) {
-        }
-    }
-
-    $itemAlters = [
-        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS match_confidence REAL DEFAULT NULL',
-        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS match_reason TEXT DEFAULT NULL',
-        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS match_hit SMALLINT DEFAULT NULL',
-        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS needs_refetch SMALLINT NOT NULL DEFAULT 0',
-        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS refetch_error TEXT DEFAULT NULL',
-        'ALTER TABLE oaao_research_item ADD COLUMN IF NOT EXISTS refetch_started_at TIMESTAMPTZ DEFAULT NULL',
-    ];
-    foreach ($itemAlters as $sql) {
-        try {
-            $pdo->exec($sql);
-        } catch (\Throwable) {
-        }
-    }
-
-    try {
-        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_oaao_research_item_refetch
-            ON oaao_research_item(watch_id, needs_refetch)
-            WHERE needs_refetch IN (1, 2)');
-    } catch (\Throwable) {
-    }
-
-    try {
-        $pdo->exec('UPDATE oaao_research_watch SET schedule_start_time = \'09:00\' WHERE schedule_start_time IS NULL');
-        $pdo->exec('UPDATE oaao_research_watch SET schedule_timezone = \'UTC\' WHERE schedule_timezone IS NULL');
-    } catch (\Throwable) {
-    }
-}
+};

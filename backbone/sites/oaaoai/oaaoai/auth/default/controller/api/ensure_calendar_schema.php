@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * CS-5-S2 — Calendar events (PostgreSQL).
- */
-function oaao_auth_ensure_calendar_schema(\PDO $pdo): void
-{
+/** CS-5-S2 — Calendar events (PostgreSQL). {@see auth} {@code ensureCalendarSchema} API command. */
+return function (\PDO $pdo): void {
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS oaao_calendar_event (
             event_id BIGSERIAL PRIMARY KEY,
@@ -31,4 +28,4 @@ function oaao_auth_ensure_calendar_schema(\PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_oaao_calendar_event_scope
          ON oaao_calendar_event (tenant_id, workspace_id, start_at)',
     );
-}
+};

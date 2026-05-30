@@ -5,40 +5,73 @@
 
 ## Roles
 
-| Agent | Entry | Stream event | Persist API |
-|-------|--------|--------------|-------------|
-| **Calendar** | Icon rail `workspace/calendar` | `calendar_event_suggested` | `POST /calendar/api/calendar_events_save` |
-| **Todo** | Header todos panel | `todo_item_suggested`, `todo_items_suggested`, `todo_resolve_suggested` | `POST /todo/api/todos_save`, `todos_resolve` |
+| Agent | Entry | Compose attach | Queued after compose | Persist API |
+|-------|--------|----------------|----------------------|-------------|
+| **Calendar** | Icon rail `workspace/calendar` | **`oaao-calendar` fence** | `[info]` poll + optional `[strip]` | `POST /calendar/api/calendar_events_save` |
+| **Todo** | Header todos panel | **`oaao-todo` fence** | `[info]` poll + optional `[strip]` | `POST /todo/api/todos_save`, `todos_resolve` |
 
-PHP only enqueues and persists; extraction runs in **Python** via registry-driven post-turn workers (not inline regex in finalize).
+PHP enqueues background jobs on send; compose fences extracted from stream; **`GET /chat/api/info_worker`** polls worker status (same pattern as IQS).
+
+---
+
+## Action-in-compose (primary — CS-5 / CS-6)
+
+Calendar/Todo actions are **parameters the main compose LLM emits during inference**, wrapped as fence blocks — not separate mid-run agent tasks.
+
+1. User asks to schedule / track todos in natural language.
+2. PHP injects `module_prompts.compose_assistant` — **calendar** / **todo** modules each register `content` (minimal English + agent JSON schema).
+3. Main LLM writes readable sections; each committed action gets a fence **directly under its section** (行程 → `oaao-calendar`, 待辦 → `oaao-todo`; tips may follow without fences).
+4. **`productivity_inline_extract`** parses all fences from the assistant body (any position, document order).
+5. **Agent smoke test** validates JSON (required fields, schema, `min_confidence`) — same payload shape as strip / save APIs.
+6. **Pass → inline fence UI** — Confirm / Dismiss on the fence block; Confirm posts fence JSON to module save API.
+7. **`system/end`** queues post-turn jobs (Layer 3) — same as IQS; **`info_worker`** poll drives `[info]` pending + optional `[strip]`.
+
+Fence JSON **is** the action — not a preview that needs a second LLM pass when valid.
 
 ---
 
 ## Three-layer hook model (target architecture)
 
-Productivity must follow the same modular pattern as planner agents and IQS/ACCS — **no hardcoded regex classifiers in Python or JS**.
+Productivity follows the modular send + stream pipeline — **compose fence first**, post-turn classifier second.
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Planner as Task planner (planning.primary)
-    participant Intent as planning.intent hook
+    participant PHP as PHP send (module_prompts)
+    participant Compose as llm_stream compose
     participant Stream as LLM stream
+    participant Extract as productivity_inline_extract
+    participant Smoke as agent smoke test
+    participant FenceUI as inline fence Confirm/Dismiss
     participant End as system/end
     participant Worker as post_turn_action worker
-    participant UI as chat-panel.js
+    participant Strip as [strip] optional
 
-    User->>Intent: user turn
-    Note over Intent: planner_agent.register hints<br/>(calendar_schedule, todo_extract)
-    Intent->>Planner: agent scores + ask/agent mode
-    Planner->>Stream: task plan (optional agent tasks)
-    Stream->>End: assistant text (non-blocking)
-    End->>UI: run_end (IQS provisional, no productivity yet)
-    End->>Worker: schedule_post_turn_productivity_actions
-    Worker->>Worker: LLM JSON via template_ref + purpose slot
-    Worker->>UI: ui_stage strip (+ legacy SSE status)
-    UI->>UI: mountProductivityChip → [strip] area
+    User->>PHP: POST send
+    PHP->>Compose: module_prompts.compose_assistant
+    Compose->>Stream: main LLM (+ vault/web context)
+    Stream->>Extract: assistant text + oaao-* fences
+    Extract->>Smoke: per-fence JSON
+    alt smoke pass
+        Smoke->>FenceUI: mount Confirm/Dismiss on fence
+        Note over FenceUI: save API uses fence JSON directly
+    end
+    Stream->>End: system/end (compose complete)
+    End->>Worker: queue post_turn_actions (background, like IQS)
+    Worker->>Worker: LLM via module_prompts.after_turn
+    Worker->>Info: meta scanning → scanned
+    Note over Info: GET info_worker poll
+    Worker->>Strip: optional ui_stage strip items
 ```
+
+### Layer 0 — Compose fence (`module_prompts.compose_assistant`)
+
+| Piece | Location |
+|-------|----------|
+| PHP registry | `ComposePromptRegister` + `CalendarComposePrompt` / `TodoComposePrompt` |
+| Python inject | `inject_compose_response_fences()` — concatenates slot `content`, one-line fluency prefix |
+| Extract | `productivity_inline_extract.py` |
+| UI | `productivity-inline-blocks.js` — Confirm/Dismiss on fence |
 
 ### Layer 1 — Planner intent (`planner_agent.register` + `intent_only`)
 
@@ -62,31 +95,47 @@ When intent/planner confidence is high enough:
 
 Productivity chips are **not** produced here; this layer only decides whether dedicated agent work runs inside the pipeline.
 
-### Layer 3 — Finalize async attach (`post_turn_action.register`)
+### Layer 3 — Post-turn queued jobs (`post_turn_action.register` + `info_worker.register`)
 
-After `system/end` (same lifecycle as IQS/ACCS in `post_stream_worker`):
+After **`system/end`** (compose stream finished), productivity classifiers are **queued background jobs** — same non-blocking pattern as IQS (`post_stream_worker`):
+
+| Piece | Role |
+|-------|------|
+| `post_turn_action_worker.py` | Dispatches registry rows; persists meta; optional `ui_stage strip` |
+| `module_prompts.after_turn` | PHP-owned classifier prompts (template_ref + variables) |
+| `info_worker.register` | Declares `[info]` pill_kind + meta keys for poll |
+| `GET /chat/api/info_worker` | Browser poll — pending → scanned; includes strip items when ready |
+
+**Surfaces (not mutually exclusive):**
+
+- **`[info]`** — Cal/Todo pending pill while `post_turn_productivity_scanning`; updates when worker completes.
+- **`[strip]`** — confirmation chips when worker attaches action meta / emits strip items.
+- **Inline fence** (Layer 0) — compose-time JSON; may satisfy confirm without waiting for queue.
+
+Gap-fill: when compose omitted valid fences, the queued classifier is the primary source of action JSON for strip/info.
 
 | Registry hook | Registry class | Python dispatcher |
 |---------------|----------------|-------------------|
 | `post_turn_action.register` | `PostTurnActionRegister` | `evaluation/post_turn_action_worker.py` |
+| `info_worker.register` | `InfoWorkerRegister` | (poll only — `ChatInfoWorker::buildPayload`) |
 
-Each row declares:
+Each `post_turn_action` row declares:
 
 | Field | Example | Purpose |
 |-------|---------|---------|
 | `action_id` | `calendar_event_suggested` | Meta key + worker dispatch id |
-| `purpose_key_prefix` | `productivity.calendar` | Settings LLM slot (future: dedicated purpose row) |
-| `template_ref` | `materials/prompts/productivity/calendar_event_post_turn.md` | Command template — **no inline regex** |
-| `sse_event` | `calendar_event_suggested` | Late SSE status for open streams |
+| `purpose_key_prefix` | `productivity.calendar` | Settings LLM slot |
+| `template_ref` | `materials/prompts/productivity/calendar_event_post_turn.md` | Queued classifier prompt |
+| `sse_event` | `calendar_event_suggested` | Late SSE for open streams (legacy) |
 | `min_confidence` | `0.62` | JSON action threshold |
 
-**Worker flow:**
+**Queued worker flow:**
 
-1. `ChatSendOrchestratorFinalize` forwards `post_turn_actions[]` on run bootstrap.
-2. `run_executor_finalize` emits `system/end` immediately (productivity does not block).
-3. `_post_run_end_housekeeping` calls `schedule_post_turn_productivity_actions`.
-4. Worker runs LLM classifiers → `emit_ui_stage(strip, …)` + legacy `emit_*_status` → `persist_assistant_message` meta attach.
-5. UI: **`[strip]`** area via `applyUiStageEnvelope` / legacy SSE + `hydrateProductivityChipsFromServer`.
+1. `ChatSendOrchestratorFinalize` forwards `post_turn_actions[]` + `module_prompts` on run bootstrap.
+2. Compose stream finishes → `system/end` (user can read message).
+3. `_post_run_end_housekeeping` queues `schedule_post_turn_productivity_actions` (non-blocking).
+4. Worker sets `post_turn_productivity_scanning` → **`[info]`** pending via `info_worker` poll.
+5. Worker completes → meta attach + optional `ui_stage strip` → poll refreshes **`[info]`** + **`[strip]`**.
 
 ---
 
@@ -135,9 +184,13 @@ Strings: `oaao-i18n.js` keys `productivity.*`.
 | ❌ | ✅ |
 |----|---|
 | Regex time/checklist parsers in `calendar_event_candidate.py` | LLM JSON via `template_ref` + purpose endpoint |
-| Inline `classify_*` calls in `run_executor_finalize` before `system/end` | `post_turn_action_worker` after `system/end` |
-| Client-side text inference in `chat-panel.js` | Server meta attach + `hydrateProductivityChipsFromServer` |
-| Hardcoded calendar/todo blocks in `send.php` | Module `collect_feature_registries` + `post_turn_action.register` |
+| Inline `classify_*` in finalize before `system/end` | Queue `post_turn_action_worker` after compose (`system/end`) |
+| Block UI until post_turn finishes | Poll `info_worker` for pending → ready (IQS pattern) |
+| Client-side text inference in `chat-panel.js` | Server fence extract + smoke test + inline fence UI |
+| Hardcoded calendar/todo blocks in `send.php` | Module `collect_feature_registries` + `module_prompts` |
+| Python keyword heuristics for compose inject | PHP `module_prompts.compose_assistant` gate |
+| Treat markdown schedule tables as actions when fences exist | Use fence JSON as sole action payload |
+| Require `[strip]` when fence smoke test passed | Confirm/Dismiss directly on fence block |
 
 ---
 
@@ -168,5 +221,6 @@ Manual:
 
 | Date | Change |
 |------|--------|
+| 2026-05-30 | Post-turn as queued jobs + `info_worker` poll; compose fence + info/strip surfaces |
 | 2026-05-29 | `intent_only`, `[strip]` UI area, `ui_stage` attach path, vault/todo boundary docs |
 | 2026-05-29 | Document three-layer hook model; add `post_turn_action.register`; move classify to async worker; remove calendar regex heuristic |

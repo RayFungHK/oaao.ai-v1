@@ -2,13 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * User credits + per-user usage attribution ({@code oaao_credit_ledger}, {@code oaao_user.credit_balance}).
- *
- * Idempotent — safe from {@see oaao_auth_ensure_tenant_schema}.
- */
-function oaao_auth_ensure_credit_schema(\PDO $pdo): void
-{
+/** User credits + ledger ({@see auth} {@code ensureCreditSchema}). */
+return function (\PDO $pdo): void {
     if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
         return;
     }
@@ -66,4 +61,4 @@ function oaao_auth_ensure_credit_schema(\PDO $pdo): void
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_oaao_credit_ledger_user ON oaao_credit_ledger(tenant_id, user_id, created_at DESC)');
     } catch (\Throwable) {
     }
-}
+};

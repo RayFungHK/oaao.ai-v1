@@ -2,13 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * Per-tenant object storage DDL: {@code storage_json}, locators on blob tables, migration audit.
- *
- * Idempotent — safe from {@see oaao_auth_ensure_tenant_schema}.
- */
-function oaao_auth_ensure_storage_schema(\PDO $pdo): void
-{
+/** Per-tenant object storage DDL ({@see auth} {@code ensureStorageSchema}). */
+return function (\PDO $pdo): void {
     if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
         return;
     }
@@ -56,4 +51,4 @@ function oaao_auth_ensure_storage_schema(\PDO $pdo): void
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_oaao_storage_mig_object ON oaao_storage_migration_item(tenant_id, domain, object_id)');
     } catch (\Throwable) {
     }
-}
+};

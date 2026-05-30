@@ -2,11 +2,22 @@
 
 declare(strict_types=1);
 
-/**
- * Idempotent PostgreSQL DDL for Corpus Studio (EPIC-CS-1).
- */
-function oaao_auth_ensure_corpus_schema(\PDO $pdo): void
+function oaao_auth_ensure_corpus_profile_analyze_columns(\PDO $pdo): void
 {
+    $alters = [
+        'ALTER TABLE oaao_corpus_profile ADD COLUMN IF NOT EXISTS analyze_job_id TEXT DEFAULT NULL',
+        'ALTER TABLE oaao_corpus_profile ADD COLUMN IF NOT EXISTS analyze_started_at TIMESTAMPTZ DEFAULT NULL',
+    ];
+    foreach ($alters as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (\Throwable) {
+        }
+    }
+}
+
+/** Corpus Studio (EPIC-CS-1) ({@see auth} {@code ensureCorpusSchema}). */
+return function (\PDO $pdo): void {
     if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
         return;
     }
@@ -68,18 +79,4 @@ function oaao_auth_ensure_corpus_schema(\PDO $pdo): void
     );
 
     oaao_auth_ensure_corpus_profile_analyze_columns($pdo);
-}
-
-function oaao_auth_ensure_corpus_profile_analyze_columns(\PDO $pdo): void
-{
-    $alters = [
-        'ALTER TABLE oaao_corpus_profile ADD COLUMN IF NOT EXISTS analyze_job_id TEXT DEFAULT NULL',
-        'ALTER TABLE oaao_corpus_profile ADD COLUMN IF NOT EXISTS analyze_started_at TIMESTAMPTZ DEFAULT NULL',
-    ];
-    foreach ($alters as $sql) {
-        try {
-            $pdo->exec($sql);
-        } catch (\Throwable) {
-        }
-    }
-}
+};

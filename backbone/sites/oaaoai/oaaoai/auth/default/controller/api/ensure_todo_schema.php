@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * CS-6-S1 — Todo items (PostgreSQL).
- */
-function oaao_auth_ensure_todo_schema(\PDO $pdo): void
-{
+/** CS-6-S1 — Todo items (PostgreSQL). {@see auth} {@code ensureTodoSchema} API command. */
+return function (\PDO $pdo): void {
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS oaao_todo_item (
             todo_id BIGSERIAL PRIMARY KEY,
@@ -34,4 +31,4 @@ function oaao_auth_ensure_todo_schema(\PDO $pdo): void
          ON oaao_todo_item (conversation_id, status)
          WHERE conversation_id IS NOT NULL',
     );
-}
+};

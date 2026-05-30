@@ -28,8 +28,6 @@ final class ChatConversationMaterial
         int $messageId,
         array $meta,
     ): void {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($pdo);
 
         $items = self::normalizeFromMeta($meta);
         $pdo->prepare('DELETE FROM oaao_conversation_material WHERE conversation_id = ? AND message_id = ?')
@@ -84,8 +82,6 @@ final class ChatConversationMaterial
      */
     public static function listForMessage(\PDO $pdo, int $conversationId, int $messageId): array
     {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($pdo);
 
         $stmt = $pdo->prepare(
             'SELECT material_id, kind, category, title, mime, size_bytes, uri, task_id, meta_json, storage_locator_json, sort_order, created_at
@@ -399,8 +395,6 @@ final class ChatConversationMaterial
         string $materialId,
         ?object $slideApi = null,
     ): ?array {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($pdo);
 
         $projectId = self::resolveSlideProjectIdFromMaterialId($pdo, $conversationId, $materialId);
         if ($projectId === '' || $slideApi === null) {
@@ -477,8 +471,6 @@ final class ChatConversationMaterial
         int $limit = 16,
         ?object $slideApi = null,
     ): array {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($pdo);
 
         /** @var array<string, true> $seen */
         $seen = [];
@@ -547,8 +539,6 @@ final class ChatConversationMaterial
             return self::listForMessage($pdo, $conversationId, $messageId);
         }
 
-        require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($pdo);
 
         $stmt = $pdo->prepare(
             'SELECT material_id, kind, category, title, mime, size_bytes, uri, task_id, meta_json, sort_order, created_at
@@ -622,8 +612,6 @@ final class ChatConversationMaterial
             parse_str((string) parse_url($uri, PHP_URL_QUERY), $q);
             $materialId = isset($q['material_id']) ? trim((string) $q['material_id']) : '';
             if ($materialId !== '') {
-                require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-                oaao_chat_ensure_conversation_material_schema($pdo);
                 $st = $pdo->prepare(
                     'SELECT title, storage_locator_json, meta_json FROM oaao_conversation_material
                      WHERE conversation_id = ? AND material_id = ? ORDER BY id DESC LIMIT 1',
@@ -677,8 +665,6 @@ final class ChatConversationMaterial
             return [];
         }
 
-        require_once dirname(__DIR__) . '/controller/api/_ensure_conversation_material_schema.php';
-        oaao_chat_ensure_conversation_material_schema($pdo);
 
         /** @var list<array<string, mixed>> $rows */
         $rows = [];

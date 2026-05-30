@@ -67,8 +67,8 @@ return new class extends Controller {
             return null;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_core_tables($db);
+        $auth->ensurePgCoreTables($db);
+        $auth->ensureResearchSchema($pdo);
 
         $core = $this->api('core');
         $tenantId = $core ? $core->bootstrapTenantContext($pdo) : 1;

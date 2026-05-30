@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 use oaaoai\chat\ChatAttachmentStorage;
 
-require_once __DIR__ . '/_ensure_conversation_attachment_schema.php';
-
 /**
  * POST /chat/api/attachments_dispose — orchestrator internal: delete ephemeral files after ATTACHMENTS task.
  *
@@ -69,7 +67,7 @@ return function (): void {
     }
     $pdo = $splitDb->getDBAdapter();
     if ($pdo instanceof \PDO) {
-        oaao_chat_ensure_conversation_attachment_schema($pdo);
+        $this->ensureConversationAttachmentSchema($pdo);
     }
 
     $removed = ChatAttachmentStorage::disposeByIds($splitDb, $cid, $uid, $ids);

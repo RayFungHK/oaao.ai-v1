@@ -49,8 +49,7 @@ return function (): void {
     }
 
     $auth->ensurePgCoreTables($db);
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_notification_schema.php';
-    oaao_auth_ensure_notification_schema($pdo);
+    $this->api('auth')->ensureNotificationSchema($pdo);
 
     require_once dirname(__DIR__, 4) . '/core/default/library/NotificationRepository.php';
 

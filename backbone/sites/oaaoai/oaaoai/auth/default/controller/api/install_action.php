@@ -92,8 +92,7 @@ return function (): void {
         $mgr->ensureTrackingTable();
         oaao_auth_install_pg_core_schema($pdo);
         oaao_auth_seed_pg_migration_rows($pdo);
-        require_once __DIR__ . '/_ensure_tenant_schema.php';
-        oaao_auth_ensure_tenant_schema($pdo);
+        $this->ensureTenantSchema($pdo);
     } catch (\Throwable $e) {
         http_response_code(500);
         echo json_encode(['result' => false, 'message' => 'PostgreSQL schema bootstrap failed: ' . $e->getMessage()]);
@@ -108,7 +107,7 @@ return function (): void {
             null,
             [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
         );
-        oaao_auth_install_sqlite_local_schema($pdoLocal);
+        $this->installSqliteLocalSchema($pdoLocal);
     } catch (\Throwable $e) {
         http_response_code(500);
         echo json_encode(['result' => false, 'message' => 'Local SQLite adjunct failed: ' . $e->getMessage()]);

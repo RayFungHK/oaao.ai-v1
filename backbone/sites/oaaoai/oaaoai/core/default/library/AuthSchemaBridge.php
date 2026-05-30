@@ -16,6 +16,9 @@ final class AuthSchemaBridge
     /** @var callable(\PDO): void|null */
     private static $ensurePermissionGroupSchema = null;
 
+    /** @var callable(\PDO): void|null */
+    private static $ensurePgStorageSchema = null;
+
     /** @param callable(\PDO): void $fn */
     public static function setEnsureTenantSchema(callable $fn): void
     {
@@ -34,6 +37,19 @@ final class AuthSchemaBridge
             (self::$ensureTenantSchema)($pdo);
 
             return;
+        }
+    }
+
+    /** @param callable(\PDO): void $fn */
+    public static function setEnsurePgStorageSchema(callable $fn): void
+    {
+        self::$ensurePgStorageSchema = $fn;
+    }
+
+    public static function ensurePgStorageSchema(\PDO $pdo): void
+    {
+        if (self::$ensurePgStorageSchema !== null) {
+            (self::$ensurePgStorageSchema)($pdo);
         }
     }
 

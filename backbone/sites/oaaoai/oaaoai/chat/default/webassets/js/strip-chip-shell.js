@@ -15,7 +15,7 @@ import {
     buildStripConfirmDialogCopy,
     isProductivityFenceKindResolved,
     stripActionToFenceKind,
-} from './productivity-inline-blocks.js?v=20260530-strip-confirm-v208';
+} from './productivity-inline-blocks.js?v=20260530-fence-actions-v211';
 import { mountProductivityChip, reorderAssistantRowAreas } from './productivity-strip-host.js';
 
 /** @typedef {Record<string, unknown>} StripItem */
@@ -456,6 +456,130 @@ export function normalizeStripItemsFromMeta(meta) {
         const kind = stripActionToFenceKind(String(item.action_id ?? ''));
         return !kind || !isProductivityFenceKindResolved(meta, kind);
     });
+}
+
+/**
+ * Strip item for an inline fence kind (calendar / todo).
+ *
+ * @param {Record<string, unknown> | null | undefined} meta
+ * @param {'calendar' | 'todo'} kind
+ * @returns {StripItem | null}
+ */
+export function findStripItemForFenceKind(meta, kind) {
+    if (!meta || typeof meta !== 'object') return null;
+    const items = normalizeStripItemsFromMeta(meta);
+    /** @type {string[]} */
+    const actionIds =
+        kind === 'calendar'
+            ? ['calendar_event_suggested']
+            : ['todo_item_suggested', 'todo_items_suggested', 'todo_resolve_suggested'];
+    for (const id of actionIds) {
+        const hit = items.find((row) => String(row.action_id ?? '').trim() === id);
+        if (hit) return hit;
+    }
+    return null;
+}
+
+/**
+ * @param {HTMLElement | Document} queryRoot
+ * @param {number} messageId
+ * @param {StripItem} item
+ */
+function shouldSkipStripItemForFencePanel(queryRoot, messageId, item) {
+    const kind = stripActionToFenceKind(String(item.action_id ?? ''));
+    if (!kind) return false;
+    const mid = Math.floor(Number(messageId));
+    if (mid < 1) return false;
+    const root = queryRoot instanceof HTMLElement || queryRoot instanceof Document ? queryRoot : document;
+    const bubble =
+        root.querySelector(`[data-oaao-msg-id="${mid}"][data-oaao-msg-role="assistant"]`) ??
+        root.querySelector(`[data-oaao-msg-id="${mid}"]`);
+    if (!(bubble instanceof HTMLElement)) return false;
+    return Boolean(bubble.querySelector(`[data-oaao-productivity-fence="${kind}"]`));
+}
+
+/**
+ * Confirm / dismiss row on an inline fence panel (same strip_hash API as [strip] chips).
+ *
+ * @param {HTMLElement} fenceHost
+ * @param {StripItem} item
+ * @param {number} conversationId
+ * @param {number} messageId
+ * @param {StripShellContext} [ctx]
+ * @returns {HTMLElement | null}
+ */
+export function mountProductivityFenceStripActions(fenceHost, item, conversationId, messageId, ctx = {}) {
+    if (!(fenceHost instanceof HTMLElement)) return null;
+    const cid = Math.floor(Number(conversationId));
+    const mid = Math.floor(Number(messageId));
+    if (cid < 1 || mid < 1 || !item || typeof item !== 'object') return null;
+
+    const agent = String(item.agent ?? '').trim() || 'productivity';
+    const actionId = String(item.action_id ?? '').trim();
+    const stripHash = String(item.strip_hash ?? '').trim();
+    const confirmLabel =
+        String(item.confirm_label ?? '').trim() || pt('productivity.strip.confirm', 'Confirm');
+    const dismissLabel = String(item.dismiss_label ?? '').trim() || pt('productivity.dismiss', 'Dismiss');
+    const confirmation = item.confirmation !== false && item.confirmation !== 'false';
+    const previewMessage = String(item.message ?? '').trim();
+    const messageFormat = String(item.message_format ?? 'markdown').trim() || 'markdown';
+
+    const queryRoot = chatStripQueryRoot(ctx.mountEl ?? document);
+    const existing = actionId ? queryStripChip(queryRoot, mid, actionId) : null;
+    if (existing instanceof HTMLElement && existing.closest('[data-oaao-chat-area="strip"]')) {
+        existing.remove();
+    }
+
+    fenceHost.querySelector('[data-oaao-productivity-fence-actions]')?.remove();
+
+    const actions = document.createElement('div');
+    actions.className = 'oaao-productivity-fence-actions';
+    if (actionId) actions.dataset.oaaoProductivityFenceActions = actionId;
+    actions.dataset.oaaoStripChip = '1';
+    actions.dataset.oaaoStripAgent = agent;
+    actions.dataset.oaaoStripAction = actionId;
+    actions.dataset.oaaoConversationId = String(cid);
+    actions.dataset.oaaoMessageId = String(mid);
+    if (stripHash) actions.dataset.oaaoStripHash = stripHash;
+    actions.dataset.oaaoStripConfirmation = confirmation ? '1' : '0';
+    if (previewMessage) actions.dataset.oaaoStripMessage = previewMessage;
+    actions.dataset.oaaoStripMessageFormat = messageFormat;
+    if (item.payload && typeof item.payload === 'object') {
+        try {
+            actions.dataset.oaaoStripPayload = JSON.stringify(item.payload);
+        } catch {
+            /* ignore */
+        }
+    }
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.dataset.oaaoStripDismiss = '1';
+    dismissBtn.className = 'oaao-productivity-fence-dismiss';
+    dismissBtn.setAttribute('aria-label', dismissLabel);
+    dismissBtn.textContent = '✕';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.dataset.oaaoStripConfirm = '1';
+    confirmBtn.className = 'oaao-productivity-fence-confirm';
+    confirmBtn.textContent = confirmLabel;
+    if (!confirmation) {
+        confirmBtn.hidden = true;
+        confirmBtn.setAttribute('aria-hidden', 'true');
+    }
+
+    actions.append(dismissBtn, confirmBtn);
+    fenceHost.append(actions);
+
+    wireStripChipButtonHandlers(actions, item);
+    syncStripChipReadyState(actions);
+
+    if (!stripHash && typeof ctx.ensureInfoWorkerPoll === 'function') {
+        ctx.ensureInfoWorkerPoll(cid, mid);
+    }
+
+    return actions;
 }
 
 /**
@@ -1220,6 +1344,24 @@ export function mountStripItems(outer, items, conversationId, messageId, ctx = {
         const actionId = String(item.action_id ?? '').trim();
         if (actionId && isStripActionResolved(cid, mid, actionId)) {
             continue;
+        }
+        if (shouldSkipStripItemForFencePanel(queryRoot, mid, item)) {
+            const inlineChip = actionId ? queryStripChip(queryRoot, mid, actionId) : null;
+            if (inlineChip instanceof HTMLElement) {
+                upgradeStripChipFromItem(inlineChip, item);
+                continue;
+            }
+            const kind = stripActionToFenceKind(actionId);
+            if (kind) {
+                const bubble =
+                    queryRoot.querySelector(`[data-oaao-msg-id="${mid}"][data-oaao-msg-role="assistant"]`) ??
+                    queryRoot.querySelector(`[data-oaao-msg-id="${mid}"]`);
+                const fenceBox = bubble?.querySelector(`[data-oaao-productivity-fence="${kind}"]`);
+                if (fenceBox instanceof HTMLElement) {
+                    mountProductivityFenceStripActions(fenceBox, item, cid, mid, ctx);
+                    continue;
+                }
+            }
         }
         const existing = actionId ? queryStripChip(queryRoot, mid, actionId) : null;
         if (existing instanceof HTMLElement) {

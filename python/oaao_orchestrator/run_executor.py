@@ -117,11 +117,21 @@ async def execute_chat_run(
     messages_for_llm = list(req.messages)
     _apply_request_material_grounding(req=req, messages_for_llm=messages_for_llm)
     _apply_user_personalization(req=req, messages_for_llm=messages_for_llm)
-    from oaao_orchestrator.productivity_context import apply_productivity_context
-
-    apply_productivity_context(req=req, messages_for_llm=messages_for_llm)
     _apply_corpus_style(req=req, messages_for_llm=messages_for_llm)
     _apply_accs_reflection_context(req=req, messages_for_llm=messages_for_llm)
+    _post_turn_raw = getattr(req, "post_turn_actions", None)
+    _post_turn_n = len(_post_turn_raw) if isinstance(_post_turn_raw, list) else 0
+    _mp = getattr(req, "module_prompts", None)
+    _compose_n = 0
+    if isinstance(_mp, dict) and isinstance(_mp.get("compose_assistant"), dict):
+        _compose_n = len(_mp["compose_assistant"])
+    logger.info(
+        "chat_run bootstrap conversation_id=%s post_turn_actions=%s compose_prompts=%s planner_prompt_len=%s",
+        getattr(req, "conversation_id", ""),
+        _post_turn_n,
+        _compose_n,
+        len(str(getattr(req, "planner_prompt_block", "") or "")),
+    )
     run_failed = False
     run_error_detail: str | None = None
     slide_project_meta: dict[str, Any] | None = None

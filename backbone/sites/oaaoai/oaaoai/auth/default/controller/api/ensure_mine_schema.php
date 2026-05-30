@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * Idempotent PostgreSQL DDL for Data Mining mines / sources / runs.
- */
-function oaao_auth_ensure_mine_schema(\PDO $pdo): void
-{
+/** Data Mining mines / sources / runs ({@see auth} {@code ensureMineSchema}). */
+return function (\PDO $pdo): void {
     $pdo->exec('CREATE TABLE IF NOT EXISTS oaao_mine (
         mine_id BIGSERIAL PRIMARY KEY,
         tenant_id BIGINT NOT NULL DEFAULT 1,
@@ -60,4 +57,4 @@ function oaao_auth_ensure_mine_schema(\PDO $pdo): void
 
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_oaao_mine_run_mine
         ON oaao_mine_run(mine_id, created_at DESC)');
-}
+};

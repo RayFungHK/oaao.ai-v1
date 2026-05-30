@@ -104,7 +104,7 @@ async def _run_post_turn_productivity_actions(
         inline_satisfied_action_ids,
     )
 
-    body_for_persist, inline_meta = extract_productivity_inline_blocks(
+    _, inline_meta = extract_productivity_inline_blocks(
         persist_text,
         conversation_id=conversation_id,
     )
@@ -244,7 +244,9 @@ async def _run_post_turn_productivity_actions(
                     conversation_id,
                 )
 
-    persist_body = body_for_persist if body_for_persist.strip() else persist_text
+    # Keep ```oaao-calendar``` / ```oaao-todo``` fences in message body so the client
+    # can render section-adjacent panels; meta carries parsed payloads for strip chips.
+    persist_body = persist_text
 
     if not attached:
         await _persist_post_turn_productivity_meta(

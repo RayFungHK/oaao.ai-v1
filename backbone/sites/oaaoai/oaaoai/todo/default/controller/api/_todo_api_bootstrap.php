@@ -60,8 +60,16 @@ function oaao_todo_require_pg(\Razy\Controller $controller, bool $quiet = false)
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_todo_schema.php';
-    oaao_auth_ensure_todo_schema($pdo);
+    try {
+        $auth->ensureTodoSchema($pdo);
+    } catch (\Throwable) {
+        if (! $quiet) {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'message' => 'Todo schema unavailable']);
+        }
+
+        return null;
+    }
 
     return [
         'auth'      => $auth,

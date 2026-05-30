@@ -13,8 +13,7 @@ final class StorageSchemaEnsure
             return;
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-        oaao_auth_ensure_pg_storage_schema($pdo);
+        AuthSchemaBridge::ensurePgStorageSchema($pdo);
         AuthSchemaBridge::ensureTenantSchema($pdo);
     }
 }

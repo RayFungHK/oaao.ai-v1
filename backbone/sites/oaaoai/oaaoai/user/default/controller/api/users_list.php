@@ -59,10 +59,8 @@ return function (): void {
 
         $pdo = $db->getDBAdapter();
         if ($pdo instanceof \PDO) {
-            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-            oaao_auth_ensure_credit_schema($pdo);
-            require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_user_invitation_schema.php';
-            oaao_auth_ensure_user_invitation_schema($pdo);
+            $this->api('auth')->ensureCreditSchema($pdo);
+            $this->api('auth')->ensureUserInvitationSchema($pdo);
         }
 
         $userQuery = $db->prepare()

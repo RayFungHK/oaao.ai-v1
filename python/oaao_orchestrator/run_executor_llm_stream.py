@@ -90,6 +90,9 @@ async def handle_llm_stream_task(
         vault_ran=bool(run_ctx.extra.get("vault_rag_ran")),
         passage_count=int(run_ctx.extra.get("vault_rag_passage_count") or 0),
     )
+    from oaao_orchestrator.productivity_context import inject_compose_response_fences
+
+    inject_compose_response_fences(req=req, messages_for_llm=messages_for_llm)
     try:
         from oaao_orchestrator.micro_skills.apply import inject_applied_micro_skills
 

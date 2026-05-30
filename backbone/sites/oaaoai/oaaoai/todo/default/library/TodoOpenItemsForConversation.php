@@ -23,9 +23,6 @@ final class TodoOpenItemsForConversation
             return [];
         }
 
-        require_once dirname(__DIR__, 3) . '/auth/default/controller/api/_ensure_todo_schema.php';
-        oaao_auth_ensure_todo_schema($canonPdo);
-
         $limit = max(1, min(50, $limit));
         $stTodos = $canonPdo->prepare(
             'SELECT todo_id, title FROM oaao_todo_item

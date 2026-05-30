@@ -28,10 +28,7 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-    if ($db) {
-        oaao_auth_ensure_pg_core_tables($db);
-    }
+    $this->api('auth')->ensurePgCoreTables($db);
 
     $input = json_decode((string) file_get_contents('php://input'), true);
     $watchId = \is_array($input) && isset($input['watch_id']) ? (int) $input['watch_id'] : 0;

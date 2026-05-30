@@ -27,8 +27,7 @@ return function (): void {
         return;
     }
 
-    require_once __DIR__ . '/../../../../auth/default/controller/api/_ensure_pg_core_tables.php';
-    oaao_auth_ensure_pg_core_tables($db);
+    $this->api('auth')->ensurePgCoreTables($db);
 
     $input = json_decode((string) file_get_contents('php://input'), true);
     if (! is_array($input)) {

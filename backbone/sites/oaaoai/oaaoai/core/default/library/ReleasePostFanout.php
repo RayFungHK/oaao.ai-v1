@@ -17,12 +17,6 @@ final class ReleasePostFanout
 
     public function ensureSchema(): void
     {
-        $authApi = dirname(__DIR__, 3) . '/auth/default/controller/api';
-        require_once $authApi . '/_ensure_release_post_schema.php';
-        oaao_auth_ensure_release_post_schema($this->pdo);
-        require_once $authApi . '/_ensure_notification_schema.php';
-        oaao_auth_ensure_notification_schema($this->pdo);
-
         $cols = [
             'fanout_status'             => "VARCHAR(32) NOT NULL DEFAULT ''",
             'fanout_cursor_user_id'     => 'BIGINT NOT NULL DEFAULT 0',

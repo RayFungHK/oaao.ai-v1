@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * CS-2-S2 — Library documents + revisions (PostgreSQL).
- */
-function oaao_auth_ensure_library_schema(\PDO $pdo): void
-{
+/** CS-2-S2 — Library documents + revisions ({@see auth} {@code ensureLibrarySchema}). */
+return function (\PDO $pdo): void {
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS oaao_library_document (
             document_id BIGSERIAL PRIMARY KEY,
@@ -44,4 +41,4 @@ function oaao_auth_ensure_library_schema(\PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_oaao_library_revision_doc_ver
          ON oaao_library_revision (document_id, version DESC)',
     );
-}
+};

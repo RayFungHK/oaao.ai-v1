@@ -34,8 +34,7 @@ return function (): void {
                 $tid = $core->bootstrapTenantContext($pdo);
             }
             if ($tid > 0) {
-                require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-                oaao_auth_ensure_credit_schema($pdo);
+                $this->api('auth')->ensureCreditSchema($pdo);
             }
             $stmt = $pdo->prepare(
                 'SELECT preferences_json, credit_balance FROM oaao_user WHERE user_id = ? LIMIT 1',

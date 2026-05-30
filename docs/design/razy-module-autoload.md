@@ -2,7 +2,7 @@
 
 How PHP library classes under `backbone/sites/oaaoai/oaaoai/**` are discovered and loaded.
 
-**Related:** [Audit_Report.md](../Audit_Report.md) §6 (cross-module `require` rules) · [Debug_Guide.md](../Debug_Guide.md) §1 / §7
+**Related:** [Audit_Report.md](../Audit_Report.md) §6 (cross-module `require` rules) · [Debug_Guide.md](../Debug_Guide.md) §1 / §7 · [**razy-closure-api-bind.md**](./razy-closure-api-bind.md) (`addAPICommand`, `#` prefix, `$this` in closures)
 
 ---
 
@@ -117,6 +117,8 @@ use oaaoai\slide_designer\SlideProjectRegistry;
 | Module whose API routes are all closures (slide-designer) | `require_once …/_bootstrap.php` at top of each API file |
 | Split library files with parse-time dependency (W9-S2) | Keep load order in `_bootstrap.php` only — do not duplicate `require_once` in the parent class file |
 | Class from **another** module | `package.php` `require` + `$this->api('module')` — **never** `require_once` their `library/` |
+| Closure handler needs **`$this->foo()` inside same module** | Register with **`#foo`** on `addAPICommand` (or `bind()` if internal-only) — see [razy-closure-api-bind.md](./razy-closure-api-bind.md) |
+| Idempotent DDL / schema ensure | Closure under `controller/api/ensure_*_schema.php`; **`#ensure*`** in owner module `__onInit`; cross-module via `api('auth')->ensure*()` |
 
 ### Split-library pitfall (SlideTemplateStorage*)
 
@@ -169,5 +171,6 @@ flowchart LR
 | `Class "oaaoai\endpoints\…" not found` from chat code | Missing `package.php` `require` or module not Loaded |
 | Works in one route, 500 in another | One API file has `_bootstrap.php`, another does not |
 | CI gate failure | Peer cross-module `require_once` in library/controller |
+| `The method 'ensureX' is not defined in 'Razy\Controller@anonymous'` | Closure uses `$this->ensureX()` but command registered without `#` / `bind` — see [razy-closure-api-bind.md](./razy-closure-api-bind.md) |
 
 See [Debug_Guide.md](../Debug_Guide.md) for broader pipeline debugging.

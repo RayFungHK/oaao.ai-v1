@@ -1,9 +1,9 @@
-"""Productivity send context formatting."""
+"""Productivity compose fence injection — PHP module_prompts content only."""
 
 from oaao_orchestrator.productivity_context import (
-    apply_productivity_context,
-    build_productivity_system_block,
+    compose_assistant_blocks,
     format_upcoming_calendar_events,
+    inject_compose_response_fences,
 )
 
 
@@ -15,20 +15,51 @@ def test_format_upcoming_calendar_events() -> None:
     assert "2026-05-31" in text
 
 
-def test_build_productivity_system_block_empty() -> None:
-    assert build_productivity_system_block(type("R", (), {})()) is None
-
-
-def test_apply_productivity_context_injects() -> None:
+def test_compose_blocks_from_module_prompts() -> None:
     req = type(
         "R",
         (),
         {
-            "upcoming_calendar_events": [{"title": "Meet", "start_at": "2026-06-01T10:00:00Z"}],
-            "open_todo_items": [],
+            "module_prompts": {
+                "compose_assistant": {
+                    "calendar": {"content": "Calendar Schedule\n```oaao-calendar\n{}\n```"},
+                    "todo": {"content": "Todo\n```oaao-todo\n{}\n```"},
+                },
+            },
         },
     )()
-    messages: list[dict[str, str]] = [{"role": "user", "content": "hi"}]
-    apply_productivity_context(req=req, messages_for_llm=messages)
-    assert messages[0]["role"] == "system"
-    assert "Meet" in messages[0]["content"]
+    blocks = compose_assistant_blocks(req)
+    assert len(blocks) == 2
+    assert "oaao-calendar" in blocks[0]
+    assert "oaao-todo" in blocks[1]
+
+
+def test_inject_skipped_when_compose_assistant_empty() -> None:
+    req = type("R", (), {"module_prompts": {}})()
+    messages: list[dict[str, str]] = [{"role": "user", "content": "schedule tomorrow"}]
+    inject_compose_response_fences(req=req, messages_for_llm=messages)
+    assert len(messages) == 1
+
+
+def test_inject_compose_response_fences_prepends_system() -> None:
+    req = type(
+        "R",
+        (),
+        {
+            "module_prompts": {
+                "compose_assistant": {
+                    "calendar": {
+                        "content": "Calendar Schedule\n```oaao-calendar\n{\"title\":\"Meet\"}\n```",
+                    },
+                },
+            },
+        },
+    )()
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": "--- Web search results ---\n[W1] hit"},
+        {"role": "user", "content": "安排行程"},
+    ]
+    inject_compose_response_fences(req=req, messages_for_llm=messages)
+    assert "oaao-calendar" in messages[0]["content"]
+    assert "Web search results" in messages[0]["content"]
+    assert "fluent" in messages[0]["content"].lower()

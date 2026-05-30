@@ -1,17 +1,18 @@
 /**
  * Productivity fence previews (```oaao-calendar / ```oaao-todo) and meta rehydrate on thread reload.
  *
- * Confirmation actions live in [strip] chips only — not duplicate inline cards.
+ * Pending fences mount Confirm / Dismiss in-panel (same strip API as [strip] chips).
  *
  * @module productivity-inline-blocks
  */
 
 import { oaaoT } from '../../../core/default/js/oaao-i18n.js';
 import { getOaaoAgentCatalogEntry } from './oaao-agent-catalog.js';
+import { attachProductivityFenceActions } from './productivity-fence-actions.js?v=20260530-fence-actions-v211';
 import { mountRuiIconSync } from './oaao-rui-icons.js?v=20260530-fence-panel-v193';
 import { normalizeStripItemsFromMeta } from './strip-chip-shell.js';
 
-const INLINE_STYLE_REV = '20260530-strip-confirm-v208';
+const INLINE_STYLE_REV = '20260530-fence-actions-v211';
 
 /** @typedef {'pending' | 'confirmed' | 'dismissed'} ProductivityFenceState */
 
@@ -32,6 +33,8 @@ const FENCE_LUCIDE_BY_AGENT = {
 
 const FENCE_HOST_CLASS =
     'oaao-productivity-fence-host mt-2 flex flex-col gap-1.5 w-full min-w-0 sm:w-[40%] sm:max-w-[40%] overflow-visible pl-1';
+const FENCE_INLINE_SHELL_CLASS =
+    'oaao-productivity-fence-inline mt-2 w-full min-w-0 sm:w-[40%] sm:max-w-[40%] overflow-visible pl-1';
 const FENCE_STYLE_ID = 'oaao-productivity-fence-styles';
 
 function ensureProductivityFenceStyles() {
@@ -57,6 +60,10 @@ function ensureProductivityFenceStyles() {
 .oaao-productivity-fence-agent-row{margin:0;padding:0.5625rem 0.75rem;border-bottom:1px solid var(--grid-line-strong,rgba(0,0,0,.1));background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.06)) 58%,var(--grid-panel-bright,#fff));border-radius:11px 11px 0 0}
 .oaao-productivity-fence-card-body{padding:0.625rem 0.75rem 0.75rem}
 .oaao-productivity-fence-agent{font-size:0.6875rem;font-weight:600;line-height:1.2;letter-spacing:.01em}
+.oaao-productivity-fence-actions{display:flex;align-items:center;justify-content:flex-end;gap:0.375rem;padding:0.4375rem 0.75rem 0.5625rem;border-top:1px solid var(--grid-line-strong,rgba(0,0,0,.1));background:color-mix(in srgb,var(--grid-line,rgba(0,0,0,.04)) 42%,var(--grid-panel-bright,#fff))}
+.oaao-productivity-fence-actions .oaao-productivity-fence-dismiss{flex-shrink:0;border:none;background:transparent;color:var(--grid-caption);cursor:pointer;font:inherit;font-size:0.875rem;line-height:1;width:1.5rem;height:1.5rem;border-radius:6px;padding:0}
+.oaao-productivity-fence-actions .oaao-productivity-fence-confirm{flex-shrink:0;border:1px solid var(--grid-line-strong,rgba(0,0,0,.12));background:var(--grid-paper);color:var(--grid-ink);cursor:pointer;font:inherit;font-size:0.6875rem;font-weight:500;line-height:1.25;padding:0.3125rem 0.5rem;border-radius:6px;white-space:nowrap}
+.oaao-productivity-fence-actions .oaao-productivity-fence-confirm:disabled{opacity:0.55;cursor:wait}
 `.trim();
 }
 
@@ -576,7 +583,8 @@ export function applyFenceStateToBubble(root, messageId, kind, state, preview = 
     if (!(bubble instanceof HTMLElement)) return;
 
     let box = bubble.querySelector(`[data-oaao-productivity-fence="${kind}"]`);
-    if (!(box instanceof HTMLElement)) {
+    const hasInlineLayout = Boolean(bubble.querySelector('[data-oaao-productivity-inline-layout]'));
+    if (!(box instanceof HTMLElement) && !hasInlineLayout) {
         mountProductivityFenceMemos(
             bubble,
             {
@@ -819,6 +827,161 @@ export function mountProductivityFencePanel(host, section, opts = {}) {
 
     if (summary || memo || items.length) {
         host.append(inner);
+    }
+
+    if (section.state === 'pending' && opts.fenceActions !== false) {
+        attachProductivityFenceActions(host, section, {
+            meta: opts.meta,
+            conversationId: opts.conversationId,
+            messageId: opts.messageId,
+            stripShellCtx: opts.stripShellCtx,
+        });
+    }
+}
+
+/**
+ * Ordered prose / fence segments — preserves LLM section-adjacent placement.
+ *
+ * @param {string} md
+ * @returns {Array<{ kind: 'prose' | 'calendar' | 'todo', text: string, fenceBody?: string }>}
+ */
+export function splitMarkdownByProductivityFences(md) {
+    const text = String(md ?? '');
+    /** @type {Array<{ kind: 'prose' | 'calendar' | 'todo', text: string, fenceBody?: string }>} */
+    const segments = [];
+    const re = /```oaao-(calendar|todo)\s*\n([\s\S]*?)```/gi;
+    let lastIndex = 0;
+    let match = re.exec(text);
+    while (match) {
+        if (match.index > lastIndex) {
+            const prose = text.slice(lastIndex, match.index);
+            if (prose.trim()) {
+                segments.push({ kind: 'prose', text: prose });
+            }
+        }
+        const fenceKind = String(match[1] ?? '').toLowerCase() === 'calendar' ? 'calendar' : 'todo';
+        segments.push({
+            kind: fenceKind,
+            text: match[0],
+            fenceBody: match[2] ?? '',
+        });
+        lastIndex = match.index + match[0].length;
+        match = re.exec(text);
+    }
+    if (lastIndex < text.length) {
+        const tail = text.slice(lastIndex);
+        if (tail.trim()) {
+            segments.push({ kind: 'prose', text: tail });
+        }
+    }
+    return segments;
+}
+
+/**
+ * @param {'calendar' | 'todo'} kind
+ * @param {string} fenceBody
+ * @param {number} conversationId
+ * @param {Record<string, unknown>} baseMeta
+ * @returns {ProductivityFenceSection | null}
+ */
+function fenceSectionFromFenceBody(kind, fenceBody, conversationId, baseMeta) {
+    const cid = Math.floor(Number(conversationId));
+    /** @type {Record<string, unknown>} */
+    let fragment = {};
+    if (kind === 'calendar') {
+        const cal = parseCalendarFence(fenceBody, cid);
+        if (cal) fragment.calendar_event_suggested = cal;
+    } else {
+        fragment = parseTodoFence(fenceBody, cid);
+    }
+    const merged = mergeProductivityMetaFromContent(baseMeta, fragment);
+    return fenceSectionFromActiveMeta(merged, kind);
+}
+
+/**
+ * @param {'calendar' | 'todo'} kind
+ * @param {string} fenceBody
+ * @param {Record<string, unknown>} meta
+ * @param {number} conversationId
+ * @returns {ProductivityFenceSection | null}
+ */
+function resolveInlineFenceSection(kind, fenceBody, meta, conversationId) {
+    if (isProductivityFenceKindResolved(meta, kind)) {
+        return buildFenceSectionsFromMeta(meta, conversationId, '').find((row) => row.kind === kind) ?? null;
+    }
+    const fromBody = fenceSectionFromFenceBody(kind, fenceBody, conversationId, meta);
+    if (fromBody) return fromBody;
+    return buildFenceSectionsFromMeta(meta, conversationId, '').find((row) => row.kind === kind) ?? null;
+}
+
+/**
+ * Render markdown + fence panels in document order (section-adjacent), not a bottom stack.
+ *
+ * @param {HTMLElement} bubble
+ * @param {string} md
+ * @param {Record<string, unknown> | null | undefined} meta
+ * @param {{ conversationId?: number, assistantContent?: string, renderMarkdown?: (el: HTMLElement, md: string) => void }} [opts]
+ */
+export function renderAssistantContentWithInlineFences(bubble, md, meta, opts = {}) {
+    if (!(bubble instanceof HTMLElement)) return;
+
+    bubble.querySelector('[data-oaao-productivity-fence-host]')?.remove();
+    bubble.querySelector('[data-oaao-productivity-inline-host]')?.remove();
+
+    const cid = Math.floor(Number(opts.conversationId ?? 0));
+    const baseMeta = meta && typeof meta === 'object' ? meta : {};
+    const segments = splitMarkdownByProductivityFences(md);
+    const hasInlineFence = segments.some((seg) => seg.kind !== 'prose');
+
+    if (!hasInlineFence) {
+        if (productivityMetaHasFencePreview(baseMeta, cid, md)) {
+            mountProductivityFenceMemos(bubble, baseMeta, opts);
+        }
+        return;
+    }
+
+    const root = document.createElement('div');
+    root.className = 'oaao-assistant-inline-fences flex flex-col gap-2 min-w-0 w-full';
+    root.dataset.oaaoProductivityInlineLayout = '1';
+
+    for (const seg of segments) {
+        if (seg.kind === 'prose') {
+            const proseEl = document.createElement('div');
+            proseEl.className = 'oaao-md-bubble min-w-0';
+            if (typeof opts.renderMarkdown === 'function') {
+                opts.renderMarkdown(proseEl, seg.text);
+            } else {
+                proseEl.style.whiteSpace = 'pre-wrap';
+                proseEl.textContent = seg.text;
+            }
+            root.append(proseEl);
+            continue;
+        }
+
+        const section = resolveInlineFenceSection(seg.kind, String(seg.fenceBody ?? ''), baseMeta, cid);
+        if (!section) {
+            const fallback = document.createElement('pre');
+            fallback.className = 'oaao-md-bubble text-xs overflow-x-auto';
+            fallback.textContent = seg.text;
+            root.append(fallback);
+            continue;
+        }
+
+        const shell = document.createElement('div');
+        shell.className = FENCE_INLINE_SHELL_CLASS;
+        shell.dataset.oaaoProductivityFenceInline = seg.kind;
+        const box = document.createElement('div');
+        mountProductivityFencePanel(box, section, opts);
+        shell.append(box);
+        root.append(shell);
+    }
+
+    bubble.classList.add('oaao-md-bubble');
+    bubble.style.whiteSpace = '';
+    bubble.replaceChildren(root);
+
+    if (typeof globalThis.JIT?.hydrate === 'function') {
+        globalThis.JIT.hydrate(root);
     }
 }
 

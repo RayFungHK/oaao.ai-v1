@@ -18,6 +18,25 @@ logger = logging.getLogger(__name__)
 _MAX_CONTENT = 128_000
 
 
+def _merge_meta_dict(existing: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Shallow-merge patch onto existing; deep-merge orchestrator_prompt_debug."""
+    merged = dict(existing)
+    for key, value in patch.items():
+        if not isinstance(key, str) or not key:
+            continue
+        if (
+            key == "orchestrator_prompt_debug"
+            and isinstance(merged.get(key), dict)
+            and isinstance(value, dict)
+        ):
+            debug = dict(merged[key])
+            debug.update(value)
+            merged[key] = debug
+        else:
+            merged[key] = value
+    return merged
+
+
 def persist_assistant_message(
     *,
     principal: RunPrincipal,
@@ -33,11 +52,6 @@ def persist_assistant_message(
         return False
     chunk = content if len(content) <= _MAX_CONTENT else content[:_MAX_CONTENT]
     meta_json: str | None = None
-    if meta:
-        try:
-            meta_json = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
-        except (TypeError, ValueError):
-            meta_json = None
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn = sqlite3.connect(path, timeout=12.0)
@@ -72,6 +86,25 @@ def persist_assistant_message(
                 if len(body) > _MAX_CONTENT:
                     body = body[-_MAX_CONTENT:]
 
+            if meta is not None:
+                existing_meta: dict[str, Any] = {}
+                cur.execute(
+                    "SELECT meta_json FROM oaao_message WHERE id = ? AND conversation_id = ? AND role = 'assistant'",
+                    (principal.assistant_message_id, principal.conversation_id),
+                )
+                meta_row = cur.fetchone()
+                if meta_row and meta_row[0]:
+                    try:
+                        decoded = json.loads(str(meta_row[0]))
+                        if isinstance(decoded, dict):
+                            existing_meta = decoded
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        existing_meta = {}
+                merged_meta = _merge_meta_dict(existing_meta, meta)
+                try:
+                    meta_json = json.dumps(merged_meta, ensure_ascii=False, separators=(",", ":"))
+                except (TypeError, ValueError):
+                    meta_json = None
             if meta_json is not None:
                 cur.execute(
                     "UPDATE oaao_message SET content = ?, meta_json = ? WHERE id = ? AND conversation_id = ?",
@@ -98,6 +131,58 @@ def persist_assistant_message(
             conn.close()
     except sqlite3.Error as exc:
         logger.warning("chat_persist: sqlite failed: %s", exc)
+        return False
+
+
+def merge_assistant_meta(
+    *,
+    principal: RunPrincipal,
+    patch: dict[str, Any],
+) -> bool:
+    """Shallow-merge top-level meta keys; deep-merge orchestrator_prompt_debug."""
+    if not chat_persist_enabled() or not patch:
+        return False
+    path = sqlite_adjunct_path()
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        conn = sqlite3.connect(path, timeout=12.0)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM oaao_conversation WHERE id = ? AND user_id = ?",
+                (principal.conversation_id, principal.user_id),
+            )
+            if cur.fetchone() is None:
+                return False
+            cur.execute(
+                "SELECT meta_json FROM oaao_message WHERE id = ? AND conversation_id = ? AND role = 'assistant'",
+                (principal.assistant_message_id, principal.conversation_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            meta: dict[str, Any] = {}
+            raw = row[0]
+            if raw:
+                try:
+                    decoded = json.loads(str(raw))
+                    if isinstance(decoded, dict):
+                        meta = decoded
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    meta = {}
+            meta = _merge_meta_dict(meta, patch)
+            meta_json = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+            cur.execute(
+                "UPDATE oaao_message SET meta_json = ? WHERE id = ? AND conversation_id = ?",
+                (meta_json, principal.assistant_message_id, principal.conversation_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("chat_persist: merge meta failed: %s", exc)
         return False
 
 

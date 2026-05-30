@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+use oaaoai\chat\ComposePromptRegister;
+use oaaoai\chat\PlannerPromptRegister;
+use oaaoai\todo\TodoComposePrompt;
+
+require_once dirname(__DIR__, 4) . '/chat/default/library/ComposePromptRegister.php';
+require_once dirname(__DIR__, 4) . '/chat/default/library/PlannerPromptRegister.php';
+
 /** Lazy registry wiring for {@code oaaoai/todo}. */
 return function (array $payload): void {
     $this->trigger('planner_agent.register')->resolve([
@@ -113,15 +120,13 @@ return function (array $payload): void {
         ],
     ]);
 
-    $chatApi = $this->api('chat');
-    if ($chatApi !== null && method_exists($chatApi, 'setPlannerPrompt')) {
-        $chatApi->setPlannerPrompt(
-            'todo',
-            'productivity',
-            'When the user asks for a checklist or actionable tasks, avoid duplicating open todos listed in the planner appendix; '
-            . 'calendar scheduling is not a todo.',
-            true,
-            83,
-        );
-    }
+    PlannerPromptRegister::add(
+        'todo',
+        'productivity',
+        'When the user asks for a checklist or actionable tasks, avoid duplicating open todos listed in the planner appendix; '
+        . 'calendar scheduling is not a todo.',
+        true,
+        83,
+    );
+    ComposePromptRegister::add('todo', 'todo', TodoComposePrompt::body(), 83);
 };

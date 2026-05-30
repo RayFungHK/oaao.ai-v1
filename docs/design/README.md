@@ -9,6 +9,8 @@
 | Doc | Purpose |
 |-----|---------|
 | [**chat-modular-architecture.md**](./chat-modular-architecture.md) | **Hub** — 模組化目的, PHP/Python/UI roles, dual pipelines |
+| [**razy-closure-api-bind.md**](./razy-closure-api-bind.md) | **`addAPICommand` / `#` / `bind`** — closure handlers, schema ensure, `$this` in API files |
+| [razy-module-autoload.md](./razy-module-autoload.md) | Library autoload, cross-module `require` rules |
 | [sprint-module-boundary-charter.md](./sprint-module-boundary-charter.md) | Boundary rules, module matrix, P0–P4 backlog |
 | [chat-send-pipeline.md](./chat-send-pipeline.md) | PHP `chat.send.*` phases + orchestrator stream |
 | [chat-ui-areas.md](./chat-ui-areas.md) | Six UI areas, `data-oaao-chat-area`, `ui_stage` SSE |

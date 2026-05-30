@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * Idempotent PostgreSQL {@code oaao_notification} table for in-app alerts.
- */
-function oaao_auth_ensure_notification_schema(\PDO $pdo): void
-{
+/** In-app notifications ({@see auth} {@code ensureNotificationSchema}). */
+return function (\PDO $pdo): void {
     $pdo->exec('CREATE TABLE IF NOT EXISTS oaao_notification (
         notification_id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL REFERENCES oaao_user(user_id) ON DELETE CASCADE,
@@ -28,4 +25,4 @@ function oaao_auth_ensure_notification_schema(\PDO $pdo): void
         $pdo->exec('ALTER TABLE oaao_workspace_invitation ADD COLUMN role TEXT NOT NULL DEFAULT \'member\'');
     } catch (\Throwable $_) {
     }
-}
+};

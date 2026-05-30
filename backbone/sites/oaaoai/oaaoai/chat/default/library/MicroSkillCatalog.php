@@ -47,9 +47,6 @@ final class MicroSkillCatalog
         ?int $workspaceId,
         int $limit = 12,
     ): array {
-        require_once __DIR__ . '/../controller/api/_ensure_micro_skill_schema.php';
-        oaao_chat_ensure_micro_skill_schema($splitPdo);
-
         $lim = max(1, min($limit, 32));
         if ($workspaceId !== null && $workspaceId > 0) {
             $st = $splitPdo->prepare(

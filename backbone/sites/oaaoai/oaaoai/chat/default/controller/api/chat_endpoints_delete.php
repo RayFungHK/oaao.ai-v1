@@ -15,8 +15,7 @@ return function (): void {
         return;
     }
 
-    require_once __DIR__ . '/_ensure_chat_profile_tables.php';
-    oaao_chat_ensure_profile_tables($db);
+    $this->ensureChatProfileTables($db);
 
     $input = json_decode((string) file_get_contents('php://input'), true);
     $id = is_array($input) ? (int) ($input['id'] ?? 0) : 0;

@@ -21,10 +21,6 @@ final class ReleasePostFirstNewsSeed
             return;
         }
 
-        $authApi = dirname(__DIR__, 3) . '/auth/default/controller/api';
-        require_once $authApi . '/_ensure_release_post_schema.php';
-        oaao_auth_ensure_release_post_schema($pdo);
-
         $chk = $pdo->prepare('SELECT 1 FROM oaao_release_post WHERE slug = ? LIMIT 1');
         $chk->execute([self::SEED_SLUG]);
         if ($chk->fetchColumn()) {

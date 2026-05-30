@@ -44,6 +44,29 @@ final class PlannerPromptRegister
     }
 
     /**
+     * Slot → content map for {@code module_prompts.planner}.
+     *
+     * @return array<string, string>
+     */
+    public static function slotMap(): array
+    {
+        $out = [];
+        foreach (self::allSorted() as $row) {
+            $slot = trim((string) ($row['slot'] ?? ''));
+            if ($slot === '') {
+                $slot = trim((string) ($row['module'] ?? ''));
+            }
+            $content = trim((string) ($row['content'] ?? ''));
+            if ($slot === '' || $content === '') {
+                continue;
+            }
+            $out[$slot] = $content;
+        }
+
+        return $out;
+    }
+
+    /**
      * Render numbered lines for orchestrator planner system prompt injection.
      */
     public static function numberedBlock(): string

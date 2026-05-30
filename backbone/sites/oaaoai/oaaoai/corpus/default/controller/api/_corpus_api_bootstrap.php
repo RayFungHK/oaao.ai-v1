@@ -55,10 +55,8 @@ function oaao_corpus_require_pg(\Razy\Controller $controller): ?array
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-    oaao_auth_ensure_pg_core_tables($db);
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_corpus_schema.php';
-    oaao_auth_ensure_corpus_schema($pdo);
+    $auth->ensurePgCoreTables($db);
+    $auth->ensureCorpusSchema($pdo);
 
     $core = $controller->api('core');
     $tenantId = $core ? $core->bootstrapTenantContext($pdo) : 1;

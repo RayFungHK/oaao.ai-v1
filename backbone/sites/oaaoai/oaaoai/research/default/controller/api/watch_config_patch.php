@@ -46,8 +46,7 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-    oaao_auth_ensure_pg_core_tables($db);
+    $this->api('auth')->ensurePgCoreTables($db);
 
     $repo = new ResearchRepository($db);
     $repo->patchWatchConfig($watchId, $patch);

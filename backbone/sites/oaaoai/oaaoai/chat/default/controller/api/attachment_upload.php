@@ -37,10 +37,7 @@ return function (): void {
         return;
     }
 
-    require_once __DIR__ . '/_ensure_conversation_attachment_schema.php';
-    if ($pdo instanceof \PDO) {
-        oaao_chat_ensure_conversation_attachment_schema($pdo);
-    }
+    $this->ensureConversationAttachmentSchema($pdo);
 
     $draftUpload = false;
     if ($cid < 1 && $createIfMissing) {

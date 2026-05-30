@@ -36,8 +36,7 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-    oaao_auth_ensure_credit_schema($pdo);
+    $this->api('auth')->ensureCreditSchema($pdo);
 
     $endpoints = $this->api('endpoints');
     if ($endpoints) {

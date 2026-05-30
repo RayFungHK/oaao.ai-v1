@@ -59,6 +59,8 @@ return new class extends Controller {
             return [$user, null];
         }
 
+        $this->ensureSlideProjectSchema($pdo);
+
         return [$user, $pdo];
     }
 
@@ -109,6 +111,7 @@ return new class extends Controller {
         $agent->listen('oaaoai/chat:chat.send.orchestrator_ready', 'event/chat_send_orchestrator_ready');
 
         $agent->addAPICommand([
+            '#ensureSlideProjectSchema'          => 'api/ensure_slide_project_schema',
             'resolvePublishedTemplate'           => 'resolvePublishedTemplate',
             'orchestratorSlideDesignerBase'      => 'orchestratorSlideDesignerBase',
             'listBoundTemplateSkillsForPlanner'  => 'listBoundTemplateSkillsForPlanner',

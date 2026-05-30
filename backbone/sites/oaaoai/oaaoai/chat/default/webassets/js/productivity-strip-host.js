@@ -58,15 +58,29 @@ export function reorderAssistantRowAreas(outer) {
 export function resolveProductivityOuter(mount, messageId) {
     const mid = Math.floor(Number(messageId));
     if (mid < 1) return { outer: null, msgsHost: null };
-    /** @type {Array<HTMLElement | Document>} */
+    /** @type {HTMLElement[]} */
     const roots = [];
-    if (mount instanceof HTMLElement || mount instanceof Document) roots.push(mount);
+    /** @type {Set<HTMLElement>} */
+    const seen = new Set();
+    const addRoot = (el) => {
+        if (!(el instanceof HTMLElement) || seen.has(el)) return;
+        if (
+            el.dataset.oaaoChatMount === 'bubble-bridge' ||
+            el.closest('#oaao-chat-bubble-bridge-bootstrap')
+        ) {
+            return;
+        }
+        seen.add(el);
+        roots.push(el);
+    };
     if (mount instanceof HTMLElement) {
+        addRoot(mount);
         const closest = mount.closest('[data-module="oaao-chat"]');
-        if (closest instanceof HTMLElement) roots.push(closest);
+        if (closest instanceof HTMLElement) addRoot(closest);
     }
-    const docRoot = document.querySelector('[data-module="oaao-chat"]');
-    if (docRoot instanceof HTMLElement) roots.push(docRoot);
+    document.querySelectorAll('[data-module="oaao-chat"]').forEach((el) => {
+        if (el instanceof HTMLElement) addRoot(el);
+    });
 
     for (const root of roots) {
         const msgsHost = root.querySelector('[data-oaao-chat="messages"]');

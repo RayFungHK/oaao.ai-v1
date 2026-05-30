@@ -25,12 +25,10 @@ return function (): void {
 
             return;
         }
-        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-        if ($db) {
-            oaao_auth_ensure_pg_core_tables($db);
+        if ($auth) {
+            $auth->ensurePgCoreTables($db);
         }
-        require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_research_schema.php';
-        oaao_auth_ensure_research_schema($pdo);
+        $auth?->ensureResearchSchema($pdo);
         $ctx = [
             'uid'       => 0,
             'tenant_id' => 0,

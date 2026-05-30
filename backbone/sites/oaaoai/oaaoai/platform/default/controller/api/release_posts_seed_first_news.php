@@ -21,6 +21,9 @@ return function (): void {
         return;
     }
 
+    $this->api('auth')->ensureReleasePostSchema($pdo);
+    $this->api('auth')->ensureNotificationSchema($pdo);
+
     ReleasePostFirstNewsSeed::ensureOnce($pdo);
 
     $st = $pdo->prepare(

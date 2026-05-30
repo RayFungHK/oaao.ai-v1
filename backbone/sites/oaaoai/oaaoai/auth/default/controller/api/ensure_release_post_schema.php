@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-/**
- * PLAT-1-S1 — Platform release posts (global, not tenant-scoped).
- */
-function oaao_auth_ensure_release_post_schema(\PDO $pdo): void
-{
+/** PLAT-1-S1 — Platform release posts ({@see auth} {@code ensureReleasePostSchema}). */
+return function (\PDO $pdo): void {
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS oaao_release_post (
             release_post_id BIGSERIAL PRIMARY KEY,
@@ -23,7 +20,6 @@ function oaao_auth_ensure_release_post_schema(\PDO $pdo): void
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )',
     );
-    // Legacy index allowed only one row per slug; bilingual posts need (slug, locale).
     $pdo->exec('DROP INDEX IF EXISTS idx_oaao_release_post_slug');
     $pdo->exec(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_oaao_release_post_slug_locale
@@ -33,4 +29,4 @@ function oaao_auth_ensure_release_post_schema(\PDO $pdo): void
         'CREATE INDEX IF NOT EXISTS idx_oaao_release_post_published
          ON oaao_release_post (status, published_at DESC, locale)',
     );
-}
+};

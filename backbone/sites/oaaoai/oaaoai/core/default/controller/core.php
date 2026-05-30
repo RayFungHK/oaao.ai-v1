@@ -693,17 +693,20 @@ return new class extends Controller {
     {
         require_once __DIR__ . '/../library/AuthSchemaBridge.php';
         $auth = $this->api('auth');
-        if ($auth && method_exists($auth, 'ensureTenantSchema')) {
+        if ($auth) {
             \Oaaoai\Core\AuthSchemaBridge::setEnsureTenantSchema(
                 static function (\PDO $pdo) use ($auth): void {
                     $auth->ensureTenantSchema($pdo);
                 },
             );
-        }
-        if ($auth && method_exists($auth, 'ensurePermissionGroupSchema')) {
             \Oaaoai\Core\AuthSchemaBridge::setEnsurePermissionGroupSchema(
                 static function (\PDO $pdo) use ($auth): void {
                     $auth->ensurePermissionGroupSchema($pdo);
+                },
+            );
+            \Oaaoai\Core\AuthSchemaBridge::setEnsurePgStorageSchema(
+                static function (\PDO $pdo) use ($auth): void {
+                    $auth->ensurePgStorageSchema($pdo);
                 },
             );
         }

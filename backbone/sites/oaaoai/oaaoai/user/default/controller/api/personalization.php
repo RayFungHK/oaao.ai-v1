@@ -30,8 +30,7 @@ return function (): void {
     }
 
     require_once dirname(__DIR__, 2) . '/library/UserPersonalization.php';
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_credit_schema.php';
-    oaao_auth_ensure_credit_schema($pdo);
+    $this->api('auth')->ensureCreditSchema($pdo);
 
     $uid = (int) ($user->user_id ?? 0);
     $personalization = UserPersonalization::loadForUser($pdo, $uid);

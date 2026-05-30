@@ -21,8 +21,6 @@ final class SlideProjectRegistry
         int $slideCount = 10,
         ?string $templateId = null,
     ): array {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_slide_project_schema.php';
-        oaao_slide_designer_ensure_schema($pdo);
 
         $projectId = 'sp-' . bin2hex(random_bytes(6));
         $deckTitle = trim($title) !== '' ? trim($title) : 'Slide project';
@@ -105,8 +103,6 @@ final class SlideProjectRegistry
         int $conversationId,
         int $userId,
     ): ?string {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_slide_project_schema.php';
-        oaao_slide_designer_ensure_schema($pdo);
 
         $stmt = $pdo->prepare(
             'SELECT project_id FROM oaao_slide_project
@@ -174,8 +170,6 @@ final class SlideProjectRegistry
         ?int $workspaceId,
         array $meta,
     ): void {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_slide_project_schema.php';
-        oaao_slide_designer_ensure_schema($pdo);
 
         $proj = $meta['slide_project'] ?? null;
         if (! \is_array($proj)) {
@@ -256,8 +250,6 @@ final class SlideProjectRegistry
      */
     public static function fetchAccessRow(\PDO $pdo, string $projectId): ?array
     {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_slide_project_schema.php';
-        oaao_slide_designer_ensure_schema($pdo);
 
         $stmt = $pdo->prepare(
             'SELECT project_id, conversation_id, user_id FROM oaao_slide_project WHERE project_id = ? LIMIT 1',
@@ -324,8 +316,6 @@ final class SlideProjectRegistry
      */
     public static function upsertIndexFromManifest(\PDO $pdo, array $manifest): void
     {
-        require_once dirname(__DIR__) . '/controller/api/_ensure_slide_project_schema.php';
-        oaao_slide_designer_ensure_schema($pdo);
 
         $projectId = trim((string) ($manifest['project_id'] ?? ''));
         if ($projectId === '') {

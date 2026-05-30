@@ -33,8 +33,7 @@ return function (): void {
     $pdo = $splitDb?->getDBAdapter();
     if ($pdo instanceof \PDO) {
         try {
-            require_once __DIR__ . '/_ensure_micro_skill_schema.php';
-            oaao_chat_ensure_micro_skill_schema($pdo);
+            $this->ensureMicroSkillSchema($pdo);
             $row = $pdo->query(
                 'SELECT COUNT(*) AS total,
                         SUM(CASE WHEN status = \'published\' THEN 1 ELSE 0 END) AS published,

@@ -355,11 +355,10 @@ trait VaultControllerSupportTrait
             return null;
         }
     
+        $this->api('auth')?->ensurePgCoreTables($db);
         $this->api('auth')?->ensurePgWorkspaceTables($pdo);
         require_once dirname(__DIR__, 3) . '/core/default/library/StorageSchemaEnsure.php';
         \Oaaoai\Core\StorageSchemaEnsure::ensure($pdo);
-        \oaao_auth_ensure_pg_vault_workspace_and_jobs($pdo);
-        \oaao_auth_ensure_pg_vault_speaker_profiles($pdo);
     
         $tid = $this->oaao_vault_bootstrap_tenant($pdo);
     

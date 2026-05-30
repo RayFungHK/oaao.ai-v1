@@ -15,6 +15,8 @@ return function (): void {
         return;
     }
 
+    $this->ensureConversationMaterialSchema($pdo);
+
     $uid = (int) ($user->user_id ?? 0);
     $cid = (int) ($_GET['conversation_id'] ?? 0);
     $mid = (int) ($_GET['message_id'] ?? 0);

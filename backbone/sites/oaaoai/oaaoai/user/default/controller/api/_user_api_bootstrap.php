@@ -41,10 +41,8 @@ function oaao_user_require_admin_pg(\Razy\Controller $controller): ?array
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-    oaao_auth_ensure_pg_core_tables($db);
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_user_invitation_schema.php';
-    oaao_auth_ensure_user_invitation_schema($pdo);
+    $auth->ensurePgCoreTables($db);
+    $auth->ensureUserInvitationSchema($pdo);
 
     $core = $controller->api('core');
     $tenantId = $core ? $core->bootstrapTenantContext($pdo) : 1;
@@ -98,10 +96,8 @@ function oaao_user_require_pg_public(\Razy\Controller $controller): ?array
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-    oaao_auth_ensure_pg_core_tables($db);
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_user_invitation_schema.php';
-    oaao_auth_ensure_user_invitation_schema($pdo);
+    $auth->ensurePgCoreTables($db);
+    $auth->ensureUserInvitationSchema($pdo);
 
     return ['auth' => $auth, 'db' => $db, 'pdo' => $pdo];
 }

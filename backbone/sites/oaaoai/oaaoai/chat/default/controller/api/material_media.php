@@ -56,8 +56,7 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 2) . '/controller/api/_ensure_conversation_material_schema.php';
-    oaao_chat_ensure_conversation_material_schema($pdo);
+    $this->ensureConversationMaterialSchema($pdo);
 
     $own = $splitDb->prepare()
         ->select('id')

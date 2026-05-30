@@ -51,10 +51,7 @@ return function (): void {
         return;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_pg_core_tables.php';
-    if ($db) {
-        oaao_auth_ensure_pg_core_tables($db);
-    }
+    $this->api('auth')->ensurePgCoreTables($db);
 
     $errorText = isset($input['error_text']) ? trim((string) $input['error_text']) : null;
     if ($errorText === '') {

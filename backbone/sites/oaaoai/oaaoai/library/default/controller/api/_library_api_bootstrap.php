@@ -54,8 +54,7 @@ function oaao_library_require_pg(\Razy\Controller $controller): ?array
         return null;
     }
 
-    require_once dirname(__DIR__, 4) . '/auth/default/controller/api/_ensure_library_schema.php';
-    oaao_auth_ensure_library_schema($pdo);
+    $auth->ensureLibrarySchema($pdo);
 
     $tenantId = (int) ($user->tenant_id ?? 0);
 
